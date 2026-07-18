@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { Book, DoorBrand, DoorRoles, DoorTheme, DoorTiers, Gear, Mail, People, Vault, Webhook } from "../icons";
 import { bumpRender } from "../diag";
-import type { ThemeMode } from "../App";
+import { signalUpdateToast, type ThemeMode } from "../App";
 
 interface Props {
   themeMode: ThemeMode;
@@ -16,10 +16,29 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   bumpRender("settings"); // DIAG-2
   const [skipBoot, setSkipBoot] = useState(false);
   const [activeSection, setActiveSection] = useState("General");
+  const [appVersion, setAppVersion] = useState("");
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     void window.api.settings.get("skip_fast_boot").then((v) => setSkipBoot(v === "1"));
+    void window.api.updater.version().then(setAppVersion).catch(() => {}); // never hardcoded
   }, []);
+
+  // Manual check — unlike the silent automatic cycle, the user asked, so every outcome toasts:
+  // checking → latest-version / available (pushed from main) / couldn't-check.
+  const checkForUpdates = async () => {
+    setChecking(true);
+    signalUpdateToast({ stage: "checking" });
+    try {
+      const r = await window.api.updater.check();
+      if (r.status === "none") signalUpdateToast({ stage: "none", version: r.version ?? appVersion });
+      else if (r.status === "error") signalUpdateToast({ stage: "error" });
+      // "available": the main-process updater:available push already drove the toast
+    } catch {
+      signalUpdateToast({ stage: "error" });
+    }
+    setChecking(false);
+  };
 
   const toggleSkipBoot = () => {
     const next = !skipBoot;
@@ -97,6 +116,18 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                   </div>
                   <p className="hint">
                     Bypass the JARVIS terminal sequence on startup and load directly into the dashboard.
+                  </p>
+                </div>
+                <div className="field" style={{ marginTop: 26 }}>
+                  <div className="setrow">
+                    <label>Updates</label>
+                    <button className="btn" onClick={() => void checkForUpdates()} disabled={checking}>
+                      {checking ? "Checking…" : "Check for updates"}
+                    </button>
+                  </div>
+                  <p className="hint">
+                    Current version: {appVersion || "unknown"}. Updates download only with your consent and install
+                    when the application closes.
                   </p>
                 </div>
                 <h2 className="mt">Coming surfaces</h2>

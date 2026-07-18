@@ -85,9 +85,18 @@ const MODULE_COMPONENTS: Record<string, ComponentType> = {
   "canon-distributor": CanonDistributorModule,
 };
 
-// Auto-update notice (§3.12) — non-blocking toast, never modal. Self-contained: subscribes to the
-// whitelisted updater pushes and drives the consent flow (Download → percent → Restart).
+// Auto-update notice (§3.12) — non-blocking toast, never modal. Subscribes to the whitelisted
+// updater pushes for the automatic flow (Download → percent → Restart), and to a window-level
+// CustomEvent so the Settings "Check for updates" button can drive the manual states
+// (checking / latest-version / failed) without prop-drilling through the shell.
+export type UpdateToastSignal = { stage: "checking" } | { stage: "none"; version: string } | { stage: "error" };
+export const UPDATE_TOAST_EVENT = "focal:update-toast";
+export function signalUpdateToast(detail: UpdateToastSignal): void {
+  window.dispatchEvent(new CustomEvent<UpdateToastSignal>(UPDATE_TOAST_EVENT, { detail }));
+}
+
 type UpdateToastState =
+  | UpdateToastSignal
   | { stage: "available"; version: string }
   | { stage: "downloading"; percent: number }
   | { stage: "ready" };
@@ -103,29 +112,45 @@ function UpdateToast() {
     };
     const onProgress = (p: UpdateProgressInfo) => setState({ stage: "downloading", percent: p.percent });
     const onDownloaded = () => setState({ stage: "ready" });
+    const onManual = (e: Event) => {
+      setDismissed(false); // the user asked — always answer, even if a prior toast was dismissed
+      setState((e as CustomEvent<UpdateToastSignal>).detail);
+    };
     window.api.on("updater:available", onAvailable);
     window.api.on("updater:progress", onProgress);
     window.api.on("updater:downloaded", onDownloaded);
+    window.addEventListener(UPDATE_TOAST_EVENT, onManual);
     return () => {
       window.api.off("updater:available", onAvailable);
       window.api.off("updater:progress", onProgress);
       window.api.off("updater:downloaded", onDownloaded);
+      window.removeEventListener(UPDATE_TOAST_EVENT, onManual);
     };
   }, []);
 
+  // "You're on the latest version" answers and leaves — ~4s, no interaction needed.
+  useEffect(() => {
+    if (state?.stage !== "none") return;
+    const t = setTimeout(() => setState(null), 4000);
+    return () => clearTimeout(t);
+  }, [state]);
+
   if (!state || dismissed) return null;
+  const startDownload = () => {
+    setState({ stage: "downloading", percent: 0 });
+    void window.api.updater.download().catch(() => {}); // errors stay silent (main logs them)
+  };
   return (
     <div className="updatetoast" role="status">
+      {state.stage === "checking" && <span>Checking for updates…</span>}
+      {state.stage === "none" && <span>You&apos;re on the latest version ({state.version})</span>}
+      {state.stage === "error" && <span>Couldn&apos;t check for updates. Check your connection.</span>}
       {state.stage === "available" && (
         <>
-          <span>Version {state.version} is available</span>
-          <button
-            className="btn"
-            onClick={() => {
-              setState({ stage: "downloading", percent: 0 });
-              void window.api.updater.download().catch(() => {}); // errors stay silent (main logs them)
-            }}
-          >
+          <span className="updatetoast-click" onClick={startDownload}>
+            Version {state.version} is available
+          </span>
+          <button className="btn" onClick={startDownload}>
             Download
           </button>
         </>

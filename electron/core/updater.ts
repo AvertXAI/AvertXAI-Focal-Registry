@@ -3,21 +3,75 @@
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
 // Project: AvertXAI Focal Registry — photography archive tooling
 // Description: Auto-updater — electron-updater, generic provider, prerelease channel (§3.12).
-//              Packaged builds only. autoDownload OFF: the user consents before any download
-//              (they may be on a slow or metered connection); install happens on quit. A failed
-//              check logs and stays silent — the customer never sees an updater error dialog.
+//              Automatic checks are fire-and-forget, armed only by boot:done, hard-capped at
+//              10 seconds, and silent on failure — offline is a normal condition, not an error.
+//              Manual checks (Settings button) always answer, including the failure case.
+//              autoDownload OFF: the user consents before any download; install happens on quit.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/updater.ts
 //------------------------------------------------------------
-import { app, BrowserWindow, ipcMain } from "electron";
-import { autoUpdater } from "electron-updater";
+import { app, BrowserWindow, ipcMain, net } from "electron";
+import { autoUpdater, type UpdateInfo } from "electron-updater";
 
-const FIRST_CHECK_DELAY_MS = 30_000; // ~30 seconds after launch
+const POST_BOOT_DELAY_MS = 30_000; // grace period after boot:done before the first automatic check
 const RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // then every 6 hours
+const CHECK_TIMEOUT_MS = 10_000; // hard cap on any check — on timeout: log, give up, next interval
+
+let scheduled = false;
+
+type CheckOutcome = { status: "available" | "none" | "error"; version?: string };
+
+// Manual check — the user asked, so every outcome gets an answer. Resolved from the updater's own
+// update-available / update-not-available / error events (no version math here), bounded by the
+// hard timeout. Never rejects; the renderer always gets a status it can toast.
+function manualCheck(): Promise<CheckOutcome> {
+  if (!app.isPackaged) return Promise.resolve({ status: "none", version: app.getVersion() }); // dev build IS current
+  if (!net.isOnline()) return Promise.resolve({ status: "error" }); // reachability guard — fail fast, no socket
+  return new Promise((resolve) => {
+    const done = (r: CheckOutcome): void => {
+      clearTimeout(timer);
+      autoUpdater.off("update-available", onAvailable);
+      autoUpdater.off("update-not-available", onNone);
+      autoUpdater.off("error", onError);
+      resolve(r);
+    };
+    const onAvailable = (info: UpdateInfo): void => done({ status: "available", version: info.version });
+    const onNone = (): void => done({ status: "none", version: app.getVersion() });
+    const onError = (): void => done({ status: "error" });
+    const timer = setTimeout(() => done({ status: "error" }), CHECK_TIMEOUT_MS);
+    autoUpdater.on("update-available", onAvailable);
+    autoUpdater.on("update-not-available", onNone);
+    autoUpdater.on("error", onError);
+    void autoUpdater.checkForUpdates().catch(() => {}); // failures arrive via the error event above
+  });
+}
+
+// Automatic check — fire-and-forget; nothing awaits it and no UI ever results from a failure.
+function autoCheck(): void {
+  if (!net.isOnline()) {
+    console.log("[updater] offline — skipping automatic check");
+    return;
+  }
+  void Promise.race([
+    autoUpdater.checkForUpdates(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("updater-timeout")), CHECK_TIMEOUT_MS)),
+  ]).catch((e: unknown) => {
+    // Network errors already produce the single "error" handler log line; the race owns only the timeout.
+    if (e instanceof Error && e.message === "updater-timeout") console.log("[updater] automatic check timed out");
+  });
+}
 
 export function initUpdater(win: BrowserWindow): void {
-  // electron-updater throws without a packaged app-update.yml; dev runs skip the whole feature.
-  if (!app.isPackaged) return;
+  // The IPC surface registers in every build so the Settings button always answers; dev gets
+  // canned results (manualCheck short-circuits) instead of "no handler" rejections.
+  ipcMain.handle("updater:version", () => app.getVersion());
+  ipcMain.handle("updater:check", () => manualCheck());
+  ipcMain.handle("updater:download", async () => {
+    await autoUpdater.downloadUpdate();
+  });
+  ipcMain.handle("updater:install", () => autoUpdater.quitAndInstall());
+
+  if (!app.isPackaged) return; // no app-update.yml in dev — event wiring and the auto cycle are packaged-only
 
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -34,17 +88,15 @@ export function initUpdater(win: BrowserWindow): void {
   );
   autoUpdater.on("download-progress", (p) => send("updater:progress", { percent: Math.round(p.percent) }));
   autoUpdater.on("update-downloaded", () => send("updater:downloaded", {}));
-  // Log only, send nothing — a failed check must never surface a dialog to the customer.
-  autoUpdater.on("error", (e) => console.error("[updater]", e));
+  // Single log line, no stack, nothing sent — the user must never learn the network was down from us.
+  autoUpdater.on("error", (e) => console.log("[updater]", e instanceof Error ? e.message : String(e)));
+}
 
-  ipcMain.handle("updater:download", async () => {
-    await autoUpdater.downloadUpdate();
-  });
-  ipcMain.handle("updater:install", () => autoUpdater.quitAndInstall());
-
-  const check = (): void => {
-    void autoUpdater.checkForUpdates().catch((e) => console.error("[updater] check failed:", e));
-  };
-  setTimeout(check, FIRST_CHECK_DELAY_MS);
-  setInterval(check, RECHECK_INTERVAL_MS);
+// Armed by the boot:done IPC in main.ts, so the automatic cycle can never race the boot sequence.
+// boot:done can re-fire (Safe-Mode retry re-enters boot) — only the first arrival arms the timers.
+export function notifyUpdaterBootDone(): void {
+  if (scheduled || !app.isPackaged) return;
+  scheduled = true;
+  setTimeout(autoCheck, POST_BOOT_DELAY_MS);
+  setInterval(autoCheck, RECHECK_INTERVAL_MS);
 }

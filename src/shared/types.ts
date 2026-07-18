@@ -166,6 +166,11 @@ export interface UpdateAvailableInfo {
 export interface UpdateProgressInfo {
   percent: number; // 0–100, rounded
 }
+/** Outcome of a manual "Check for updates" — never rejects; failure is a status, not an exception. */
+export interface UpdateCheckOutcome {
+  status: "available" | "none" | "error";
+  version?: string; // the available version, or the current one when status is "none"
+}
 
 // ---- Canon Distributor templates (canon_templates — DB-only, never writes a file) ----
 export interface CanonTemplate {
@@ -337,10 +342,13 @@ export interface Api {
     setFavorite: (id: number, on: boolean) => Promise<void>;
     importFromFolders: (paths: string[]) => Promise<AgentImportResult>;
   };
-  /** Auto-updater (§3.12) — user-consented download, install on quit. Packaged builds only. */
+  /** Auto-updater (§3.12) — user-consented download, install on quit. Auto cycle is packaged-only;
+   *  check/version answer in every build so the Settings button is never dead. */
   updater: {
     download: () => Promise<void>;
     install: () => Promise<void>;
+    check: () => Promise<UpdateCheckOutcome>;
+    version: () => Promise<string>;
   };
   /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the
    *  channel: dist:synced → SyncResult, updater:available → UpdateAvailableInfo,

@@ -123,6 +123,8 @@ const api: Api = {
   updater: {
     download: () => ipcRenderer.invoke("updater:download"),
     install: () => ipcRenderer.invoke("updater:install"),
+    check: () => ipcRenderer.invoke("updater:check"),
+    version: () => ipcRenderer.invoke("updater:version"),
   },
   on: (channel: PushChannel, cb: (payload: never) => void) => {
     const w = (_e: Electron.IpcRendererEvent, payload: unknown) => (cb as (p: unknown) => void)(payload);

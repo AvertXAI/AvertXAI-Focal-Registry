@@ -9,7 +9,7 @@ import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/cr
 import { ensureShredder, registerIpcHandlers } from "./core/ipc";
 import { syncAll } from "./core/services/canon-distributor";
 import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overlayFor, setBooting, setMainWindow, showMain } from "./core/windows";
-import { initUpdater } from "./core/updater";
+import { initUpdater, notifyUpdaterBootDone } from "./core/updater";
 import { initDiag } from "./diag";
 
 // ── REVERTIBLE GPU-BACKEND EXPERIMENT (resize-band probe) — REMOVE WHEN DONE ──
@@ -196,7 +196,10 @@ app.whenReady().then(async () => {
   if (org) bootThemeMode = readBootTheme();
   // Boot edges from the renderer (window.runbooks bridge — deliberately NOT in core/ipc.ts, which
   // carries un-gated work). Re-entrant: Safe-Mode Retry re-enters boot via boot:start.
-  ipcMain.on("boot:done", () => setBooting(false));
+  ipcMain.on("boot:done", () => {
+    setBooting(false);
+    notifyUpdaterBootDone(); // arms the automatic check cycle — first boot:done only, never during boot
+  });
   ipcMain.on("boot:start", () => setBooting(true));
   registerIpcHandlers();
   const win = createWindow();

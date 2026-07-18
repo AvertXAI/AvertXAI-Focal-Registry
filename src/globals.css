@@ -406,5 +406,6 @@ tbody tr:hover{background:var(--mc-nested)}
 .updatetoast{position:fixed;right:16px;bottom:16px;z-index:70;display:flex;align-items:center;gap:10px;
   padding:10px 14px;background:var(--mc-panels);color:var(--mc-text);border:1px solid var(--mc-border);
   border-radius:var(--mc-radius);box-shadow:0 8px 30px rgba(0,0,0,.35);font-size:13px}
+.updatetoast-click{cursor:pointer}
 .updatetoast-close{background:none;border:none;color:var(--mc-muted);cursor:pointer;font-size:15px;line-height:1;padding:2px 4px}
 .updatetoast-close:hover{color:var(--mc-text)}

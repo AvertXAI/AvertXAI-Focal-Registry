@@ -26,7 +26,7 @@ export default function FirstRunWizard({ onComplete }: { onComplete: () => void 
   return (
     <div className="frw">
       <form className="frw-card" onSubmit={submit}>
-        <h1>Welcome to RunBooks</h1>
+        <h1>Welcome to AvertXAI Focal Registry</h1>
         <p className="frw-sub">One step to set up your workspace — everything stays local.</p>
         <div className="field">
           <label htmlFor="frw-org">Organization Name</label>

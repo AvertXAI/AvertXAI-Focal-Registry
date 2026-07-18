@@ -9,6 +9,7 @@ import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/cr
 import { ensureShredder, registerIpcHandlers } from "./core/ipc";
 import { syncAll } from "./core/services/canon-distributor";
 import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overlayFor, setBooting, setMainWindow, showMain } from "./core/windows";
+import { initUpdater } from "./core/updater";
 import { initDiag } from "./diag";
 
 // ── REVERTIBLE GPU-BACKEND EXPERIMENT (resize-band probe) — REMOVE WHEN DONE ──
@@ -52,6 +53,11 @@ const TRAY_ICON = nativeImage.createFromDataURL(
 // Hide-to-tray lifecycle: the native ✕ hides the window (the app keeps running in the tray for the
 // Distributor watcher / Jarvis); only the tray "Quit" flips this so a real quit fires before-quit.
 let isQuitting = false;
+// Any real app.quit() — tray Exit or the updater's quitAndInstall — must win over hide-to-tray.
+// before-quit fires ahead of window close; ✕ never calls app.quit(), so hide-to-tray is unaffected.
+app.on("before-quit", () => {
+  isQuitting = true;
+});
 // Held so the OS doesn't garbage-collect the tray; process exit clears it (no destroy needed).
 let tray: Tray | null = null;
 
@@ -193,9 +199,11 @@ app.whenReady().then(async () => {
   ipcMain.on("boot:done", () => setBooting(false));
   ipcMain.on("boot:start", () => setBooting(true));
   registerIpcHandlers();
-  setMainWindow(createWindow());
+  const win = createWindow();
+  setMainWindow(win);
   applyThemeOverlay(bootThemeMode); // seed the funnel's theme; boot flag keeps the frame boot-dark
   createTray(); // hide-to-tray target; keeps the app alive in the background after ✕
+  initUpdater(win); // §3.12 — no-op in dev (packaged builds only)
   initDiag(); // DIAG-1: dev-gated runtime collector — no-op unless env DIAG=1
 
   app.on("activate", () => {

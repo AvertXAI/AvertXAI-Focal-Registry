@@ -156,7 +156,16 @@ export interface DistLogRow {
   created_at: string;
 }
 /** Main → renderer push channels the preload bridge whitelists. */
-export type PushChannel = "dist:synced";
+export type PushChannel = "dist:synced" | "updater:available" | "updater:progress" | "updater:downloaded";
+
+// ---- Auto-updater pushes (electron-updater, §3.12) ----
+export interface UpdateAvailableInfo {
+  version: string;
+  notes: string; // release notes when the feed provides them as a plain string, else ""
+}
+export interface UpdateProgressInfo {
+  percent: number; // 0–100, rounded
+}
 
 // ---- Canon Distributor templates (canon_templates — DB-only, never writes a file) ----
 export interface CanonTemplate {
@@ -328,9 +337,16 @@ export interface Api {
     setFavorite: (id: number, on: boolean) => Promise<void>;
     importFromFolders: (paths: string[]) => Promise<AgentImportResult>;
   };
-  /** Main → renderer push events — whitelisted channels only (dist:synced). */
-  on: (channel: PushChannel, cb: (payload: SyncResult) => void) => void;
-  off: (channel: PushChannel, cb: (payload: SyncResult) => void) => void;
+  /** Auto-updater (§3.12) — user-consented download, install on quit. Packaged builds only. */
+  updater: {
+    download: () => Promise<void>;
+    install: () => Promise<void>;
+  };
+  /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the
+   *  channel: dist:synced → SyncResult, updater:available → UpdateAvailableInfo,
+   *  updater:progress → UpdateProgressInfo, updater:downloaded → empty object. */
+  on: <T = SyncResult>(channel: PushChannel, cb: (payload: T) => void) => void;
+  off: <T = SyncResult>(channel: PushChannel, cb: (payload: T) => void) => void;
   /** DIAG-1 dev-gated diagnostics channel (meaningful only when env DIAG=1). */
   diag?: {
     enabled: () => Promise<boolean>;

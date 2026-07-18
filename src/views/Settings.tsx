@@ -52,7 +52,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
             <div className="setsec">Modules</div>
             <button className="navitem nb">
               <Book />
-              RunBooks
+              AvertXAI Focal Registry
             </button>
             <button className="navitem nb">
               <Vault />
@@ -76,7 +76,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                 <div className="field">
                   <label htmlFor="orgname">Workspace name</label>
                   <div className="fieldrow">
-                    <input className="input" id="orgname" defaultValue="RunBooks" />
+                    <input className="input" id="orgname" defaultValue="AvertXAI Focal Registry" />
                     <button className="btn nb">Rename</button>
                   </div>
                   <p className="hint">

@@ -6,7 +6,7 @@ import TopBar from "./components/TopBar";
 import Flyout from "./components/Flyout";
 import FirstRunWizard from "./components/FirstRunWizard";
 import BootTerminal from "./components/BootTerminal";
-import type { ModuleRow } from "./shared/types";
+import type { ModuleRow, UpdateAvailableInfo, UpdateProgressInfo } from "./shared/types";
 import Home from "./views/Home";
 import Settings from "./views/Settings";
 import { Spark } from "./icons";
@@ -84,6 +84,67 @@ const MODULE_COMPONENTS: Record<string, ComponentType> = {
   "scout-viewer": ScoutViewerModule,
   "canon-distributor": CanonDistributorModule,
 };
+
+// Auto-update notice (§3.12) — non-blocking toast, never modal. Self-contained: subscribes to the
+// whitelisted updater pushes and drives the consent flow (Download → percent → Restart).
+type UpdateToastState =
+  | { stage: "available"; version: string }
+  | { stage: "downloading"; percent: number }
+  | { stage: "ready" };
+
+function UpdateToast() {
+  const [state, setState] = useState<UpdateToastState | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    const onAvailable = (p: UpdateAvailableInfo) => {
+      setDismissed(false); // a new version un-dismisses — one nudge per update, still closable
+      setState({ stage: "available", version: p.version });
+    };
+    const onProgress = (p: UpdateProgressInfo) => setState({ stage: "downloading", percent: p.percent });
+    const onDownloaded = () => setState({ stage: "ready" });
+    window.api.on("updater:available", onAvailable);
+    window.api.on("updater:progress", onProgress);
+    window.api.on("updater:downloaded", onDownloaded);
+    return () => {
+      window.api.off("updater:available", onAvailable);
+      window.api.off("updater:progress", onProgress);
+      window.api.off("updater:downloaded", onDownloaded);
+    };
+  }, []);
+
+  if (!state || dismissed) return null;
+  return (
+    <div className="updatetoast" role="status">
+      {state.stage === "available" && (
+        <>
+          <span>Version {state.version} is available</span>
+          <button
+            className="btn"
+            onClick={() => {
+              setState({ stage: "downloading", percent: 0 });
+              void window.api.updater.download().catch(() => {}); // errors stay silent (main logs them)
+            }}
+          >
+            Download
+          </button>
+        </>
+      )}
+      {state.stage === "downloading" && <span>Downloading update… {state.percent}%</span>}
+      {state.stage === "ready" && (
+        <>
+          <span>Update downloaded — restart to install</span>
+          <button className="btn" onClick={() => void window.api.updater.install()}>
+            Restart
+          </button>
+        </>
+      )}
+      <button className="updatetoast-close" aria-label="Dismiss" onClick={() => setDismissed(true)}>
+        ×
+      </button>
+    </div>
+  );
+}
 
 export default function App() {
   bumpRender("shell"); // DIAG-2: count shell re-renders (should stay ~0 per tick)
@@ -294,6 +355,7 @@ export default function App() {
         </div>
       )}
       <Flyout view={view} modules={activeModules} onSelect={select} collapsed={railCollapsed} onToggle={toggleRail} onResize={onFlyoutResize} onResizeEnd={onFlyoutResizeEnd} sections={navSections} onToggleSection={toggleNavSection} />
+      <UpdateToast />
 
       {view === "home" && <Home onNavigate={select} modules={activeModules} />}
       {view === "settings" && <Settings themeMode={themeMode} onThemeChange={onThemeChange} />}

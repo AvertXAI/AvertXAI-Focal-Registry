@@ -8,7 +8,7 @@
 // File: electron/core/preload.ts
 //------------------------------------------------------------
 import { contextBridge, ipcRenderer } from "electron";
-import type { Api, CanonTemplatePayload, PushChannel, RunbookFilter, ScoutBounds, SyncResult } from "../../src/shared/types";
+import type { Api, CanonTemplatePayload, PushChannel, RunbookFilter, ScoutBounds } from "../../src/shared/types";
 
 // Engine → module subscriptions strip the IpcRendererEvent and return an unsubscribe, so the React
 // module can re-mount without stacking listeners (the standalone prototype never unmounted).
@@ -22,8 +22,8 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 // Distributor push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of the
 // page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
-const PUSH_CHANNELS: readonly string[] = ["dist:synced"];
-const wrapped = new Map<(payload: SyncResult) => void, (e: Electron.IpcRendererEvent, payload: SyncResult) => void>();
+const PUSH_CHANNELS: readonly string[] = ["dist:synced", "updater:available", "updater:progress", "updater:downloaded"];
+const wrapped = new Map<(payload: never) => void, (e: Electron.IpcRendererEvent, payload: unknown) => void>();
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);
   return channel;
@@ -120,12 +120,16 @@ const api: Api = {
     setFavorite: (id: number, on: boolean) => ipcRenderer.invoke("agents:setFavorite", id, on),
     importFromFolders: (paths: string[]) => ipcRenderer.invoke("agents:importFromFolders", paths),
   },
-  on: (channel: PushChannel, cb: (payload: SyncResult) => void) => {
-    const w = (_e: Electron.IpcRendererEvent, payload: SyncResult) => cb(payload);
+  updater: {
+    download: () => ipcRenderer.invoke("updater:download"),
+    install: () => ipcRenderer.invoke("updater:install"),
+  },
+  on: (channel: PushChannel, cb: (payload: never) => void) => {
+    const w = (_e: Electron.IpcRendererEvent, payload: unknown) => (cb as (p: unknown) => void)(payload);
     wrapped.set(cb, w);
     ipcRenderer.on(safeChannel(channel), w);
   },
-  off: (channel: PushChannel, cb: (payload: SyncResult) => void) => {
+  off: (channel: PushChannel, cb: (payload: never) => void) => {
     const w = wrapped.get(cb);
     if (w) {
       ipcRenderer.removeListener(safeChannel(channel), w);

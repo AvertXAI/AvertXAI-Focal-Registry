@@ -51,7 +51,7 @@ export default function TopBar({ leaf, orgName, onOpenDataViewer, themeMode, onT
           <span className="crumb-prefix">
             <span>{orgName}</span>
             <span className="sep">-</span>
-            <span>RunBooks</span>
+            <span>Focal Registry</span>
             <span className="sep">/</span>
           </span>
           <span className="leaf">{leaf}</span>

@@ -16,7 +16,6 @@ import { getActiveOrg } from "./services/db/registry";
 import * as dataviewer from "./services/dataviewer";
 import * as firstrun from "./services/firstrun";
 import * as modules from "./services/modules";
-import * as runbooks from "./services/runbooks";
 import * as shredderApi from "./services/runbook-shredder/api";
 import { ingestAll, startShredder, type ShredderHandle } from "./services/runbook-shredder/shredder";
 import * as scout from "./services/scout-viewer";
@@ -112,13 +111,7 @@ export function registerIpcHandlers(): void {
     applyThemeOverlay(typeof mode === "string" ? mode : null)
   );
 
-  // runbooks module — service validates the raw unknown args.
-  ipcMain.handle("runbooks:list", () => runbooks.listRunbooks());
-  ipcMain.handle("runbooks:create", (_e, title: unknown, description: unknown) =>
-    runbooks.createRunbook(title, description)
-  );
-
-  // runbook-shredder module (shredder:* — runbooks:* above belongs to a different service).
+  // runbook-shredder module (shredder:*).
   // Read-only queries; the service whitelists filter keys and escapes the FTS input, so the raw
   // renderer args can't reach SQL/FTS syntax.
   ipcMain.handle("shredder:list", (_e, filter: unknown) =>

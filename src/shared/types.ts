@@ -48,25 +48,6 @@ export interface ModuleRow {
   updated_at: string | null;
 }
 
-// ---- Runbooks module (standard columns included) ----
-export interface Runbook {
-  id: number;
-  uuid: string;
-  title: string;
-  description: string | null;
-  created_at: string;
-  updated_at: string | null;
-}
-export interface RunbookStep {
-  id: number;
-  uuid: string;
-  runbook_id: number;
-  step_order: number;
-  prompt_template: string | null;
-  created_at: string;
-  updated_at: string | null;
-}
-
 // ---- Runbook Shredder module (renderer-safe copies of the service shapes at
 // electron/core/services/runbook-shredder/api.ts — the renderer imports from HERE, never from services/) ----
 export interface RunbookRow {
@@ -201,11 +182,6 @@ export interface Api {
       update: (id: number, name: string, url: string) => Promise<ScoutTargetRow>;
       remove: (id: number) => Promise<void>;
     };
-  };
-  /** Runbooks module — list + create. */
-  runbooks: {
-    list: () => Promise<Runbook[]>;
-    create: (title: string, description?: string) => Promise<Runbook>;
   };
   /** Runbook Shredder module — read-only queries + watch-folder plumbing. */
   shredder: {

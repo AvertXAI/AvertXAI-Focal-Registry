@@ -73,10 +73,6 @@ const api: Api = {
       remove: (id: number) => ipcRenderer.invoke("scout:targets:delete", id),
     },
   },
-  runbooks: {
-    list: () => ipcRenderer.invoke("runbooks:list"),
-    create: (title: string, description?: string) => ipcRenderer.invoke("runbooks:create", title, description),
-  },
   shredder: {
     list: (filter?: RunbookFilter) => ipcRenderer.invoke("shredder:list", filter),
     get: (id: string) => ipcRenderer.invoke("shredder:get", id),

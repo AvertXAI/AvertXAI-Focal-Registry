@@ -16,7 +16,6 @@ const RENDERER_KEYS = new Set([
   "flyout_width", // shell sidebar drag-resize width (px, clamped renderer-side)
   "last_active_module", // boot-to-last-screen routing
   "nav_section_state", // sidebar grouped-section expand/collapse (JSON map) — never localStorage
-  "watcher_enabled", // Canon Distributor folder-watcher on/off — persisted across launches
   "theme_mode", // 3-state theme toggle (system/light/dark) — persisted, never localStorage
   "org_name", // active org display name — read-only in the renderer (TopBar brand); written by first-run/setup
   // Runbook Shredder namespaced settings — the module persists these through this sanctioned path,

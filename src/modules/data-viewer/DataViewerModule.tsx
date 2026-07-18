@@ -19,8 +19,6 @@ const PAGE_SIZE = 50;
 // missing from the actual schema are skipped (drop rule) — also immune to the fresh-vs-device
 // ordinal drift from ALTER-appended columns.
 const PIN_ORDER: Record<string, string[]> = {
-  canon_agents: ["id", "name", "category", "created_at"],
-  canon_templates: ["id", "title", "created_at"],
   scout_targets: ["id", "name", "created_at"],
 };
 // 36-char uuid-shaped columns get a tighter width cap (dv-cap-uuid).

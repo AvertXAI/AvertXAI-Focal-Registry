@@ -21,9 +21,6 @@ import * as shredderApi from "./services/runbook-shredder/api";
 import { ingestAll, startShredder, type ShredderHandle } from "./services/runbook-shredder/shredder";
 import * as scout from "./services/scout-viewer";
 import * as scoutTargets from "./services/scout-viewer/targets";
-import * as distributor from "./services/canon-distributor";
-import * as templates from "./services/canon-distributor/templates";
-import * as agents from "./services/canon-distributor/agents";
 import * as settings from "./services/settings";
 import { applyThemeOverlay, getMainWindow, setOverlayDim } from "./windows";
 
@@ -194,59 +191,4 @@ export function registerIpcHandlers(): void {
     if (fromShell(e)) scoutTargets.deleteTarget(id);
   });
 
-  // Canon Distributor engine — the service validates every raw path/label (trust boundary) and
-  // writes ONLY inside {target}/CANON/. Modeled on the runbook-shredder IPC surface.
-  ipcMain.handle("dist:getSource", () => distributor.getSource());
-  ipcMain.handle("dist:setSource", (_e, p: unknown) => distributor.setSource(p));
-  ipcMain.handle("dist:listTargets", () => distributor.listTargets());
-  ipcMain.handle("dist:addTarget", (_e, label: unknown, p: unknown) => distributor.addTarget(label, p));
-  ipcMain.handle("dist:setTargetEnabled", (_e, uuid: unknown, on: unknown) =>
-    distributor.setTargetEnabled(uuid, on === true)
-  );
-  ipcMain.handle("dist:removeTarget", (_e, uuid: unknown) => distributor.removeTarget(uuid));
-  ipcMain.handle("dist:setManifest", (_e, uuid: unknown, templateId: unknown, agentIds: unknown) =>
-    distributor.setTargetManifest(uuid, templateId, agentIds)
-  );
-  ipcMain.handle("dist:syncNow", () => distributor.syncAll());
-  ipcMain.handle("dist:listLog", (_e, limit: unknown, before: unknown) => distributor.listLog(limit, before));
-  ipcMain.handle("dist:countLog", () => distributor.countLog());
-  ipcMain.handle("dist:nukeLog", () => distributor.nukeLog());
-  ipcMain.handle("dist:history", () => distributor.listHistoryRows());
-  ipcMain.handle("dist:nukeHistory", (_e, project: unknown) => distributor.nukeHistoryFor(project));
-  ipcMain.handle("dist:pickFolder", async () => {
-    const win = getMainWindow();
-    const opts = { properties: ["openDirectory" as const] };
-    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
-    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
-  });
-  // Canon Distributor templates — DB-only CRUD (mirrors dist:*); the service validates raw args.
-  ipcMain.handle("templates:list", () => templates.listTemplates());
-  ipcMain.handle("templates:get", (_e, id: unknown) => templates.getTemplate(id));
-  ipcMain.handle("templates:create", (_e, payload: unknown) => templates.createTemplate(payload));
-  ipcMain.handle("templates:update", (_e, id: unknown, payload: unknown) => templates.updateTemplate(id, payload));
-  ipcMain.handle("templates:delete", (_e, id: unknown) => templates.deleteTemplate(id));
-  ipcMain.handle("templates:writeToDisk", (_e, id: unknown, overwrite: unknown) =>
-    templates.writeTemplateToDisk(id, overwrite)
-  );
-
-  // Canon Distributor agents — DB import/browse of local agent repos (read-only on the repos).
-  ipcMain.handle("agents:list", () => agents.listAgents());
-  ipcMain.handle("agents:get", (_e, id: unknown) => agents.getAgent(id));
-  ipcMain.handle("agents:delete", (_e, id: unknown) => agents.deleteAgent(id));
-  ipcMain.handle("agents:update", (_e, id: unknown, body: unknown) => agents.updateAgent(id, body));
-  ipcMain.handle("agents:setFavorite", (_e, id: unknown, on: unknown) => agents.setFavorite(id, on));
-  ipcMain.handle("agents:importFromFolders", (_e, paths: unknown) => agents.importFromFolders(paths));
-
-  ipcMain.handle("dist:getWatcher", () => distributor.isWatcherRunning());
-  ipcMain.handle("dist:setWatcher", (_e, on: unknown) => {
-    const enable = on === true;
-    // Friendly guard: enabling with no source stays OFF (returns false) instead of throwing a raw
-    // error banner — the UI shows a "set a source first" hint. Engine watcher logic is untouched.
-    if (enable && !distributor.getSource()) return false;
-    if (enable) distributor.startWatcher();
-    else distributor.stopWatcher();
-    const running = distributor.isWatcherRunning();
-    settings.setSetting("watcher_enabled", running ? "1" : "0"); // persists across launches
-    return running;
-  });
 }

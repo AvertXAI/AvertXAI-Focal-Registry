@@ -7,7 +7,6 @@ import { getDb, initDb, openDb } from "./core/services/db";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/crypto";
 import { ensureShredder, registerIpcHandlers } from "./core/ipc";
-import { syncAll } from "./core/services/canon-distributor";
 import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overlayFor, setBooting, setMainWindow, showMain } from "./core/windows";
 import { initUpdater, notifyUpdaterBootDone } from "./core/updater";
 import { initDiag } from "./diag";
@@ -142,19 +141,6 @@ function createTray(): void {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Open", click: () => showMain() },
-      {
-        // Background push to every enabled target — the whole point of running in the tray. syncAll
-        // is graceful with no source (logs an error row, never throws); guarded for a pre-org boot.
-        label: "Sync Now",
-        click: () => {
-          try {
-            syncAll();
-          } catch (e) {
-            console.error("[tray] Sync Now failed:", e);
-          }
-        },
-      },
-      { type: "separator" },
       {
         label: "Exit",
         click: () => {

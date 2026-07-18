@@ -128,35 +128,9 @@ export interface ScoutDomCard {
   counts: { links: number; forms: number; tables: number; iframes: number };
 }
 
-// ---- Canon Distributor engine (dist_source / dist_targets / dist_log) ----
-export interface DistTarget {
-  uuid: string;
-  label: string;
-  path: string;
-  is_enabled: number;
-  template_id: number | null; // Guardrails manifest: chosen canon_templates row
-  selected_agent_ids: string | null; // Guardrails manifest: JSON int array of canon_agents ids
-}
-export interface TargetSyncStatus {
-  uuid: string;
-  status: "synced" | "error";
-  detail?: string;
-}
-export interface SyncResult {
-  ok: number; // targets synced
-  errors: number; // targets (or the source) that failed — see dist_log ERROR rows
-  at: string; // ISO timestamp
-  targets: TargetSyncStatus[]; // per-target outcome for this run
-}
-export interface DistLogRow {
-  id: number; // pagination cursor (pass as `before` for the next page)
-  uuid: string;
-  action: string; // COPY | REPLACE | ERROR | NUKE
-  detail: string;
-  created_at: string;
-}
-/** Main → renderer push channels the preload bridge whitelists. */
-export type PushChannel = "dist:synced" | "updater:available" | "updater:progress" | "updater:downloaded";
+/** Main → renderer push channels the preload bridge whitelists. Currently the updater's three;
+    a module needing main-to-renderer progress (e.g. Scan) adds its channel here + in preload. */
+export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded";
 
 // ---- Auto-updater pushes (electron-updater, §3.12) ----
 export interface UpdateAvailableInfo {
@@ -170,60 +144,6 @@ export interface UpdateProgressInfo {
 export interface UpdateCheckOutcome {
   status: "available" | "none" | "error";
   version?: string; // the available version, or the current one when status is "none"
-}
-
-// ---- Canon Distributor templates (canon_templates — DB-only, never writes a file) ----
-export interface CanonTemplate {
-  id: number;
-  uuid: string;
-  title: string;
-  writes_as: string; // fixed "CLAUDE.md" (readonly in the UI); metadata for a later bite
-  destination: string | null;
-  body_md: string;
-  version: string; // "v0.1.0"; "Save & Bump" increments the patch renderer-side
-  sections_json: string | null; // ordered TemplateSection[] (structural form); body_md = assembled
-  created_at: string;
-  updated_at: string | null;
-}
-/** Editable fields sent to create/update (writes_as is immutable, set service-side). */
-export interface CanonTemplatePayload {
-  title: string;
-  destination: string;
-  body_md: string;
-  version: string;
-  sections_json: string;
-}
-/** One ordered section of the CLAUDE.md builder (persisted as JSON in sections_json). */
-export interface TemplateSection {
-  heading: string;
-  level: 1 | 2 | 3; // 1 = the intro title line; toggleable 2/3 for the rest
-  body: string;
-  fixed: boolean; // standard sections keep their heading; custom ones are editable/removable
-  guidance: string; // placeholder text shown when body is empty
-}
-/** Guarded disk-write outcome — "exists" means confirm-then-retry with overwrite=true. */
-export interface TemplateWriteResult {
-  status: "written" | "exists" | "no-destination";
-  path?: string;
-}
-
-// ---- Canon Distributor agents (canon_agents — imported agent .md files, DB-only) ----
-export interface CanonAgent {
-  id: number;
-  uuid: string;
-  name: string;
-  category: string | null;
-  body_md?: string; // present on get(); omitted from list() (300+ full docs would bloat the wire)
-  source: string | null; // repo root folder name
-  license: string | null;
-  is_favorite: number; // 0/1 — favorited agents also appear in the ★ favorites group
-  created_at: string;
-  updated_at: string | null;
-}
-export interface AgentImportResult {
-  imported: number;
-  updated: number;
-  categories: number;
 }
 
 /** The IPC surface the preload bridge exposes to the renderer as window.api. */
@@ -298,50 +218,6 @@ export interface Api {
     /** Re-ingest the current watch folder now → live ok/error counts. */
     rescan: () => Promise<{ ingested: number; quarantined: number }>;
   };
-  /** Canon Distributor engine — source/target CRUD + sync + watcher (service validates paths/labels). */
-  dist: {
-    getSource: () => Promise<{ path: string } | null>;
-    setSource: (path: string) => Promise<void>;
-    listTargets: () => Promise<DistTarget[]>;
-    addTarget: (label: string, path: string) => Promise<void>;
-    setTargetEnabled: (uuid: string, on: boolean) => Promise<void>;
-    removeTarget: (uuid: string) => Promise<void>;
-    /** Guardrails manifest — selection only; the disk stamp is a later bite. */
-    setManifest: (uuid: string, templateId: number | null, agentIds: number[]) => Promise<void>;
-    syncNow: () => Promise<SyncResult>;
-    getWatcher: () => Promise<boolean>;
-    setWatcher: (on: boolean) => Promise<boolean>;
-    listLog: (limit?: number, before?: number) => Promise<DistLogRow[]>;
-    countLog: () => Promise<number>;
-    nukeLog: () => Promise<void>;
-    /** History view: all log rows newest-first (renderer groups into per-project blocks). */
-    history: () => Promise<DistLogRow[]>;
-    /** Per-project log purge (rows only, never files) — sanctioned nuke, recorded after. */
-    nukeHistory: (project: string) => Promise<void>;
-    /** Native directory picker — resolves the chosen absolute path, or null if cancelled. */
-    pickFolder: () => Promise<string | null>;
-  };
-  /** Canon Distributor templates — DB-only CRUD (service validates; writes_as immutable). */
-  templates: {
-    list: () => Promise<CanonTemplate[]>;
-    get: (id: number) => Promise<CanonTemplate | null>;
-    create: (payload: CanonTemplatePayload) => Promise<CanonTemplate>;
-    update: (id: number, payload: CanonTemplatePayload) => Promise<CanonTemplate>;
-    remove: (id: number) => Promise<void>;
-    /** Guarded write of the assembled body_md to {destination}/{writes_as} — never overwrites
-        without overwrite=true (UI confirms on "exists"). */
-    writeToDisk: (id: number, overwrite?: boolean) => Promise<TemplateWriteResult>;
-  };
-  /** Canon Distributor agents — import local agent repos into the DB + browse (repos read-only). */
-  agents: {
-    list: () => Promise<CanonAgent[]>;
-    get: (id: number) => Promise<CanonAgent | null>;
-    remove: (id: number) => Promise<void>;
-    /** Edit-in-place of body_md only (identity fields stay tied to the imported file). */
-    update: (id: number, body: string) => Promise<void>;
-    setFavorite: (id: number, on: boolean) => Promise<void>;
-    importFromFolders: (paths: string[]) => Promise<AgentImportResult>;
-  };
   /** Auto-updater (§3.12) — user-consented download, install on quit. Auto cycle is packaged-only;
    *  check/version answer in every build so the Settings button is never dead. */
   updater: {
@@ -351,10 +227,10 @@ export interface Api {
     version: () => Promise<string>;
   };
   /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the
-   *  channel: dist:synced → SyncResult, updater:available → UpdateAvailableInfo,
-   *  updater:progress → UpdateProgressInfo, updater:downloaded → empty object. */
-  on: <T = SyncResult>(channel: PushChannel, cb: (payload: T) => void) => void;
-  off: <T = SyncResult>(channel: PushChannel, cb: (payload: T) => void) => void;
+   *  channel: updater:available → UpdateAvailableInfo, updater:progress → UpdateProgressInfo,
+   *  updater:downloaded → empty object. */
+  on: <T>(channel: PushChannel, cb: (payload: T) => void) => void;
+  off: <T>(channel: PushChannel, cb: (payload: T) => void) => void;
   /** DIAG-1 dev-gated diagnostics channel (meaningful only when env DIAG=1). */
   diag?: {
     enabled: () => Promise<boolean>;

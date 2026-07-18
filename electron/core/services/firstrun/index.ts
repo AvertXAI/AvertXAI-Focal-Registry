@@ -50,11 +50,6 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
     mod.run(generateUUIDv7(), orgId, "Secure Vault", "vault", "secrets", 2, 1);
     mod.run(generateUUIDv7(), orgId, "Runbook Shredder", "runbook-shredder", "runbook", 3, 0);
     mod.run(generateUUIDv7(), orgId, "Scout Viewer", "scout-viewer", "browser", 4, 0);
-    // Canon Distributor — nav_group set explicitly ("System"); the shared insert above omits the
-    // column, so the other rows default to "Applications" via the initDb backfill.
-    db.prepare(
-      "INSERT INTO modules (uuid, tenant_id, name, slug, type, display_order, is_locked, is_enabled, nav_group) VALUES (?, ?, 'Distributor', 'canon-distributor', 'engine', 5, 0, 1, 'System')"
-    ).run(generateUUIDv7(), orgId);
   })();
 
   addOrg(orgId, "runbooks", name);

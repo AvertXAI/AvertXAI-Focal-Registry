@@ -144,24 +144,10 @@ function moduleIcon(slug: string) {
       return <SearchIcon />;
     case "vault":
       return <LockIcon />;
-    case "canon-distributor":
-      return <DistributeIcon />;
     case "runbook-shredder":
     default:
       return <DocIcon />;
   }
-}
-
-// canon-distributor — hub-and-spokes "distribute" outline (source → many targets)
-function DistributeIcon() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="4" cy="8" r="2" />
-      <circle cx="12.5" cy="3.5" r="1.6" />
-      <circle cx="12.5" cy="12.5" r="1.6" />
-      <path d="M5.8 7 11 4.2M5.8 9l5.2 2.8" />
-    </svg>
-  );
 }
 
 // runbook-shredder — document outline

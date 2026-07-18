@@ -102,56 +102,6 @@ export function initDb(dbPath: string): void {
     ins.run(generateUUIDv7(), "incident.io · Timeline", "https://app.incident.io/timeline", generateUUIDv7(), 4);
     db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('scout_targets_seeded', '1')").run();
   }
-  // Additive migration: Canon Distributor engine — source of truth, sync targets, append-only log.
-  // createTable is CREATE TABLE IF NOT EXISTS (std columns injected), so this is safe to re-run and
-  // drops/recreates nothing. dist_log is append-only by engine contract (only nukeLog deletes it).
-  createTable(db, "dist_source", ["tenant_id TEXT NOT NULL", "path TEXT NOT NULL"]);
-  createTable(db, "dist_targets", [
-    "tenant_id TEXT NOT NULL",
-    "label TEXT NOT NULL",
-    "path TEXT NOT NULL",
-    "is_enabled INTEGER DEFAULT 1",
-    "template_id INTEGER", // Guardrails manifest: chosen canon_templates row (nullable)
-    "selected_agent_ids TEXT", // Guardrails manifest: JSON array of canon_agents ids
-  ]);
-  // Guarded column adds for DBs whose dist_targets predates the Guardrails manifest (additive).
-  {
-    const cols = (db.pragma("table_info(dist_targets)") as { name: string }[]).map((c) => c.name);
-    if (!cols.includes("template_id")) db.exec("ALTER TABLE dist_targets ADD COLUMN template_id INTEGER;");
-    if (!cols.includes("selected_agent_ids")) db.exec("ALTER TABLE dist_targets ADD COLUMN selected_agent_ids TEXT;");
-  }
-  createTable(db, "dist_log", ["tenant_id TEXT NOT NULL", "action TEXT NOT NULL", "detail TEXT"]);
-  // Additive migration: Canon Distributor templates (DB-only — this table never writes a file to
-  // disk; the "writes as CLAUDE.md" is metadata for a later bite). createTable = IF NOT EXISTS.
-  createTable(db, "canon_templates", [
-    "tenant_id TEXT NOT NULL",
-    "title TEXT NOT NULL",
-    "writes_as TEXT NOT NULL DEFAULT 'CLAUDE.md'",
-    "destination TEXT",
-    "body_md TEXT NOT NULL DEFAULT ''",
-    "version TEXT NOT NULL DEFAULT 'v0.1.0'",
-    "sections_json TEXT",
-  ]);
-  // Guarded column add for DBs whose canon_templates predates the sectioned builder (additive).
-  if (!(db.pragma("table_info(canon_templates)") as { name: string }[]).some((c) => c.name === "sections_json")) {
-    db.exec("ALTER TABLE canon_templates ADD COLUMN sections_json TEXT;");
-  }
-  // Additive migration: Canon Distributor agents — imported agent .md files (DB-only; never written
-  // back out to a repo here). The unique index makes re-import idempotent (UPSERT, no duplicates).
-  createTable(db, "canon_agents", [
-    "tenant_id TEXT NOT NULL",
-    "name TEXT NOT NULL",
-    "category TEXT",
-    "body_md TEXT",
-    "source TEXT",
-    "license TEXT",
-    "is_favorite INTEGER DEFAULT 0",
-  ]);
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_canon_agents_key ON canon_agents (tenant_id, source, category, name);");
-  // Guarded column add for DBs whose canon_agents predates favorites (additive).
-  if (!(db.pragma("table_info(canon_agents)") as { name: string }[]).some((c) => c.name === "is_favorite")) {
-    db.exec("ALTER TABLE canon_agents ADD COLUMN is_favorite INTEGER DEFAULT 0;");
-  }
   // Additive migrations: orgs minted before a module existed get its registry row here (this is
   // what makes the module appear in the sidebar + boot loader — both render from these rows).
   // Fresh DBs skip (no tenant known yet at initDb time) — the First-Run wizard seeds all rows.
@@ -170,16 +120,9 @@ export function initDb(dbPath: string): void {
   };
   seedModule("Runbook Shredder", "runbook-shredder", "runbook", 3);
   seedModule("Scout Viewer", "scout-viewer", "browser", 4);
-  // Canon Distributor — bespoke seed (not seedModule) so nav_group is "System"; guarded by slug so
-  // existing orgs get the row once on next boot. Mirrors the first-run seed.
-  {
-    const tenant = tenantId();
-    if (tenant && !db.prepare("SELECT 1 FROM modules WHERE slug = 'canon-distributor'").get()) {
-      db.prepare(
-        "INSERT INTO modules (uuid, tenant_id, name, slug, type, display_order, is_locked, is_enabled, nav_group) VALUES (?, ?, 'Distributor', 'canon-distributor', 'engine', 5, 0, 1, 'System')"
-      ).run(generateUUIDv7(), tenant);
-    }
-  }
+  // Row cleanup for gutted modules — idempotent, data-only (no schema change). Existing dev DBs
+  // seeded these rows; without this they'd keep rendering in the nav after the module code is gone.
+  db.exec("DELETE FROM modules WHERE slug IN ('getscriptclips', 'canon-distributor');");
 }
 
 export function getDb(): Database.Database {

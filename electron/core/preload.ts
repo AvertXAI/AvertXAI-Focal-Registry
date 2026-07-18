@@ -8,7 +8,7 @@
 // File: electron/core/preload.ts
 //------------------------------------------------------------
 import { contextBridge, ipcRenderer } from "electron";
-import type { Api, CanonTemplatePayload, PushChannel, RunbookFilter, ScoutBounds } from "../../src/shared/types";
+import type { Api, PushChannel, RunbookFilter, ScoutBounds } from "../../src/shared/types";
 
 // Engine → module subscriptions strip the IpcRendererEvent and return an unsubscribe, so the React
 // module can re-mount without stacking listeners (the standalone prototype never unmounted).
@@ -20,9 +20,9 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   };
 }
 
-// Distributor push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of the
-// page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
-const PUSH_CHANNELS: readonly string[] = ["dist:synced", "updater:available", "updater:progress", "updater:downloaded"];
+// Main → renderer push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of
+// the page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
+const PUSH_CHANNELS: readonly string[] = ["updater:available", "updater:progress", "updater:downloaded"];
 const wrapped = new Map<(payload: never) => void, (e: Electron.IpcRendererEvent, payload: unknown) => void>();
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);
@@ -84,41 +84,6 @@ const api: Api = {
     listQuarantined: () => ipcRenderer.invoke("shredder:listQuarantined"),
     pickWatchFolder: () => ipcRenderer.invoke("shredder:pickWatchFolder"),
     rescan: () => ipcRenderer.invoke("shredder:rescan"),
-  },
-  dist: {
-    getSource: () => ipcRenderer.invoke("dist:getSource"),
-    setSource: (path: string) => ipcRenderer.invoke("dist:setSource", path),
-    listTargets: () => ipcRenderer.invoke("dist:listTargets"),
-    addTarget: (label: string, path: string) => ipcRenderer.invoke("dist:addTarget", label, path),
-    setTargetEnabled: (uuid: string, on: boolean) => ipcRenderer.invoke("dist:setTargetEnabled", uuid, on),
-    removeTarget: (uuid: string) => ipcRenderer.invoke("dist:removeTarget", uuid),
-    setManifest: (uuid: string, templateId: number | null, agentIds: number[]) =>
-      ipcRenderer.invoke("dist:setManifest", uuid, templateId, agentIds),
-    syncNow: () => ipcRenderer.invoke("dist:syncNow"),
-    getWatcher: () => ipcRenderer.invoke("dist:getWatcher"),
-    setWatcher: (on: boolean) => ipcRenderer.invoke("dist:setWatcher", on),
-    listLog: (limit?: number, before?: number) => ipcRenderer.invoke("dist:listLog", limit, before),
-    countLog: () => ipcRenderer.invoke("dist:countLog"),
-    nukeLog: () => ipcRenderer.invoke("dist:nukeLog"),
-    history: () => ipcRenderer.invoke("dist:history"),
-    nukeHistory: (project: string) => ipcRenderer.invoke("dist:nukeHistory", project),
-    pickFolder: () => ipcRenderer.invoke("dist:pickFolder"),
-  },
-  templates: {
-    list: () => ipcRenderer.invoke("templates:list"),
-    get: (id: number) => ipcRenderer.invoke("templates:get", id),
-    create: (payload: CanonTemplatePayload) => ipcRenderer.invoke("templates:create", payload),
-    update: (id: number, payload: CanonTemplatePayload) => ipcRenderer.invoke("templates:update", id, payload),
-    remove: (id: number) => ipcRenderer.invoke("templates:delete", id),
-    writeToDisk: (id: number, overwrite?: boolean) => ipcRenderer.invoke("templates:writeToDisk", id, overwrite === true),
-  },
-  agents: {
-    list: () => ipcRenderer.invoke("agents:list"),
-    get: (id: number) => ipcRenderer.invoke("agents:get", id),
-    remove: (id: number) => ipcRenderer.invoke("agents:delete", id),
-    update: (id: number, body: string) => ipcRenderer.invoke("agents:update", id, body),
-    setFavorite: (id: number, on: boolean) => ipcRenderer.invoke("agents:setFavorite", id, on),
-    importFromFolders: (paths: string[]) => ipcRenderer.invoke("agents:importFromFolders", paths),
   },
   updater: {
     download: () => ipcRenderer.invoke("updater:download"),

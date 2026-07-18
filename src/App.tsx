@@ -14,7 +14,6 @@ import DataViewerModule from "./modules/data-viewer/DataViewerModule";
 import VaultModule from "./modules/vault/VaultModule";
 import RunbookShredderModule from "./modules/runbook-shredder/RunbookShredderModule";
 import ScoutViewerModule from "./modules/scout-viewer/ScoutViewerModule";
-import CanonDistributorModule from "./modules/canon-distributor/CanonDistributorModule";
 import { defaultSettings, type ShredderSettings } from "./modules/runbook-shredder/config.manifest";
 import { startDiagReporter, bumpRender } from "./diag";
 
@@ -80,7 +79,6 @@ const MODULE_COMPONENTS: Record<string, ComponentType> = {
   vault: VaultModule,
   "runbook-shredder": RunbookShredderMount,
   "scout-viewer": ScoutViewerModule,
-  "canon-distributor": CanonDistributorModule,
 };
 
 // Auto-update notice (§3.12) — non-blocking toast, never modal. Subscribes to the whitelisted

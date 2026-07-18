@@ -23,7 +23,6 @@
   /* Scout Viewer module tokens — spelled-out roles, ONE source of truth here (RULES token law). */
   --scout-danger:#e0565c; /* destructive row actions (remove target) + inline CRUD errors */
   --scout-bookmark-saved:#d4a843; /* filled quick-save star when the current page is a target */
-  /* Canon Distributor module tokens — bespoke status colors the shell lacks; one source of truth. */
   --mc-underline:var(--mc-accent-primary); --mc-green:#16a34a; --mc-radius:6px;
   --mc-scrollbar-thumb:#2c3a58; /* hybrid default; dark/light override per-theme */
   --mc-font:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
@@ -54,11 +53,10 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 svg{display:block;flex:none}
 :focus-visible{outline:2px solid var(--mc-accent-primary);outline-offset:2px;border-radius:4px}
 
-/* ---------- orange = not-built-yet (RULES-5) ---------- */
-.nb{position:relative;transition:box-shadow .12s ease}
-.nb:hover{box-shadow:0 0 0 1px var(--mc-orange),0 0 12px rgba(255,145,0,.45)}
-.nb.nb-flash{box-shadow:0 0 0 2px var(--mc-orange),0 0 18px rgba(255,145,0,.8)!important}
-@media (prefers-reduced-motion:reduce){.nb{transition:none}}
+/* ---------- not-built (.nb) ---------- */
+/* .nb = not-built: clicks are swallowed by App's capture-phase interceptor. No glow in this
+   product (§3.6) — unbuilt modules open a plain not-built page instead of advertising orange. */
+.nb{position:relative}
 
 /* ---------- top bar (frameless, edge-to-edge) ---------- */
 /* container-type: tiers below query the TOPBAR's real width (rail + DPI independent), not the
@@ -206,7 +204,7 @@ tbody tr:hover{background:var(--mc-nested)}
 .door .di{width:32px;height:32px;border:1px solid var(--mc-border);border-radius:var(--mc-radius);display:flex;align-items:center;justify-content:center;color:var(--mc-muted)}
 .door .dt{font-weight:600;font-size:14px}
 .door .dd{color:var(--mc-muted);font-size:13px;margin-top:2px}
-.door .dtag{margin-left:auto;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mc-orange);border:1px solid rgba(255,145,0,.4);border-radius:999px;padding:4px 9px;white-space:nowrap}
+.door .dtag{margin-left:auto;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mc-muted);border:1px solid var(--mc-border);border-radius:999px;padding:4px 9px;white-space:nowrap}
 
 /* ---------- settings ---------- */
 .settingsgrid{display:grid;grid-template-columns:1fr;gap:24px}
@@ -324,7 +322,7 @@ tbody tr:hover{background:var(--mc-nested)}
 .frw-err{color:#f87171;font-size:12px;margin-top:8px}
 
 /* --- Boot terminal (Config-as-Data boot mask) --- */
-/* Palette per the runbooks-mvp.html mockup: green base, dimmer blue-gray secondary lines.
+/* Palette per the original mvp mockup: green base, dimmer blue-gray secondary lines.
    The JARVIS navy is FIXED in every theme; the native overlay boots in this same navy
    (OVERLAYS.boot in electron/core/windows.ts — keep in sync). */
 .bootterm{position:fixed;inset:0;z-index:60;background:#0b0e16;color:#10b981;

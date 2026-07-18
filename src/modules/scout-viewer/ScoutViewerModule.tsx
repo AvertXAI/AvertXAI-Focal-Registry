@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Scout Viewer renderer — the Fortified Browser chrome mounted IN-SHELL (ported from
 //              the standalone prototype's index.html + renderer.js). Renders the browser chrome
 //              (back/fwd/reload-stop · URL bar · Go), the 58px SCOUT tool rail, the guest hole the

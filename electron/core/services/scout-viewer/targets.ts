@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Scout Viewer target CRUD — the user-editable browse-target list (scout_targets in
 //              the shared org DB; replaces the module's hardcoded client array). IPC boundary:
 //              every arg arrives as unknown and is validated here before touching SQL. URLs pass

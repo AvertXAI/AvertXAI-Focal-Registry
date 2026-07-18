@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Scout Viewer per-client tab state — plain SQLite (scout_tab_state in the shared org
 //              DB), one row per client session, indexed SELECT by client_id. Restores where each
 //              isolated session was (URL + scroll) across client switches and app restarts.

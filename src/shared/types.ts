@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: AvertXAI RunBooks.Systems — CRM platform shell (skeleton)
+// Project: AvertXAI Focal Registry
 // Description: Shared TypeScript types used by the services, electron, and renderer layers.
 //              Trimmed to the spine: the Data Viewer surface + the dev-gated diag channel.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited

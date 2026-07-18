@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: AvertXAI RunBooks.Systems — CRM (Data Viewer module)
+// Project: AvertXAI Focal Registry
 // Description: Generic READ-ONLY SQLite browser — table list + paginated grid + record modal, with a
 //              persisted View(read-only)/Developer mode toggle. All reads go through window.api.db
 //              (introspection only). Developer edit/delete is UI-stubbed this build (guard text only).

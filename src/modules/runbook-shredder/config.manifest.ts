@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Runbook Shredder config manifest — the "Expose, Don't Connect" merge handshake.
 //              Declares the module's namespaced setting keys + defaults + types. Root owns
 //              persistence and wires these at merge; in standalone dev the service consumes

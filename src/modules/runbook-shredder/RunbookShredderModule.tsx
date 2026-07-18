@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Runbook Shredder renderer UI — status strip + filter chips + list/detail split pane,
 //              layout per docs/Runbook-Shedder/runbook-shredder-mockup.html. Reads EXCLUSIVELY via
 //              api.shredder.* (never services/ nor the native driver — main-process only).

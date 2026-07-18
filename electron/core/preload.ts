@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: AvertXAI RunBooks.Systems — CRM platform shell (skeleton)
+// Project: AvertXAI Focal Registry
 // Description: contextBridge preload — exposes the typed window.api IPC surface to the renderer.
 //              Trimmed to the shared spine: Data Viewer (db + dataviewer) + the dev-gated diag channel.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited

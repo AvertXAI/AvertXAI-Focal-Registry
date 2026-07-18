@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Module registry service — reads the org DB's `modules` table (seeded by the
 //              First-Run wizard); rows drive the renderer's nav and view routing.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited

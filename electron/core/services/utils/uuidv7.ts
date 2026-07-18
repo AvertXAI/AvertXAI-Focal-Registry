@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Strict UUIDv7 generator (RFC 9562) on Node crypto — 48-bit ms timestamp,
 //              version/variant bits set, rest random. Main-process twin of the renderer's
 //              `uuid` package v7; no dependency needed here.

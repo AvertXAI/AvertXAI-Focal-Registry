@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Runbook Shredder ingestion engine — the "shredder" core. Watches a folder of .md
 //              runbooks (fs.watch recursive + 500ms debounce, stdlib — no chokidar, matching the
 //              Canon Distributor pattern), parses frontmatter with gray-matter, and upserts by

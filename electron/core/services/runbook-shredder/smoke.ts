@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Headless smoke self-check for the Runbook Shredder service — assert-based, no framework.
 //              Runs against temp folders + a temp DB dir (NO writes outside runbook-shredder_<org>.db).
 //              Drops 3 valid + 1 malformed .md, then proves parse/quarantine, FTS5 search (incl. tag

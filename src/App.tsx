@@ -1,11 +1,12 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-// RunBooks shell — top bar + flyout nav + view routing.
+// AvertXAI Focal Registry shell — top bar + flyout nav + view routing.
 // Live surfaces: Home / Settings / Data Viewer, plus the generated module slots below.
 import { useEffect, useState, type ComponentType } from "react";
 import TopBar from "./components/TopBar";
 import Flyout from "./components/Flyout";
 import FirstRunWizard from "./components/FirstRunWizard";
 import BootTerminal from "./components/BootTerminal";
+import NotBuilt from "./components/NotBuilt";
 import type { ModuleRow, UpdateAvailableInfo, UpdateProgressInfo } from "./shared/types";
 import Home from "./views/Home";
 import Settings from "./views/Settings";
@@ -245,16 +246,15 @@ export default function App() {
     if (isFirstRun === false) void fetchModules();
   }, [isFirstRun]);
 
-  // Orange = not-built (RULES-5): any .nb control flashes orange on click and does nothing else.
-  // Capture-phase listener so it runs before React's routed handlers; non-.nb clicks pass through.
+  // Not-built (.nb) controls: clicks are swallowed and nothing else happens — no orange glow in
+  // this product (§3.6). Capture-phase so it runs before React's routed handlers; non-.nb clicks
+  // pass through untouched.
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       const el = (e.target as HTMLElement | null)?.closest?.(".nb") as HTMLElement | null;
       if (!el) return;
       e.preventDefault();
       e.stopPropagation();
-      el.classList.add("nb-flash");
-      window.setTimeout(() => el.classList.remove("nb-flash"), 450);
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
@@ -382,15 +382,9 @@ export default function App() {
       {view === "settings" && <Settings themeMode={themeMode} onThemeChange={onThemeChange} />}
       {view === "data-viewer" && <DataViewerModule />}
       {ActiveModule && <ActiveModule />}
-      {!ActiveModule && activeRow && (
-        <main className="view shown">
-          <div className="wrap">
-            <p className="hint">Module &quot;{activeRow.name}&quot; is registered but has no UI yet.</p>
-          </div>
-        </main>
-      )}
+      {!ActiveModule && activeRow && <NotBuilt name={activeRow.name} />}
 
-      {/* AI spark — present in v7 chrome; orange-not-built stub (wiring is a later phase). */}
+      {/* AI spark — present in v7 chrome; not-built stub (wiring is a later phase). */}
       <button className="spark nb" aria-label="AI assistant">
         <Spark size={22} />
       </button>

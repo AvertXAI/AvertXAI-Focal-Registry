@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Platform registry — the boot-routing DB (platform_registry.db under userData).
 //              Maps this install to org-scoped database files; main.ts consults it before
 //              booting any org DB, and the First-Run wizard writes it on completion.

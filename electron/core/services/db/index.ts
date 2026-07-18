@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: SQLite data-layer boundary. Holds the SHARED connection (one key/value app_settings
 //              table, used by the Data Viewer's View/Developer toggle) AND a registry of independent
 //              connections so Locked modules can each open their OWN (encrypted-later) .locked.db file.

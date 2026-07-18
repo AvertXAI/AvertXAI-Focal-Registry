@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: AvertXAI RunBooks.Systems — CRM (Data Viewer module)
+// Project: AvertXAI Focal Registry
 // Description: Record-detail modal — every column as key→value with a type badge, full (untruncated)
 //              values, null shown explicitly. View mode = read-only footer; Developer mode shows
 //              Edit/Delete STUBBED (disabled) + a destruction-guard line built from the table's FKs.

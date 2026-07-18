@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Runbook Shredder read API — the query surface the UI wires to later. Read-only by
 //              construction (SELECT only). Filter keys are whitelisted and the FTS query is escaped
 //              so renderer-supplied input can't break out into SQL / FTS operators.

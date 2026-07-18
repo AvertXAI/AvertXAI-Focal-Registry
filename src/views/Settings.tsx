@@ -3,7 +3,7 @@
 // Appearance (3-state theme toggle). The theme STATE + persistence live in App ("Expose, Don't
 // Connect"); this pane only renders the control. "Coming surfaces" stay .nb.
 import { useEffect, useState } from "react";
-import { Book, DoorBrand, DoorRoles, DoorTheme, DoorTiers, Gear, Mail, People, Vault, Webhook } from "../icons";
+import { DoorTheme, Gear, Mail, Vault, Webhook } from "../icons";
 import { bumpRender } from "../diag";
 import { signalUpdateToast, type ThemeMode } from "../App";
 
@@ -64,15 +64,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
               Appearance
             </button>
             <div className="setsec">Access</div>
-            <button className="navitem nb">
-              <People />
-              Members and roles
-            </button>
             <div className="setsec">Modules</div>
-            <button className="navitem nb">
-              <Book />
-              AvertXAI Focal Registry
-            </button>
             <button className="navitem nb">
               <Vault />
               Vault
@@ -132,41 +124,27 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                 </div>
                 <h2 className="mt">Coming surfaces</h2>
                 <p className="hint" style={{ marginBottom: 14 }}>
-                  Mapped but not built — reserved studs on the baseplate. Each glows orange until wired.
+                  Mapped but not built yet — these Vault surfaces arrive with the Secure Vault module.
                 </p>
                 <div className="door nb">
                   <div className="di">
-                    <DoorRoles />
+                    <Vault />
                   </div>
                   <div>
-                    <div className="dt">Accounts &amp; Roles (RBAC)</div>
+                    <div className="dt">Vault Security</div>
                     <div className="dd">
-                      Create/edit/delete roles — AvertXAI admin, business admin, HR, employee — each with scoped access.
-                      Owner-only today.
+                      Unlock policy for the encrypted vault — key handling, auto-lock timer, and re-lock on idle.
                     </div>
                   </div>
                   <span className="dtag">Not built</span>
                 </div>
                 <div className="door nb">
                   <div className="di">
-                    <DoorTiers />
+                    <Vault />
                   </div>
                   <div>
-                    <div className="dt">Tiers &amp; Editions</div>
-                    <div className="dd">
-                      Free · Pro · Max (individual) — Business · Enterprise (org). Feature flags gate what each build
-                      includes.
-                    </div>
-                  </div>
-                  <span className="dtag">Not built</span>
-                </div>
-                <div className="door nb">
-                  <div className="di">
-                    <DoorBrand />
-                  </div>
-                  <div>
-                    <div className="dt">Branding / White-label</div>
-                    <div className="dd">Logo, name, palette per org — hand each client their own-branded instance.</div>
+                    <div className="dt">Vault Backup &amp; Export</div>
+                    <div className="dd">Encrypted export of the vault database for offsite backup and migration.</div>
                   </div>
                   <span className="dtag">Not built</span>
                 </div>

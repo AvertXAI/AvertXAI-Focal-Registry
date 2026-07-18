@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: AvertXAI RunBooks.Systems — CRM platform shell (skeleton)
+// Project: AvertXAI Focal Registry
 // Description: Thin IPC handlers for the shared spine — Data Viewer (read-only SQLite introspection)
 //              only. The TimeTracker channels were gutted with the module; the Data Viewer service
 //              whitelists table names and clamps limit/offset, so the raw `unknown` args are safe.

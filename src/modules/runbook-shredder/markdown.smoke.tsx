@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Headless smoke for the markdown-subset renderer — assert-based, no framework
 //              (mirrors brain/smoke.ts). Renders to static HTML and proves: subset → elements,
 //              off-subset → literal text (never throws), unsafe links degrade, highlight wraps

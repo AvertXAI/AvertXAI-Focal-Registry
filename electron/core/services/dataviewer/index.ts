@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: AvertXAI RunBooks.Systems — CRM (Data Viewer module)
+// Project: AvertXAI Focal Registry
 // Description: Read-only SQLite introspection for the Data Viewer. Read-only BY CONSTRUCTION — this
 //              module issues ONLY SELECT/PRAGMA statements, with every table identifier whitelisted
 //              against sqlite_master before it touches SQL; there is no write/exec path here at all.

@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Renderer-facing app_settings access. Key-whitelisted BY CONSTRUCTION — a generic
 //              k/v channel must never let the renderer overwrite platform identity rows
 //              (org_id / org_name); add keys to RENDERER_KEYS as real settings appear.

@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Hand-rolled markdown-subset renderer for runbook bodies — emits React ELEMENTS
 //              (never an HTML string, no dangerouslySetInnerHTML, so no sanitizer needed; canon
 //              LEAN rule: no renderer dep). Subset: headings, bold, italic, inline code, code

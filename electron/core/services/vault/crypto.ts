@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Vault envelope encryption. Layer 1: a random 32-byte per-org secret stored at
 //              vault_<orgId>.key, encrypted at rest by Electron safeStorage (DPAPI/keychain).
 //              Layer 2: Argon2id stretches that secret into the raw 32-byte SQLCipher key.

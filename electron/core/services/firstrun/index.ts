@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: First-Run Setup Wizard service — gatekeeper edition. Completion mints the org id,
 //              creates + seeds the org-scoped DB files, then registers the org as active in the
 //              platform registry (the commit point the boot gatekeeper routes on).

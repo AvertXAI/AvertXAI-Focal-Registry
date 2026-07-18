@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Window registry — main ref, renderer broadcast, taskbar flash helpers
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/windows.ts

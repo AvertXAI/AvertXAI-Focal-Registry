@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Scout Viewer — Fortified Browser engine, IN-SHELL edition (ported from the
 //              feature/scout-viewer standalone prototype's main.js). ONE hardened guest
 //              WebContentsView layered over the Scout module's content hole inside the MAIN shell

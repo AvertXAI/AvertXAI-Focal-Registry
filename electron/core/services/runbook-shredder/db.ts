@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
-// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Project: AvertXAI Focal Registry
 // Description: Runbook Shredder data layer — the module's OWN plain SQLite file
 //              (runbook-shredder_<org_id>.db). Runbook content is not secret, so this opens in
 //              PLAIN mode (no cipher key), unlike the vault. Mirrors the core services'

@@ -11,7 +11,6 @@ import Home from "./views/Home";
 import Settings from "./views/Settings";
 import { Spark } from "./icons";
 import DataViewerModule from "./modules/data-viewer/DataViewerModule";
-import GetScriptClipsModule from "./modules/getscriptclips/GetScriptClipsModule";
 import VaultModule from "./modules/vault/VaultModule";
 import RunbookShredderModule from "./modules/runbook-shredder/RunbookShredderModule";
 import ScoutViewerModule from "./modules/scout-viewer/ScoutViewerModule";
@@ -78,7 +77,6 @@ function RunbookShredderMount() {
 // slug → renderer component. A DB row makes a module NAVIGABLE; an entry here makes it REAL.
 // A row with no entry renders the not-built placeholder instead of a dead view.
 const MODULE_COMPONENTS: Record<string, ComponentType> = {
-  getscriptclips: GetScriptClipsModule,
   vault: VaultModule,
   "runbook-shredder": RunbookShredderMount,
   "scout-viewer": ScoutViewerModule,

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-electron/
+out/
+release/
+*.log
+.env
+.env.*
+*.pem
+*secret*
+*backup*
+_rnd/
+.DS_Store
+Thumbs.db

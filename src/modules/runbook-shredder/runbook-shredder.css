@@ -1,0 +1,138 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* Runbook Shredder module styles. Shell tokens ONLY (--mc-*, RULES-27; the module defines none of its own) — zero hardcoded colors; tints via color-mix. */
+
+.rbs-shell{position:relative;display:flex;flex-direction:column;height:calc(100vh - 58px);overflow:hidden;background:var(--mc-base);color:var(--mc-text)}
+/* module-owned highlighter tokens (module prefix + spelled-out roles, RULES-29) — full-bright solid
+   yellow chip, tightened (no padding); opacity routes rejected — alpha over dark surfaces reads olive. */
+.rbs-shell{--shredder-highlighter-background:#ffe14d;--shredder-highlighter-foreground:#1a1500}
+
+/* ---------- status strip ---------- */
+.rbs-strip{display:flex;align-items:center;gap:16px;padding:10px 20px;border-bottom:1px solid var(--mc-border);background:var(--mc-panels);font-size:12px}
+.rbs-path{font-family:var(--mc-mono);color:var(--mc-muted)}
+.rbs-path b{color:var(--mc-text)}
+.rbs-chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid var(--mc-border);color:var(--mc-muted);font-family:var(--mc-mono)}
+.rbs-chipbtn{cursor:pointer}
+.rbs-chipbtn:hover{color:var(--mc-text)}
+.rbs-chip.on{border-color:var(--mc-orange);color:var(--mc-text)}
+.rbs-dot{width:7px;height:7px;border-radius:50%}
+.rbs-dot.ok{background:var(--mc-accent-primary)}
+.rbs-dot.err{background:var(--mc-orange)}
+.rbs-sp{margin-left:auto;display:flex;align-items:center;gap:10px}
+.rbs-tgl{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--mc-muted)}
+.rbs-sw{width:30px;height:17px;border-radius:20px;background:var(--mc-border);position:relative;display:inline-block}
+.rbs-sw::after{content:"";position:absolute;right:2px;top:2px;width:13px;height:13px;border-radius:50%;background:var(--mc-text);box-sizing:border-box}
+.rbs-btn{border:1px solid var(--mc-border);background:transparent;color:var(--mc-muted);border-radius:var(--mc-radius);font-size:12px;padding:6px 12px;font-weight:600}
+.rbs-btn:hover{color:var(--mc-text)}
+.rbs-btn{cursor:pointer}
+.rbs-btn:disabled{opacity:.55;cursor:default}
+/* watch controls: now real <button>s (were .nb placeholders) — keep the strip's text/pill look */
+button.rbs-path{border:0;background:transparent;padding:0;cursor:pointer;font-family:var(--mc-mono);font-size:12px;color:var(--mc-muted)}
+button.rbs-path:hover b{text-decoration:underline}
+.rbs-path b{display:inline-block;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+button.rbs-tgl{border:0;background:transparent;padding:0;cursor:pointer;font-family:inherit}
+/* on-state: track identical to off (base --mc-border); the dot gains a text-token ring (1.c.1) */
+.rbs-tgl.on .rbs-sw::after{border:1.4px solid var(--mc-toggle-on)}
+.rbs-tgl:not(.on) .rbs-sw::after{right:auto;left:2px}
+
+/* ---------- error banner ---------- */
+.rbs-error{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 20px;border-bottom:1px solid var(--mc-orange);background:color-mix(in srgb, var(--mc-orange) 10%, var(--mc-base));color:var(--mc-text);font-size:13px}
+
+/* ---------- split: list + detail ---------- */
+.rbs-split{display:flex;flex:1;min-height:0}
+.rbs-list{width:380px;flex:none;border-right:1px solid var(--mc-border);display:flex;flex-direction:column;min-height:0}
+.rbs-lhead{padding:12px 14px;border-bottom:1px solid var(--mc-border);display:flex;flex-direction:column;gap:10px}
+/* rail collapse (1.d.1): « toggle on its own row; collapsed = 48px strip, detail takes the width */
+.rbs-railtgl{align-self:flex-start;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border:1px solid var(--mc-border);border-radius:var(--mc-radius);color:var(--mc-muted);font-size:13px;background:transparent;cursor:pointer}
+.rbs-railtgl:hover{color:var(--mc-text);background:var(--mc-nested)}
+.rbs-list.collapsed{width:48px}
+.rbs-list.collapsed .rbs-lhead{padding:12px 0;border-bottom:0;align-items:center}
+.rbs-list.collapsed .rbs-railtgl{align-self:center}
+.rbs-raildiv{width:22px;border:0;border-top:1px solid var(--mc-border);margin:2px 0;align-self:center}
+
+/* ---------- collapsed-strip search modal (module-scoped: absolute inside .rbs-shell) ---------- */
+.rbs-overlay{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--mc-base) 62%,transparent);backdrop-filter:blur(1px)}
+.rbs-modal{width:520px;max-width:90%;max-height:70%;display:flex;flex-direction:column;gap:10px;padding:14px;background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:var(--mc-radius);box-shadow:0 18px 50px rgba(0,0,0,.45)}
+.rbs-mcount{font:11px var(--mc-mono);color:var(--mc-muted)}
+.rbs-mresults{overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.rbs-mrow{display:flex;flex-direction:column;gap:3px;text-align:left;padding:8px 10px;border-radius:var(--mc-radius);cursor:pointer}
+.rbs-mrow:hover{background:var(--mc-nested)}
+.rbs-mfile{font:600 12px var(--mc-mono);color:var(--mc-text)}
+.rbs-msnip{font-size:12px;color:var(--mc-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rbs-search{width:100%;background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:var(--mc-radius);padding:7px 10px;color:var(--mc-text);font:inherit;font-size:13px}
+.rbs-search::placeholder{color:var(--mc-muted)}
+.rbs-lfilter{display:flex;gap:6px;flex-wrap:wrap}
+.rbs-f{font-size:11px;padding:4px 10px;border-radius:var(--mc-radius);border:1px solid var(--mc-border);color:var(--mc-muted);background:transparent;cursor:pointer}
+.rbs-f:hover{color:var(--mc-text)}
+.rbs-f.on{background:var(--mc-nested);color:var(--mc-text);border-color:var(--mc-accent-primary)}
+select.rbs-f{font:inherit;font-size:11px;background:var(--mc-panels);color:var(--mc-muted)}
+.rbs-quarlab{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--mc-orange);font-weight:700}
+
+/* rows */
+.rbs-rows{overflow-y:auto;flex:1}
+.rbs-row{display:flex;flex-direction:column;gap:5px;width:100%;text-align:left;padding:11px 14px;border-bottom:1px solid var(--mc-border)}
+.rbs-row:hover{background:var(--mc-panels)}
+.rbs-row.sel{background:var(--mc-nested);box-shadow:inset 3px 0 0 var(--mc-accent-primary)}
+.rbs-r1{display:flex;align-items:center;gap:8px;min-width:0}
+.rbs-sev{width:8px;height:8px;border-radius:50%;flex:none;background:var(--mc-muted)}
+.rbs-sev.crit{background:var(--mc-orange)}
+.rbs-sev.high{background:var(--mc-orange);opacity:.6}
+.rbs-sev.med{background:var(--mc-accent-primary)}
+.rbs-sev.low{background:var(--mc-muted)}
+.rbs-title{font-size:13px;font-weight:600;color:var(--mc-text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rbs-tybadge{font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2px 7px;border-radius:5px;border:1px solid var(--mc-border);color:var(--mc-muted);flex:none}
+.rbs-r2{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--mc-muted);flex-wrap:wrap}
+.rbs-client{font-family:var(--mc-mono)}
+.rbs-tag{font-size:10px;padding:2px 7px;border-radius:5px;background:var(--mc-nested);color:var(--mc-muted)}
+.rbs-parseerr{font-family:var(--mc-mono);color:var(--mc-orange);word-break:break-word}
+
+/* loading skeleton + empty */
+.rbs-skel{padding:11px 14px;border-bottom:1px solid var(--mc-border)}
+.rbs-skel-bar{height:12px;border-radius:4px;background:var(--mc-nested);animation:rbs-pulse 1.2s ease-in-out infinite}
+.rbs-skel-bar+.rbs-skel-bar{margin-top:8px;width:60%}
+@keyframes rbs-pulse{0%,100%{opacity:.45}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.rbs-skel-bar{animation:none}}
+.rbs-empty{padding:32px 20px;color:var(--mc-muted);font-size:13px;text-align:center;line-height:1.6}
+
+/* ---------- detail pane ---------- */
+.rbs-detail{flex:1;overflow-y:auto;padding:24px 30px;min-width:0}
+.rbs-dbar{display:flex;justify-content:flex-end;margin:0 0 4px}
+.rbs-fontsel{font-family:var(--mc-mono)}
+.rbs-placeholder{color:var(--mc-muted);font-size:13px;padding:48px 0;text-align:center}
+.rbs-dhead{display:flex;align-items:flex-start;gap:12px;margin-bottom:6px}
+.rbs-dhead h1{font-size:20px;font-weight:700;line-height:1.3}
+.rbs-dsev{width:12px;height:12px;margin-top:7px}
+.rbs-dmeta{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 18px}
+.rbs-mchip{font-size:11px;padding:4px 10px;border-radius:var(--mc-radius);background:var(--mc-nested);border:1px solid var(--mc-border);color:var(--mc-muted)}
+.rbs-mchip b{color:var(--mc-text)}
+.rbs-mchip.sev{border-color:var(--mc-orange)}
+.rbs-mchip.sev b{color:var(--mc-orange)}
+.rbs-desc{font-size:13px;color:var(--mc-muted);line-height:1.6}
+.rbs-sec{margin:18px 0}
+.rbs-sec h2{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mc-muted);margin-bottom:9px}
+.rbs-evt{font-size:13px;line-height:1.6;color:var(--mc-text)}
+/* markdown body — element styles for the hand-rolled renderer (markdown.tsx). Base size via
+   --rbs-fontsize, set inline on .rbs-detail by the font-size dropdown (fallback 13px). */
+.rbs-md{font-family:var(--mc-font);font-size:var(--rbs-fontsize,13px);line-height:1.6;color:var(--mc-text);word-break:break-word}
+.rbs-md p{margin:0 0 10px;white-space:pre-wrap}
+.rbs-md h1,.rbs-md h3,.rbs-md h4,.rbs-md h5,.rbs-md h6{margin:14px 0 8px;color:var(--mc-text);line-height:1.3;font-weight:700}
+.rbs-md h1{font-size:1.25em}
+.rbs-md h3{font-size:1.08em}
+.rbs-md h4{font-size:1em}
+.rbs-md h5,.rbs-md h6{font-size:.92em;color:var(--mc-muted)}
+.rbs-md ul,.rbs-md ol{margin:0 0 10px;padding-left:22px}
+.rbs-md li{margin:3px 0}
+.rbs-md code{font-family:var(--mc-mono);font-size:.92em;background:var(--mc-nested);padding:1px 6px;border-radius:4px}
+.rbs-md pre{margin:0 0 10px;padding:10px 12px;background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:var(--mc-radius);overflow-x:auto}
+.rbs-md pre code{background:transparent;padding:0;display:block;white-space:pre}
+.rbs-md strong{font-weight:700;color:var(--mc-text)}
+.rbs-md em{font-style:italic}
+.rbs-md a{color:var(--mc-accent-primary)}
+.rbs-md mark,.rbs-title mark,.rbs-msnip mark{background:var(--shredder-highlighter-background);color:var(--shredder-highlighter-foreground);border-radius:2px;padding:0}
+/* bold hits only: thick 700-weight strokes + AA eat the chip's yellow (reads olive) — a 2px pure-yellow
+   margin restores the perceived brightness; regular-weight chips stay tight */
+.rbs-md strong mark{padding:0 2px}
+.rbs-warn{background:color-mix(in srgb, var(--mc-orange) 8%, transparent);border:1px solid color-mix(in srgb, var(--mc-orange) 35%, transparent);border-radius:var(--mc-radius);padding:10px 13px;font-size:13px;color:var(--mc-text)}
+.rbs-vault{display:inline-flex;align-items:center;gap:8px;background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:var(--mc-radius);padding:9px 13px;font-size:12.5px;margin:2px 8px 2px 0}
+.rbs-vault code{font-family:var(--mc-mono);color:var(--mc-muted)}
+.rbs-k{color:var(--mc-accent-primary)}
+.rbs-go{color:var(--mc-accent-primary);font-weight:600;font-size:12px}

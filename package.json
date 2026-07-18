@@ -1,0 +1,82 @@
+{
+  "name": "avertxai-focal-registry",
+  "productName": "AvertXAI Focal Registry",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AvertXAI Focal Registry — photography archive tooling",
+  "author": "Jason Cruz",
+  "license": "UNLICENSED",
+  "main": "dist-electron/main.cjs",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "build:renderer": "vite build",
+    "build:main": "esbuild electron/main.ts electron/preload.ts --bundle --platform=node --external:electron --external:better-sqlite3-multiple-ciphers --external:argon2 --outdir=dist-electron --format=cjs --out-extension:.js=.cjs",
+    "build": "npm run build:renderer && npm run build:main",
+    "dev": "npm run build && electron .",
+    "dev:clean": "node scripts/reset-dev.mjs && npm run dev",
+    "dev:diag": "set DIAG=1&& npm run dev",
+    "package": "npm run build && electron-builder --win",
+    "postinstall": "electron-rebuild -f -w better-sqlite3-multiple-ciphers,argon2"
+  },
+  "build": {
+    "appId": "com.avertxai.focalregistry",
+    "artifactName": "AvertXAI-Focal-Registry-Setup-${version}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "build/icon.ico",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node",
+      "node_modules/better-sqlite3-multiple-ciphers/**",
+      "node_modules/argon2/**"
+    ],
+    "compression": "maximum",
+    "icon": "build/icon.ico",
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AvertXAI Focal Registry"
+    },
+    "portable": {
+      "artifactName": "AvertXAI-Focal-Registry-Portable-${version}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.9.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "electron": "^41.7.2",
+    "electron-builder": "^26.15.2",
+    "esbuild": "^0.28.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  },
+  "dependencies": {
+    "argon2": "^0.44.0",
+    "better-sqlite3-multiple-ciphers": "^12.11.1",
+    "gray-matter": "^4.0.3"
+  }
+}

@@ -1,0 +1,88 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* Scout Viewer module styles — ported from the standalone prototype's index.html <style> block.
+   Token translation (RULES token standard): the prototype's ad-hoc names (--win/--bar/--side/
+   --panel/--panel2/--field/--bd/--txt/--dim/--dimmer/--blue/--onaccent/--green/--orange/--mono/
+   --sans) are ALL re-expressed as main's --mc-* shell tokens — the module defines NO tokens of its
+   own and hardcodes NO color that competes with one. Classes carry the scv- prefix so nothing
+   collides with shell classes (.view/.modal/.card/.nav/.item all exist in globals.css). */
+
+.scv-shell{position:relative;display:flex;flex-direction:column;height:calc(100vh - 58px);overflow:hidden;background:var(--mc-base);color:var(--mc-text)}
+
+/* ---------- browser chrome (back/fwd/reload · URL bar · Go) ---------- */
+.scv-chrome{display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid var(--mc-border);background:var(--mc-topbar)}
+.scv-nav{width:30px;height:30px;border-radius:7px;border:1px solid var(--mc-border);background:transparent;color:var(--mc-muted);cursor:pointer;font-size:13px;flex:none;display:flex;align-items:center;justify-content:center}
+/* bookmark quick-save: outline star = unsaved; saved = filled + the gold token */
+.scv-star.on{color:var(--scout-bookmark-saved)}
+/* quick-save toast — inline chip in the chrome row (chrome sits outside the guest hole) */
+.scv-toast{flex:none;font-size:11.5px;padding:5px 10px;border-radius:7px;background:var(--mc-nested);border:1px solid var(--mc-border);color:var(--mc-text);white-space:nowrap}
+.scv-nav:hover{color:var(--mc-text);background:var(--mc-nested)}
+.scv-url{flex:1;display:flex;align-items:center;min-width:0;background:var(--mc-field);border:1px solid var(--mc-border);border-radius:8px;padding:4px 13px;font-family:var(--mc-mono);font-size:12.5px;color:var(--mc-text)}
+.scv-url .scv-lk{color:var(--mc-green);margin-right:7px;flex:none}
+/* strict single line — long URLs stay in the bar instead of wrapping the chrome */
+.scv-urltext{flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--mc-text);font:inherit;padding:4px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scv-go{background:var(--mc-accent-primary);color:var(--mc-base);border:none;border-radius:8px;font-weight:700;font-size:12.5px;padding:8px 18px;cursor:pointer;flex:none}
+.scv-go:hover{background:color-mix(in srgb,var(--mc-accent-primary) 86%,black)}
+
+/* ---------- body: SCOUT rail · browser hole · card preview ---------- */
+.scv-body{flex:1;display:flex;min-height:0}
+
+/* LEFT icon-only tool rail — fixed 58px; flex:none so it PUSHES the guest hole, never overlays it */
+.scv-rail{flex:none;width:58px;background:var(--mc-sidebar);border-right:1px solid var(--mc-border);padding:12px 0;display:flex;flex-direction:column;align-items:center;gap:8px}
+.scv-rlab{font-size:8px;letter-spacing:1.2px;color:var(--mc-dimmer);text-transform:uppercase;margin:6px 0 2px}
+.scv-rsep{width:26px;height:1px;background:var(--mc-border);margin:6px 0;border:0}
+.scv-grow{flex:1}
+.scv-ri{width:40px;height:40px;border-radius:10px;border:1px solid var(--mc-border);background:var(--mc-panels);color:var(--mc-muted);display:flex;align-items:center;justify-content:center;font-size:17px;cursor:pointer;transition:.12s;flex:none}
+.scv-ri:hover{color:var(--mc-text);background:var(--mc-nested)}
+/* not-built rail tools ride the GLOBAL .nb convention (orange glow on hover) — no static badges */
+
+/* CENTER browser viewport — the live hole the guest WebContentsView covers from ABOVE */
+.scv-view{flex:1;background:var(--mc-panels);position:relative;min-width:0}
+/* instant visual restore: the snapshot overlay pins over the hole, fades on tab-ready */
+.scv-snap{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:5;opacity:1;transition:opacity .25s ease}
+.scv-snap.fade{opacity:0}
+
+/* sessions modal — scoped INSIDE .scv-view (inset:0 → overlays the guest pane only, not the shell).
+   RUNTIME: the native guest renders above shell HTML, so main HIDES the guest while this is open. */
+.scv-mwrap{position:absolute;inset:0;background:color-mix(in srgb,var(--mc-base) 62%,transparent);display:flex;align-items:center;justify-content:center;z-index:30}
+.scv-modal{width:min(560px,86%);max-height:80%;background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:14px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6);display:flex;flex-direction:column}
+.scv-mhead{display:flex;align-items:center;padding:15px 18px;border-bottom:1px solid var(--mc-border);background:var(--mc-topbar)}
+.scv-mt{font-size:14px;font-weight:700;color:var(--mc-text)}
+.scv-mt .scv-k{color:var(--mc-dimmer);font-weight:500;margin-left:8px;font-size:12px}
+.scv-mx{margin-left:auto;background:transparent;border:none;color:var(--mc-muted);font-size:16px;cursor:pointer}
+.scv-mbody{padding:12px 14px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.scv-item{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:8px 10px;border-radius:7px;font-size:12.5px;color:var(--mc-muted);cursor:pointer;width:100%;text-align:left;background:transparent;border:none}
+.scv-item:hover{background:var(--mc-nested)}
+.scv-item .scv-i{width:15px;text-align:center;opacity:.85;margin-right:6px}
+.scv-dot{width:7px;height:7px;border-radius:50%;flex:none}
+.scv-dot.carded{background:var(--mc-green)}
+.scv-dot.none{background:var(--mc-border)}
+.scv-mfoot{padding:12px 18px;border-top:1px solid var(--mc-border);display:flex;gap:9px}
+
+/* RIGHT card preview — flex-push hover-peek (10px sliver → 342px on hover); flex:none like the rail */
+.scv-card{flex:none;width:10px;overflow:hidden;transition:width .3s ease;background:var(--mc-sidebar);border-left:1px solid var(--mc-border);padding:16px 15px;display:flex;flex-direction:column;gap:12px}
+.scv-card:hover{width:342px;overflow-y:auto}
+.scv-clab{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--mc-dimmer);white-space:nowrap}
+.scv-cbox{background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:9px;min-width:280px}
+.scv-cline{font-family:var(--mc-mono);font-size:11.5px;line-height:1.6;color:var(--mc-muted);overflow-wrap:anywhere}
+.scv-cline b{color:var(--mc-text)}
+.scv-btnrow{display:flex;gap:8px;margin-top:2px}
+.scv-b{flex:1;border:none;border-radius:8px;font-weight:700;font-size:12px;padding:9px;cursor:pointer;white-space:nowrap}
+.scv-b.save{background:var(--mc-green);color:var(--mc-base)}
+.scv-b.pri{background:var(--mc-accent-primary);color:var(--mc-base)}
+.scv-b.ghost{background:transparent;border:1px solid var(--mc-border);color:var(--mc-muted)}
+
+/* ---------- target CRUD (sessions modal) — mockup design language: micro-labels, focus-ring
+   inputs, compact row-action buttons. Colors ride --mc-* + the --scout-danger token (globals). */
+.scv-titem{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px}
+.scv-titem:hover{background:var(--mc-nested)}
+.scv-tmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;text-align:left;background:transparent;border:none;cursor:pointer;padding:0}
+.scv-tname{font-size:12.5px;font-weight:600;color:var(--mc-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scv-turl{font-family:var(--mc-mono);font-size:11px;color:var(--mc-dimmer);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scv-tact{width:26px;height:26px;border-radius:7px;border:1px solid var(--mc-border);background:var(--mc-field);color:var(--mc-muted);display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;flex:none}
+.scv-tact:hover{color:var(--mc-text)}
+.scv-tact.danger:hover{color:var(--scout-danger);border-color:var(--scout-danger)}
+.scv-tform{display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--mc-border);border-radius:8px;background:var(--mc-nested)}
+.scv-fld label{display:block;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--mc-dimmer);margin-bottom:6px;font-weight:700}
+.scv-inp{width:100%;background:var(--mc-field);border:1px solid var(--mc-border);border-radius:8px;padding:9px 12px;color:var(--mc-text);font-size:13px}
+.scv-inp:focus{outline:none;border-color:var(--mc-toggle-on);box-shadow:0 0 0 3px color-mix(in srgb,var(--mc-toggle-on) 16%,transparent)}
+.scv-ferr{font-size:11.5px;color:var(--scout-danger)}

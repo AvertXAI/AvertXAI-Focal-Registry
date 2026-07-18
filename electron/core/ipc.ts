@@ -1,0 +1,252 @@
+// -----------------------------------------------------------
+// Author: Jason Cruz
+// Copyright: (c) 2026 AvertXAI. All Rights Reserved.
+// Project: AvertXAI RunBooks.Systems — CRM platform shell (skeleton)
+// Description: Thin IPC handlers for the shared spine — Data Viewer (read-only SQLite introspection)
+//              only. The TimeTracker channels were gutted with the module; the Data Viewer service
+//              whitelists table names and clamps limit/offset, so the raw `unknown` args are safe.
+// License: Proprietary / Unauthorized copying of this file is strictly prohibited
+// File: electron/core/ipc.ts
+//------------------------------------------------------------
+import { app, dialog, ipcMain } from "electron";
+import fs from "node:fs";
+import { defaultSettings, type ShredderSettings } from "../../src/modules/runbook-shredder/config.manifest";
+import { getDb } from "./services/db";
+import { getActiveOrg } from "./services/db/registry";
+import * as dataviewer from "./services/dataviewer";
+import * as firstrun from "./services/firstrun";
+import * as modules from "./services/modules";
+import * as runbooks from "./services/runbooks";
+import * as shredderApi from "./services/runbook-shredder/api";
+import { ingestAll, startShredder, type ShredderHandle } from "./services/runbook-shredder/shredder";
+import * as scout from "./services/scout-viewer";
+import * as scoutTargets from "./services/scout-viewer/targets";
+import * as distributor from "./services/canon-distributor";
+import * as templates from "./services/canon-distributor/templates";
+import * as agents from "./services/canon-distributor/agents";
+import * as settings from "./services/settings";
+import { applyThemeOverlay, getMainWindow, setOverlayDim } from "./windows";
+
+// --- Runbook Shredder host — root-side glue ONLY. The service stays electron-free: orgId, baseDir
+// (userData, where the module's own .db lives) and settings are injected from here. Lazy so it
+// works both at normal boot and in the session right after the First-Run wizard mints the org.
+let shredderHandle: ShredderHandle | null = null;
+
+// Manifest defaults overlaid with persisted app_settings rows — root owns persistence
+// ("Expose, Don't Connect"); the module never reads app_settings itself.
+function readShredderSettings(): ShredderSettings {
+  const s = defaultSettings();
+  const rows = getDb()
+    .prepare("SELECT key, value FROM app_settings WHERE key LIKE 'runbook-shredder.%'")
+    .all() as { key: string; value: string }[];
+  for (const { key, value } of rows) {
+    if (key === "runbook-shredder.watch_path") s[key] = value;
+    else if (key === "runbook-shredder.watch_enabled" || key === "runbook-shredder.auto_reparse")
+      s[key] = value === "1";
+  }
+  return s;
+}
+
+export function ensureShredder(): ShredderHandle {
+  if (shredderHandle) return shredderHandle;
+  const org = getActiveOrg();
+  if (!org) throw new Error("Runbook Shredder: no active org");
+  shredderHandle = startShredder({
+    orgId: org.org_id,
+    baseDir: app.getPath("userData"),
+    settings: readShredderSettings(),
+  });
+  return shredderHandle;
+}
+
+// B4 — re-point the engine when watch_path / watch_enabled changes: stop the old watcher, then
+// rebuild from the freshly-persisted settings (openShredderDb is cached, so the same DB carries
+// over; startShredder re-ingests + re-watches). Empty watch_path → engine stays idle.
+export function restartShredder(): void {
+  if (!getActiveOrg()) return;
+  shredderHandle?.stop();
+  shredderHandle = null;
+  ensureShredder();
+}
+
+// Full re-ingest of the current watch folder on demand; returns live ok/error counts for the UI.
+function rescanShredder(): { ingested: number; quarantined: number } {
+  const h = ensureShredder();
+  const watchPath = readShredderSettings()["runbook-shredder.watch_path"];
+  if (watchPath && fs.existsSync(watchPath)) ingestAll(h.db, watchPath);
+  const count = (status: string): number =>
+    (h.db.prepare("SELECT COUNT(*) AS n FROM runbooks WHERE parse_status = ?").get(status) as { n: number }).n;
+  return { ingested: count("ok"), quarantined: count("error") };
+}
+
+// --- handlers ---
+
+export function registerIpcHandlers(): void {
+  // data viewer — READ-ONLY introspection. The service whitelists `table` against sqlite_master and
+  // clamps limit/offset, so the raw `unknown` args can't reach a writable or injectable statement.
+  ipcMain.handle("db:tables", () => dataviewer.listTables());
+  ipcMain.handle("db:columns", (_e, table: unknown) => dataviewer.getColumns(table));
+  ipcMain.handle("db:rows", (_e, table: unknown, limit: unknown, offset: unknown) =>
+    dataviewer.getRows(table, limit, offset)
+  );
+  ipcMain.handle("db:fks", (_e, table: unknown) => dataviewer.getForeignKeys(table));
+  ipcMain.handle("dataviewer:getDevMode", () => dataviewer.getDevMode());
+  ipcMain.handle("dataviewer:setDevMode", (_e, on: unknown) => dataviewer.setDevMode(on === true));
+
+  // first-run wizard — service validates orgName, then seeds settings + modules in one transaction.
+  ipcMain.handle("firstRun:get", () => firstrun.getFirstRunStatus());
+  ipcMain.handle("firstRun:complete", (_e, orgName: unknown) => firstrun.completeFirstRun(orgName));
+
+  // module registry — Config-as-Data rows that drive the renderer nav + routing.
+  ipcMain.handle("modules:get", () => modules.listModules());
+
+  // platform settings — key-whitelisted app_settings access (service rejects unknown keys).
+  ipcMain.handle("settings:get", (_e, key: unknown) => settings.getSetting(key));
+  ipcMain.handle("settings:set", (_e, key: unknown, value: unknown) => {
+    settings.setSetting(key, value);
+    // B4: persisting a shredder watch setting re-points the fs.watch engine at the new folder.
+    if (key === "runbook-shredder.watch_path" || key === "runbook-shredder.watch_enabled") restartShredder();
+  });
+
+  // Native window-control overlay tint. The window is born in the JARVIS boot navy; the renderer
+  // drives every later tint (shell mount + theme flips) through this single channel.
+  ipcMain.handle("theme:modalDim", (_e, on: unknown) => setOverlayDim(on === true));
+  ipcMain.handle("theme:overlay", (_e, mode: unknown) =>
+    applyThemeOverlay(typeof mode === "string" ? mode : null)
+  );
+
+  // runbooks module — service validates the raw unknown args.
+  ipcMain.handle("runbooks:list", () => runbooks.listRunbooks());
+  ipcMain.handle("runbooks:create", (_e, title: unknown, description: unknown) =>
+    runbooks.createRunbook(title, description)
+  );
+
+  // runbook-shredder module (shredder:* — runbooks:* above belongs to a different service).
+  // Read-only queries; the service whitelists filter keys and escapes the FTS input, so the raw
+  // renderer args can't reach SQL/FTS syntax.
+  ipcMain.handle("shredder:list", (_e, filter: unknown) =>
+    shredderApi.listRunbooks(
+      ensureShredder().db,
+      (typeof filter === "object" && filter !== null ? filter : {}) as shredderApi.RunbookFilter
+    )
+  );
+  ipcMain.handle("shredder:get", (_e, id: unknown) => shredderApi.getRunbook(ensureShredder().db, String(id)));
+  ipcMain.handle("shredder:search", (_e, q: unknown) =>
+    shredderApi.search(ensureShredder().db, typeof q === "string" ? q : "")
+  );
+  ipcMain.handle("shredder:listQuarantined", () => shredderApi.listQuarantined(ensureShredder().db));
+
+  // native folder picker → the chosen dir (or null on cancel); the renderer persists it via
+  // settings:set, which re-points the engine (B4). rescan re-ingests the current folder on demand.
+  ipcMain.handle("shredder:pickWatchFolder", async () => {
+    const win = getMainWindow();
+    const res = win
+      ? await dialog.showOpenDialog(win, { properties: ["openDirectory"] })
+      : await dialog.showOpenDialog({ properties: ["openDirectory"] });
+    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
+  });
+  ipcMain.handle("shredder:rescan", () => rescanShredder());
+
+  // scout-viewer module — Fortified Browser engine (services/scout-viewer). Sender-verified: only
+  // the shell window's own webContents may drive the engine (ported guard from the prototype);
+  // the service re-validates every payload (URL scheme, clientId charset, bounds clamp) after this.
+  const fromShell = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean =>
+    event.sender === getMainWindow()?.webContents;
+  ipcMain.on("scout:visible", (e, v: unknown) => {
+    if (fromShell(e)) scout.setModuleVisible(v === true);
+  });
+  ipcMain.on("scout:bounds", (e, raw: unknown) => {
+    if (fromShell(e)) scout.setBounds(raw);
+  });
+  ipcMain.on("scout:navigate", (e, raw: unknown) => {
+    if (fromShell(e)) scout.navigate(raw);
+  });
+  ipcMain.on("scout:back", (e) => {
+    if (fromShell(e)) scout.goBack();
+  });
+  ipcMain.on("scout:forward", (e) => {
+    if (fromShell(e)) scout.goForward();
+  });
+  ipcMain.on("scout:reload", (e) => {
+    if (fromShell(e)) scout.reload();
+  });
+  ipcMain.on("scout:stop", (e) => {
+    if (fromShell(e)) scout.stopLoad();
+  });
+  ipcMain.on("scout:modal", (e, open: unknown) => {
+    if (fromShell(e)) scout.setModalOpen(open === true);
+  });
+  ipcMain.on("scout:switch-tab", (e, clientId: unknown, url: unknown) => {
+    if (fromShell(e)) void scout.switchClientTab(clientId, url);
+  });
+  ipcMain.handle("scout:dom-read", (e) => (fromShell(e) ? scout.domRead() : null));
+
+  // scout target CRUD — same sender gate; the service validates every raw unknown arg (name
+  // non-empty, url http(s)-only, id integer) before it reaches SQL. client_id is service-minted.
+  ipcMain.handle("scout:targets:list", (e) => (fromShell(e) ? scoutTargets.listTargets() : null));
+  ipcMain.handle("scout:targets:create", (e, name: unknown, url: unknown) =>
+    fromShell(e) ? scoutTargets.createTarget(name, url) : null
+  );
+  ipcMain.handle("scout:targets:update", (e, id: unknown, name: unknown, url: unknown) =>
+    fromShell(e) ? scoutTargets.updateTarget(id, name, url) : null
+  );
+  ipcMain.handle("scout:targets:delete", (e, id: unknown) => {
+    if (fromShell(e)) scoutTargets.deleteTarget(id);
+  });
+
+  // Canon Distributor engine — the service validates every raw path/label (trust boundary) and
+  // writes ONLY inside {target}/CANON/. Modeled on the runbook-shredder IPC surface.
+  ipcMain.handle("dist:getSource", () => distributor.getSource());
+  ipcMain.handle("dist:setSource", (_e, p: unknown) => distributor.setSource(p));
+  ipcMain.handle("dist:listTargets", () => distributor.listTargets());
+  ipcMain.handle("dist:addTarget", (_e, label: unknown, p: unknown) => distributor.addTarget(label, p));
+  ipcMain.handle("dist:setTargetEnabled", (_e, uuid: unknown, on: unknown) =>
+    distributor.setTargetEnabled(uuid, on === true)
+  );
+  ipcMain.handle("dist:removeTarget", (_e, uuid: unknown) => distributor.removeTarget(uuid));
+  ipcMain.handle("dist:setManifest", (_e, uuid: unknown, templateId: unknown, agentIds: unknown) =>
+    distributor.setTargetManifest(uuid, templateId, agentIds)
+  );
+  ipcMain.handle("dist:syncNow", () => distributor.syncAll());
+  ipcMain.handle("dist:listLog", (_e, limit: unknown, before: unknown) => distributor.listLog(limit, before));
+  ipcMain.handle("dist:countLog", () => distributor.countLog());
+  ipcMain.handle("dist:nukeLog", () => distributor.nukeLog());
+  ipcMain.handle("dist:history", () => distributor.listHistoryRows());
+  ipcMain.handle("dist:nukeHistory", (_e, project: unknown) => distributor.nukeHistoryFor(project));
+  ipcMain.handle("dist:pickFolder", async () => {
+    const win = getMainWindow();
+    const opts = { properties: ["openDirectory" as const] };
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
+  });
+  // Canon Distributor templates — DB-only CRUD (mirrors dist:*); the service validates raw args.
+  ipcMain.handle("templates:list", () => templates.listTemplates());
+  ipcMain.handle("templates:get", (_e, id: unknown) => templates.getTemplate(id));
+  ipcMain.handle("templates:create", (_e, payload: unknown) => templates.createTemplate(payload));
+  ipcMain.handle("templates:update", (_e, id: unknown, payload: unknown) => templates.updateTemplate(id, payload));
+  ipcMain.handle("templates:delete", (_e, id: unknown) => templates.deleteTemplate(id));
+  ipcMain.handle("templates:writeToDisk", (_e, id: unknown, overwrite: unknown) =>
+    templates.writeTemplateToDisk(id, overwrite)
+  );
+
+  // Canon Distributor agents — DB import/browse of local agent repos (read-only on the repos).
+  ipcMain.handle("agents:list", () => agents.listAgents());
+  ipcMain.handle("agents:get", (_e, id: unknown) => agents.getAgent(id));
+  ipcMain.handle("agents:delete", (_e, id: unknown) => agents.deleteAgent(id));
+  ipcMain.handle("agents:update", (_e, id: unknown, body: unknown) => agents.updateAgent(id, body));
+  ipcMain.handle("agents:setFavorite", (_e, id: unknown, on: unknown) => agents.setFavorite(id, on));
+  ipcMain.handle("agents:importFromFolders", (_e, paths: unknown) => agents.importFromFolders(paths));
+
+  ipcMain.handle("dist:getWatcher", () => distributor.isWatcherRunning());
+  ipcMain.handle("dist:setWatcher", (_e, on: unknown) => {
+    const enable = on === true;
+    // Friendly guard: enabling with no source stays OFF (returns false) instead of throwing a raw
+    // error banner — the UI shows a "set a source first" hint. Engine watcher logic is untouched.
+    if (enable && !distributor.getSource()) return false;
+    if (enable) distributor.startWatcher();
+    else distributor.stopWatcher();
+    const running = distributor.isWatcherRunning();
+    settings.setSetting("watcher_enabled", running ? "1" : "0"); // persists across launches
+    return running;
+  });
+}

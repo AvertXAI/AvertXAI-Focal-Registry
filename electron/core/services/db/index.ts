@@ -1,0 +1,208 @@
+// -----------------------------------------------------------
+// Author: Jason Cruz
+// Copyright: (c) 2026 AvertXAI. All Rights Reserved.
+// Project: RunBooks — AvertXAI platform shell (baseplate)
+// Description: SQLite data-layer boundary. Holds the SHARED connection (one key/value app_settings
+//              table, used by the Data Viewer's View/Developer toggle) AND a registry of independent
+//              connections so Locked modules can each open their OWN (encrypted-later) .locked.db file.
+// License: Proprietary / Unauthorized copying of this file is strictly prohibited
+//------------------------------------------------------------
+import Database from "better-sqlite3-multiple-ciphers";
+import { generateUUIDv7 } from "../utils/uuidv7";
+
+// Clean baseplate schema for the shared DB: a single key/value settings table. Real tables are
+// added with createTable() (below) so every table is born with the standard columns.
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS app_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`;
+
+// name -> handle. The shared DB lives under the key "shared"; each Locked module's file lives under
+// its own key. openDb() is idempotent per key, so re-opening returns the same handle.
+const registry = new Map<string, Database.Database>();
+
+function applyPragmas(db: Database.Database): void {
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+}
+
+// Open (or reuse) an independent connection keyed by `name`. Locked modules call this with their
+// own file path + a unique name so they get a handle that is separate from the shared DB.
+// cipherKey (hex): encryption key — cipher scheme + key MUST be the connection's first statements,
+// applied before any other pragma (WAL etc.), or an encrypted file is unreadable.
+export function openDb(dbPath: string, name = dbPath, cipherKey?: string): Database.Database {
+  const existing = registry.get(name);
+  if (existing) return existing;
+  const db = new Database(dbPath);
+  if (cipherKey) {
+    db.pragma("cipher = 'sqlcipher'"); // fork defaults to ChaCha20 — pin SQLCipher scheme
+    db.pragma(`key = "x'${cipherKey}'"`);
+  }
+  applyPragmas(db);
+  registry.set(name, db);
+  return db;
+}
+
+// Boot the shared DB. Called once from main.ts with the app's <kebab>.db path.
+export function initDb(dbPath: string): void {
+  const db = openDb(dbPath, "shared");
+  db.exec(SCHEMA);
+  // Additive migration: platform module registry, seeded by the First-Run wizard.
+  createTable(db, "modules", [
+    "tenant_id TEXT NOT NULL",
+    "name TEXT NOT NULL",
+    "slug TEXT UNIQUE NOT NULL",
+    "type TEXT NOT NULL",
+    "display_order INTEGER DEFAULT 0",
+    "is_locked INTEGER DEFAULT 0",
+    "is_enabled INTEGER DEFAULT 1",
+  ]);
+  // Additive migration: nav_group drives the sidebar's grouped collapsible sections (Config-as-Data).
+  // Guarded ADD COLUMN — safe to re-run on an already-migrated dev DB. The unconditional backfill runs
+  // every boot so any row seeded without a group (firstrun/seedModule don't set it) is NULL-free by the
+  // NEXT boot; the renderer also defaults a missing group, covering the same-boot fresh-org window.
+  if (!(db.pragma("table_info(modules)") as { name: string }[]).some((c) => c.name === "nav_group")) {
+    db.exec("ALTER TABLE modules ADD COLUMN nav_group TEXT;");
+  }
+  db.exec("UPDATE modules SET nav_group = 'Applications' WHERE nav_group IS NULL;");
+  // Additive migration: Runbooks module core schema.
+  createTable(db, "runbooks", [
+    "title TEXT NOT NULL",
+    "description TEXT",
+  ]);
+  createTable(db, "runbook_steps", [
+    "runbook_id INTEGER NOT NULL REFERENCES runbooks(id) ON DELETE CASCADE",
+    "step_order INTEGER NOT NULL DEFAULT 0",
+    "prompt_template TEXT",
+  ]);
+  // Additive migration: Scout Viewer browse targets (user-editable CRUD; replaces the module's
+  // hardcoded client list). client_id keys the persist:client_<id> session partition — minted at
+  // create, immutable after; two targets MAY share one client_id (= one login session).
+  createTable(db, "scout_targets", [
+    "name TEXT NOT NULL",
+    "url TEXT NOT NULL",
+    "client_id TEXT NOT NULL",
+    "display_order INTEGER DEFAULT 0",
+  ]);
+  // One-time seed of the previously hardcoded Scout client list — marker-gated (NOT emptiness-gated,
+  // so a user deleting every target doesn't resurrect these on the next boot). HaloPSA/Pylon pairs
+  // share a client_id each, preserving the prototype's shared-session behavior.
+  if (!db.prepare("SELECT 1 FROM app_settings WHERE key = 'scout_targets_seeded'").get()) {
+    const ins = db.prepare(
+      "INSERT INTO scout_targets (uuid, name, url, client_id, display_order) VALUES (?, ?, ?, ?, ?)"
+    );
+    const halo = generateUUIDv7();
+    const pylon = generateUUIDv7();
+    ins.run(generateUUIDv7(), "HaloPSA · Tickets", "https://app.halopsa.com/tickets", halo, 0);
+    ins.run(generateUUIDv7(), "HaloPSA · Dashboard", "https://app.halopsa.com/dashboard", halo, 1);
+    ins.run(generateUUIDv7(), "Pylon · Inbox", "https://app.usepylon.com/inbox", pylon, 2);
+    ins.run(generateUUIDv7(), "Pylon · Issue view", "https://app.usepylon.com/issues", pylon, 3);
+    ins.run(generateUUIDv7(), "incident.io · Timeline", "https://app.incident.io/timeline", generateUUIDv7(), 4);
+    db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('scout_targets_seeded', '1')").run();
+  }
+  // Additive migration: Canon Distributor engine — source of truth, sync targets, append-only log.
+  // createTable is CREATE TABLE IF NOT EXISTS (std columns injected), so this is safe to re-run and
+  // drops/recreates nothing. dist_log is append-only by engine contract (only nukeLog deletes it).
+  createTable(db, "dist_source", ["tenant_id TEXT NOT NULL", "path TEXT NOT NULL"]);
+  createTable(db, "dist_targets", [
+    "tenant_id TEXT NOT NULL",
+    "label TEXT NOT NULL",
+    "path TEXT NOT NULL",
+    "is_enabled INTEGER DEFAULT 1",
+    "template_id INTEGER", // Guardrails manifest: chosen canon_templates row (nullable)
+    "selected_agent_ids TEXT", // Guardrails manifest: JSON array of canon_agents ids
+  ]);
+  // Guarded column adds for DBs whose dist_targets predates the Guardrails manifest (additive).
+  {
+    const cols = (db.pragma("table_info(dist_targets)") as { name: string }[]).map((c) => c.name);
+    if (!cols.includes("template_id")) db.exec("ALTER TABLE dist_targets ADD COLUMN template_id INTEGER;");
+    if (!cols.includes("selected_agent_ids")) db.exec("ALTER TABLE dist_targets ADD COLUMN selected_agent_ids TEXT;");
+  }
+  createTable(db, "dist_log", ["tenant_id TEXT NOT NULL", "action TEXT NOT NULL", "detail TEXT"]);
+  // Additive migration: Canon Distributor templates (DB-only — this table never writes a file to
+  // disk; the "writes as CLAUDE.md" is metadata for a later bite). createTable = IF NOT EXISTS.
+  createTable(db, "canon_templates", [
+    "tenant_id TEXT NOT NULL",
+    "title TEXT NOT NULL",
+    "writes_as TEXT NOT NULL DEFAULT 'CLAUDE.md'",
+    "destination TEXT",
+    "body_md TEXT NOT NULL DEFAULT ''",
+    "version TEXT NOT NULL DEFAULT 'v0.1.0'",
+    "sections_json TEXT",
+  ]);
+  // Guarded column add for DBs whose canon_templates predates the sectioned builder (additive).
+  if (!(db.pragma("table_info(canon_templates)") as { name: string }[]).some((c) => c.name === "sections_json")) {
+    db.exec("ALTER TABLE canon_templates ADD COLUMN sections_json TEXT;");
+  }
+  // Additive migration: Canon Distributor agents — imported agent .md files (DB-only; never written
+  // back out to a repo here). The unique index makes re-import idempotent (UPSERT, no duplicates).
+  createTable(db, "canon_agents", [
+    "tenant_id TEXT NOT NULL",
+    "name TEXT NOT NULL",
+    "category TEXT",
+    "body_md TEXT",
+    "source TEXT",
+    "license TEXT",
+    "is_favorite INTEGER DEFAULT 0",
+  ]);
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_canon_agents_key ON canon_agents (tenant_id, source, category, name);");
+  // Guarded column add for DBs whose canon_agents predates favorites (additive).
+  if (!(db.pragma("table_info(canon_agents)") as { name: string }[]).some((c) => c.name === "is_favorite")) {
+    db.exec("ALTER TABLE canon_agents ADD COLUMN is_favorite INTEGER DEFAULT 0;");
+  }
+  // Additive migrations: orgs minted before a module existed get its registry row here (this is
+  // what makes the module appear in the sidebar + boot loader — both render from these rows).
+  // Fresh DBs skip (no tenant known yet at initDb time) — the First-Run wizard seeds all rows.
+  // Tenant resolution falls back to an existing module row so DBs whose app_settings predate the
+  // org_id key still migrate instead of silently skipping.
+  const tenantId = (): string | undefined =>
+    (db.prepare("SELECT value AS v FROM app_settings WHERE key = 'org_id'").get() as { v: string } | undefined)?.v ??
+    (db.prepare("SELECT tenant_id AS v FROM modules LIMIT 1").get() as { v: string } | undefined)?.v;
+  const seedModule = (name: string, slug: string, type: string, order: number): void => {
+    const tenant = tenantId();
+    if (!tenant || db.prepare("SELECT 1 FROM modules WHERE slug = ?").get(slug)) return;
+    db.prepare(
+      `INSERT INTO modules (uuid, tenant_id, name, slug, type, display_order, is_locked, is_enabled)
+       VALUES (?, ?, ?, ?, ?, ?, 0, 1)`
+    ).run(generateUUIDv7(), tenant, name, slug, type, order);
+  };
+  seedModule("Runbook Shredder", "runbook-shredder", "runbook", 3);
+  seedModule("Scout Viewer", "scout-viewer", "browser", 4);
+  // Canon Distributor — bespoke seed (not seedModule) so nav_group is "System"; guarded by slug so
+  // existing orgs get the row once on next boot. Mirrors the first-run seed.
+  {
+    const tenant = tenantId();
+    if (tenant && !db.prepare("SELECT 1 FROM modules WHERE slug = 'canon-distributor'").get()) {
+      db.prepare(
+        "INSERT INTO modules (uuid, tenant_id, name, slug, type, display_order, is_locked, is_enabled, nav_group) VALUES (?, ?, 'Distributor', 'canon-distributor', 'engine', 5, 0, 1, 'System')"
+      ).run(generateUUIDv7(), tenant);
+    }
+  }
+}
+
+export function getDb(): Database.Database {
+  const db = registry.get("shared");
+  if (!db) throw new Error("Database not initialized — call initDb() first");
+  return db;
+}
+
+// Standard-columns helper — use this for EVERY table so they are all born the same:
+//   id          INTEGER PRIMARY KEY
+//   uuid        TEXT UNIQUE NOT NULL   (app-generated — `generateUUIDv7()` from ../utils/uuidv7)
+//   <your cols> passed via `columns` as raw SQL fragments, e.g. ["title TEXT NOT NULL"]
+//   created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+//   updated_at  DATETIME
+// Insert the uuid yourself at write time (uuidv7()); SQLite has no UUID generator. Bump updated_at
+// to CURRENT_TIMESTAMP on every UPDATE.
+export function createTable(db: Database.Database, name: string, columns: string[] = []): void {
+  const cols = [
+    "id INTEGER PRIMARY KEY",
+    "uuid TEXT UNIQUE NOT NULL",
+    ...columns,
+    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP",
+    "updated_at DATETIME",
+  ].join(",\n  ");
+  db.exec(`CREATE TABLE IF NOT EXISTS ${name} (\n  ${cols}\n);`);
+}

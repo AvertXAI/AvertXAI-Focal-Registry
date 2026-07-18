@@ -1,0 +1,403 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* Shell chrome + views ported verbatim from avertxai-crm-module-mockup-v7.html.
+   Frameless-window adaptations added (end of file); tokens carry the --mc- shell prefix (RULES-27). */
+
+/* Theme tokens — Hybrid is the default (DECISIONS-37); Dark/Light are the warm-mono scheme
+   (dark-light-mode-scheme.md) with rose accent. The switch (data-theme on <html>, persisted via
+   app_settings) is a fast-follow — until then :root/Hybrid is what renders. */
+:root, [data-theme="hybrid"]{
+  --mc-base:#0d1320; --mc-panels:#121a2e; --mc-nested:#182238; --mc-border:#233149;
+  --mc-text:#e8edf7; --mc-muted:#8b9bb4; --mc-accent-primary:#4f8df0; --mc-orange:#ff9100;
+  /* surface tokens — set to current resolved values so Hybrid renders identically */
+  --mc-topbar:#0d1320; --mc-sidebar:#121a2e; --mc-field:#0d1320; --mc-avatar:#4f8df0; --mc-dimmer:#5b6b88;
+  /* toggle on-state — fixed blue in EVERY theme; deliberately does NOT flip with the accent */
+  --mc-toggle-on:#4f8df0;
+  /* appearance-seg selected state — fixed icon-box blues, same rule: never flips with the accent */
+  --mc-seg-on-background:#303539; --mc-seg-on-icon:#4773a6;
+}
+:root{
+  --mc-flyout-width:300px; /* shell sidebar width — App re-sets it inline on drag (clamped ≤ 300) */
+  /* boot-dark surface — matches .bootterm's #0b0e16 and the main-process boot frame (windows.ts
+     OVERLAYS.boot/BASE_BG.boot), so the whole pre-shell phase reads as ONE surface. */
+  --mc-boot-bg:#0b0e16;
+  /* Scout Viewer module tokens — spelled-out roles, ONE source of truth here (RULES token law). */
+  --scout-danger:#e0565c; /* destructive row actions (remove target) + inline CRUD errors */
+  --scout-bookmark-saved:#d4a843; /* filled quick-save star when the current page is a target */
+  /* Canon Distributor module tokens — bespoke status colors the shell lacks; one source of truth. */
+  --canon-distributor-error:#e0565c; /* error badge / ERROR log / inline errors — reads on all themes */
+  --canon-distributor-favorite:#d4a843; /* selected favorite star (muted when unselected) */
+  --canon-distributor-pending:#d4a843; /* spine status dot: gold = pending, --mc-green = synced */
+  --canon-distributor-replace:#4773a6; /* REPLACE log rows — mid-blue readable on light AND dark */
+  --mc-underline:var(--mc-accent-primary); --mc-green:#16a34a; --mc-radius:6px;
+  --mc-scrollbar-thumb:#2c3a58; /* hybrid default; dark/light override per-theme */
+  --mc-font:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  --mc-mono:ui-monospace,"SFMono-Regular",Consolas,monospace;
+}
+[data-theme="dark"]{ /* approved Claude-desktop dark (recon-031/048); rose accent per DECISIONS L135 */
+  --mc-base:#1f1f1f; --mc-panels:#2c2c2a; --mc-nested:#2c2a26; --mc-border:#61615b;
+  --mc-text:#E5E5E5; --mc-muted:#A0A0A0; --mc-dimmer:#71716B; --mc-accent-primary:#d97757; --mc-orange:#ff9100;
+  --mc-topbar:#262626; --mc-sidebar:#262626; --mc-field:#424240; --mc-avatar:#313131; --mc-scrollbar-thumb:#7c7b75;
+  --mc-toggle-on:#4f8df0; --mc-seg-on-background:#303539; --mc-seg-on-icon:#4773a6;
+}
+[data-theme="light"]{ /* Claude Desktop crisp white (stash@{0} port); surface tokens kept from recon-024 */
+  --mc-base:#FAFAFA; --mc-panels:#FFFFFF; --mc-nested:#F5F5F5; --mc-border:#E5E5E5;
+  --mc-text:#1A1A1A; --mc-muted:#737373; --mc-dimmer:#A3A3A2; --mc-accent-primary:#d97757; --mc-orange:#ff9100;
+  --mc-topbar:#FFFFFF; --mc-sidebar:#FFFFFF; --mc-field:#FFFFFF; --mc-avatar:#E6E6E6; --mc-scrollbar-thumb:#B1B1B0;
+  /* light-scope override: pale blue chip so the selected seg doesn't sit dark on white */
+  --mc-toggle-on:#4f8df0; --mc-seg-on-background:#DCE8F5; --mc-seg-on-icon:#4773a6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%}
+/* EVERY layer of the paint chain (html -> body -> #root) carries the ACTIVE theme base: during
+   live resize the compositor can show any of them before children repaint — an unpainted layer
+   = white flash; a stale one = wrong-theme bleed (titleBarStyle:hidden Windows artifact). */
+html,body,#root{background:var(--mc-base)}
+body{color:var(--mc-text);font:14px/1.5 var(--mc-font);-webkit-font-smoothing:antialiased}
+a{color:var(--mc-accent-primary);text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+svg{display:block;flex:none}
+:focus-visible{outline:2px solid var(--mc-accent-primary);outline-offset:2px;border-radius:4px}
+
+/* ---------- orange = not-built-yet (RULES-5) ---------- */
+.nb{position:relative;transition:box-shadow .12s ease}
+.nb:hover{box-shadow:0 0 0 1px var(--mc-orange),0 0 12px rgba(255,145,0,.45)}
+.nb.nb-flash{box-shadow:0 0 0 2px var(--mc-orange),0 0 18px rgba(255,145,0,.8)!important}
+@media (prefers-reduced-motion:reduce){.nb{transition:none}}
+
+/* ---------- top bar (frameless, edge-to-edge) ---------- */
+/* container-type: tiers below query the TOPBAR's real width (rail + DPI independent), not the
+   window's — a container can't style itself, so the flex row lives on the inner .topbar-in */
+.topbar{padding:12px 16px;border-bottom:1px solid var(--mc-border);container-type:inline-size}
+.topbar-in{display:flex;align-items:center;gap:8px}
+.iconbtn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;
+  border-radius:var(--mc-radius);color:var(--mc-muted)}
+.iconbtn:hover{background:var(--mc-nested);color:var(--mc-text)}
+.brandmark{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;
+  background:var(--mc-text);color:var(--mc-base);font-weight:700;font-size:15px}
+.crumbs{display:flex;align-items:center;gap:6px;font-size:15px;white-space:nowrap;overflow:hidden;min-width:0}
+/* Option (b): the breadcrumb is the FIRST shrink track — it ellipsizes before any tier flips and
+   nothing in the topbar ever wraps to a second row. */
+.crumbs .crumbtext{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crumbtext .sep{margin:0 6px}
+/* breadcrumb collapse: below the same ~700px tier that swaps search↔magnifier, only the
+   leaf/module name + lock survive; the org/workspace prefix hides. Ellipsis above stays as
+   the final safety on whatever remains. */
+.crumb-prefix{display:none}
+.crumbs .sep{color:var(--mc-muted)}
+.crumbs .leaf{font-weight:600}
+.crumbs .lock{color:var(--mc-muted)}
+.searchbox{display:none;align-items:center;gap:8px;flex:1;max-width:350px;margin-left:auto;
+  border:1px solid var(--mc-border);border-radius:var(--mc-radius);padding:5px 10px;color:var(--mc-muted)}
+.searchbox kbd{border:1px solid var(--mc-border);border-radius:4px;padding:0 5px;font:11px var(--mc-mono)}
+.topbar .acts{display:flex;gap:8px;margin-left:auto;align-items:center}
+/* NOTE: the "searchbox present → acts loses auto-margin" override lives in the ≥1200 tier below.
+   It must NOT apply globally: display:none keeps the sibling selector matching, which stranded the
+   acts cluster next to the crumbs (looked "centered") whenever the searchbox tier hid it. */
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--mc-avatar);
+  display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+/* light mode: org (A) + user (JC) chips go neutral — #E6E6E6 bg (via --mc-avatar) / #3E3E3E glyph */
+[data-theme="light"] .brandmark{background:var(--mc-avatar)}
+[data-theme="light"] .brandmark,[data-theme="light"] .avatar{color:#3E3E3E}
+/* custom scrollbar (recon-023) */
+::-webkit-scrollbar{width:10px;background:transparent}
+::-webkit-scrollbar-thumb{background-color:var(--mc-scrollbar-thumb);border-radius:5px;border:2px solid var(--mc-base)}
+/* 3-state theme segmented control (System / Light / Dark) */
+.themeseg{display:inline-flex;border:1px solid var(--mc-border);border-radius:var(--mc-radius);overflow:hidden}
+.segbtn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;color:var(--mc-muted);border-right:1px solid var(--mc-border)}
+.segbtn:last-child{border-right:0}
+.segbtn:hover{color:var(--mc-text);background:var(--mc-nested)}
+.segbtn.on{color:var(--mc-seg-on-icon);background:var(--mc-seg-on-background)}
+/* the group's overflow:hidden clips the global focus ring into colored slivers beside the
+   focused button — suppress it here only; selection is already shown by the .on chip */
+.segbtn:focus-visible{outline:none}
+/* TopBar tiers — CONTAINER queries on the topbar's own content-box width (SOP math: crumbs ~250 +
+   searchbox ≥150 + acts ~260 + gaps ≈ 676 → full tier ≥700; crumbs + acts-with-magnifier ≈ 550 →
+   single-row floor 560). Base state (below both) = wrap tier. */
+@container (min-width:900px){
+  .searchbox{display:flex}
+  .iconbtn.search-sm{display:none}
+  .searchbox + .acts{margin-left:8px} /* searchbox owns the auto-margin at this tier */
+  .crumb-prefix{display:inline} /* full Org - Workspace / Leaf chain returns with the room */
+}
+/* No wrap tier — Option (b): breadcrumb-left / icons-right stay on ONE row at every reachable
+   width; the crumbs ellipsize first, then the searchbox tier above collapses to the magnifier. */
+/* popup search bar — opened by the magnifier when the inline searchbox is hidden */
+.search-pop{position:fixed;top:52px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:8px;
+  background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:8px;padding:10px 12px;width:min(480px,90vw);
+  box-shadow:0 8px 30px rgba(0,0,0,.35)}
+.search-pop input{flex:1;background:var(--mc-field);border:1px solid var(--mc-border);border-radius:6px;
+  color:var(--mc-text);padding:6px 10px;font-size:13px}
+.search-pop input::placeholder{color:var(--mc-dimmer)}
+.search-pop kbd{border:1px solid var(--mc-border);border-radius:4px;padding:0 5px;font:11px var(--mc-mono);color:var(--mc-muted)}
+/* the popup + its overlay render inside .topbar (a drag region) — without no-drag, clicking the
+   backdrop would drag the window instead of closing the popup */
+.topbar .overlay,.topbar .search-pop{-webkit-app-region:no-drag}
+
+/* ---------- persistent left rail (always open — zero menu-diving) ---------- */
+body{padding-left:var(--mc-flyout-width,300px)} /* clears the fixed rail; fixed overlays (wizard/terminal) ignore it */
+body.rail-collapsed{padding-left:58px} /* content area expands when the rail collapses (instant snap) */
+.flyout{position:fixed;top:0;left:0;bottom:0;width:var(--mc-flyout-width,300px);background:var(--mc-sidebar);
+  border-right:1px solid var(--mc-border);z-index:35;display:flex;flex-direction:column;
+  overflow-x:hidden;overflow-y:auto;white-space:nowrap}
+/* drag-resize handle on the rail's right edge (expanded only — Flyout unmounts it when collapsed) */
+.flyout-resizer{position:absolute;top:0;right:0;bottom:0;width:5px;cursor:col-resize;flex:none}
+.flyout-resizer:hover{background:color-mix(in srgb,var(--mc-accent-primary) 30%,transparent)}
+.flyout.collapsed{width:58px} /* icon-rail standard — instant snap: no transition, no hover-peek */
+.flyout .navlbl{overflow:hidden;text-overflow:ellipsis}
+.flyout.collapsed .navlbl{opacity:0} /* hide labels at 58px; icons remain */
+.flyout.collapsed .brandmark{display:none} /* the A mark can't share a 58px strip with the toggle */
+.flyout.collapsed .flyout-head{justify-content:center} /* lone «/» toggle centers in the strip */
+.flyout-head{display:flex;align-items:center;justify-content:space-between;padding:16px}
+.flyout nav{padding:0 8px 16px}
+.navitem{display:flex;align-items:center;gap:12px;width:100%;padding:8px 10px;border-radius:var(--mc-radius);
+  color:var(--mc-text);font-size:14px;position:relative;text-align:left}
+.navitem:hover{background:var(--mc-nested)}
+.navitem.active{background:rgba(99,102,241,.15);font-weight:600}
+.navitem.active::before{content:"";position:absolute;left:-8px;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--mc-accent-primary)}
+.navitem svg{color:var(--mc-muted)}
+.navdiv{border:0;border-top:1px solid var(--mc-border);margin:8px 2px}
+/* grouped-nav sections — bold header a size-tier ABOVE its module items; generous gap between groups */
+.navsection{display:flex;flex-direction:column;margin-top:14px}
+.navsection-head{display:flex;align-items:center;gap:8px;width:100%;padding:6px 10px;border-radius:var(--mc-radius);
+  color:var(--mc-text);font-size:14px;font-weight:700;text-align:left;cursor:pointer}
+.navsection-head:hover{background:var(--mc-nested)}
+.navsection .navitem{font-size:13px} /* items sit one step below the header + Home/Settings (14px) */
+.navsection-chev{color:var(--mc-muted);transition:transform .15s ease}
+.navsection-chev.collapsed{transform:rotate(-90deg)} /* down → right when the section is collapsed */
+@media (prefers-reduced-motion:reduce){.navsection-chev{transition:none}}
+
+/* ---------- views ---------- */
+.view{display:none}
+.view.shown{display:block}
+.wrap{max-width:1280px;margin:0 auto;padding:24px 16px}
+@media (min-width:768px){.wrap{padding:32px 24px}}
+h1.pagetitle{font-size:24px;font-weight:600;margin-bottom:4px}
+.subtitle{color:var(--mc-muted);margin-bottom:24px}
+
+/* ---------- home: module cards ---------- */
+.modgrid{display:grid;grid-template-columns:1fr;gap:16px}
+@media (min-width:768px){.modgrid{grid-template-columns:1fr 1fr}}
+@media (min-width:1280px){.modgrid{grid-template-columns:1fr 1fr 1fr}}
+.modcard{display:flex;flex-direction:column;gap:8px;padding:16px;border:1px solid var(--mc-border);
+  border-radius:var(--mc-radius);background:var(--mc-panels);text-align:left}
+.modcard:hover{border-color:#2c3a58}
+.modcard .row1{display:flex;align-items:center;gap:10px}
+.modcard .row1 svg{color:var(--mc-muted)}
+.modcard .name{font-weight:600;font-size:15px}
+.modcard p{color:var(--mc-muted);font-size:13px}
+.pill{margin-top:auto;align-self:flex-start;font-size:11px;font-weight:600;padding:2px 9px;
+  border-radius:999px;border:1px solid var(--mc-border);color:var(--mc-muted)}
+.pill.docked{color:#4ade80;border-color:#14532d}
+.pill.standalone{color:#eab308;border-color:#453a07}
+
+/* ---------- shared: buttons + tables ---------- */
+.btn{padding:6px 16px;border-radius:var(--mc-radius);border:1px solid var(--mc-border);background:var(--mc-nested);font-weight:600;font-size:14px;display:inline-flex;align-items:center;gap:8px}
+.btn.primary{background:#22c55e;border-color:#22c55e;color:#fff}
+.btn svg{color:currentColor}
+.btn.blue{background:var(--mc-accent-primary);border-color:var(--mc-accent-primary)}
+/* ghost variant — transparent, themed (was missing from the shell; distributor + future modules use it) */
+.btn.ghost{background:transparent;color:var(--mc-muted)}
+.btn.ghost:hover{color:var(--mc-text);background:var(--mc-nested)}
+table{width:100%;border-collapse:collapse;min-width:680px}
+thead th{text-align:left;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mc-muted);padding:11px 14px;border-bottom:1px solid var(--mc-border);background:var(--mc-panels)}
+tbody td{padding:12px 14px;border-bottom:1px solid var(--mc-border);font-size:13px;vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--mc-nested)}
+.hint{color:var(--mc-muted);font-size:12px;margin-top:6px}
+
+/* settings doors */
+.door{display:flex;align-items:center;gap:14px;padding:15px 16px;border:1px solid var(--mc-border);border-radius:var(--mc-radius);margin-bottom:12px;background:var(--mc-panels)}
+.door .di{width:32px;height:32px;border:1px solid var(--mc-border);border-radius:var(--mc-radius);display:flex;align-items:center;justify-content:center;color:var(--mc-muted)}
+.door .dt{font-weight:600;font-size:14px}
+.door .dd{color:var(--mc-muted);font-size:13px;margin-top:2px}
+.door .dtag{margin-left:auto;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--mc-orange);border:1px solid rgba(255,145,0,.4);border-radius:999px;padding:4px 9px;white-space:nowrap}
+
+/* ---------- settings ---------- */
+.settingsgrid{display:grid;grid-template-columns:1fr;gap:24px}
+@media (min-width:768px){.settingsgrid{grid-template-columns:240px 1fr}}
+@media (min-width:1024px){.settingsgrid{grid-template-columns:280px 1fr;gap:32px}}
+.setnav .navitem{font-size:14px}
+.setsec{color:var(--mc-muted);font-size:12px;font-weight:600;padding:14px 10px 4px}
+.setmain h2{font-size:24px;font-weight:400;padding-bottom:8px;border-bottom:1px solid var(--mc-border);margin-bottom:16px}
+.setmain h2.mt{margin-top:32px}
+.field label{display:block;font-weight:600;font-size:14px;margin-bottom:6px}
+.fieldrow{display:flex;gap:8px;flex-wrap:wrap}
+.input{background:var(--mc-field);border:1px solid var(--mc-border);border-radius:var(--mc-radius);
+  color:var(--mc-text);padding:6px 12px;font:inherit;width:100%;max-width:320px}
+
+/* ---------- AI spark ---------- */
+.spark{position:fixed;right:20px;bottom:20px;width:52px;height:52px;border-radius:50%;background:var(--mc-accent-primary);
+  box-shadow:0 6px 20px rgba(99,102,241,.5);display:flex;align-items:center;justify-content:center;z-index:60}
+.spark:hover{box-shadow:0 6px 28px rgba(99,102,241,.78)}
+.spark svg{color:#fff}
+
+/* ============================================================
+   Frameless-window adaptations (Electron) — NOT a redesign.
+   The top bar is the window drag handle; interactive children
+   opt out; the right pad clears the native titleBarOverlay
+   (min/max/close) so nothing sits under the OS controls.
+   ============================================================ */
+.topbar{position:sticky;top:0;z-index:30;background:var(--mc-topbar);
+  padding-right:150px;-webkit-app-region:drag}
+.topbar button,.topbar .searchbox,.topbar input{-webkit-app-region:no-drag}
+
+/* ============================================================
+   Data Viewer module — read-only SQLite browser.
+   ============================================================ */
+.dv-shell{display:flex;height:calc(100vh - 58px);overflow:hidden}
+.dv-rail{width:180px;flex:0 0 180px;border-right:1px solid var(--mc-border);
+  background:var(--mc-panels);display:flex;flex-direction:column;overflow:hidden}
+.dv-rail-head{padding:12px 14px;font-weight:600;font-size:13px;color:var(--mc-muted);
+  border-bottom:1px solid var(--mc-border);display:flex;align-items:center;gap:8px}
+.dv-count{margin-left:auto;font:11px var(--mc-mono);color:var(--mc-muted);
+  border:1px solid var(--mc-border);border-radius:999px;padding:0 7px}
+.dv-tables{flex:1;overflow:auto;padding:6px}
+.dv-tbtn{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:0;
+  background:transparent;color:var(--mc-text);border-radius:var(--mc-radius);cursor:pointer;text-align:left;font-size:13px}
+.dv-tbtn:hover{background:var(--mc-nested)}
+.dv-tbtn.active{background:rgba(99,102,241,.16);font-weight:600}
+.dv-tname{font:13px var(--mc-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dv-trows{margin-left:auto;font:11px var(--mc-mono);color:var(--mc-muted)}
+.dv-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.dv-head{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--mc-border)}
+.dv-title{font-size:14px;color:var(--mc-muted)}
+.dv-title b{color:var(--mc-text);font:600 14px var(--mc-mono)}
+.dv-mode{margin-left:auto;padding:5px 12px;border-radius:999px;border:1px solid var(--mc-border);
+  background:var(--mc-nested);color:var(--mc-muted);font-size:12px;font-weight:600;cursor:pointer}
+.dv-mode.dev{color:#eab308;border-color:#453a07;background:rgba(234,179,8,.08)}
+.dv-grid-wrap{flex:1;overflow:auto}
+.dv-grid{border-collapse:collapse;font:12px var(--mc-mono);min-width:100%}
+.dv-grid th{position:sticky;top:0;background:var(--mc-panels);border-bottom:1px solid var(--mc-border);
+  border-right:1px solid var(--mc-border);padding:5px 9px;text-align:left;white-space:nowrap;z-index:1}
+.dv-th-name{display:block;color:var(--mc-text);font-weight:600}
+.dv-keymark{margin-left:5px;font-size:10px}
+.dv-coltype{display:block;color:var(--mc-muted);font-size:10px;font-weight:400;text-transform:lowercase}
+.dv-grid td{border-bottom:1px solid var(--mc-border);border-right:1px solid var(--mc-border);
+  padding:4px 9px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* uuid-shaped columns (uuid / tenant_id / client_id) — tight cap; full value on hover + in the modal */
+.dv-grid .dv-cap-uuid{max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.dv-grid tbody tr{cursor:pointer}
+.dv-grid tbody tr:hover{background:var(--mc-nested)}
+.dv-grid tbody tr.flash{animation:dv-flash 1.2s ease-out}
+@keyframes dv-flash{0%{background:rgba(99,102,241,.45)}100%{background:transparent}}
+.dv-null{color:var(--mc-muted);font-style:italic}
+.dv-empty,.dv-placeholder{padding:24px;color:var(--mc-muted);text-align:center}
+.dv-pager{display:flex;align-items:center;gap:14px;padding:10px 16px;border-top:1px solid var(--mc-border)}
+.dv-pageinfo{font:12px var(--mc-mono);color:var(--mc-muted)}
+/* record modal */
+.dv-record{max-width:640px;width:90vw;max-height:84vh;display:flex;flex-direction:column}
+.dv-record-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.dv-record-head h3{font-size:16px}
+.dv-record-head h3 b{font:600 16px var(--mc-mono)}
+.dv-record-body{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:4px 0}
+.dv-field{border-bottom:1px solid var(--mc-border);padding-bottom:8px}
+.dv-field-key{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px}
+.dv-field-name{font:600 12px var(--mc-mono);color:var(--mc-text)}
+.dv-badge{font:10px var(--mc-mono);color:var(--mc-muted);border:1px solid var(--mc-border);border-radius:4px;padding:0 5px}
+.dv-badge.pk{color:#eab308;border-color:#453a07}
+.dv-badge.nn{color:#60a5fa;border-color:#1e3a5f}
+.dv-field-val{font:13px var(--mc-mono);color:var(--mc-text);word-break:break-word;white-space:pre-wrap}
+.dv-json{font:11px var(--mc-mono);white-space:pre-wrap}
+.dv-record-foot{border-top:1px solid var(--mc-border);padding-top:10px;margin-top:6px;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.dv-guard{flex:1;min-width:240px;font-size:12px;color:#eab308}
+.dv-readonly{font-size:12px;color:var(--mc-muted)}
+.dv-record-actions{display:flex;gap:8px;margin-left:auto}
+.btn.stop{background:#ef4444;border-color:#ef4444;color:#fff}
+
+/* ============================================================
+   Canon Distributor module — badges, append-only log, toggle, add-card, path line.
+   Ported from the standalone module; structural tokens re-skinned to --mc-*, status
+   colors via --canon-distributor-* (bespoke).
+   ============================================================ */
+.badge{font-size:11px;font-weight:600;padding:2px 9px;border-radius:999px;border:1px solid var(--mc-border);white-space:nowrap}
+.badge.b-ok{color:var(--mc-green);border-color:var(--mc-green)}
+.badge.b-err{color:var(--canon-distributor-error);border-color:var(--canon-distributor-error)}
+.badge.b-pend{color:var(--mc-muted);border-color:var(--mc-border)}
+.log{font:12px/1.9 var(--mc-mono);background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:var(--mc-radius);
+  padding:12px 14px;overflow-x:auto}
+.log .t{color:var(--mc-muted);margin-right:8px}
+.log .ok{color:var(--mc-green);font-weight:600;margin-right:8px}
+.log .rp{color:var(--canon-distributor-replace);font-weight:600;margin-right:8px}
+.log .er{color:var(--canon-distributor-error);font-weight:600;margin-right:8px}
+.log .nk{color:var(--mc-orange);font-weight:600;margin-right:8px}
+.toggle{width:40px;height:22px;border-radius:11px;border:1px solid var(--mc-border);background:var(--mc-nested);
+  position:relative;cursor:pointer;padding:0;flex-shrink:0}
+.toggle.on{background:#22c55e}
+.toggle .knob{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:var(--mc-text);transition:left .15s}
+.toggle.on .knob{left:20px}
+.toggle:disabled{opacity:.45;cursor:not-allowed}
+.addcard{display:flex;flex-direction:column;gap:10px;padding:16px;border:1px dashed var(--mc-border);
+  border-radius:10px}
+.pathline{font:12px var(--mc-mono);color:var(--mc-muted);word-break:break-all}
+/* Distributor spine — source node, trunk line, compact branch rows. --mc-* tokens only. */
+.cd-summary{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.cd-src{display:flex;align-items:center;gap:8px;min-width:0}
+/* padding-right: .cd-trunk is an overflow clipper — without it the last icon (+ its .nb glow)
+   is cut at the edge / sits under the overlay scrollbar */
+.cd-trunk{border-left:2px solid var(--mc-border);margin:6px 0 0 12px;padding:0 10px 0 14px;max-height:60vh;overflow-y:auto}
+.cd-branch{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--mc-border);min-width:0}
+.cd-branch:last-child{border-bottom:none}
+.cd-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.cd-dot.ok{background:var(--mc-green)}
+.cd-dot.pend{background:var(--canon-distributor-pending)}
+.cd-name{font-weight:600;font-size:13px;white-space:nowrap}
+.cd-path{font:12px var(--mc-mono);color:var(--mc-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.cd-chip{font-size:11px;color:var(--mc-muted);border:1px solid var(--mc-border);border-radius:999px;padding:1px 8px;white-space:nowrap;flex-shrink:0}
+.cd-iconbtn{background:none;border:none;color:var(--mc-muted);cursor:pointer;font-size:13px;padding:2px 4px;flex-shrink:0}
+.cd-iconbtn:hover{color:var(--mc-text)}
+
+/* template editor body textarea — themed like .input, taller + monospace */
+.tpl-body{width:100%;min-height:240px;background:var(--mc-field);border:1px solid var(--mc-border);border-radius:var(--mc-radius);
+  color:var(--mc-text);font:13px/1.6 var(--mc-mono);padding:10px 12px;resize:vertical}
+.tpl-body:focus{outline:none;border-color:var(--mc-toggle-on)}
+.tpl-body::placeholder{color:var(--mc-dimmer)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* ============================================================
+   Modals — relocated from the (removed) TimeTracker module CSS so
+   the Data Viewer RecordModal keeps its overlay/modal styling.
+   ============================================================ */
+.overlay { position: fixed; inset: 0; background: rgba(4, 8, 16, .66); display: flex; align-items: center;
+  justify-content: center; z-index: 50; backdrop-filter: blur(2px); }
+.modal { width: 460px; max-width: 92vw; max-height: 90vh; overflow-y: auto; background: var(--mc-panels);
+  border: 1px solid var(--mc-border); border-radius: 14px; padding: 20px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
+.modal h3 { font-size: 16px; font-weight: 800; margin-bottom: 14px; display: flex; align-items: center; gap: 9px; }
+.modal p.desc { font-size: 12.5px; color: var(--mc-muted); line-height: 1.55; margin-bottom: 14px; }
+.modal p.desc b { color: var(--mc-text); }
+
+/* --- First-Run Setup Wizard (full-screen gate rendered before the shell) --- */
+.frw{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:var(--mc-boot-bg)}
+.frw-card{width:440px;max-width:92vw;background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:var(--mc-radius);padding:28px}
+.frw-card h1{font-size:20px;font-weight:700;margin-bottom:4px}
+.frw-sub{color:var(--mc-muted);font-size:13px;margin-bottom:20px}
+.frw-actions{margin-top:18px;display:flex;justify-content:flex-end}
+.frw-err{color:#f87171;font-size:12px;margin-top:8px}
+
+/* --- Boot terminal (Config-as-Data boot mask) --- */
+/* Palette per the runbooks-mvp.html mockup: green base, dimmer blue-gray secondary lines.
+   The JARVIS navy is FIXED in every theme; the native overlay boots in this same navy
+   (OVERLAYS.boot in electron/core/windows.ts — keep in sync). */
+.bootterm{position:fixed;inset:0;z-index:60;background:#0b0e16;color:#10b981;
+  font:13px/1.8 ui-monospace,Consolas,"Cascadia Mono",monospace;padding:34px 38px;overflow:hidden;white-space:pre-wrap;
+  display:flex;flex-direction:column;align-items:center;justify-content:center}
+.bootterm .bt-dim{color:#8ca3c2}
+.bootterm .bt-err{color:#f87171}
+.bootterm .bt-warn{color:var(--mc-orange)}
+
+/* Setting row: label with its control hugging right after it (hint sits below the row) */
+.setrow{display:flex;align-items:center;gap:12px}
+.setrow label{margin-bottom:0}
+
+/* Toggle switch (Settings) */
+.switch{position:relative;width:40px;height:22px;border-radius:11px;background:var(--mc-nested);border:1px solid var(--mc-border);cursor:pointer;padding:0;flex:none}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--mc-muted);box-sizing:border-box;transition:left .15s,background .15s}
+/* on-state: track identical to off; the dot slides and gains a text-token ring (1.c.1) */
+.switch.on::after{left:20px;background:var(--mc-toggle-on);border:1.4px solid var(--mc-muted)}
+
+/* Safe Mode banner — persistent (not dismissible) strip under the top bar */
+.safemode{display:flex;align-items:center;justify-content:center;gap:14px;padding:8px 16px;
+  background:#33230a;color:var(--mc-orange);border-bottom:1px solid #7a4d08;font-size:13px}
+.bt-cursor{display:inline-block;width:8px;height:15px;background:#10b981;vertical-align:text-bottom;animation:bt-blink 1s steps(1) infinite}
+@keyframes bt-blink{50%{opacity:0}}

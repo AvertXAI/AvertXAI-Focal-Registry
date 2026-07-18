@@ -77,6 +77,8 @@ function RunbookShredderMount() {
 // slug → renderer component. A DB row makes a module NAVIGABLE; an entry here makes it REAL.
 // A row with no entry renders the not-built placeholder instead of a dead view.
 const MODULE_COMPONENTS: Record<string, ComponentType> = {
+  scan: NotBuilt, // seeded, not built — plain not-built page (§3.6)
+  rename: NotBuilt, // seeded, not built — plain not-built page (§3.6)
   vault: VaultModule,
   "runbook-shredder": RunbookShredderMount,
   "scout-viewer": ScoutViewerModule,

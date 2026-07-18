@@ -118,11 +118,16 @@ export function initDb(dbPath: string): void {
        VALUES (?, ?, ?, ?, ?, ?, 0, 1)`
     ).run(generateUUIDv7(), tenant, name, slug, type, order);
   };
+  seedModule("Scan", "scan", "tool", 1);
+  seedModule("Rename", "rename", "tool", 2);
   seedModule("Runbook Shredder", "runbook-shredder", "runbook", 3);
   seedModule("Scout Viewer", "scout-viewer", "browser", 4);
   // Row cleanup for gutted modules — idempotent, data-only (no schema change). Existing dev DBs
   // seeded these rows; without this they'd keep rendering in the nav after the module code is gone.
   db.exec("DELETE FROM modules WHERE slug IN ('getscriptclips', 'canon-distributor');");
+  // Display-order normalization for pre-gut DBs (vault was seeded at 2; final order puts it at 5,
+  // after Scan 1 / Rename 2 / Shredder 3 / Scout 4). Idempotent, data-only.
+  db.exec("UPDATE modules SET display_order = 5 WHERE slug = 'vault' AND display_order <> 5;");
 }
 
 export function getDb(): Database.Database {

@@ -140,6 +140,10 @@ function HomeIcon() {
 // All hand-rolled OUTLINE SVGs — NO @fluentui/react-icons (canon RULES-24 bloat rule).
 function moduleIcon(slug: string) {
   switch (slug) {
+    case "scan":
+      return <ScanIcon />;
+    case "rename":
+      return <RenameIcon />;
     case "scout-viewer":
       return <SearchIcon />;
     case "vault":
@@ -148,6 +152,26 @@ function moduleIcon(slug: string) {
     default:
       return <DocIcon />;
   }
+}
+
+// scan — viewfinder corners + scan line outline
+function ScanIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 5V3.2A1.2 1.2 0 0 1 3.2 2H5M11 2h1.8A1.2 1.2 0 0 1 14 3.2V5M14 11v1.8a1.2 1.2 0 0 1-1.2 1.2H11M5 14H3.2A1.2 1.2 0 0 1 2 12.8V11" />
+      <path d="M4.2 8h7.6" />
+    </svg>
+  );
+}
+
+// rename — pencil-over-line outline
+function RenameIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <path d="m9.6 3.4 3 3L6 13l-3.4.4L3 10l6.6-6.6Z" />
+      <path d="m8.4 4.6 3 3M9 14h5" />
+    </svg>
+  );
 }
 
 // runbook-shredder — document outline

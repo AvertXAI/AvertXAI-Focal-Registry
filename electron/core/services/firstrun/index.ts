@@ -47,9 +47,11 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
     const mod = db.prepare(
       "INSERT INTO modules (uuid, tenant_id, name, slug, type, display_order, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?)"
     );
-    mod.run(generateUUIDv7(), orgId, "Secure Vault", "vault", "secrets", 2, 1);
+    mod.run(generateUUIDv7(), orgId, "Scan", "scan", "tool", 1, 0);
+    mod.run(generateUUIDv7(), orgId, "Rename", "rename", "tool", 2, 0);
     mod.run(generateUUIDv7(), orgId, "Runbook Shredder", "runbook-shredder", "runbook", 3, 0);
     mod.run(generateUUIDv7(), orgId, "Scout Viewer", "scout-viewer", "browser", 4, 0);
+    mod.run(generateUUIDv7(), orgId, "Secure Vault", "vault", "secrets", 5, 1);
   })();
 
   addOrg(orgId, "runbooks", name);

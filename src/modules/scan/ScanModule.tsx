@@ -161,6 +161,16 @@ export default function ScanModule() {
     if (activeRunId === null) return;
     try { await window.api.scan.abort(activeRunId); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
+  const pauseRun = async (): Promise<void> => {
+    if (activeRunId === null) return;
+    try { await window.api.scan.pause(activeRunId); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
+  const resumeRun = async (): Promise<void> => {
+    const id = activeRunId ?? progress?.runId;
+    if (id == null) return;
+    try { await window.api.scan.resume(id); startedAt.current = startedAt.current ?? Date.now(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
 
   const viewReport = async (runId: number): Promise<void> => {
     const r = await window.api.scan.openReport(runId);
@@ -212,7 +222,8 @@ export default function ScanModule() {
             {/* RIGHT — stage, chosen by run state (a live run wins over any selection) */}
             <div className="scan-stage">
               {running && (
-                <RunningConsole progress={progress!} pct={pct} elapsed={fmtElapsed(elapsedMs)} log={log} onAbort={abortRun} />
+                <RunningConsole progress={progress!} pct={pct} elapsed={fmtElapsed(elapsedMs)} log={log}
+                  onAbort={abortRun} onPause={pauseRun} onResume={resumeRun} />
               )}
 
               {!running && !selected && <div className="scan-card scan-empty">Select a drive to scan or review.</div>}
@@ -282,9 +293,11 @@ function EstimateCard({ drive, probe, busy, onStart, onAbort }: {
   );
 }
 
-function RunningConsole({ progress, pct, elapsed, log, onAbort }: {
-  progress: ScanProgress; pct: number | null; elapsed: string; log: LogLine[]; onAbort: () => void;
+function RunningConsole({ progress, pct, elapsed, log, onAbort, onPause, onResume }: {
+  progress: ScanProgress; pct: number | null; elapsed: string; log: LogLine[];
+  onAbort: () => void; onPause: () => void; onResume: () => void;
 }) {
+  const paused = progress.status === "paused";
   return (
     <>
       <div className="scan-card" style={{ padding: "16px 20px" }}>
@@ -300,8 +313,11 @@ function RunningConsole({ progress, pct, elapsed, log, onAbort }: {
         </div>
         {pct != null && <div className="scan-bar" style={{ marginTop: 12 }}><div className="scan-fill" style={{ width: `${pct}%` }} /></div>}
         <div className="scan-row" style={{ marginTop: 12 }}>
+          {paused
+            ? <button className="scan-btn go" onClick={onResume}>Resume</button>
+            : <button className="scan-btn ghost" onClick={onPause}>Pause</button>}
           <button className="scan-btn ghost" onClick={onAbort}>Stop</button>
-          <span className="scan-sub" style={{ marginLeft: "auto" }}>Writing as it goes — safe to close{pct != null ? " · % is a rough guide" : ""}</span>
+          <span className="scan-sub" style={{ marginLeft: "auto" }}>{paused ? "Paused — resumes from the last committed folder" : `Writing as it goes — safe to close${pct != null ? " · % is a rough guide" : ""}`}</span>
         </div>
       </div>
       <div className="scan-consolewrap">

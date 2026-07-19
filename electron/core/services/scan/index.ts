@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import exifr from "exifr";
+import { parseFile } from "music-metadata";
 import { generateUUIDv7 } from "../utils/uuidv7";
 import type { Db } from "./db";
 import type { ScanRunRow } from "./drives";
@@ -236,6 +237,47 @@ const EXIF_PICK = [
   "DateTimeOriginal", "DateTimeDigitized", "Make", "Model", "LensModel",
   "ExifImageWidth", "ExifImageHeight", "ImageWidth", "ImageHeight",
 ];
+
+// Media containers (video AND audio, same treatment) — music-metadata (MIT, pure JavaScript),
+// container metadata only: no decode, no frames, no thumbnails, ever. Replaces the GPLv3 ffprobe
+// binary rejected 2026-07-19. Sequential like the EXIF pass: there is no spawn cost to hide, and
+// parallel reads seek-thrash the spinning archive disks this module is pointed at.
+// A file that cannot be parsed is recorded honestly (stage='media' error row, metadata stays NULL,
+// kind stays as classified) — never given a guessed value. Known unsupported formats (AVI, MTS,
+// M2TS, MPG, BRAW, R3D — and MOV until proven) land here by design so the gap is countable.
+async function extractMediaMetadata(files: FileRow[]): Promise<void> {
+  for (const f of files) {
+    if (f.kind !== "video" && f.kind !== "audio") continue;
+    try {
+      const meta = await parseFile(f.path, { duration: true });
+      const fmt = meta.format;
+      const tracks = fmt.trackInfo ?? [];
+      const vTrack = tracks.find((t) => t.video !== undefined);
+      const aTrack = tracks.find((t) => t.audio !== undefined);
+      if (typeof vTrack?.codecName === "string" && vTrack.codecName.trim() !== "") f.videoCodec = vTrack.codecName.trim();
+      if (typeof aTrack?.codecName === "string" && aTrack.codecName.trim() !== "") f.audioCodec = aTrack.codecName.trim();
+      // Pure-audio containers (WAV/MP3/FLAC…) carry the codec at format level, not in trackInfo.
+      if (!f.audioCodec && f.kind === "audio" && typeof fmt.codec === "string") f.audioCodec = fmt.codec;
+      const vT = vTrack?.video;
+      if (typeof vT?.pixelWidth === "number" && vT.pixelWidth > 0) f.width = vT.pixelWidth;
+      if (typeof vT?.pixelHeight === "number" && vT.pixelHeight > 0) f.height = vT.pixelHeight;
+      if (typeof fmt.duration === "number" && fmt.duration > 0) f.durationSeconds = fmt.duration;
+      if (typeof fmt.bitrate === "number" && fmt.bitrate > 0) f.bitrate = Math.round(fmt.bitrate);
+      const c = meta.common;
+      const firstComment = Array.isArray(c.comment) && c.comment.length > 0 ? c.comment[0] : undefined;
+      const commentText = typeof firstComment === "string" ? firstComment : firstComment?.text;
+      const desc = c.description?.[0] ?? commentText;
+      if (typeof desc === "string" && desc.trim() !== "") f.description = desc.trim();
+      const tagDate = c.date ?? c.originaldate ?? (c.year != null ? String(c.year) : undefined);
+      if (typeof tagDate === "string" && tagDate.trim() !== "") f.metadataDate = tagDate.trim();
+      if (!f.metadataDate && fmt.creationTime instanceof Date && !Number.isNaN(fmt.creationTime.getTime())) {
+        f.metadataDate = fmt.creationTime.toISOString();
+      }
+    } catch (e) {
+      f.errors.push({ stage: "media", text: e instanceof Error ? e.message : String(e) });
+    }
+  }
+}
 
 // Sequential by design: archive drives are spinning disks, and per-file header reads are
 // milliseconds — parallel reads would seek-thrash the very hardware this module babies.
@@ -526,6 +568,7 @@ export async function startRun(
         // stays atomic: a committed folder always carries its metadata, a crash mid-extraction
         // loses only the uncommitted folder. Failures become error rows, never aborts.
         await extractStillsMetadata(fileRows);
+        await extractMediaMetadata(fileRows);
         commitFolder(node.dir, node.depth, node.parent, fileRows);
         progress(); // folder-level, never per-file
       }

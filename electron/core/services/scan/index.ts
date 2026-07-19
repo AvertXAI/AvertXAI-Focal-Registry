@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import exifr from "exifr";
 import { parseFile } from "music-metadata";
+import { readIsoBmffGeometry } from "./isobmff-reader";
 import { generateUUIDv7 } from "../utils/uuidv7";
 import type { Db } from "./db";
 import type { ScanRunRow } from "./drives";
@@ -229,8 +230,16 @@ interface FileRow {
   durationSeconds: number | null;
   description: string | null;
   metadataDate: string | null;
+  displayWidth: number | null;
+  displayHeight: number | null;
+  rotation: number | null;
+  bitrateSource: string | null; // 'btrt' | 'esds' | 'computed' — provenance, never conflated
   errors: Array<{ stage: string; text: string }>; // become scan_errors rows in the same tx
 }
+
+/** The SECOND engine's jurisdiction — ISO base-media containers only. music-metadata stays the
+    first engine and keeps codec/duration/tags ownership; isobmff fills what it leaves null. */
+const ISO_BMFF_EXTS = new Set(["mp4", "mov", "m4v", "3gp"]);
 
 // EXIF fields read — header tags only; exifr does chunked header reads and NEVER decodes pixels.
 const EXIF_PICK = [
@@ -254,10 +263,10 @@ async function extractMediaMetadata(files: FileRow[]): Promise<void> {
       const tracks = fmt.trackInfo ?? [];
       // Unrecognized bytes do NOT throw — parseFile resolves with an empty shell. Emptiness IS the
       // failure signal: record it honestly as an error row, never as a silently-blank media row.
+      // No `continue`: the isobmff second engine below still gets its chance at the file.
       if (fmt.container === undefined && fmt.codec === undefined && tracks.length === 0 && !(typeof fmt.duration === "number" && fmt.duration > 0)) {
         f.errors.push({ stage: "media", text: "unrecognized or unreadable media container (no metadata extracted)" });
-        continue;
-      }
+      } else {
       // ISO-BMFF quirk (probed 2026-07-19): music-metadata types EVERY MP4/MOV track as audio and
       // wraps raw stsd fourccs in angle brackets — classify video tracks by fourcc, not by t.video
       // (that field is populated for Matroska only, where it also carries pixel dimensions).
@@ -291,8 +300,35 @@ async function extractMediaMetadata(files: FileRow[]): Promise<void> {
       if (!f.metadataDate && fmt.creationTime instanceof Date && !Number.isNaN(fmt.creationTime.getTime())) {
         f.metadataDate = fmt.creationTime.toISOString();
       }
+      }
     } catch (e) {
       f.errors.push({ stage: "media", text: e instanceof Error ? e.message : String(e) });
+    }
+
+    // SECOND ENGINE — isobmff geometry (mp4/mov/m4v/3gp only). MERGE, NEVER OVERWRITE:
+    // music-metadata keeps ownership of codec, duration, tags, and dates; isobmff fills only
+    // what it left null or zero, and owns the new display/rotation/bitrate-source fields
+    // outright. A null return is a legitimate unreadable-format outcome — NOT an error row;
+    // an error row is written only if the reader throws, which its contract forbids.
+    if (ISO_BMFF_EXTS.has(f.extension.toLowerCase())) {
+      try {
+        const g = readIsoBmffGeometry(f.path);
+        if (g !== null) {
+          if ((f.width === null || f.width === 0) && g.encodedWidth !== null) f.width = g.encodedWidth;
+          if ((f.height === null || f.height === 0) && g.encodedHeight !== null) f.height = g.encodedHeight;
+          if ((f.bitrate === null || f.bitrate === 0) && g.bitrate !== null) {
+            f.bitrate = g.bitrate;
+            f.bitrateSource = g.bitrateSource; // 'btrt' | 'esds' | 'computed', verbatim — never conflated
+          }
+          if (f.videoCodec === null && g.videoFourCharacterCode !== null) f.videoCodec = g.videoFourCharacterCode;
+          if (f.durationSeconds === null && g.durationSeconds !== null) f.durationSeconds = g.durationSeconds;
+          f.displayWidth = g.displayWidth;
+          f.displayHeight = g.displayHeight;
+          f.rotation = g.rotation;
+        }
+      } catch (e) {
+        f.errors.push({ stage: "media", text: `isobmff reader threw unexpectedly: ${e instanceof Error ? e.message : String(e)}` });
+      }
     }
   }
 }
@@ -427,8 +463,9 @@ export async function startRun(
   const insFile = db.prepare(
     `INSERT INTO scan_files (uuid, org_id, run_id, folder_id, path, filename, extension, size_bytes, kind,
        captured_at, captured_at_source, camera_make, camera_model, lens, width, height, original_filename,
-       video_codec, audio_codec, bitrate, duration_seconds, description, metadata_date)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       video_codec, audio_codec, bitrate, duration_seconds, description, metadata_date,
+       display_width, display_height, rotation, bitrate_source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const bumpRun = db.prepare(
     `UPDATE scan_runs SET folders_committed = folders_committed + 1, files_recorded = files_recorded + ?,
@@ -478,7 +515,8 @@ export async function startRun(
         insFile.run(
           generateUUIDv7(), orgId, runId, folderId, f.path, f.filename, f.extension, f.sizeBytes, f.kind,
           f.capturedAt, f.capturedAtSource, f.cameraMake, f.cameraModel, f.lens, f.width, f.height,
-          f.originalFilename, f.videoCodec, f.audioCodec, f.bitrate, f.durationSeconds, f.description, f.metadataDate
+          f.originalFilename, f.videoCodec, f.audioCodec, f.bitrate, f.durationSeconds, f.description, f.metadataDate,
+          f.displayWidth, f.displayHeight, f.rotation, f.bitrateSource
         );
         for (const err of f.errors) {
           insError.run(generateUUIDv7(), orgId, runId, f.path, f.extension, err.stage, err.text);
@@ -562,6 +600,7 @@ export async function startRun(
             cameraModel: null, lens: null, width: null, height: null, originalFilename: null,
             videoCodec: null, audioCodec: null, bitrate: null, durationSeconds: null,
             description: null, metadataDate: null,
+            displayWidth: null, displayHeight: null, rotation: null, bitrateSource: null,
           };
           try {
             const st = fs.lstatSync(full);

@@ -6,6 +6,16 @@ import type { ModuleRow } from "../shared/types";
 import { Database } from "../icons";
 import { bumpRender } from "../diag";
 
+// Card copy per module slug — presentation only (the modules table drives nav, not marketing copy;
+// same precedent as the hardcoded Data Viewer card). Unknown slugs fall back to "<type> module."
+const CARD_COPY: Record<string, string> = {
+  scan: "Backup drive scanner — gives you a blueprint of what's inside your folders.",
+  rename: "A tool that adds a custom filename on top of your existing filenames, per file.",
+  "runbook-shredder": "Keep your notes locally, encrypted.",
+  "scout-viewer": "An encrypted web-based browser with custom tools, meant for data extraction and AI automations.",
+  vault: "AES-256 encrypted vault that holds secrets, passwords and private notes. Includes a custom password generator, easy for the user.",
+};
+
 export default function Home({ onNavigate, modules }: { onNavigate: (v: View) => void; modules: ModuleRow[] }) {
   bumpRender("home"); // DIAG-2
   return (
@@ -30,7 +40,7 @@ export default function Home({ onNavigate, modules }: { onNavigate: (v: View) =>
                   <Database />
                   <span className="name">{m.name}</span>
                 </div>
-                <p>{m.type} module.</p>
+                <p>{CARD_COPY[m.slug] ?? `${m.type} module.`}</p>
                 <span className="pill docked">Docked</span>
               </div>
             ))}

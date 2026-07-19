@@ -102,3 +102,10 @@ Canon governs until Jason rules. Never edit or reorder existing entries — appe
 **Evidence:** repo CLAUDE.md Part 0, §2.10–2.12; `electron/core/services/db/migrate.ts` (+ proof run 2026-07-19); `electron/core/services/scan/crash-test.ts` (+ proof runs 2026-07-18/19).
 **Suggestion:** promote the licence gate, size gate, and bootstrap protocol to RULES (they are operation-wide, not repo-specific); record the migration and crash-proof patterns as standing engineering patterns.
 **Severity:** worth-fixing
+
+## [STALE] 2026-07-19 — the ISO-BMFF bitrate/dimensions GAP entry above is RESOLVED
+**Canon says:** (this ledger, earlier today) bitrate, width, and height are not deliverable for MP4/MOV — box walker suggested.
+**Reality:** the walker shipped: `isobmff.ts` (parser, commit `5b64441`) + `isobmff-reader.ts` (positioned moov reader) wired as a second engine after music-metadata on branch `feature/isobmff-geometry` (`4cc64c7`…`e94166d`). Verified against a system ffprobe as a local instrument on real encoder fixtures: encoded dims exact, rotation 270=270, duration to the millisecond; synthetic crash-test now 85/85 on all twelve media fields; negatives return NULL without throwing. Real CANON-BODY .MOV proof still pending Jason's fixture files.
+**Evidence:** REPORT-isobmff-wiring-2026-07-19.md (verifier table + fixtures-mode + crash-sequence outputs).
+**Suggestion:** fold into the next FR-STATUS rotation; the open remainder is Canon-body fixtures + the merge-priority question (music-metadata's MP4 `bitrate` is the audio stream's and currently beats the container value under merge-never-overwrite).
+**Severity:** cosmetic (bookkeeping — the gap itself is closed)

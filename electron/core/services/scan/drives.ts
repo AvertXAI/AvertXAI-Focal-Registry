@@ -1,0 +1,161 @@
+// -----------------------------------------------------------
+// Author: Jason Cruz
+// Copyright: (c) 2026 AvertXAI. All Rights Reserved.
+// Project: AvertXAI Focal Registry
+// Description: Drive enumeration + identity. The VOLUME SERIAL is the drive's identity, never the
+//              letter — a drive that comes back as J: instead of G: is still the same drive.
+//              Enumeration shells out to PowerShell CIM (Win32_LogicalDisk) — stdlib only, no npm
+//              dependency. The double-scan guard returns a DECISION AS DATA; the service never
+//              decides for the user.
+// License: Proprietary / Unauthorized copying of this file is strictly prohibited
+// File: electron/core/services/scan/drives.ts
+//------------------------------------------------------------
+import { spawnSync } from "node:child_process";
+import path from "node:path";
+import type { Db } from "./db";
+
+export interface ScanVolume {
+  letter: string; // "D:"
+  label: string;
+  filesystem: string;
+  totalBytes: number;
+  freeBytes: number;
+  serial: string; // hex volume serial — the identity key
+}
+
+export interface ScanDriveRow {
+  id: number;
+  uuid: string;
+  org_id: string;
+  volume_serial: string;
+  volume_label: string | null;
+  filesystem: string | null;
+  total_bytes: number | null;
+  free_bytes: number | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  last_scanned_at: string | null;
+}
+
+export interface ScanRunRow {
+  id: number;
+  uuid: string;
+  org_id: string;
+  drive_id: number | null;
+  root_path: string;
+  status: string;
+  scan_unit: string;
+  started_at: string | null;
+  finished_at: string | null;
+  probe_folders_sampled: number | null;
+  probe_files_found: number | null;
+  estimated_files: number | null;
+  estimated_seconds: number | null;
+  folders_committed: number;
+  files_recorded: number;
+  errors_logged: number;
+  resume_cursor: string | null;
+  report_path: string | null;
+}
+
+/** The double-scan guard's answer — data only, the UI owns the choice. */
+export interface SourceDecision {
+  decision: "proceed" | "offer-resume" | "already-scanned";
+  drive: ScanDriveRow;
+  rootPath: string;
+  scanUnit: "drive" | "folder";
+  /** Present when decision is "offer-resume" — the crashed run to resume. */
+  crashedRun?: ScanRunRow;
+  /** Present when decision is "already-scanned" — the completed run behind
+      Open existing report / Rescan anyway / Scan a subfolder only. */
+  completedRun?: ScanRunRow;
+}
+
+// Win32_LogicalDisk via PowerShell CIM — verified 2026-07-18: returns DeviceID/VolumeName/
+// FileSystem/Size/FreeSpace/VolumeSerialNumber for every attached volume. ConvertTo-Json emits an
+// object (one drive) or an array (many) — normalize both.
+export function listVolumes(): ScanVolume[] {
+  const r = spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, VolumeName, FileSystem, Size, FreeSpace, VolumeSerialNumber | ConvertTo-Json -Compress",
+    ],
+    { encoding: "utf8", windowsHide: true, timeout: 15_000 }
+  );
+  if (r.status !== 0 || !r.stdout) throw new Error(`volume enumeration failed: ${r.stderr || r.status}`);
+  const parsed: unknown = JSON.parse(r.stdout);
+  const rows = (Array.isArray(parsed) ? parsed : [parsed]) as Array<Record<string, unknown>>;
+  return rows
+    .filter((d) => typeof d.DeviceID === "string" && typeof d.VolumeSerialNumber === "string")
+    .map((d) => ({
+      letter: d.DeviceID as string,
+      label: (d.VolumeName as string) ?? "",
+      filesystem: (d.FileSystem as string) ?? "",
+      totalBytes: Number(d.Size) || 0,
+      freeBytes: Number(d.FreeSpace) || 0,
+      serial: d.VolumeSerialNumber as string,
+    }));
+}
+
+/** The volume a path lives on, by drive letter root. Throws if the letter is not attached. */
+export function volumeForPath(p: string): ScanVolume {
+  const root = path.parse(path.resolve(p)).root; // "D:\"
+  const letter = root.slice(0, 2).toUpperCase(); // "D:"
+  const vol = listVolumes().find((v) => v.letter.toUpperCase() === letter);
+  if (!vol) throw new Error(`no attached volume for path ${p} (looked for ${letter})`);
+  return vol;
+}
+
+// Resolve a live volume to its scan_drives identity row: insert on first sight, refresh
+// label/filesystem/sizes + last_seen_at on every later sight. Serial is the key, never the letter.
+export function resolveDrive(db: Db, orgId: string, vol: ScanVolume, uuid: () => string): ScanDriveRow {
+  const existing = db
+    .prepare("SELECT * FROM scan_drives WHERE org_id = ? AND volume_serial = ?")
+    .get(orgId, vol.serial) as ScanDriveRow | undefined;
+  if (existing) {
+    db.prepare(
+      `UPDATE scan_drives SET volume_label = ?, filesystem = ?, total_bytes = ?, free_bytes = ?,
+       last_seen_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+    ).run(vol.label, vol.filesystem, vol.totalBytes, vol.freeBytes, existing.id);
+  } else {
+    db.prepare(
+      `INSERT INTO scan_drives (uuid, org_id, volume_serial, volume_label, filesystem, total_bytes,
+       free_bytes, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
+    ).run(uuid(), orgId, vol.serial, vol.label, vol.filesystem, vol.totalBytes, vol.freeBytes);
+  }
+  return db
+    .prepare("SELECT * FROM scan_drives WHERE org_id = ? AND volume_serial = ?")
+    .get(orgId, vol.serial) as ScanDriveRow;
+}
+
+// The double-scan guard. Serial unknown → proceed. Crashed run on this drive → offer resume.
+// Completed run → already-scanned (never silently rescan a drive the user already paid hours for).
+// Returned as data — the renderer presents the choice, this service never decides.
+export function selectSource(
+  db: Db,
+  orgId: string,
+  rootPath: string,
+  scanUnit: "drive" | "folder",
+  uuid: () => string
+): SourceDecision {
+  const vol = volumeForPath(rootPath);
+  const known = db
+    .prepare("SELECT id FROM scan_drives WHERE org_id = ? AND volume_serial = ?")
+    .get(orgId, vol.serial) as { id: number } | undefined;
+  const drive = resolveDrive(db, orgId, vol, uuid);
+  if (!known) return { decision: "proceed", drive, rootPath, scanUnit };
+
+  const runFor = (status: string): ScanRunRow | undefined =>
+    db
+      .prepare("SELECT * FROM scan_runs WHERE org_id = ? AND drive_id = ? AND status = ? ORDER BY id DESC LIMIT 1")
+      .get(orgId, drive.id, status) as ScanRunRow | undefined;
+
+  const completed = runFor("completed");
+  if (completed) return { decision: "already-scanned", drive, rootPath, scanUnit, completedRun: completed };
+  const crashed = runFor("crashed");
+  if (crashed) return { decision: "offer-resume", drive, rootPath, scanUnit, crashedRun: crashed };
+  return { decision: "proceed", drive, rootPath, scanUnit };
+}

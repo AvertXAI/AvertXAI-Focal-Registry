@@ -40,13 +40,93 @@ function testDrive(db: Db): number {
   return Number(info.lastInsertRowid);
 }
 
+// ---- real-media synthesis (Phase 5): metadata extraction must be provable, so the tree holds
+// files with genuine parseable headers — never a real archive, never touched after creation. ----
+
+// Minimal little-endian TIFF with IFD0 (Make, Model, ExifIFD pointer) and an Exif IFD
+// (DateTimeOriginal, PixelXDimension, PixelYDimension, LensModel). This IS what sits inside a
+// JPEG APP1 segment — and a bare TIFF like this is also structurally what a CR2 container is.
+function buildExifTiff(make: string, model: string, lens: string, dto: string, w: number, h: number): Buffer {
+  const buf = Buffer.alloc(512);
+  buf.write("II", 0, "ascii");
+  buf.writeUInt16LE(0x2a, 2);
+  buf.writeUInt32LE(8, 4); // IFD0 at offset 8
+  let dataOff = 104; // after IFD0 (8+42=50) and ExifIFD (50+54=104)
+  const putString = (s: string): { off: number; len: number } => {
+    const len = s.length + 1;
+    buf.write(s, dataOff, "ascii");
+    const off = dataOff;
+    dataOff += len;
+    return { off, len };
+  };
+  const entry = (at: number, tag: number, type: number, count: number, value: number): void => {
+    buf.writeUInt16LE(tag, at);
+    buf.writeUInt16LE(type, at + 2);
+    buf.writeUInt32LE(count, at + 4);
+    buf.writeUInt32LE(value, at + 8);
+  };
+  // IFD0: 3 entries, ascending tag order
+  buf.writeUInt16LE(3, 8);
+  const mk = putString(make);
+  entry(10, 0x010f, 2, mk.len, mk.off); // Make (ASCII, offset)
+  const md = putString(model);
+  entry(22, 0x0110, 2, md.len, md.off); // Model
+  entry(34, 0x8769, 4, 1, 50); // ExifIFD pointer -> offset 50
+  buf.writeUInt32LE(0, 46); // next IFD = none
+  // Exif IFD: 4 entries
+  buf.writeUInt16LE(4, 50);
+  const dt = putString(dto); // "YYYY:MM:DD HH:MM:SS"
+  entry(52, 0x9003, 2, dt.len, dt.off); // DateTimeOriginal
+  entry(64, 0xa002, 4, 1, w); // PixelXDimension (LONG inline)
+  entry(76, 0xa003, 4, 1, h); // PixelYDimension
+  const ln = putString(lens);
+  entry(88, 0xa434, 2, ln.len, ln.off); // LensModel
+  buf.writeUInt32LE(0, 100); // next IFD = none
+  return buf.subarray(0, dataOff);
+}
+
+function buildJpegWithExif(tiff: Buffer): Buffer {
+  const app1Body = Buffer.concat([Buffer.from("Exif\0\0", "ascii"), tiff]);
+  const app1 = Buffer.alloc(4);
+  app1.writeUInt16BE(0xffe1, 0);
+  app1.writeUInt16BE(app1Body.length + 2, 2); // segment length includes the length field
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), app1, app1Body, Buffer.from([0xff, 0xd9])]);
+}
+
+// One second of silent 16-bit mono PCM at 8 kHz — a fully valid WAV ffprobe reads happily.
+function buildWav(): Buffer {
+  const dataLen = 16000;
+  const buf = Buffer.alloc(44 + dataLen);
+  buf.write("RIFF", 0, "ascii");
+  buf.writeUInt32LE(36 + dataLen, 4);
+  buf.write("WAVE", 8, "ascii");
+  buf.write("fmt ", 12, "ascii");
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20); // PCM
+  buf.writeUInt16LE(1, 22); // mono
+  buf.writeUInt32LE(8000, 24); // sample rate
+  buf.writeUInt32LE(16000, 28); // byte rate
+  buf.writeUInt16LE(2, 32); // block align
+  buf.writeUInt16LE(16, 34); // bits
+  buf.write("data", 36, "ascii");
+  buf.writeUInt32LE(dataLen, 40);
+  return buf;
+}
+
 // Deterministic synthetic tree: root + 4 top dirs x 5 subdirs x 3 leaf dirs = 84 dirs (+root),
-// 5 files each level = 425 files. Throwaway, in temp — NEVER a real archive.
+// 5 files each level = 425 files. Per folder: a real EXIF JPEG, a real CR2-shaped TIFF, a valid
+// WAV, a garbage .mp4 (exercises the ffprobe FAILURE path), and a plain .txt.
 function buildTree(root: string): void {
   fs.rmSync(root, { recursive: true, force: true });
-  const exts = ["jpg", "mp4", "txt", "cr2", "wav"];
+  const tiff = buildExifTiff("Canon", "Canon EOS R5", "RF24-70mm F2.8 L IS USM", "2019:06:15 10:30:00", 640, 480);
+  const jpeg = buildJpegWithExif(tiff);
+  const wav = buildWav();
   const writeFiles = (dir: string): void => {
-    for (let f = 0; f < 5; f++) fs.writeFileSync(path.join(dir, `f${f}.${exts[f]}`), `synthetic ${f}`);
+    fs.writeFileSync(path.join(dir, "f0.jpg"), jpeg);
+    fs.writeFileSync(path.join(dir, "f1.wav"), wav);
+    fs.writeFileSync(path.join(dir, "f2.txt"), "synthetic text");
+    fs.writeFileSync(path.join(dir, "f3.cr2"), tiff);
+    fs.writeFileSync(path.join(dir, "f4.mp4"), "definitely not an mp4"); // ffprobe must fail, run must continue
   };
   fs.mkdirSync(root, { recursive: true });
   writeFiles(root);
@@ -74,6 +154,15 @@ interface Counts {
   orphanFiles: number;
   rollupMismatches: number;
   cursorCommitted: boolean | null;
+  // Phase 5 — metadata must exist on every COMMITTED row, or extraction ran outside the tx.
+  imageRows: number;
+  imagesWithExifSource: number; // must equal imageRows (every synthetic image carries EXIF)
+  audioRows: number;
+  audioWithCodec: number; // must equal audioRows (real WAVs)
+  videoRows: number;
+  ffprobeErrorRows: number; // must equal folderRows (one garbage .mp4 per folder)
+  foldersWithTopCamera: number; // must equal folderRows
+  foldersMissingImageMeta: number; // committed folders holding an image row without EXIF-sourced date — must be 0
 }
 function counts(db: Db, runId?: number): Counts {
   const runs = db
@@ -98,6 +187,24 @@ function counts(db: Db, runId?: number): Counts {
       cursor === null
         ? null
         : db.prepare("SELECT 1 FROM scan_folders WHERE run_id = ? AND path = ?").get(run, cursor) !== undefined,
+    imageRows: one<number>("SELECT COUNT(*) AS n FROM scan_files WHERE run_id = ? AND kind = 'image'", run),
+    imagesWithExifSource: one<number>(
+      "SELECT COUNT(*) AS n FROM scan_files WHERE run_id = ? AND kind = 'image' AND captured_at_source = 'exif' AND camera_model IS NOT NULL",
+      run
+    ),
+    audioRows: one<number>("SELECT COUNT(*) AS n FROM scan_files WHERE run_id = ? AND kind = 'audio'", run),
+    audioWithCodec: one<number>(
+      "SELECT COUNT(*) AS n FROM scan_files WHERE run_id = ? AND kind = 'audio' AND audio_codec IS NOT NULL AND duration_seconds IS NOT NULL",
+      run
+    ),
+    videoRows: one<number>("SELECT COUNT(*) AS n FROM scan_files WHERE run_id = ? AND kind = 'video'", run),
+    ffprobeErrorRows: one<number>("SELECT COUNT(*) AS n FROM scan_errors WHERE run_id = ? AND stage = 'ffprobe'", run),
+    foldersWithTopCamera: one<number>("SELECT COUNT(*) AS n FROM scan_folders WHERE run_id = ? AND top_camera IS NOT NULL", run),
+    foldersMissingImageMeta: one<number>(
+      `SELECT COUNT(*) AS n FROM scan_folders fo WHERE fo.run_id = ? AND EXISTS (
+         SELECT 1 FROM scan_files fi WHERE fi.folder_id = fo.id AND fi.kind = 'image' AND fi.captured_at_source <> 'exif')`,
+      run
+    ),
   };
 }
 

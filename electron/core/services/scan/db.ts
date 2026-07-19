@@ -115,7 +115,7 @@ export function ensureScanSchema(db: Db): void {
     "run_id INTEGER NOT NULL",
     "path TEXT",
     "extension TEXT",
-    "stage TEXT", // 'stat' | 'exif' | 'ffprobe' | 'write'
+    "stage TEXT", // 'stat' | 'exif' | 'media' | 'write' ('ffprobe' only in rows written before the 2026-07-19 GPLv3 rejection)
     "error_text TEXT",
     "occurred_at DATETIME",
   ]);

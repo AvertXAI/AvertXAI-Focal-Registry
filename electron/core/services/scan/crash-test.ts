@@ -93,7 +93,7 @@ function buildJpegWithExif(tiff: Buffer): Buffer {
   return Buffer.concat([Buffer.from([0xff, 0xd8]), app1, app1Body, Buffer.from([0xff, 0xd9])]);
 }
 
-// One second of silent 16-bit mono PCM at 8 kHz — a fully valid WAV ffprobe reads happily.
+// One second of silent 16-bit mono PCM at 8 kHz — a fully valid WAV any container parser reads.
 function buildWav(): Buffer {
   const dataLen = 16000;
   const buf = Buffer.alloc(44 + dataLen);
@@ -115,7 +115,7 @@ function buildWav(): Buffer {
 
 // Deterministic synthetic tree: root + 4 top dirs x 5 subdirs x 3 leaf dirs = 84 dirs (+root),
 // 5 files each level = 425 files. Per folder: a real EXIF JPEG, a real CR2-shaped TIFF, a valid
-// WAV, a garbage .mp4 (exercises the ffprobe FAILURE path), and a plain .txt.
+// WAV, a garbage .mp4 (exercises the media-parse FAILURE path), and a plain .txt.
 function buildTree(root: string): void {
   fs.rmSync(root, { recursive: true, force: true });
   const tiff = buildExifTiff("Canon", "Canon EOS R5", "RF24-70mm F2.8 L IS USM", "2019:06:15 10:30:00", 640, 480);
@@ -126,7 +126,7 @@ function buildTree(root: string): void {
     fs.writeFileSync(path.join(dir, "f1.wav"), wav);
     fs.writeFileSync(path.join(dir, "f2.txt"), "synthetic text");
     fs.writeFileSync(path.join(dir, "f3.cr2"), tiff);
-    fs.writeFileSync(path.join(dir, "f4.mp4"), "definitely not an mp4"); // ffprobe must fail, run must continue
+    fs.writeFileSync(path.join(dir, "f4.mp4"), "definitely not an mp4"); // media parse must fail, run must continue
   };
   fs.mkdirSync(root, { recursive: true });
   writeFiles(root);
@@ -160,7 +160,7 @@ interface Counts {
   audioRows: number;
   audioWithCodec: number; // must equal audioRows (real WAVs)
   videoRows: number;
-  ffprobeErrorRows: number; // must equal folderRows (one garbage .mp4 per folder)
+  mediaErrorRows: number; // must equal folderRows (one garbage .mp4 per folder)
   foldersWithTopCamera: number; // must equal folderRows
   foldersMissingImageMeta: number; // committed folders holding an image row without EXIF-sourced date — must be 0
 }
@@ -198,7 +198,7 @@ function counts(db: Db, runId?: number): Counts {
       run
     ),
     videoRows: one<number>("SELECT COUNT(*) AS n FROM scan_files WHERE run_id = ? AND kind = 'video'", run),
-    ffprobeErrorRows: one<number>("SELECT COUNT(*) AS n FROM scan_errors WHERE run_id = ? AND stage = 'ffprobe'", run),
+    mediaErrorRows: one<number>("SELECT COUNT(*) AS n FROM scan_errors WHERE run_id = ? AND stage = 'media'", run),
     foldersWithTopCamera: one<number>("SELECT COUNT(*) AS n FROM scan_folders WHERE run_id = ? AND top_camera IS NOT NULL", run),
     foldersMissingImageMeta: one<number>(
       `SELECT COUNT(*) AS n FROM scan_folders fo WHERE fo.run_id = ? AND EXISTS (

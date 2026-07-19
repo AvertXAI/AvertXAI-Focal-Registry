@@ -93,6 +93,62 @@ function buildJpegWithExif(tiff: Buffer): Buffer {
   return Buffer.concat([Buffer.from([0xff, 0xd8]), app1, app1Body, Buffer.from([0xff, 0xd9])]);
 }
 
+// ---- minimal valid ISO base-media (MP4 / MOV) — hand-crafted box tree: ftyp + moov(mvhd,
+// trak-video(avc1+avcC), trak-audio(mp4a+esds)) + mdat. 640x480, 2 seconds, AAC-LC 8 kHz mono.
+// The .mov variant differs ONLY in the ftyp major brand ('qt  ') — THE deciding assertion:
+// a valid MP4 proves ISO-BMFF parsing, it does NOT prove QuickTime branding parses. Synthetic
+// (no real camera file on this machine) — reported as such.
+const u16 = (n: number): Buffer => { const b = Buffer.alloc(2); b.writeUInt16BE(n); return b; };
+const u32 = (n: number): Buffer => { const b = Buffer.alloc(4); b.writeUInt32BE(n); return b; };
+const zeros = (n: number): Buffer => Buffer.alloc(n);
+const latin = (s: string): Buffer => Buffer.from(s, "latin1");
+function bmffBox(type: string, ...payloads: Buffer[]): Buffer {
+  const body = Buffer.concat(payloads);
+  return Buffer.concat([u32(body.length + 8), latin(type), body]);
+}
+function bmffFullBox(type: string, version: number, flags: number, ...payloads: Buffer[]): Buffer {
+  const vf = Buffer.alloc(4);
+  vf.writeUInt8(version, 0);
+  vf.writeUIntBE(flags, 1, 3);
+  return bmffBox(type, vf, ...payloads);
+}
+const BMFF_MATRIX = Buffer.concat([u32(0x10000), u32(0), u32(0), u32(0), u32(0x10000), u32(0), u32(0), u32(0), u32(0x40000000)]);
+const emptyStbl = (stsd: Buffer): Buffer =>
+  bmffBox("stbl", stsd,
+    bmffFullBox("stts", 0, 0, u32(0)), bmffFullBox("stsc", 0, 0, u32(0)),
+    bmffFullBox("stsz", 0, 0, u32(0), u32(0)), bmffFullBox("stco", 0, 0, u32(0)));
+const bmffDinf = (): Buffer => bmffBox("dinf", bmffFullBox("dref", 0, 0, u32(1), bmffFullBox("url ", 0, 1)));
+
+function buildIsoBmff(majorBrand: string): Buffer {
+  const compat = majorBrand === "qt  " ? latin("qt  ") : latin("isomiso2avc1mp41");
+  const ftyp = bmffBox("ftyp", latin(majorBrand), u32(0x200), compat);
+  const mvhd = bmffFullBox("mvhd", 0, 0, u32(0), u32(0), u32(1000), u32(2000), u32(0x10000), u16(0x100), u16(0), zeros(8), BMFF_MATRIX, zeros(24), u32(3));
+  // video track — avc1 with a minimal avcC (0 SPS / 0 PPS)
+  const tkhdV = bmffFullBox("tkhd", 0, 3, u32(0), u32(0), u32(1), u32(0), u32(2000), zeros(8), u16(0), u16(0), u16(0), u16(0), BMFF_MATRIX, u32(640 << 16), u32(480 << 16));
+  const mdhdV = bmffFullBox("mdhd", 0, 0, u32(0), u32(0), u32(1000), u32(2000), u16(0x55c4), u16(0));
+  const hdlrV = bmffFullBox("hdlr", 0, 0, u32(0), latin("vide"), zeros(12), latin("VideoHandler\0"));
+  const avcC = bmffBox("avcC", Buffer.from([1, 0x42, 0x00, 0x1e, 0xff, 0xe0, 0x00]));
+  const avc1 = bmffBox("avc1", zeros(6), u16(1), u16(0), u16(0), zeros(12), u16(640), u16(480), u32(0x480000), u32(0x480000), u32(0), u16(1), zeros(32), u16(0x18), u16(0xffff), avcC);
+  const minfV = bmffBox("minf", bmffFullBox("vmhd", 0, 1, u16(0), zeros(6)), bmffDinf(), emptyStbl(bmffFullBox("stsd", 0, 0, u32(1), avc1)));
+  const trakV = bmffBox("trak", tkhdV, bmffBox("mdia", mdhdV, hdlrV, minfV));
+  // audio track — mp4a with a minimal esds (AAC-LC, 8 kHz, mono)
+  const tkhdA = bmffFullBox("tkhd", 0, 3, u32(0), u32(0), u32(2), u32(0), u32(2000), zeros(8), u16(0), u16(0), u16(0x100), u16(0), BMFF_MATRIX, u32(0), u32(0));
+  const mdhdA = bmffFullBox("mdhd", 0, 0, u32(0), u32(0), u32(8000), u32(16000), u16(0x55c4), u16(0));
+  const hdlrA = bmffFullBox("hdlr", 0, 0, u32(0), latin("soun"), zeros(12), latin("SoundHandler\0"));
+  const esds = bmffFullBox("esds", 0, 0, Buffer.concat([
+    Buffer.from([3, 25]), u16(0), Buffer.from([0]), // ES_Descriptor: ES_ID, flags
+    Buffer.from([4, 17, 0x40, 0x15, 0, 0, 0]), u32(128000), u32(128000), // DecoderConfig: AAC, audio, buffers, bitrates
+    Buffer.from([5, 2, 0x15, 0x88]), // DecSpecificInfo: AAC-LC, 8 kHz, mono
+    Buffer.from([6, 1, 2]), // SLConfig
+  ]));
+  const mp4a = bmffBox("mp4a", zeros(6), u16(1), u16(0), u16(0), u32(0), u16(1), u16(16), u16(0), u16(0), u32(8000 << 16), esds);
+  const minfA = bmffBox("minf", bmffFullBox("smhd", 0, 0, u16(0), u16(0)), bmffDinf(), emptyStbl(bmffFullBox("stsd", 0, 0, u32(1), mp4a)));
+  const trakA = bmffBox("trak", tkhdA, bmffBox("mdia", mdhdA, hdlrA, minfA));
+  const moov = bmffBox("moov", mvhd, trakV, trakA);
+  const mdat = bmffBox("mdat", zeros(32000)); // ~32 KB over 2 s so size-derived bitrate math has substance
+  return Buffer.concat([ftyp, moov, mdat]);
+}
+
 // One second of silent 16-bit mono PCM at 8 kHz — a fully valid WAV any container parser reads.
 function buildWav(): Buffer {
   const dataLen = 16000;
@@ -114,19 +170,24 @@ function buildWav(): Buffer {
 }
 
 // Deterministic synthetic tree: root + 4 top dirs x 5 subdirs x 3 leaf dirs = 84 dirs (+root),
-// 5 files each level = 425 files. Per folder: a real EXIF JPEG, a real CR2-shaped TIFF, a valid
-// WAV, a garbage .mp4 (exercises the media-parse FAILURE path), and a plain .txt.
+// 7 files each level = 595 files. Per folder: real EXIF JPEG, CR2-shaped TIFF, valid WAV, plain
+// text, a CORRUPT .mp4 (failure path), a minimal VALID .mp4, and a synthetic QuickTime-branded
+// .mov (the deciding assertion).
 function buildTree(root: string): void {
   fs.rmSync(root, { recursive: true, force: true });
   const tiff = buildExifTiff("Canon", "Canon EOS R5", "RF24-70mm F2.8 L IS USM", "2019:06:15 10:30:00", 640, 480);
   const jpeg = buildJpegWithExif(tiff);
   const wav = buildWav();
+  const mp4 = buildIsoBmff("isom");
+  const mov = buildIsoBmff("qt  ");
   const writeFiles = (dir: string): void => {
     fs.writeFileSync(path.join(dir, "f0.jpg"), jpeg);
     fs.writeFileSync(path.join(dir, "f1.wav"), wav);
     fs.writeFileSync(path.join(dir, "f2.txt"), "synthetic text");
     fs.writeFileSync(path.join(dir, "f3.cr2"), tiff);
     fs.writeFileSync(path.join(dir, "f4.mp4"), "definitely not an mp4"); // media parse must fail, run must continue
+    fs.writeFileSync(path.join(dir, "f5.mp4"), mp4);
+    fs.writeFileSync(path.join(dir, "f6.mov"), mov);
   };
   fs.mkdirSync(root, { recursive: true });
   writeFiles(root);
@@ -160,9 +221,23 @@ interface Counts {
   audioRows: number;
   audioWithCodec: number; // must equal audioRows (real WAVs)
   videoRows: number;
-  mediaErrorRows: number; // must equal folderRows (one garbage .mp4 per folder)
+  mediaErrorRows: number; // failure-path rows; corrupt f4.mp4 contributes one per folder
   foldersWithTopCamera: number; // must equal folderRows
   foldersMissingImageMeta: number; // committed folders holding an image row without EXIF-sourced date — must be 0
+  /** Per-format field presence — the coverage assertions. rows = committed rows of that fixture. */
+  mp4: FormatPresence; // valid f5.mp4
+  mov: FormatPresence; // synthetic QuickTime-branded f6.mov — THE deciding assertion
+  corrupt: { rows: number; withAnyMetadata: number; errorRows: number }; // f4.mp4 — must be rows / 0 / rows
+}
+interface FormatPresence {
+  rows: number;
+  videoCodec: number;
+  audioCodec: number;
+  duration: number;
+  bitrate: number;
+  width: number;
+  height: number;
+  metadataDate: number;
 }
 function counts(db: Db, runId?: number): Counts {
   const runs = db
@@ -171,6 +246,20 @@ function counts(db: Db, runId?: number): Counts {
   const one = <T>(sql: string, ...args: unknown[]): T => (db.prepare(sql).get(...args) as { n: T }).n;
   const run = runId ?? runs[runs.length - 1]?.id;
   const cursor = runs.find((r) => r.id === run)?.resume_cursor ?? null;
+  const presence = (filename: string): FormatPresence => {
+    const field = (col: string): number =>
+      one<number>(`SELECT COUNT(*) AS n FROM scan_files WHERE run_id = ? AND filename = ? AND ${col} IS NOT NULL`, run, filename);
+    return {
+      rows: one<number>("SELECT COUNT(*) AS n FROM scan_files WHERE run_id = ? AND filename = ?", run, filename),
+      videoCodec: field("video_codec"),
+      audioCodec: field("audio_codec"),
+      duration: field("duration_seconds"),
+      bitrate: field("bitrate"),
+      width: field("width"),
+      height: field("height"),
+      metadataDate: field("metadata_date"),
+    };
+  };
   return {
     runs,
     folderRows: one<number>("SELECT COUNT(*) AS n FROM scan_folders WHERE run_id = ?", run),
@@ -199,6 +288,16 @@ function counts(db: Db, runId?: number): Counts {
     ),
     videoRows: one<number>("SELECT COUNT(*) AS n FROM scan_files WHERE run_id = ? AND kind = 'video'", run),
     mediaErrorRows: one<number>("SELECT COUNT(*) AS n FROM scan_errors WHERE run_id = ? AND stage = 'media'", run),
+    mp4: presence("f5.mp4"),
+    mov: presence("f6.mov"),
+    corrupt: {
+      rows: one<number>("SELECT COUNT(*) AS n FROM scan_files WHERE run_id = ? AND filename = 'f4.mp4'", run),
+      withAnyMetadata: one<number>(
+        "SELECT COUNT(*) AS n FROM scan_files WHERE run_id = ? AND filename = 'f4.mp4' AND (video_codec IS NOT NULL OR audio_codec IS NOT NULL OR duration_seconds IS NOT NULL OR bitrate IS NOT NULL)",
+        run
+      ),
+      errorRows: one<number>("SELECT COUNT(*) AS n FROM scan_errors WHERE run_id = ? AND stage = 'media' AND path LIKE '%f4.mp4'", run),
+    },
     foldersWithTopCamera: one<number>("SELECT COUNT(*) AS n FROM scan_folders WHERE run_id = ? AND top_camera IS NOT NULL", run),
     foldersMissingImageMeta: one<number>(
       `SELECT COUNT(*) AS n FROM scan_folders fo WHERE fo.run_id = ? AND EXISTS (

@@ -10,8 +10,11 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/scan/index.ts
 //------------------------------------------------------------
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { promisify } from "node:util";
+import ffprobeInstaller from "@ffprobe-installer/ffprobe";
 import exifr from "exifr";
 import { generateUUIDv7 } from "../utils/uuidv7";
 import type { Db } from "./db";
@@ -236,6 +239,56 @@ const EXIF_PICK = [
   "DateTimeOriginal", "DateTimeDigitized", "Make", "Model", "LensModel",
   "ExifImageWidth", "ExifImageHeight", "ImageWidth", "ImageHeight",
 ];
+
+// ffprobe — one static binary spawned per file, container metadata only, no decode, no frames.
+// Packaged builds unpack it from the asar (asarUnpack); the path rewrite is the works-in-dev,
+// missing-from-installer trap, handled here once.
+const FFPROBE_PATH = ffprobeInstaller.path.replace("app.asar", "app.asar.unpacked");
+/** Bounded spawn pool. Serial pays full spawn latency 1,200 times on a big video folder; unbounded
+    is a fork bomb that also seek-thrashes the archive disk. Four hides latency, keeps pressure flat. */
+export const FFPROBE_CONCURRENCY = 4;
+const execFileAsync = promisify(execFile);
+
+async function ffprobeFile(f: FileRow): Promise<void> {
+  try {
+    const { stdout } = await execFileAsync(
+      FFPROBE_PATH,
+      ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", f.path],
+      { windowsHide: true, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }
+    );
+    const data = JSON.parse(stdout) as { streams?: Array<Record<string, unknown>>; format?: Record<string, unknown> };
+    const v = (data.streams ?? []).find((s) => s.codec_type === "video");
+    const a = (data.streams ?? []).find((s) => s.codec_type === "audio");
+    if (v && typeof v.codec_name === "string") f.videoCodec = v.codec_name;
+    if (a && typeof a.codec_name === "string") f.audioCodec = a.codec_name;
+    if (v && typeof v.width === "number" && v.width > 0) f.width = v.width;
+    if (v && typeof v.height === "number" && v.height > 0) f.height = v.height;
+    const fmt = data.format ?? {};
+    const dur = Number(fmt.duration);
+    if (Number.isFinite(dur) && dur > 0) f.durationSeconds = dur;
+    const br = Number(fmt.bit_rate);
+    if (Number.isFinite(br) && br > 0) f.bitrate = br;
+    const tags = (fmt.tags ?? {}) as Record<string, unknown>;
+    const desc = tags.description ?? tags.DESCRIPTION ?? tags.comment ?? tags.COMMENT;
+    if (typeof desc === "string" && desc.trim() !== "") f.description = desc.trim();
+    const md = tags.creation_time ?? tags.date ?? tags.DATE;
+    if (typeof md === "string" && md.trim() !== "") f.metadataDate = md.trim();
+  } catch (e) {
+    // ffprobe failure is never fatal: kind stays as classified, an error row records it.
+    f.errors.push({ stage: "ffprobe", text: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+// Audio gets the same treatment as video. Bounded worker pool over the folder's media files.
+async function extractAvMetadata(files: FileRow[]): Promise<void> {
+  const targets = files.filter((f) => f.kind === "video" || f.kind === "audio");
+  if (targets.length === 0) return;
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < targets.length) await ffprobeFile(targets[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(FFPROBE_CONCURRENCY, targets.length) }, worker));
+}
 
 // Sequential by design: archive drives are spinning disks, and per-file header reads are
 // milliseconds — parallel reads would seek-thrash the very hardware this module babies.
@@ -526,6 +579,7 @@ export async function startRun(
         // stays atomic: a committed folder always carries its metadata, a crash mid-extraction
         // loses only the uncommitted folder. Failures become error rows, never aborts.
         await extractStillsMetadata(fileRows);
+        await extractAvMetadata(fileRows);
         commitFolder(node.dir, node.depth, node.parent, fileRows);
         progress(); // folder-level, never per-file
       }

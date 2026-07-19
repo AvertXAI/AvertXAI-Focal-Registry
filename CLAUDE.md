@@ -10,6 +10,37 @@ This file is standing law for every agent working in this repo. Read it fully be
 
 ---
 
+## PART 0 — FIRST ACTIONS, EVERY SESSION, BEFORE READING THE TASK
+
+**Do this before you read what you have been asked to do.** It is not conditional on the prompt mentioning it. A prompt that forgets to say "read canon" does not excuse skipping canon.
+
+### 0.1 The order
+
+1. **Read `PROJECT-CANON.md` at this repo root.**
+2. **Read `CANON-UPDATES.md` at this repo root** — known discrepancies between canon and this codebase. Do not act on them; know they exist so you do not rediscover them or trip over one.
+3. **Then** read the task.
+
+### 0.2 Self-bootstrap — if `PROJECT-CANON.md` is missing or stale, build it FIRST
+
+**Missing** → stop, generate it, report, and only then start the task.
+**Stale** → its header records which canon versions it came from. If any file at `D:\dev\_source\AvertXAI-CANON\` now carries a higher version number, it is stale. Regenerate it first.
+
+To generate: read every canon file completely, read this repo, and sort every canon entry into **APPLIES / OUT OF SCOPE / CONTRADICTS / STALE / GAP**. Carry APPLIES forward verbatim with its source citation. Drop OUT OF SCOPE — other products, business administration, infrastructure this repo never touches. Record the other three in the appendix and in `CANON-UPDATES.md`.
+
+**When unsure whether an entry applies, carry it forward.** A rule that turns out to be irrelevant costs a few lines. A rule dropped that later mattered costs a rebuild.
+
+The header must record: generation date, every source canon filename **with its version number**, and the repo's git HEAD. Without that there is no way to tell later whether the file is current.
+
+### 0.3 The rules that keep this safe
+
+- **NEVER modify, edit, move, or delete a canon file.** Canon is read-only to you, permanently. It is versioned and updated by Jason alone.
+- **`PROJECT-CANON.md` is GENERATED, never authored.** Do not hand-edit it. Regenerate it.
+- **Canon wins.** Where `PROJECT-CANON.md` and real canon disagree, canon is right and this file has a defect — report it, do not act on it.
+- **Silence is not permission.** When `PROJECT-CANON.md` says nothing about something, read real canon before concluding no rule exists. It is a filtered view, and a filter can drop something.
+- **You record discrepancies. You never resolve them.** Canon governs until Jason rules, even when you are certain canon is wrong.
+
+---
+
 ## PART 1 — HOW YOU THINK AND REPORT
 
 ### 1.1 Source-confidence labels are mandatory
@@ -114,6 +145,71 @@ Task surface equals request surface. A scoped task gets a scoped response. No un
 
 ---
 
+### 2.10 Dependency licence gate — STOP, do not report after the fact
+
+**Before any `npm install`, before any vendored binary, before any new package enters this tree.**
+
+**ALLOWED without asking:** MIT · BSD-2-Clause · BSD-3-Clause · Apache-2.0 · ISC · Unlicense · CC0
+
+**STOP AND ASK, every time, no exceptions:** GPL (any version) · AGPL · LGPL · SSPL · BUSL · PolyForm (any variant) · Elastic · "source-available" · non-commercial · dual-licence · unlicensed · licence you cannot determine
+
+When a licence is not on the allowed list:
+
+1. **Do not install it.** Not to measure it, not to test it, not "just to see."
+2. Report: what it is, its exact licence, why it was chosen, and **at least two alternatives with permissive licences** — including the option of writing it ourselves and roughly what that costs in lines and days.
+3. Wait for Jason's ruling.
+
+**"Industry standard" is not a licence. "It's what everyone uses" is not a licence.** The reflexive answer for a problem is usually the popular package, and the popular package is often the one with the licence problem. Look past the reflex before reaching for it.
+
+**This applies to binaries the app ships, not only to code it links.** A GPL executable inside the installer creates distribution obligations even when it runs as a separate process.
+
+**Read canon before any dependency decision.** `D:\dev\_source\AvertXAI-CANON` holds the standing rule that this project is commercially clean from day one. A copyleft dependency that reaches a build is a failure of process, not of judgement — and it costs a full phase to undo.
+
+---
+
+### 2.11 Weigh size before you install
+
+Report the installed size of any new package **before** committing to it. One package was 173 megabytes of dead cargo in a prior project; another vendored every platform's binary at 336 megabytes when a per-platform variant existed.
+
+**If a package exceeds 20 megabytes, stop and report it** with the reason it is needed and a lighter alternative if one exists.
+
+---
+
+### 2.12 CANON-UPDATES.md — report discrepancies, never self-authorize
+
+Canon is written from conversation. **You are the one touching the code**, so you see ground truth that canon may not reflect. When those disagree, that information must not die inside a session report.
+
+**Append to `CANON-UPDATES.md` at the repo root whenever you find any of:**
+
+| Tag | Meaning |
+|---|---|
+| `CONTRADICTS` | Canon states something the code disproves |
+| `STALE` | Canon references a file, tool, version, or product that no longer exists |
+| `GAP` | Canon is silent on something a builder needs to know |
+| `BETTER` | Research surfaced an approach superior to what canon specifies |
+| `REDUNDANT` | The same rule appears in more than one place, or at more length than it needs |
+
+**Entry format — append only, never edit or reorder existing entries:**
+
+```
+## [TAG] YYYY-MM-DD — one-line summary
+**Canon says:** quote it, with the file name and version
+**Reality:** what is actually true, with file:line receipts
+**Evidence:** the command, grep, or source that proves it
+**Suggestion:** what the canon entry should say instead
+**Severity:** blocking / worth-fixing / cosmetic
+```
+
+**THREE RULES, and they matter more than the format:**
+
+1. **You record. You do not act.** Never change behaviour to match a discrepancy you found. Canon governs until Jason rules otherwise, even when you are confident canon is wrong.
+2. **Never edit a canon file.** Not one line, not a typo. Canon is versioned and updated by Jason.
+3. **Every entry needs a receipt.** `file:line`, a command and its output, or a cited source. A discrepancy without evidence is an opinion and does not belong in this file.
+
+Mention new entries in your session report so they are not missed. **This file is a second pair of eyes on canon, and it exists because neither Jason nor Claude catches everything.**
+
+---
+
 ## PART 3 — WHAT THIS APPLICATION IS
 
 ### 3.1 Stack
@@ -124,7 +220,9 @@ Task surface equals request surface. A scoped task gets a scoped response. No un
 - Database is **`better-sqlite3-multiple-ciphers`** (SQLCipher-capable), `argon2` for key derivation
 - Native dependencies stay `--external` in the esbuild command — do not bundle them
 - **No Python.** Rename and Scan logic is ported to Node. Metadata reading via a Node EXIF library — no second runtime, no sidecar process, no PyInstaller
-- Keep the dependency tree lean. `pg` and `uuid` do not belong here. Weigh the size cost before adding any icon or user-interface mega-package
+- Keep the dependency tree lean. `pg` and `uuid` do not belong here. Weigh the size cost before adding any icon or user-interface mega-package — see §2.10 and §2.11
+- **Permissive licences only.** MIT, BSD, Apache-2.0, ISC. No GPL, AGPL, LGPL, PolyForm, SSPL, BUSL, or source-available dependency enters this product — as code OR as a shipped binary. See §2.10.
+- **Markdown editor: Tiptap** (MIT core) with a Markdown serializer, for **authored** notes only. Generated artifacts such as scan reports stay read-only through the existing renderer — never round-tripped through an editor. Tiptap Pro extensions are paid; stay on core and open extensions.
 
 ### 3.2 The Mission Control shell is preserved — explicitly
 
@@ -280,9 +378,15 @@ This product answers **who, what, when, where, why** about a photographer's arch
 - No preview extraction, no proxy files, no image decode
 - Metadata reads only — timestamps, camera, lens, dimensions, codec, duration, file size, path
 
-### 4.2 Scan covers video too
+### 4.2 Scan covers video and audio too
 
-A photographer's folders contain forgotten video. Scan must detect and report video files alongside stills, with the same date-grouping treatment. Container and codec metadata are in scope; frames are not.
+A photographer's folders contain forgotten video and audio. Scan detects and reports both alongside stills, with the same date-grouping treatment. Container and codec metadata are in scope; frames are not.
+
+**Extraction stack — permissive licences only:**
+- Stills: `exifr` (MIT, ~1.5 megabytes, pure JavaScript, header-only reads)
+- Video and audio: **`music-metadata` (MIT)** — parses audio *and video* containers, returning container, codec, duration, and bitrate, with `trackInfo` for multi-track MP4 and Matroska.
+- **`ffprobe` is REJECTED.** The FFmpeg binary is GPLv3 and ships inside the installer, which creates distribution obligations this product will not take on. It was installed once in error and removed. Do not reintroduce it.
+- If a format genuinely cannot be read by a permissively-licensed library, **write the parser.** MP4 and MOV are ISO base media format — walking the box tree for `mvhd`, `stsd`, and `udta` is a few hundred lines, not a research project. Building it is preferable to importing a licence problem.
 
 ### 4.3 Results live in the database, not in text files
 

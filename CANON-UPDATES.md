@@ -109,3 +109,10 @@ Canon governs until Jason rules. Never edit or reorder existing entries — appe
 **Evidence:** REPORT-isobmff-wiring-2026-07-19.md (verifier table + fixtures-mode + crash-sequence outputs).
 **Suggestion:** fold into the next FR-STATUS rotation; the open remainder is Canon-body fixtures + the merge-priority question (music-metadata's MP4 `bitrate` is the audio stream's and currently beats the container value under merge-never-overwrite).
 **Severity:** cosmetic (bookkeeping — the gap itself is closed)
+
+## [GAP] 2026-07-19 — mockup shows affordances that are shell-lane or need their own mockup
+**Canon says:** SPEC-focal-registry-scan-v3 §11 step 8 + MOCKUP-scan-module-3-options.html show Option C's "Minimize to dot" and a double-scan-guard "Scan a subfolder only" / Option B "+ Add source" (folder-unit) path.
+**Reality:** the Scan UI shipped this pass covers whole-drive scanning (both scan_units exist in the engine); it does NOT build (a) the "Minimize to dot" session-dot — that is the standing Jarvis process-overlay (FR-DECISIONS §Long jobs / §4.5), a SHELL-lane pattern not built anywhere in this repo (substance is covered: jobs survive navigation and rejoin on return), and (b) a folder-unit "scan a subfolder only" picker — building that UI without an approved mockup would violate mockup-before-UI (FR-RULES §Build discipline).
+**Evidence:** `src/modules/scan/ScanModule.tsx` (whole-drive flow; rejoin-on-mount); no session-dot component in the tree; mockup Option C shows the dot, Option A/B show whole-drive.
+**Suggestion:** scope the Jarvis process-overlay as a shell-lane task and the folder-unit picker as its own mockup+build; both are additive to what shipped.
+**Severity:** worth-fixing (feature-completeness, not a defect — the shipped flow is whole and correct)

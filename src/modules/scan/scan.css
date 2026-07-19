@@ -1,0 +1,73 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* Scan module styles. Consumes --mc-* shell tokens; declares its OWN scan-* tokens scoped to
+   .scan-shell (module token law — never redefines a shell token, never hardcodes a shell constant
+   like the 58px header). Desktop-only: the single sanctioned container threshold is
+   @container (min-width:900px); no mobile breakpoints exist in this product. Classes carry the
+   scan- prefix so nothing collides with shell classes in globals.css. */
+.scan-shell{
+  --scan-go:#1f9d44;            /* start-scan action */
+  --scan-estimate:#d4a843;      /* rough-guide numbers — gold, reads on all themes */
+  --scan-warn:#e08a3a;          /* unreadable / error counts (NOT the suppressed --mc-orange glow) */
+  --scan-ok:#38d982;            /* up-to-date / connected */
+  container-type:inline-size;   /* the module column is the query container for the 900px split */
+}
+[data-theme="light"] .scan-shell{ --scan-estimate:#b8860b; --scan-ok:#1f9d44; }
+
+.scan-shell .scan-tabs{display:flex;gap:22px;border-bottom:1px solid var(--mc-border);margin-bottom:20px}
+.scan-tab{background:none;border:none;color:var(--mc-muted);font:inherit;font-size:13px;padding:0 0 11px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.scan-tab.on{color:var(--mc-text);border-bottom-color:var(--mc-accent-primary)}
+.scan-tab:hover{color:var(--mc-text)}
+
+/* two-column split: drives list + stage. Stacks below the one sanctioned threshold. */
+.scan-split{display:flex;flex-direction:column;gap:18px}
+@container (min-width:900px){ .scan-split{flex-direction:row} .scan-drives{width:290px;flex:none} .scan-stage{flex:1;min-width:0} }
+
+.scan-drives{display:flex;flex-direction:column;gap:9px}
+.scan-drives-head{display:flex;align-items:center;margin-bottom:2px}
+.scan-mlabel{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--mc-dimmer)}
+.scan-drv{display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:8px;font-size:13px;border:1px solid transparent;background:none;color:var(--mc-text);cursor:pointer;text-align:left;width:100%}
+.scan-drv:hover{background:var(--mc-nested)}
+.scan-drv.on{background:var(--mc-nested);border-color:var(--mc-border)}
+.scan-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.scan-dot.ok{background:var(--scan-ok)} .scan-dot.off{background:var(--mc-dimmer)} .scan-dot.never{background:var(--scan-estimate)}
+.scan-drv .sub{color:var(--mc-muted);font-size:11px;font-family:var(--mc-mono)}
+
+.scan-stage{display:flex;flex-direction:column;gap:14px}
+.scan-card{background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:12px;padding:20px 22px}
+.scan-card2{background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:10px;padding:14px 16px}
+.scan-h{font-size:16px;font-weight:600;margin-bottom:4px}
+.scan-sub{font-size:12.5px;color:var(--mc-muted);line-height:1.6}
+.scan-mono{font-family:var(--mc-mono)}
+.scan-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.scan-grid4{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+@container (min-width:900px){ .scan-grid4{grid-template-columns:repeat(4,1fr)} }
+.scan-stat{font-family:var(--mc-mono);font-size:23px;font-weight:700;color:var(--mc-text)}
+.scan-stat.warn{color:var(--scan-warn)} .scan-stat.est{color:var(--scan-estimate)}
+.scan-unit{font-size:14px;color:var(--mc-muted);font-weight:400}
+
+.scan-btn{background:var(--mc-field);border:1px solid var(--mc-border);color:var(--mc-text);padding:8px 15px;border-radius:7px;font:inherit;font-size:12.5px;cursor:pointer}
+.scan-btn:hover{background:var(--mc-nested)}
+.scan-btn:disabled{opacity:.5;cursor:not-allowed}
+.scan-btn.go{background:var(--scan-go);border-color:var(--scan-go);color:#fff;font-weight:600}
+.scan-btn.blue{background:var(--mc-accent-primary);border-color:var(--mc-accent-primary);color:#04101f;font-weight:600}
+.scan-btn.ghost{background:transparent;color:var(--mc-muted)}
+
+.scan-pill{font-size:10px;letter-spacing:.8px;text-transform:uppercase;padding:3px 8px;border-radius:6px;border:1px solid var(--mc-border);color:var(--mc-muted)}
+.scan-pill.ok{color:var(--scan-ok);border-color:var(--scan-ok)}
+
+.scan-bar{height:7px;background:var(--mc-field);border-radius:4px;overflow:hidden}
+.scan-fill{height:100%;background:var(--mc-accent-primary);transition:width .3s ease}
+
+/* Option C console — same language as the JARVIS boot terminal. */
+.scan-consolewrap{display:flex;flex-direction:column;gap:14px}
+@container (min-width:900px){ .scan-consolewrap{flex-direction:row} .scan-term{flex:1;min-width:0} .scan-side{width:250px;flex:none} }
+.scan-term{background:var(--mc-boot-bg);border:1px solid var(--mc-border);border-radius:10px;padding:16px 18px;font-family:var(--mc-mono);font-size:12px;line-height:1.85;color:var(--scan-ok);max-height:46vh;overflow:auto}
+.scan-term .t{color:var(--mc-dimmer)} .scan-term .w{color:var(--mc-text)} .scan-term .warn{color:var(--scan-warn)} .scan-term .b{color:var(--mc-accent-primary)}
+.scan-side{display:flex;flex-direction:column;gap:11px}
+
+.scan-tbl{width:100%;font-size:12.5px;border-collapse:collapse}
+.scan-tbl th{text-align:left;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--mc-dimmer);padding:0 10px 9px 0;font-weight:500}
+.scan-tbl td{padding:8px 10px 8px 0;border-top:1px solid var(--mc-border);color:var(--mc-muted)}
+.scan-tbl td.w{color:var(--mc-text)}
+.scan-note{font-size:12px;color:var(--scan-warn)}
+.scan-empty{text-align:center;color:var(--mc-muted);padding:40px 20px}

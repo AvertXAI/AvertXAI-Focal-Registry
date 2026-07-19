@@ -104,7 +104,22 @@ export function ensureScanSchema(db: Db): void {
     "description TEXT",
     "metadata_date TEXT",
     "checksum TEXT",
+    "display_width INTEGER",
+    "display_height INTEGER",
+    "rotation INTEGER",
+    "bitrate_source TEXT", // 'btrt' | 'esds' | 'computed' — a computed bitrate is not a declared one
   ]);
+  // Additive guarded columns for databases created before the isobmff geometry engine —
+  // PRAGMA table_info before every ALTER, safe to re-run, never drop/recreate (the
+  // modules.nav_group pattern). Fresh databases get them from createTable above; the guard
+  // sees them present and does nothing.
+  {
+    const fileCols = (db.pragma("table_info(scan_files)") as { name: string }[]).map((c) => c.name);
+    if (!fileCols.includes("display_width")) db.exec("ALTER TABLE scan_files ADD COLUMN display_width INTEGER;");
+    if (!fileCols.includes("display_height")) db.exec("ALTER TABLE scan_files ADD COLUMN display_height INTEGER;");
+    if (!fileCols.includes("rotation")) db.exec("ALTER TABLE scan_files ADD COLUMN rotation INTEGER;");
+    if (!fileCols.includes("bitrate_source")) db.exec("ALTER TABLE scan_files ADD COLUMN bitrate_source TEXT;");
+  }
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_run_folder ON scan_files (run_id, folder_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_org_path ON scan_files (org_id, path);");
 

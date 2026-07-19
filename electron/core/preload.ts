@@ -22,7 +22,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 // Main → renderer push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of
 // the page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
-const PUSH_CHANNELS: readonly string[] = ["updater:available", "updater:progress", "updater:downloaded"];
+const PUSH_CHANNELS: readonly string[] = ["updater:available", "updater:progress", "updater:downloaded", "scan:progress"];
 const wrapped = new Map<(payload: never) => void, (e: Electron.IpcRendererEvent, payload: unknown) => void>();
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);
@@ -80,6 +80,18 @@ const api: Api = {
     listQuarantined: () => ipcRenderer.invoke("shredder:listQuarantined"),
     pickWatchFolder: () => ipcRenderer.invoke("shredder:pickWatchFolder"),
     rescan: () => ipcRenderer.invoke("shredder:rescan"),
+  },
+  scan: {
+    listDrives: () => ipcRenderer.invoke("scan:listDrives"),
+    selectSource: (rootPath: string, scanUnit: "drive" | "folder") =>
+      ipcRenderer.invoke("scan:selectSource", rootPath, scanUnit),
+    probe: (rootPath: string, scanUnit: "drive" | "folder") => ipcRenderer.invoke("scan:probe", rootPath, scanUnit),
+    start: (runId: number) => ipcRenderer.invoke("scan:start", runId),
+    pause: (runId: number) => ipcRenderer.invoke("scan:pause", runId),
+    resume: (runId: number) => ipcRenderer.invoke("scan:resume", runId),
+    abort: (runId: number) => ipcRenderer.invoke("scan:abort", runId),
+    status: (runId: number) => ipcRenderer.invoke("scan:status", runId),
+    listRuns: () => ipcRenderer.invoke("scan:listRuns"),
   },
   updater: {
     download: () => ipcRenderer.invoke("updater:download"),

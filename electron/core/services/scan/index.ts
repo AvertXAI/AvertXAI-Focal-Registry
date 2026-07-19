@@ -144,7 +144,7 @@ export interface ProbeResult {
   roughGuide: true;
 }
 
-export function probeRun(db: Db, orgId: string, runId: number, rules: SkipRules = DEFAULT_SKIP_RULES): ProbeResult {
+export function probeRun(db: Db, _orgId: string, runId: number, rules: SkipRules = DEFAULT_SKIP_RULES): ProbeResult {
   const run = getRun(db, runId);
   db.prepare(
     "UPDATE scan_runs SET status = 'probing', started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -202,4 +202,265 @@ export function probeRun(db: Db, orgId: string, runId: number, rules: SkipRules 
   ).run(foldersSampled, filesFound, estimatedFiles, estimatedSeconds, runId);
 
   return { runId, foldersSampled, filesFound, elapsedMs, estimatedFiles, estimatedSeconds, roughGuide: true };
+}
+
+// ---- the crash-safe traversal core ----
+
+export interface ScanProgress {
+  runId: number;
+  status: string;
+  currentFolder: string | null;
+  foldersCommitted: number;
+  filesRecorded: number;
+  errorsLogged: number;
+  /** Rough guide only (probe extrapolation) — label it as such in any surface. */
+  estimatedFiles: number | null;
+  /** Present when the engine paused itself, e.g. "source-missing" after a drive unplug. */
+  note?: string;
+}
+
+interface EngineState {
+  runId: number;
+  pauseRequested: boolean;
+  abortRequested: boolean;
+  running: boolean;
+}
+// One scan at a time per process — a photographer's machine has one archive spinning, and two
+// concurrent walks would thrash the same disk. ponytail: single-slot engine; queue if ever needed.
+let active: EngineState | null = null;
+
+const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+export function isRunning(): boolean {
+  return active?.running === true;
+}
+
+export function requestPause(runId: number): boolean {
+  if (active?.running && active.runId === runId) {
+    active.pauseRequested = true;
+    return true;
+  }
+  return false;
+}
+
+export function requestAbort(db: Db, runId: number): boolean {
+  if (active?.running && active.runId === runId) {
+    active.abortRequested = true;
+    return true;
+  }
+  // Not in flight (paused / crashed / estimating) — abort is a plain status write.
+  const r = db
+    .prepare(
+      "UPDATE scan_runs SET status = 'aborted', finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('probing', 'estimating', 'paused', 'crashed')"
+    )
+    .run(runId);
+  return r.changes > 0;
+}
+
+/**
+ * Run (or resume) the traversal. Deterministic sorted depth-first; ONE transaction per folder
+ * covering that folder's scan_files rows, its scan_folders rollup, the run counters, and the
+ * resume_cursor — all or nothing. Resume re-walks the same order and skips any folder that already
+ * has a committed scan_folders row, so a crash loses at most the in-flight folder. Memory stays
+ * bounded: only one folder's file list is ever held.
+ */
+export async function startRun(
+  db: Db,
+  orgId: string,
+  runId: number,
+  opts: { resume?: boolean; onProgress?: (p: ScanProgress) => void; rules?: SkipRules } = {}
+): Promise<ScanRunRow> {
+  if (active?.running) throw new Error("a scan is already running — one at a time");
+  const rules = opts.rules ?? DEFAULT_SKIP_RULES;
+  const run = getRun(db, runId);
+  const startable = opts.resume ? ["crashed", "paused"] : ["probing", "estimating"];
+  if (!startable.includes(run.status)) {
+    throw new Error(`run ${runId} is '${run.status}' — ${opts.resume ? "resume" : "start"} needs ${startable.join("/")}`);
+  }
+
+  active = { runId, pauseRequested: false, abortRequested: false, running: true };
+  db.prepare(
+    "UPDATE scan_runs SET status = 'running', started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+  ).run(runId);
+
+  const progress = (note?: string): void => {
+    const r = getRun(db, runId);
+    opts.onProgress?.({
+      runId,
+      status: r.status,
+      currentFolder: r.resume_cursor,
+      foldersCommitted: r.folders_committed,
+      filesRecorded: r.files_recorded,
+      errorsLogged: r.errors_logged,
+      estimatedFiles: r.estimated_files,
+      ...(note ? { note } : {}),
+    });
+  };
+
+  const isCommitted = db.prepare("SELECT 1 FROM scan_folders WHERE run_id = ? AND path = ?");
+  const insFolder = db.prepare(
+    `INSERT INTO scan_folders (uuid, org_id, run_id, drive_id, path, depth, parent_path, file_count,
+       image_count, video_count, audio_count, other_count, unreadable_count, total_bytes, committed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+  );
+  const insFile = db.prepare(
+    `INSERT INTO scan_files (uuid, org_id, run_id, folder_id, path, filename, extension, size_bytes, kind)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const bumpRun = db.prepare(
+    `UPDATE scan_runs SET folders_committed = folders_committed + 1, files_recorded = files_recorded + ?,
+     errors_logged = errors_logged + ?, resume_cursor = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+  );
+  const insError = db.prepare(
+    `INSERT INTO scan_errors (uuid, org_id, run_id, path, extension, stage, error_text, occurred_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+  );
+
+  interface FileRow {
+    path: string;
+    filename: string;
+    extension: string;
+    sizeBytes: number | null;
+    kind: string;
+    error?: string; // stat failure text — becomes a scan_errors row in the same tx
+  }
+  // ONE transaction per folder: rollup + every file row + counters + cursor. All or nothing.
+  const commitFolder = db.transaction(
+    (dir: string, depth: number, parent: string | null, files: FileRow[]) => {
+      const counts = { image: 0, video: 0, audio: 0, other: 0, unreadable: 0 };
+      let bytes = 0;
+      for (const f of files) {
+        if (f.kind === "image") counts.image++;
+        else if (f.kind === "video") counts.video++;
+        else if (f.kind === "audio") counts.audio++;
+        else if (f.kind === "unreadable") counts.unreadable++;
+        else counts.other++; // sidecar folds into other for the rollup
+        bytes += f.sizeBytes ?? 0;
+      }
+      const folderInfo = insFolder.run(
+        generateUUIDv7(), orgId, runId, run.drive_id, dir, depth, parent, files.length,
+        counts.image, counts.video, counts.audio, counts.other, counts.unreadable, bytes
+      );
+      const folderId = Number(folderInfo.lastInsertRowid);
+      let errorRows = 0;
+      for (const f of files) {
+        insFile.run(generateUUIDv7(), orgId, runId, folderId, f.path, f.filename, f.extension, f.sizeBytes, f.kind);
+        if (f.error) {
+          insError.run(generateUUIDv7(), orgId, runId, f.path, f.extension, "stat", f.error);
+          errorRows += 1;
+        }
+      }
+      bumpRun.run(files.length, errorRows, dir, runId);
+    }
+  );
+
+  interface Node {
+    dir: string;
+    depth: number;
+    parent: string | null;
+  }
+  const stack: Node[] = [{ dir: run.root_path, depth: 0, parent: null }];
+
+  try {
+    while (stack.length > 0) {
+      if (active.abortRequested) {
+        db.prepare(
+          "UPDATE scan_runs SET status = 'aborted', finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+        ).run(runId);
+        progress();
+        return getRun(db, runId);
+      }
+      if (active.pauseRequested) {
+        db.prepare("UPDATE scan_runs SET status = 'paused', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(runId);
+        progress();
+        return getRun(db, runId);
+      }
+
+      const node = stack.pop() as Node;
+      let listing: Listing;
+      try {
+        listing = listDirSorted(node.dir);
+      } catch (e) {
+        if (!fs.existsSync(run.root_path)) {
+          // Source vanished mid-run (drive unplugged): pause, stay resumable, say so plainly.
+          db.prepare("UPDATE scan_runs SET status = 'paused', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(runId);
+          progress("source-missing");
+          return getRun(db, runId);
+        }
+        // One unreadable folder never aborts a run — log and move on.
+        logEvent(db, orgId, runId, node.dir, "stat", e instanceof Error ? e.message : String(e));
+        continue;
+      }
+
+      // Reparse points (symlinks, junctions): never followed, logged, never silent.
+      for (const s of listing.symlinks) {
+        logEvent(db, orgId, runId, path.join(node.dir, s), "stat", "skipped: symlink/junction (not followed)");
+      }
+
+      const subdirs: string[] = [];
+      for (const d of listing.dirs) {
+        const rule = dirSkipRule(d, rules);
+        const full = path.join(node.dir, d);
+        if (rule) {
+          logEvent(db, orgId, runId, full, "stat", `skipped: ${rule}`);
+        } else if (isReparseDir(full)) {
+          logEvent(db, orgId, runId, full, "stat", "skipped: symlink/junction (not followed)");
+        } else {
+          subdirs.push(d);
+        }
+      }
+
+      // Resume: a folder that already has its committed row is skipped — but its SUBFOLDERS may
+      // not be, so descent continues either way. Deterministic order makes the cursor meaningful.
+      if (!isCommitted.get(runId, node.dir)) {
+        const fileRows: FileRow[] = [];
+        for (const name of listing.files) {
+          const full = path.join(node.dir, name);
+          const rule = fileSkipRule(name, rules);
+          if (rule) {
+            logEvent(db, orgId, runId, full, "stat", `skipped: ${rule}`);
+            continue;
+          }
+          const ext = path.extname(name).replace(/^\./, "");
+          try {
+            const st = fs.lstatSync(full);
+            fileRows.push({ path: full, filename: name, extension: ext, sizeBytes: st.size, kind: kindForExtension(ext) });
+          } catch (e) {
+            fileRows.push({
+              path: full, filename: name, extension: ext, sizeBytes: null, kind: "unreadable",
+              error: e instanceof Error ? e.message : String(e),
+            });
+          }
+        }
+        commitFolder(node.dir, node.depth, node.parent, fileRows);
+        progress(); // folder-level, never per-file
+      }
+
+      for (let i = subdirs.length - 1; i >= 0; i--) {
+        stack.push({ dir: path.join(node.dir, subdirs[i]), depth: node.depth + 1, parent: node.dir });
+      }
+      await tick(); // yield between folders — the main process must stay responsive for hours
+    }
+
+    db.prepare(
+      "UPDATE scan_runs SET status = 'completed', finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).run(runId);
+    if (run.drive_id != null) {
+      db.prepare("UPDATE scan_drives SET last_scanned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(run.drive_id);
+    }
+    progress();
+    return getRun(db, runId);
+  } finally {
+    active.running = false;
+  }
+}
+
+export function listRuns(db: Db, orgId: string, limit = 50): ScanRunRow[] {
+  return db
+    .prepare("SELECT * FROM scan_runs WHERE org_id = ? ORDER BY id DESC LIMIT ?")
+    .all(orgId, limit) as ScanRunRow[];
+}
+
+export function runStatus(db: Db, runId: number): { run: ScanRunRow; engineActive: boolean } {
+  return { run: getRun(db, runId), engineActive: active?.running === true && active.runId === runId };
 }

@@ -20,6 +20,10 @@ import * as shredderApi from "./services/runbook-shredder/api";
 import { ingestAll, startShredder, type ShredderHandle } from "./services/runbook-shredder/shredder";
 import * as scout from "./services/scout-viewer";
 import * as scoutTargets from "./services/scout-viewer/targets";
+import * as scan from "./services/scan";
+import * as scanDrives from "./services/scan/drives";
+import { ensureScanSchema } from "./services/scan/db";
+import { generateUUIDv7 } from "./services/utils/uuidv7";
 import * as settings from "./services/settings";
 import { applyThemeOverlay, getMainWindow, setOverlayDim } from "./windows";
 
@@ -75,9 +79,34 @@ function rescanShredder(): { ingested: number; quarantined: number } {
   return { ingested: count("ok"), quarantined: count("error") };
 }
 
+// --- Scan module host — root-side glue. Schema + crash-marking run once per process, lazily on
+// first access AND eagerly at register time when an org exists (true service start), so runs left
+// 'running' by a crash become 'crashed' before any UI asks. The service itself stays electron-free.
+let scanInit = false;
+function scanCtx(): { db: ReturnType<typeof getDb>; orgId: string } {
+  const org = getActiveOrg();
+  if (!org) throw new Error("Scan: no active org");
+  const db = getDb();
+  if (!scanInit) {
+    ensureScanSchema(db);
+    scan.markInterruptedRuns(db); // any run still 'running' at service start is a crash
+    scanInit = true;
+  }
+  return { db, orgId: org.org_id };
+}
+const sendScanProgress = (p: scan.ScanProgress): void => {
+  getMainWindow()?.webContents.send("scan:progress", p);
+};
+
 // --- handlers ---
 
 export function registerIpcHandlers(): void {
+  // Scan service start — pre-org boot (first-run wizard) skips; lazy init covers post-wizard.
+  try {
+    scanCtx();
+  } catch {
+    /* no active org yet */
+  }
   // data viewer — READ-ONLY introspection. The service whitelists `table` against sqlite_master and
   // clamps limit/offset, so the raw `unknown` args can't reach a writable or injectable statement.
   ipcMain.handle("db:tables", () => dataviewer.listTables());
@@ -136,6 +165,51 @@ export function registerIpcHandlers(): void {
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
   });
   ipcMain.handle("shredder:rescan", () => rescanShredder());
+
+  // scan module — READ-ONLY against sources; the only writes are rows in the org DB. Long-running
+  // start/resume are fire-and-forget: progress flows over the scan:progress push, errors are pushed
+  // as a status note, and the invoke returns immediately so the renderer never holds a pending
+  // promise for hours.
+  ipcMain.handle("scan:listDrives", () => scanDrives.listVolumes());
+  ipcMain.handle("scan:selectSource", (_e, rootPath: unknown, scanUnit: unknown) => {
+    const { db, orgId } = scanCtx();
+    if (typeof rootPath !== "string" || rootPath.trim() === "") throw new Error("selectSource: rootPath required");
+    return scanDrives.selectSource(db, orgId, rootPath, scanUnit === "drive" ? "drive" : "folder", generateUUIDv7);
+  });
+  ipcMain.handle("scan:probe", (_e, rootPath: unknown, scanUnit: unknown) => {
+    const { db, orgId } = scanCtx();
+    if (typeof rootPath !== "string" || rootPath.trim() === "") throw new Error("probe: rootPath required");
+    const unit = scanUnit === "drive" ? "drive" : "folder";
+    const drive = scanDrives.resolveDrive(db, orgId, scanDrives.volumeForPath(rootPath), generateUUIDv7);
+    const run = scan.createRun(db, orgId, drive.id, rootPath, unit);
+    return scan.probeRun(db, orgId, run.id); // persists the estimate and RETURNS — never rolls into the scan
+  });
+  const launchRun = (runId: number, resume: boolean): { ok: true; runId: number } => {
+    const { db, orgId } = scanCtx();
+    void scan.startRun(db, orgId, runId, { resume, onProgress: sendScanProgress }).catch((e) => {
+      console.error("[scan] run failed:", e);
+      sendScanProgress({
+        runId, status: "error", currentFolder: null, foldersCommitted: 0, filesRecorded: 0,
+        errorsLogged: 0, estimatedFiles: null, note: e instanceof Error ? e.message : String(e),
+      });
+    });
+    return { ok: true, runId };
+  };
+  ipcMain.handle("scan:start", (_e, runId: unknown) => launchRun(Number(runId), false));
+  ipcMain.handle("scan:resume", (_e, runId: unknown) => launchRun(Number(runId), true));
+  ipcMain.handle("scan:pause", (_e, runId: unknown) => scan.requestPause(Number(runId)));
+  ipcMain.handle("scan:abort", (_e, runId: unknown) => {
+    const { db } = scanCtx();
+    return scan.requestAbort(db, Number(runId));
+  });
+  ipcMain.handle("scan:status", (_e, runId: unknown) => {
+    const { db } = scanCtx();
+    return scan.runStatus(db, Number(runId));
+  });
+  ipcMain.handle("scan:listRuns", () => {
+    const { db, orgId } = scanCtx();
+    return scan.listRuns(db, orgId);
+  });
 
   // scout-viewer module — Fortified Browser engine (services/scout-viewer). Sender-verified: only
   // the shell window's own webContents may drive the engine (ported guard from the prototype);

@@ -109,9 +109,83 @@ export interface ScoutDomCard {
   counts: { links: number; forms: number; tables: number; iframes: number };
 }
 
-/** Main → renderer push channels the preload bridge whitelists. Currently the updater's three;
-    a module needing main-to-renderer progress (e.g. Scan) adds its channel here + in preload. */
-export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded";
+/** Main → renderer push channels the preload bridge whitelists. */
+export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded" | "scan:progress";
+
+// ---- Scan module (renderer-safe copies of the service shapes at electron/core/services/scan/ —
+// the renderer imports from HERE, never from services/) ----
+export interface ScanVolume {
+  letter: string; // "D:"
+  label: string;
+  filesystem: string;
+  totalBytes: number;
+  freeBytes: number;
+  serial: string; // hex volume serial — the drive's identity, never the letter
+}
+export interface ScanDriveRow {
+  id: number;
+  uuid: string;
+  org_id: string;
+  volume_serial: string;
+  volume_label: string | null;
+  filesystem: string | null;
+  total_bytes: number | null;
+  free_bytes: number | null;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  last_scanned_at: string | null;
+}
+export interface ScanRunRow {
+  id: number;
+  uuid: string;
+  org_id: string;
+  drive_id: number | null;
+  root_path: string;
+  status: "probing" | "estimating" | "running" | "paused" | "completed" | "aborted" | "crashed" | string;
+  scan_unit: "drive" | "folder" | string;
+  started_at: string | null;
+  finished_at: string | null;
+  probe_folders_sampled: number | null;
+  probe_files_found: number | null;
+  /** Rough guide only — probe extrapolation; always label it as an estimate in the UI. */
+  estimated_files: number | null;
+  estimated_seconds: number | null;
+  folders_committed: number;
+  files_recorded: number;
+  errors_logged: number;
+  resume_cursor: string | null;
+  report_path: string | null;
+}
+/** Double-scan guard answer — data only; the UI presents the choice, the service never decides. */
+export interface ScanSourceDecision {
+  decision: "proceed" | "offer-resume" | "already-scanned";
+  drive: ScanDriveRow;
+  rootPath: string;
+  scanUnit: "drive" | "folder";
+  crashedRun?: ScanRunRow;
+  completedRun?: ScanRunRow;
+}
+export interface ScanProbeResult {
+  runId: number;
+  foldersSampled: number;
+  filesFound: number;
+  elapsedMs: number;
+  /** ROUGH GUIDE ONLY — extrapolated from a small sample. */
+  estimatedFiles: number | null;
+  estimatedSeconds: number | null;
+  roughGuide: true;
+}
+/** scan:progress push payload — folder-level, never per-file. */
+export interface ScanProgress {
+  runId: number;
+  status: string;
+  currentFolder: string | null;
+  foldersCommitted: number;
+  filesRecorded: number;
+  errorsLogged: number;
+  estimatedFiles: number | null;
+  note?: string; // e.g. "source-missing" when a drive vanished mid-run
+}
 
 // ---- Auto-updater pushes (electron-updater, §3.12) ----
 export interface UpdateAvailableInfo {
@@ -193,6 +267,20 @@ export interface Api {
     pickWatchFolder: () => Promise<string | null>;
     /** Re-ingest the current watch folder now → live ok/error counts. */
     rescan: () => Promise<{ ingested: number; quarantined: number }>;
+  };
+  /** Scan module — READ-ONLY against sources. start/resume return immediately; progress arrives
+   *  over the scan:progress push. The double-scan guard's decision is data; the UI owns the choice. */
+  scan: {
+    listDrives: () => Promise<ScanVolume[]>;
+    selectSource: (rootPath: string, scanUnit: "drive" | "folder") => Promise<ScanSourceDecision>;
+    /** Creates the run and probes — persists a ROUGH estimate and returns; never starts the scan. */
+    probe: (rootPath: string, scanUnit: "drive" | "folder") => Promise<ScanProbeResult>;
+    start: (runId: number) => Promise<{ ok: true; runId: number }>;
+    pause: (runId: number) => Promise<boolean>;
+    resume: (runId: number) => Promise<{ ok: true; runId: number }>;
+    abort: (runId: number) => Promise<boolean>;
+    status: (runId: number) => Promise<{ run: ScanRunRow; engineActive: boolean }>;
+    listRuns: () => Promise<ScanRunRow[]>;
   };
   /** Auto-updater (§3.12) — user-consented download, install on quit. Auto cycle is packaged-only;
    *  check/version answer in every build so the Settings button is never dead. */

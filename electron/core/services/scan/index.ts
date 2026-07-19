@@ -49,10 +49,10 @@ function fileSkipRule(name: string, rules: SkipRules): string | null {
 }
 
 // ---- kind from extension only (this phase reads no file contents) ----
-const IMAGE_EXTS = new Set(["jpg","jpeg","png","gif","tif","tiff","bmp","heic","heif","webp","dng","cr2","cr3","nef","nrw","arw","raf","orf","rw2","pef","srw","x3f","3fr","erf","kdc","mrw","raw","psd"]);
+const IMAGE_EXTS = new Set(["jpg","jpeg","png","gif","tif","tiff","bmp","heic","heif","webp","dng","cr2","cr3","crw","nef","nrw","arw","srf","sr2","raf","orf","rw2","pef","srw","rwl","iiq","dcr","x3f","3fr","erf","kdc","k25","mef","mrw","raw","psd"]);
 const VIDEO_EXTS = new Set(["mp4","mov","avi","mts","m2ts","mkv","wmv","mpg","mpeg","m4v","webm","braw","r3d","3gp"]);
 const AUDIO_EXTS = new Set(["wav","mp3","aac","m4a","flac","ogg","wma","aif","aiff"]);
-const SIDECAR_EXTS = new Set(["xmp","thm","lrv","pp3","dop","cos"]);
+const SIDECAR_EXTS = new Set(["xmp","thm","aae","lrv","pp3","dop","cos"]);
 export function kindForExtension(ext: string): "image" | "video" | "audio" | "sidecar" | "other" {
   const e = ext.toLowerCase();
   if (IMAGE_EXTS.has(e)) return "image";

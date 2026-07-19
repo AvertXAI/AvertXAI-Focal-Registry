@@ -120,8 +120,11 @@ export function initDb(dbPath: string): void {
   };
   seedModule("Scan", "scan", "tool", 1);
   seedModule("Rename", "rename", "tool", 2);
-  seedModule("Runbook Shredder", "runbook-shredder", "runbook", 3);
+  seedModule("Secure Note", "runbook-shredder", "runbook", 3);
   seedModule("Scout Viewer", "scout-viewer", "browser", 4);
+  // Display-label rename (product decision: Shredder → Secure Note). Data-only, idempotent;
+  // slug/folders/tables/settings keys are deliberately unchanged — that is a separately gated task.
+  db.exec("UPDATE modules SET name = 'Secure Note' WHERE slug = 'runbook-shredder' AND name <> 'Secure Note';");
   // Row cleanup for gutted modules — idempotent, data-only (no schema change). Existing dev DBs
   // seeded these rows; without this they'd keep rendering in the nav after the module code is gone.
   db.exec("DELETE FROM modules WHERE slug IN ('getscriptclips', 'canon-distributor');");

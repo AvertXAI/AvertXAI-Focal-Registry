@@ -12,6 +12,7 @@
 //------------------------------------------------------------
 import fs from "node:fs";
 import path from "node:path";
+import exifr from "exifr";
 import { generateUUIDv7 } from "../utils/uuidv7";
 import type { Db } from "./db";
 import type { ScanRunRow } from "./drives";
@@ -206,6 +207,65 @@ export function probeRun(db: Db, _orgId: string, runId: number, rules: SkipRules
 
 // ---- the crash-safe traversal core ----
 
+interface FileRow {
+  path: string;
+  filename: string;
+  extension: string;
+  sizeBytes: number | null;
+  kind: string;
+  mtimeIso: string | null;
+  capturedAt: string | null;
+  capturedAtSource: "exif" | "file" | null; // NEVER conflated — a guessed date must not look measured
+  cameraMake: string | null;
+  cameraModel: string | null;
+  lens: string | null;
+  width: number | null;
+  height: number | null;
+  originalFilename: string | null;
+  videoCodec: string | null;
+  audioCodec: string | null;
+  bitrate: number | null;
+  durationSeconds: number | null;
+  description: string | null;
+  metadataDate: string | null;
+  errors: Array<{ stage: string; text: string }>; // become scan_errors rows in the same tx
+}
+
+// EXIF fields read — header tags only; exifr does chunked header reads and NEVER decodes pixels.
+const EXIF_PICK = [
+  "DateTimeOriginal", "DateTimeDigitized", "Make", "Model", "LensModel",
+  "ExifImageWidth", "ExifImageHeight", "ImageWidth", "ImageHeight",
+];
+
+// Sequential by design: archive drives are spinning disks, and per-file header reads are
+// milliseconds — parallel reads would seek-thrash the very hardware this module babies.
+async function extractStillsMetadata(files: FileRow[]): Promise<void> {
+  for (const f of files) {
+    if (f.kind !== "image") continue;
+    try {
+      const meta = (await exifr.parse(f.path, { pick: EXIF_PICK })) as Record<string, unknown> | undefined;
+      const dto = meta?.DateTimeOriginal ?? meta?.DateTimeDigitized;
+      if (dto instanceof Date && !Number.isNaN(dto.getTime())) {
+        f.capturedAt = dto.toISOString();
+        f.capturedAtSource = "exif"; // measured, not guessed — the mtime baseline stays 'file'
+      }
+      if (typeof meta?.Make === "string") f.cameraMake = meta.Make.trim();
+      if (typeof meta?.Model === "string") f.cameraModel = meta.Model.trim();
+      if (typeof meta?.LensModel === "string") f.lens = meta.LensModel.trim();
+      const w = meta?.ExifImageWidth ?? meta?.ImageWidth;
+      const h = meta?.ExifImageHeight ?? meta?.ImageHeight;
+      if (typeof w === "number" && w > 0) f.width = w;
+      if (typeof h === "number" && h > 0) f.height = h;
+      // original_filename: MakerNote DCF name is not decodable by any pure-JS library — the
+      // current stem (set at stat time) is the documented fallback until/unless that changes.
+    } catch (e) {
+      // EXIF failure is never fatal: kind stays 'image', metadata stays at the honest file-date
+      // baseline, an error row records it, the run continues.
+      f.errors.push({ stage: "exif", text: e instanceof Error ? e.message : String(e) });
+    }
+  }
+}
+
 export interface ScanProgress {
   runId: number;
   status: string;
@@ -300,12 +360,15 @@ export async function startRun(
   const isCommitted = db.prepare("SELECT 1 FROM scan_folders WHERE run_id = ? AND path = ?");
   const insFolder = db.prepare(
     `INSERT INTO scan_folders (uuid, org_id, run_id, drive_id, path, depth, parent_path, file_count,
-       image_count, video_count, audio_count, other_count, unreadable_count, total_bytes, committed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+       image_count, video_count, audio_count, other_count, unreadable_count, total_bytes,
+       date_min, date_max, top_camera, top_lens, committed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
   );
   const insFile = db.prepare(
-    `INSERT INTO scan_files (uuid, org_id, run_id, folder_id, path, filename, extension, size_bytes, kind)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO scan_files (uuid, org_id, run_id, folder_id, path, filename, extension, size_bytes, kind,
+       captured_at, captured_at_source, camera_make, camera_model, lens, width, height, original_filename,
+       video_codec, audio_codec, bitrate, duration_seconds, description, metadata_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const bumpRun = db.prepare(
     `UPDATE scan_runs SET folders_committed = folders_committed + 1, files_recorded = files_recorded + ?,
@@ -316,19 +379,16 @@ export async function startRun(
      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
   );
 
-  interface FileRow {
-    path: string;
-    filename: string;
-    extension: string;
-    sizeBytes: number | null;
-    kind: string;
-    error?: string; // stat failure text — becomes a scan_errors row in the same tx
-  }
-  // ONE transaction per folder: rollup + every file row + counters + cursor. All or nothing.
+  // ONE transaction per folder: rollup + every file row (metadata included) + counters + cursor.
+  // All or nothing — metadata extraction runs BEFORE this, so a committed folder is always complete.
   const commitFolder = db.transaction(
     (dir: string, depth: number, parent: string | null, files: FileRow[]) => {
       const counts = { image: 0, video: 0, audio: 0, other: 0, unreadable: 0 };
       let bytes = 0;
+      let dateMin: string | null = null;
+      let dateMax: string | null = null;
+      const cameraFreq = new Map<string, number>();
+      const lensFreq = new Map<string, number>();
       for (const f of files) {
         if (f.kind === "image") counts.image++;
         else if (f.kind === "video") counts.video++;
@@ -336,17 +396,32 @@ export async function startRun(
         else if (f.kind === "unreadable") counts.unreadable++;
         else counts.other++; // sidecar folds into other for the rollup
         bytes += f.sizeBytes ?? 0;
+        // Rollups from this folder's own files: date range over media capture dates, most
+        // frequent camera and lens over the stills.
+        if (f.capturedAt && (f.kind === "image" || f.kind === "video" || f.kind === "audio")) {
+          if (dateMin === null || f.capturedAt < dateMin) dateMin = f.capturedAt;
+          if (dateMax === null || f.capturedAt > dateMax) dateMax = f.capturedAt;
+        }
+        if (f.cameraModel) cameraFreq.set(f.cameraModel, (cameraFreq.get(f.cameraModel) ?? 0) + 1);
+        if (f.lens) lensFreq.set(f.lens, (lensFreq.get(f.lens) ?? 0) + 1);
       }
+      const top = (m: Map<string, number>): string | null =>
+        m.size === 0 ? null : [...m.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
       const folderInfo = insFolder.run(
         generateUUIDv7(), orgId, runId, run.drive_id, dir, depth, parent, files.length,
-        counts.image, counts.video, counts.audio, counts.other, counts.unreadable, bytes
+        counts.image, counts.video, counts.audio, counts.other, counts.unreadable, bytes,
+        dateMin, dateMax, top(cameraFreq), top(lensFreq)
       );
       const folderId = Number(folderInfo.lastInsertRowid);
       let errorRows = 0;
       for (const f of files) {
-        insFile.run(generateUUIDv7(), orgId, runId, folderId, f.path, f.filename, f.extension, f.sizeBytes, f.kind);
-        if (f.error) {
-          insError.run(generateUUIDv7(), orgId, runId, f.path, f.extension, "stat", f.error);
+        insFile.run(
+          generateUUIDv7(), orgId, runId, folderId, f.path, f.filename, f.extension, f.sizeBytes, f.kind,
+          f.capturedAt, f.capturedAtSource, f.cameraMake, f.cameraModel, f.lens, f.width, f.height,
+          f.originalFilename, f.videoCodec, f.audioCodec, f.bitrate, f.durationSeconds, f.description, f.metadataDate
+        );
+        for (const err of f.errors) {
+          insError.run(generateUUIDv7(), orgId, runId, f.path, f.extension, err.stage, err.text);
           errorRows += 1;
         }
       }
@@ -422,16 +497,35 @@ export async function startRun(
             continue;
           }
           const ext = path.extname(name).replace(/^\./, "");
+          const blank = {
+            capturedAt: null, capturedAtSource: null as FileRow["capturedAtSource"], cameraMake: null,
+            cameraModel: null, lens: null, width: null, height: null, originalFilename: null,
+            videoCodec: null, audioCodec: null, bitrate: null, durationSeconds: null,
+            description: null, metadataDate: null,
+          };
           try {
             const st = fs.lstatSync(full);
-            fileRows.push({ path: full, filename: name, extension: ext, sizeBytes: st.size, kind: kindForExtension(ext) });
+            const kind = kindForExtension(ext);
+            const media = kind === "image" || kind === "video" || kind === "audio";
+            fileRows.push({
+              path: full, filename: name, extension: ext, sizeBytes: st.size, kind,
+              mtimeIso: st.mtime.toISOString(), errors: [], ...blank,
+              // Baseline before extraction: honest file-date, honestly labelled. EXIF upgrades it.
+              capturedAt: media ? st.mtime.toISOString() : null,
+              capturedAtSource: media ? "file" : null,
+              originalFilename: media ? path.basename(name, path.extname(name)) : null,
+            });
           } catch (e) {
             fileRows.push({
               path: full, filename: name, extension: ext, sizeBytes: null, kind: "unreadable",
-              error: e instanceof Error ? e.message : String(e),
+              mtimeIso: null, errors: [{ stage: "stat", text: e instanceof Error ? e.message : String(e) }], ...blank,
             });
           }
         }
+        // Metadata extraction happens HERE — before the transaction — so the per-folder commit
+        // stays atomic: a committed folder always carries its metadata, a crash mid-extraction
+        // loses only the uncommitted folder. Failures become error rows, never aborts.
+        await extractStillsMetadata(fileRows);
         commitFolder(node.dir, node.depth, node.parent, fileRows);
         progress(); // folder-level, never per-file
       }

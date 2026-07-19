@@ -8,8 +8,9 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/ipc.ts
 //------------------------------------------------------------
-import { app, dialog, ipcMain } from "electron";
+import { app, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs";
+import path from "node:path";
 import { defaultSettings, type ShredderSettings } from "../../src/modules/runbook-shredder/config.manifest";
 import { getDb } from "./services/db";
 import { getActiveOrg } from "./services/db/registry";
@@ -22,6 +23,7 @@ import * as scout from "./services/scout-viewer";
 import * as scoutTargets from "./services/scout-viewer/targets";
 import * as scan from "./services/scan";
 import * as scanDrives from "./services/scan/drives";
+import * as scanReport from "./services/scan/report";
 import { ensureScanSchema } from "./services/scan/db";
 import { generateUUIDv7 } from "./services/utils/uuidv7";
 import * as settings from "./services/settings";
@@ -94,7 +96,17 @@ function scanCtx(): { db: ReturnType<typeof getDb>; orgId: string } {
   }
   return { db, orgId: org.org_id };
 }
+// A scan walks thousands of files; per-folder progress can still burst on a shallow-wide tree.
+// Throttle RUNNING updates to one every SCAN_PROGRESS_THROTTLE_MS, but flush terminal states
+// (completed / aborted / paused / crashed / error) immediately so the UI never misses the ending.
+const SCAN_PROGRESS_THROTTLE_MS = 400;
+let lastProgressAt = 0;
+const TERMINAL_STATES = new Set(["completed", "aborted", "paused", "crashed", "error"]);
 const sendScanProgress = (p: scan.ScanProgress): void => {
+  const terminal = TERMINAL_STATES.has(p.status);
+  const now = Date.now();
+  if (!terminal && now - lastProgressAt < SCAN_PROGRESS_THROTTLE_MS) return;
+  lastProgressAt = now;
   getMainWindow()?.webContents.send("scan:progress", p);
 };
 
@@ -186,13 +198,29 @@ export function registerIpcHandlers(): void {
   });
   const launchRun = (runId: number, resume: boolean): { ok: true; runId: number } => {
     const { db, orgId } = scanCtx();
-    void scan.startRun(db, orgId, runId, { resume, onProgress: sendScanProgress }).catch((e) => {
-      console.error("[scan] run failed:", e);
-      sendScanProgress({
-        runId, status: "error", currentFolder: null, foldersCommitted: 0, filesRecorded: 0,
-        errorsLogged: 0, estimatedFiles: null, note: e instanceof Error ? e.message : String(e),
+    scan
+      .startRun(db, orgId, runId, { resume, onProgress: sendScanProgress })
+      .then((finished) => {
+        // On a clean completion write the report NOW — in the main process, so a run that finished
+        // while the user was on another module still gets its report. A write failure is surfaced
+        // as a terminal note; the run STAYS completed (the data is already committed).
+        if (finished.status !== "completed") return;
+        const result = scanReport.writeScanReport(db, runId);
+        sendScanProgress({
+          runId, status: "completed", currentFolder: null,
+          foldersCommitted: finished.folders_committed, filesRecorded: finished.files_recorded,
+          errorsLogged: finished.errors_logged, estimatedFiles: finished.estimated_files,
+          reportPath: result.ok ? (result.path ?? null) : null,
+          reportError: result.ok ? null : (result.error ?? "report write failed"),
+        });
+      })
+      .catch((e) => {
+        console.error("[scan] run failed:", e);
+        sendScanProgress({
+          runId, status: "error", currentFolder: null, foldersCommitted: 0, filesRecorded: 0,
+          errorsLogged: 0, estimatedFiles: null, note: e instanceof Error ? e.message : String(e),
+        });
       });
-    });
     return { ok: true, runId };
   };
   ipcMain.handle("scan:start", (_e, runId: unknown) => launchRun(Number(runId), false));
@@ -209,6 +237,41 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("scan:listRuns", () => {
     const { db, orgId } = scanCtx();
     return scan.listRuns(db, orgId);
+  });
+  // Last run for a volume serial — drives the "already scanned → show the report" path (serial is
+  // identity, not the letter) and Option B's populated dashboard.
+  ipcMain.handle("scan:lastRunForVolume", (_e, serial: unknown) => {
+    const { db, orgId } = scanCtx();
+    if (typeof serial !== "string") return null;
+    return scan.lastRunForVolume(db, orgId, serial);
+  });
+  // Folder rollups for Option B's populated view (top-level folders of a run).
+  ipcMain.handle("scan:folders", (_e, runId: unknown) => {
+    const { db } = scanCtx();
+    return scan.listFolders(db, Number(runId));
+  });
+  // Manual report (re)write — used by the UI if the auto-write on completion failed. Returns the
+  // path or an error string; never throws.
+  ipcMain.handle("scan:writeReport", (_e, runId: unknown) => {
+    const { db } = scanCtx();
+    return scanReport.writeScanReport(db, Number(runId));
+  });
+  // Open the report file / the reports folder in the OS. openPath never throws; returns "" on ok.
+  ipcMain.handle("scan:openReport", (_e, runId: unknown) => {
+    const { db } = scanCtx();
+    const run = scan.getRun(db, Number(runId));
+    if (!run.report_path) return { ok: false, error: "no report on this run" };
+    void shell.showItemInFolder(run.report_path); // reveals + selects; the safe cross-format open
+    return { ok: true };
+  });
+  ipcMain.handle("scan:openReportsFolder", (_e, runId: unknown) => {
+    const { db } = scanCtx();
+    const run = scan.getRun(db, Number(runId));
+    const dir = run.report_path
+      ? path.dirname(run.report_path)
+      : path.join(path.parse(path.resolve(run.root_path)).root, scanReport.REPORTS_FOLDER_NAME);
+    void shell.openPath(dir);
+    return { ok: true };
   });
 
   // scout-viewer module — Fortified Browser engine (services/scout-viewer). Sender-verified: only

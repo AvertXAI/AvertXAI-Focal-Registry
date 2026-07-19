@@ -373,6 +373,9 @@ export interface ScanProgress {
   estimatedFiles: number | null;
   /** Present when the engine paused itself, e.g. "source-missing" after a drive unplug. */
   note?: string;
+  /** Terminal-only: the written report path, or the write error, surfaced on completion. */
+  reportPath?: string | null;
+  reportError?: string | null;
 }
 
 interface EngineState {
@@ -657,4 +660,39 @@ export function listRuns(db: Db, orgId: string, limit = 50): ScanRunRow[] {
 
 export function runStatus(db: Db, runId: number): { run: ScanRunRow; engineActive: boolean } {
   return { run: getRun(db, runId), engineActive: active?.running === true && active.runId === runId };
+}
+
+/** Most recent run for a volume by SERIAL (identity, not the drive letter) — powers the
+    already-scanned/show-report path and Option B's per-drive card. Null if the drive or run is unknown. */
+export function lastRunForVolume(db: Db, orgId: string, volumeSerial: string): ScanRunRow | null {
+  const drive = db
+    .prepare("SELECT id FROM scan_drives WHERE org_id = ? AND volume_serial = ?")
+    .get(orgId, volumeSerial) as { id: number } | undefined;
+  if (!drive) return null;
+  return (db
+    .prepare("SELECT * FROM scan_runs WHERE org_id = ? AND drive_id = ? ORDER BY id DESC LIMIT 1")
+    .get(orgId, drive.id) as ScanRunRow | undefined) ?? null;
+}
+
+export interface ScanFolderSummary {
+  path: string;
+  depth: number;
+  file_count: number;
+  image_count: number;
+  video_count: number;
+  audio_count: number;
+  total_bytes: number;
+  date_min: string | null;
+  date_max: string | null;
+  top_camera: string | null;
+}
+/** Top-level folders of a run for Option B's table (shallowest first, largest first within depth). */
+export function listFolders(db: Db, runId: number, limit = 200): ScanFolderSummary[] {
+  return db
+    .prepare(
+      `SELECT path, depth, file_count, image_count, video_count, audio_count, total_bytes,
+              date_min, date_max, top_camera
+       FROM scan_folders WHERE run_id = ? ORDER BY depth ASC, total_bytes DESC LIMIT ?`
+    )
+    .all(runId, limit) as ScanFolderSummary[];
 }

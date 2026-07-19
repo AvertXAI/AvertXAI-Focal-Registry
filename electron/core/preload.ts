@@ -92,6 +92,11 @@ const api: Api = {
     abort: (runId: number) => ipcRenderer.invoke("scan:abort", runId),
     status: (runId: number) => ipcRenderer.invoke("scan:status", runId),
     listRuns: () => ipcRenderer.invoke("scan:listRuns"),
+    lastRunForVolume: (serial: string) => ipcRenderer.invoke("scan:lastRunForVolume", serial),
+    folders: (runId: number) => ipcRenderer.invoke("scan:folders", runId),
+    writeReport: (runId: number) => ipcRenderer.invoke("scan:writeReport", runId),
+    openReport: (runId: number) => ipcRenderer.invoke("scan:openReport", runId),
+    openReportsFolder: (runId: number) => ipcRenderer.invoke("scan:openReportsFolder", runId),
   },
   updater: {
     download: () => ipcRenderer.invoke("updater:download"),

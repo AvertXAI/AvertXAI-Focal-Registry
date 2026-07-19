@@ -175,7 +175,7 @@ export interface ScanProbeResult {
   estimatedSeconds: number | null;
   roughGuide: true;
 }
-/** scan:progress push payload — folder-level, never per-file. */
+/** scan:progress push payload — folder-level, never per-file, throttled main-side. */
 export interface ScanProgress {
   runId: number;
   status: string;
@@ -185,6 +185,27 @@ export interface ScanProgress {
   errorsLogged: number;
   estimatedFiles: number | null;
   note?: string; // e.g. "source-missing" when a drive vanished mid-run
+  reportPath?: string | null; // terminal only — the written report, or null on write failure
+  reportError?: string | null; // terminal only — surfaced when the report write failed
+}
+export interface ScanFolderSummary {
+  path: string;
+  depth: number;
+  file_count: number;
+  image_count: number;
+  video_count: number;
+  audio_count: number;
+  total_bytes: number;
+  date_min: string | null;
+  date_max: string | null;
+  top_camera: string | null;
+}
+/** Report writer outcome — never throws; a failure is data, and the scan stays completed. */
+export interface ScanReportResult {
+  ok: boolean;
+  path?: string;
+  secureNoteCopy?: string | null;
+  error?: string;
 }
 
 // ---- Auto-updater pushes (electron-updater, §3.12) ----
@@ -281,6 +302,15 @@ export interface Api {
     abort: (runId: number) => Promise<boolean>;
     status: (runId: number) => Promise<{ run: ScanRunRow; engineActive: boolean }>;
     listRuns: () => Promise<ScanRunRow[]>;
+    /** Last run for a volume serial (identity, not the drive letter) — the already-scanned path. */
+    lastRunForVolume: (serial: string) => Promise<ScanRunRow | null>;
+    /** Top-level folder rollups of a run for the populated dashboard. */
+    folders: (runId: number) => Promise<ScanFolderSummary[]>;
+    /** Manual (re)write of the report — used when the auto-write on completion failed. */
+    writeReport: (runId: number) => Promise<ScanReportResult>;
+    /** Reveal the report file / open the reports folder in the OS. */
+    openReport: (runId: number) => Promise<{ ok: boolean; error?: string }>;
+    openReportsFolder: (runId: number) => Promise<{ ok: boolean; error?: string }>;
   };
   /** Auto-updater (§3.12) — user-consented download, install on quit. Auto cycle is packaged-only;
    *  check/version answer in every build so the Settings button is never dead. */

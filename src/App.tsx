@@ -7,6 +7,7 @@ import Flyout from "./components/Flyout";
 import FirstRunWizard from "./components/FirstRunWizard";
 import BootTerminal from "./components/BootTerminal";
 import NotBuilt from "./components/NotBuilt";
+import ScanModule from "./modules/scan/ScanModule";
 import type { ModuleRow, UpdateAvailableInfo, UpdateProgressInfo } from "./shared/types";
 import Home from "./views/Home";
 import Settings from "./views/Settings";
@@ -77,7 +78,7 @@ function RunbookShredderMount() {
 // slug → renderer component. A DB row makes a module NAVIGABLE; an entry here makes it REAL.
 // A row with no entry renders the not-built placeholder instead of a dead view.
 const MODULE_COMPONENTS: Record<string, ComponentType> = {
-  scan: NotBuilt, // seeded, not built — plain not-built page (§3.6)
+  scan: ScanModule,
   rename: NotBuilt, // seeded, not built — plain not-built page (§3.6)
   vault: VaultModule,
   "runbook-shredder": RunbookShredderMount,

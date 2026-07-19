@@ -1,9 +1,10 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
 // RunBooks — the ONE Electron main process. Hosts the platform shell window and the
-// shared spine: the local SQLite DB (runbooks.db) and the Data Viewer IPC channels.
+// shared spine: the local SQLite org DB (focalregistry_{org_id}.db) and the Data Viewer IPC channels.
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import path from "node:path";
 import { getDb, initDb, openDb } from "./core/services/db";
+import { migrateOrgDbSlugs } from "./core/services/db/migrate";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/crypto";
 import { ensureShredder, registerIpcHandlers } from "./core/ipc";
@@ -158,6 +159,15 @@ app.whenReady().then(async () => {
   // Own app identity so Windows uses our icon/identity AND so we don't collide
   // (single-instance lock + userData) with other AvertXAI builds.
   if (process.platform === "win32") app.setAppUserModelId("com.avertxai.focalregistry");
+
+  // Org-DB slug migration (runbooks_ → focalregistry_) — MUST run before initRegistry()/getDb()
+  // hands any module a connection. Idempotent every boot; a failure rolls back and the app boots
+  // on the old file as if nothing happened (the migration logs, the user never sees it).
+  try {
+    migrateOrgDbSlugs(app.getPath("userData"));
+  } catch (e) {
+    console.error("[db-migrate] unexpected failure — booting unmigrated:", e);
+  }
 
   // --- Config-as-Data gatekeeper: the platform registry routes boot to the active org's DBs.
   // No active org yet → skip the org DBs entirely; the renderer boots into the First-Run

@@ -33,7 +33,7 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
   // Create + seed the org DBs FIRST; registry activation is the LAST step (the commit point),
   // so a failure anywhere before it leaves the registry empty and the wizard simply runs again.
   // ponytail: a crash between seed and addOrg orphans the new .db files — harmless, never routed to.
-  initDb(path.join(userData, `runbooks_${orgId}.db`));
+  initDb(path.join(userData, `focalregistry_${orgId}.db`));
   // Vault is born encrypted: safeStorage-wrapped secret → Argon2id → SQLCipher key.
   const vaultKey = await deriveVaultKey(getOrCreateVaultSecret(orgId));
   openDb(path.join(userData, `vault_${orgId}.locked.db`), "vault", vaultKey);
@@ -54,5 +54,5 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
     mod.run(generateUUIDv7(), orgId, "Secure Vault", "vault", "secrets", 5, 1);
   })();
 
-  addOrg(orgId, "runbooks", name);
+  addOrg(orgId, "focalregistry", name);
 }

@@ -252,15 +252,33 @@ async function extractMediaMetadata(files: FileRow[]): Promise<void> {
       const meta = await parseFile(f.path, { duration: true });
       const fmt = meta.format;
       const tracks = fmt.trackInfo ?? [];
-      const vTrack = tracks.find((t) => t.video !== undefined);
-      const aTrack = tracks.find((t) => t.audio !== undefined);
-      if (typeof vTrack?.codecName === "string" && vTrack.codecName.trim() !== "") f.videoCodec = vTrack.codecName.trim();
-      if (typeof aTrack?.codecName === "string" && aTrack.codecName.trim() !== "") f.audioCodec = aTrack.codecName.trim();
+      // Unrecognized bytes do NOT throw — parseFile resolves with an empty shell. Emptiness IS the
+      // failure signal: record it honestly as an error row, never as a silently-blank media row.
+      if (fmt.container === undefined && fmt.codec === undefined && tracks.length === 0 && !(typeof fmt.duration === "number" && fmt.duration > 0)) {
+        f.errors.push({ stage: "media", text: "unrecognized or unreadable media container (no metadata extracted)" });
+        continue;
+      }
+      // ISO-BMFF quirk (probed 2026-07-19): music-metadata types EVERY MP4/MOV track as audio and
+      // wraps raw stsd fourccs in angle brackets — classify video tracks by fourcc, not by t.video
+      // (that field is populated for Matroska only, where it also carries pixel dimensions).
+      const VIDEO_FOURCCS = new Set(["avc1","avc3","hvc1","hev1","mp4v","av01","vp08","vp09","dvhe","dvh1","apch","apcn","apcs","apco","ap4h","mjpa","jpeg"]);
+      const stripCodec = (s: string): string => s.replace(/^<|>$/g, "").trim();
+      let vTrackVideo: { pixelWidth?: number; pixelHeight?: number } | undefined;
+      for (const t of tracks) {
+        const cn = typeof t.codecName === "string" ? stripCodec(t.codecName) : "";
+        if (cn === "") continue;
+        if (t.video !== undefined) {
+          if (!f.videoCodec) { f.videoCodec = cn; vTrackVideo = t.video; }
+        } else if (VIDEO_FOURCCS.has(cn.toLowerCase())) {
+          if (!f.videoCodec) f.videoCodec = cn;
+        } else if (!f.audioCodec) {
+          f.audioCodec = cn;
+        }
+      }
       // Pure-audio containers (WAV/MP3/FLAC…) carry the codec at format level, not in trackInfo.
-      if (!f.audioCodec && f.kind === "audio" && typeof fmt.codec === "string") f.audioCodec = fmt.codec;
-      const vT = vTrack?.video;
-      if (typeof vT?.pixelWidth === "number" && vT.pixelWidth > 0) f.width = vT.pixelWidth;
-      if (typeof vT?.pixelHeight === "number" && vT.pixelHeight > 0) f.height = vT.pixelHeight;
+      if (!f.audioCodec && typeof fmt.codec === "string" && fmt.codec.trim() !== "") f.audioCodec = fmt.codec;
+      if (typeof vTrackVideo?.pixelWidth === "number" && vTrackVideo.pixelWidth > 0) f.width = vTrackVideo.pixelWidth;
+      if (typeof vTrackVideo?.pixelHeight === "number" && vTrackVideo.pixelHeight > 0) f.height = vTrackVideo.pixelHeight;
       if (typeof fmt.duration === "number" && fmt.duration > 0) f.durationSeconds = fmt.duration;
       if (typeof fmt.bitrate === "number" && fmt.bitrate > 0) f.bitrate = Math.round(fmt.bitrate);
       const c = meta.common;

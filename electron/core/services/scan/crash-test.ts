@@ -238,6 +238,10 @@ interface FormatPresence {
   width: number;
   height: number;
   metadataDate: number;
+  displayWidth: number;
+  displayHeight: number;
+  rotation: number;
+  bitrateSource: number;
 }
 function counts(db: Db, runId?: number): Counts {
   const runs = db
@@ -258,6 +262,10 @@ function counts(db: Db, runId?: number): Counts {
       width: field("width"),
       height: field("height"),
       metadataDate: field("metadata_date"),
+      displayWidth: field("display_width"),
+      displayHeight: field("display_height"),
+      rotation: field("rotation"),
+      bitrateSource: field("bitrate_source"),
     };
   };
   return {
@@ -338,6 +346,37 @@ async function main(): Promise<void> {
     const run = createRun(db, ORG, testDrive(db), treeDir, "folder");
     await startRun(db, ORG, run.id);
     console.log(JSON.stringify(counts(db, run.id), null, 1));
+  } else if (mode === "fixtures") {
+    // Real-fixtures mode: scan a directory of REAL media files through the FULL engine (traversal,
+    // both metadata engines, per-folder transaction) and dump every media row's fields — the
+    // end-to-end complement to verify-isobmff's reader-unit check. Files named *expect-null* must
+    // come out with NULL geometry and must not have crashed the run.
+    const run = createRun(db, ORG, testDrive(db), treeDir, "folder");
+    await startRun(db, ORG, run.id);
+    const rows = db
+      .prepare(
+        `SELECT filename, kind, video_codec, audio_codec, width, height, display_width, display_height,
+                rotation, bitrate, bitrate_source, duration_seconds, metadata_date
+         FROM scan_files WHERE run_id = ? AND kind IN ('video', 'audio') ORDER BY filename`
+      )
+      .all(run.id) as Array<Record<string, unknown>>;
+    let failures = 0;
+    for (const r of rows) {
+      console.log(JSON.stringify(r));
+      const name = String(r.filename);
+      const geometryNull = r.width == null && r.height == null && r.display_width == null;
+      if (name.includes("expect-null") && !geometryNull) {
+        console.log(`[FAIL] ${name}: negative fixture carries geometry`);
+        failures += 1;
+      }
+      if (!name.includes("expect-null") && r.kind === "video" && (r.width == null || r.height == null)) {
+        console.log(`[FAIL] ${name}: video fixture missing encoded dimensions`);
+        failures += 1;
+      }
+    }
+    const finalRun = db.prepare("SELECT status, files_recorded, errors_logged FROM scan_runs WHERE id = ?").get(run.id);
+    console.log("run:", JSON.stringify(finalRun), failures === 0 ? "FIXTURES MODE PASSED" : `${failures} FAILURE(S)`);
+    if (failures > 0) process.exitCode = 1;
   } else {
     throw new Error(`unknown mode ${mode}`);
   }

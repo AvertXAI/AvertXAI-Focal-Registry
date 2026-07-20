@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Db } from "./db";
 import type { ScanDriveRow, ScanRunRow } from "./drives";
+import { formatStamp } from "../../../../src/shared/datetime";
 
 export const REPORTS_FOLDER_NAME = "_FocalRegistry-Reports";
 
@@ -59,8 +60,10 @@ function yamlList(pairs: Array<{ key: string; n: number }>): string {
   return `{ ${pairs.map((p) => `"${p.key}": ${p.n}`).join(", ")} }`;
 }
 
-function fmtDate(iso: string | null): string {
-  return iso ? iso.slice(0, 10) : "—";
+// Body capture ranges are human display → LOCAL date-only through the shared formatter (frontmatter
+// keeps machine ISO separately). "—" when absent.
+function fmtDate(value: string | null): string {
+  return formatStamp(value, "dateOnly") || "—";
 }
 
 function fmtBytes(n: number): string {
@@ -151,7 +154,7 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
       "type: scan-report",
       `drive_label: "${(drive?.volume_label ?? "").replace(/"/g, "'")}"`,
       `volume_serial: "${drive?.volume_serial ?? ""}"`,
-      `scanned_at: "${scannedAt}"`,
+      `scanned_at: "${formatStamp(scannedAt, "iso")}"`,
       `run_id: ${runId}`,
       `folders: ${folders}`,
       `files: ${files}`,
@@ -159,8 +162,8 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
       `video: ${video}`,
       `audio: ${audio}`,
       `unknown: ${unknown}`,
-      `oldest_capture: "${oldest ?? ""}"`,
-      `newest_capture: "${newest ?? ""}"`,
+      `oldest_capture: "${formatStamp(oldest, "iso")}"`,
+      `newest_capture: "${formatStamp(newest, "iso")}"`,
       `formats_stills: ${yamlList(formatsFor("image"))}`,
       `formats_video: ${yamlList(formatsFor("video"))}`,
       `formats_audio: ${yamlList(formatsFor("audio"))}`,
@@ -182,7 +185,7 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
       "|---|---|",
       `| Root | \`${run.root_path}\` |`,
       `| Volume serial | ${drive?.volume_serial ?? "—"} |`,
-      `| Scanned | ${scannedAt} |`,
+      `| Scanned | ${formatStamp(scannedAt, "eventTime") || "—"} |`,
       `| Folders | ${folders.toLocaleString()} |`,
       `| Media files | ${files.toLocaleString()} |`,
       `| Stills | ${stills.toLocaleString()} |`,

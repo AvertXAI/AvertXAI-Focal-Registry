@@ -14,6 +14,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ScanCameraCount, ScanErrorRow, ScanFolderSummary, ScanProgress, ScanRunRow, ScanVolume } from "../../shared/types";
+import { formatRange, formatStamp } from "../../shared/datetime";
 import { bumpRender } from "../../diag";
 import "./scan.css";
 
@@ -41,17 +42,6 @@ function fmtBytes(n: number | null | undefined): string {
   if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`;
   if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
   return `${(n / 1024).toFixed(0)} KB`;
-}
-// MM/DD/YYYY from an ISO-ish date string, by string surgery (no Date parse — never shifts across a
-// timezone). "2024-12-01T…" → "12/01/2024".
-function fmtMDY(s: string | null | undefined): string {
-  if (!s) return "";
-  const [y, m, d] = s.slice(0, 10).split("-");
-  return y && m && d ? `${m}/${d}/${y}` : s.slice(0, 10);
-}
-function fmtDateRange(a: string | null, b: string | null): string {
-  if (!a && !b) return "—";
-  return `${fmtMDY(a)} → ${fmtMDY(b)}`;
 }
 function fmtElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -684,7 +674,7 @@ function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, o
         <div className="scan-row" style={{ marginBottom: 14 }}>
           <div>
             <div className="scan-h" style={{ margin: 0 }}>{drive.letter}\ {drive.label || "(no label)"}</div>
-            <div className="scan-sub">Last scanned {run.finished_at ? fmtMDY(run.finished_at) : "—"} · {run.files_recorded.toLocaleString()} files</div>
+            <div className="scan-sub">Last scanned {formatStamp(run.finished_at, "eventTime") || "—"} · {run.files_recorded.toLocaleString()} files</div>
           </div>
           <span className="scan-pill ok" style={{ marginLeft: "auto" }}>Up to date</span>
           <button className="scan-btn blue" onClick={onRescan} disabled={busy}>Rescan</button>
@@ -713,7 +703,9 @@ function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, o
                   <tr>
                     <td className="w scan-mono cell-link" title={`Open ${f.path}`} onClick={() => void window.api.scan.openPath(f.path)}>{f.path}</td>
                     <td className="scan-mono">{f.file_count.toLocaleString()}</td>
-                    <td className="scan-mono">{fmtDateRange(f.date_min, f.date_max)}</td>
+                    <td className="scan-mono">{formatRange(f.date_min, f.date_max, "dateOnly")}
+                      {f.date_source && <span className="scan-datesrc"> ({f.date_source === "capture" ? "capture dates" : "file dates"})</span>}
+                    </td>
                     <td className={f.top_camera ? "cell-link" : undefined} title={f.top_camera ? "Show all cameras in this folder" : undefined}
                         onClick={f.top_camera ? () => void showCameras(f.id) : undefined}>{f.top_camera ?? "—"}</td>
                     <td className="scan-mono">{fmtBytes(f.total_bytes)}</td>
@@ -758,7 +750,7 @@ function HistoryTable({ runs, onView, onNuke }: { runs: ScanRunRow[]; onView: (i
               <td>{r.status}</td>
               <td className="scan-mono">{r.files_recorded.toLocaleString()}</td>
               <td className="scan-mono">{r.folders_committed.toLocaleString()}</td>
-              <td className="scan-mono">{r.finished_at ? `${fmtMDY(r.finished_at)} ${r.finished_at.slice(11, 16)}` : "—"}</td>
+              <td className="scan-mono">{formatStamp(r.finished_at, "eventTime") || "—"}</td>
               <td>{r.report_path ? <button className="scan-btn ghost" onClick={() => onView(r.id)}>View</button> : "—"}</td>
             </tr>
           ))}

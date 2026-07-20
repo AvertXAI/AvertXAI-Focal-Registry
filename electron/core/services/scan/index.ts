@@ -791,15 +791,23 @@ export interface ScanFolderSummary {
   date_min: string | null;
   date_max: string | null;
   top_camera: string | null;
+  /** 'capture' = folder's dates are predominantly EXIF; 'file' = predominantly file mtime; null = no dated media. */
+  date_source: "capture" | "file" | null;
 }
 /** Top-level folders of a run for Option B's table (shallowest first, largest first within depth).
     Only folders that actually hold media (file_count = media rows written) — empty/non-media folders
-    are noise in this table. */
+    are noise in this table. date_source reflects whether the range is real capture data or file mtime
+    (the audit found ~7,267 of 7,303 folders are mtime-dominant — the label keeps that honest). */
 export function listFolders(db: Db, runId: number, limit = 200): ScanFolderSummary[] {
   return db
     .prepare(
       `SELECT id, path, depth, file_count, image_count, video_count, audio_count, total_bytes,
-              date_min, date_max, top_camera
+              date_min, date_max, top_camera,
+              (SELECT CASE
+                 WHEN SUM(CASE WHEN captured_at_source='exif' THEN 1 ELSE 0 END) >
+                      SUM(CASE WHEN captured_at_source='file' THEN 1 ELSE 0 END) THEN 'capture'
+                 WHEN COUNT(captured_at) > 0 THEN 'file' ELSE NULL END
+               FROM scan_files WHERE folder_id = scan_folders.id AND captured_at IS NOT NULL) AS date_source
        FROM scan_folders WHERE run_id = ? AND file_count > 0 ORDER BY depth ASC, total_bytes DESC LIMIT ?`
     )
     .all(runId, limit) as ScanFolderSummary[];

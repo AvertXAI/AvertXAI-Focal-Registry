@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { RunbookFilter, RunbookRow } from "../../shared/types";
 import { defaultSettings, type ShredderSettings } from "./config.manifest";
+import { formatStamp } from "../../shared/datetime";
 import { highlightText, renderMarkdown } from "./markdown";
 import "./runbook-shredder.css";
 
@@ -553,7 +554,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
                 )}
                 {(selected.updated ?? selected.updated_at) && (
                   <span className="rbs-mchip">
-                    verified <b>{selected.updated ?? selected.updated_at}</b>
+                    verified <b>{formatStamp(selected.updated ?? selected.updated_at, "eventTime")}</b>
                   </span>
                 )}
                 {selected.runbook_id && (

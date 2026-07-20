@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Db } from "./db";
+import { formatStamp } from "../../../../src/shared/datetime";
 
 /** First free name in dir: base.ext, base-02.ext, base-03.ext … Never returns an existing path
     (ext includes the leading dot). Mirrors the report writer's .md collision rule for exports. */
@@ -59,7 +60,8 @@ export function exportFoldersCsv(db: Db, runId: number, outPath: string): Promis
       for (const r of iter) {
         out.write(
           [r.folder_path, r.file_count, r.stills, r.video, r.audio, r.total_bytes,
-            r.oldest_capture, r.newest_capture, r.top_camera, r.formats].map(csvField).join(",") + "\r\n"
+            formatStamp(r.oldest_capture as string | null, "iso"), formatStamp(r.newest_capture as string | null, "iso"),
+            r.top_camera, r.formats].map(csvField).join(",") + "\r\n"
         );
       }
       out.end();

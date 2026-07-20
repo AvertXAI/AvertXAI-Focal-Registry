@@ -208,6 +208,8 @@ export interface ScanFolderSummary {
   date_min: string | null;
   date_max: string | null;
   top_camera: string | null;
+  /** 'capture' = dates are predominantly EXIF; 'file' = predominantly file mtime; null = no dated media. */
+  date_source?: "capture" | "file" | null;
 }
 export interface ScanCameraCount { camera: string; count: number }
 /** Report writer outcome — never throws; a failure is data, and the scan stays completed. */

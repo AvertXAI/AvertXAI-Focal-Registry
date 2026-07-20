@@ -42,10 +42,16 @@ function fmtBytes(n: number | null | undefined): string {
   if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`;
   return `${(n / 1024).toFixed(0)} KB`;
 }
+// MM/DD/YYYY from an ISO-ish date string, by string surgery (no Date parse — never shifts across a
+// timezone). "2024-12-01T…" → "12/01/2024".
+function fmtMDY(s: string | null | undefined): string {
+  if (!s) return "";
+  const [y, m, d] = s.slice(0, 10).split("-");
+  return y && m && d ? `${m}/${d}/${y}` : s.slice(0, 10);
+}
 function fmtDateRange(a: string | null, b: string | null): string {
-  const d = (s: string | null): string => (s ? s.slice(0, 10) : "");
   if (!a && !b) return "—";
-  return `${d(a)} → ${d(b)}`;
+  return `${fmtMDY(a)} → ${fmtMDY(b)}`;
 }
 function fmtElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -113,7 +119,7 @@ function fmtMetaVal(raw: string): string {
   if (raw.startsWith("{")) {
     try {
       const o = JSON.parse(raw) as Record<string, unknown>;
-      const parts = Object.entries(o).map(([k, v]) => `${k} ${typeof v === "number" ? v.toLocaleString() : String(v)}`);
+      const parts = Object.entries(o).map(([k, v]) => `${k} (${typeof v === "number" ? v.toLocaleString() : String(v)})`);
       return parts.length ? parts.join(" · ") : "—";
     } catch { return raw; }
   }
@@ -510,9 +516,9 @@ export default function ScanModule() {
               </div>
               <button className="scan-modal-close" aria-label="Close" style={{ marginLeft: 10 }} onClick={() => setReportModal(null)}>×</button>
             </div>
+            {exportMsg && <div className={`scan-export-rail${exportMsg.ok ? " ok" : " err"}`}>{exportMsg.text}</div>}
             <div className="scan-modal-body">
               <div className="scan-sub scan-mono" style={{ marginBottom: 12, wordBreak: "break-all" }}>{reportModal.path}</div>
-              {exportMsg && <div className={`scan-export-msg${exportMsg.ok ? " ok" : " err"}`}>{exportMsg.text}</div>}
               {reportView === "read"
                 ? <div className="scan-report-read">{renderReport(reportModal.content)}</div>
                 : <div className="scan-report-md">{highlightReport(reportModal.content)}</div>}
@@ -678,7 +684,7 @@ function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, o
         <div className="scan-row" style={{ marginBottom: 14 }}>
           <div>
             <div className="scan-h" style={{ margin: 0 }}>{drive.letter}\ {drive.label || "(no label)"}</div>
-            <div className="scan-sub">Last scanned {run.finished_at?.slice(0, 10) ?? "—"} · {run.files_recorded.toLocaleString()} files</div>
+            <div className="scan-sub">Last scanned {run.finished_at ? fmtMDY(run.finished_at) : "—"} · {run.files_recorded.toLocaleString()} files</div>
           </div>
           <span className="scan-pill ok" style={{ marginLeft: "auto" }}>Up to date</span>
           <button className="scan-btn blue" onClick={onRescan} disabled={busy}>Rescan</button>
@@ -752,7 +758,7 @@ function HistoryTable({ runs, onView, onNuke }: { runs: ScanRunRow[]; onView: (i
               <td>{r.status}</td>
               <td className="scan-mono">{r.files_recorded.toLocaleString()}</td>
               <td className="scan-mono">{r.folders_committed.toLocaleString()}</td>
-              <td className="scan-mono">{r.finished_at?.slice(0, 16) ?? "—"}</td>
+              <td className="scan-mono">{r.finished_at ? `${fmtMDY(r.finished_at)} ${r.finished_at.slice(11, 16)}` : "—"}</td>
               <td>{r.report_path ? <button className="scan-btn ghost" onClick={() => onView(r.id)}>View</button> : "—"}</td>
             </tr>
           ))}

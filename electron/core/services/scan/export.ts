@@ -35,7 +35,7 @@ const CSV_SQL =
           fo.date_max AS newest_capture, fo.top_camera,
           (SELECT GROUP_CONCAT(pair, ' ') FROM (
              SELECT LOWER(extension) || ':' || COUNT(*) AS pair FROM scan_files fi
-             WHERE fi.run_id = fo.run_id AND fi.folder_id = fo.id
+             WHERE fi.run_id = fo.run_id AND fi.folder_id = fo.id AND fi.kind IN ('image','video','audio')
              GROUP BY LOWER(extension) ORDER BY COUNT(*) DESC)) AS formats
    FROM scan_folders fo WHERE fo.run_id = ? AND fo.file_count > 0 ORDER BY fo.path`;
 

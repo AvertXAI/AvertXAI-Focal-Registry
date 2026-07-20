@@ -145,18 +145,11 @@ export function applyThemeOverlay(mode: string | null): void {
   applyOverlayNow();
 }
 
-/** Dim (or restore) the native overlay while a renderer modal is open. */
+/** Dim (or restore) the native overlay while a renderer modal is open. Dimming is a pure RECOLOR of
+    the caption glyphs toward the backdrop (§3.4) — we deliberately do NOT disable the buttons.
+    Disabling made Windows paint them in its own system-disabled grey, a different shade than the
+    blended symbolColor, so the three buttons read unevenly; recolor-only dims all three uniformly. */
 export function setOverlayDim(dim: boolean): void {
   overlayDimmed = dim;
   applyOverlayNow();
-  // Modal mode also removes the native caption buttons' ACTIONS (they're OS-drawn, so no DOM
-  // backdrop can block their clicks — dimming only recolors them). Windows greys the buttons and
-  // ignores Alt+F4 / double-click-maximize while disabled. Programmatic paths are unaffected:
-  // the tray's Quit (app.quit) and win.close() still work, so hide-to-tray/quit can't deadlock.
-  const win = getMainWindow();
-  if (win) {
-    win.setMinimizable(!dim);
-    win.setMaximizable(!dim);
-    win.setClosable(!dim);
-  }
 }

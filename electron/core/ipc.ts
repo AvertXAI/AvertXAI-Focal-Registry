@@ -334,8 +334,9 @@ export function registerIpcHandlers(): void {
       const run = scan.getRun(db, Number(runId));
       if (run.status !== "completed") return { ok: false, error: "The scan has not completed yet." };
       const { dir, base } = scanReport.reportStem(db, run.id);
-      fs.mkdirSync(dir, { recursive: true });
-      const outPath = scanExport.collisionFreeName(dir, base, ".pdf");
+      const exportDir = path.join(dir, "Exports"); // keep exports out of the reports folder root
+      fs.mkdirSync(exportDir, { recursive: true });
+      const outPath = scanExport.collisionFreeName(exportDir, base, ".pdf");
       const doc = `<!doctype html><html><head><meta charset="utf-8"><style>${String(css ?? "")}</style></head><body>${String(html ?? "")}</body></html>`;
       tmp = path.join(app.getPath("temp"), `focal-report-${run.id}-${Date.now()}.html`);
       fs.writeFileSync(tmp, doc, "utf8");
@@ -359,8 +360,9 @@ export function registerIpcHandlers(): void {
       const run = scan.getRun(db, Number(runId));
       if (run.status !== "completed") return { ok: false, error: "The scan has not completed yet." };
       const { dir, base } = scanReport.reportStem(db, run.id);
-      fs.mkdirSync(dir, { recursive: true });
-      const outPath = scanExport.collisionFreeName(dir, base, ".csv");
+      const exportDir = path.join(dir, "Exports"); // keep exports out of the reports folder root
+      fs.mkdirSync(exportDir, { recursive: true });
+      const outPath = scanExport.collisionFreeName(exportDir, base, ".csv");
       await scanExport.exportFoldersCsv(db, run.id, outPath);
       return { ok: true, path: outPath };
     } catch (e) {

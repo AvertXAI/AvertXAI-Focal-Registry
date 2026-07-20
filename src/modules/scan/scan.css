@@ -155,9 +155,10 @@
 .scan-export{display:flex;align-items:center;gap:8px}
 .scan-export-label{font-size:12px;color:var(--mc-muted)}
 .scan-export .scan-btn{padding:5px 12px;font-size:12px}
-.scan-export-msg{font-size:12px;margin-bottom:12px;word-break:break-all}
-.scan-export-msg.ok{color:var(--scan-ok)}
-.scan-export-msg.err{color:var(--scan-warn)}
+/* export result on the modal's top rail (below the head), full width, highlighted */
+.scan-export-rail{padding:8px 20px;font-size:12px;word-break:break-all;border-bottom:1px solid var(--mc-border);font-family:var(--mc-mono)}
+.scan-export-rail.ok{background:rgba(56,217,130,.14);color:var(--scan-ok)}
+.scan-export-rail.err{background:rgba(224,138,58,.14);color:var(--scan-warn)}
 .scan-seg-btn:not(.on):hover{color:var(--mc-text)}
 .scan-err-row{display:grid;grid-template-columns:64px 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--mc-border);font-size:12px}
 .scan-err-row .stage{color:var(--scan-warn);font-family:var(--mc-mono)}

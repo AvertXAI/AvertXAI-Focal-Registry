@@ -46,10 +46,11 @@
 /* manual drive re-check — a green ring that spins while re-enumerating (fallback to the live watcher) */
 .scan-refresh{margin-left:auto;background:none;border:none;cursor:pointer;padding:4px;display:inline-flex;align-items:center;justify-content:center}
 .scan-refresh:disabled{cursor:default}
-.scan-refresh-dot{width:11px;height:11px;border-radius:50%;border:2px solid var(--scan-ok);box-sizing:border-box}
-.scan-refresh-dot.spin{border-top-color:transparent;animation:scan-spin .7s linear infinite}
+.scan-refresh-ico{display:block;color:var(--scan-ok)}
+.scan-refresh:hover .scan-refresh-ico{color:var(--scan-ok);filter:brightness(1.15)}
+.scan-refresh-ico.spin{animation:scan-spin .7s linear infinite;transform-origin:50% 50%}
 @keyframes scan-spin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.scan-refresh-dot.spin{animation:none}}
+@media (prefers-reduced-motion:reduce){.scan-refresh-ico.spin{animation:none}}
 
 .scan-stage{display:flex;flex-direction:column;gap:14px}
 .scan-card{background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:12px;padding:20px 22px}

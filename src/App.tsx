@@ -8,7 +8,7 @@ import FirstRunWizard from "./components/FirstRunWizard";
 import BootTerminal from "./components/BootTerminal";
 import NotBuilt from "./components/NotBuilt";
 import ScanModule from "./modules/scan/ScanModule";
-import type { ModuleRow } from "./shared/types";
+import type { ModuleRow, UpdateAvailableInfo, UpdateProgressInfo } from "./shared/types";
 import Home from "./views/Home";
 import Settings from "./views/Settings";
 import { Spark } from "./icons";
@@ -85,12 +85,12 @@ const MODULE_COMPONENTS: Record<string, ComponentType> = {
   "scout-viewer": ScoutViewerModule,
 };
 
-// Auto-update notice — non-blocking toast, never modal. autoDownload is ON in this product, so an
-// automatic check that finds an update downloads by itself; "available" is a fact Paul cannot act on
-// and is NOT toasted (nor is progress). The ONE automatic toast is the actionable "ready to restart"
-// at download-complete, which does NOT auto-dismiss. Automatic FAILURES stay silent. The Settings
-// "Check for updates" button still ALWAYS answers via the window-level CustomEvent below
-// (checking / found / latest / failed).
+// Auto-update notice — non-blocking toast, never modal. autoDownload is OFF (consent-first): an
+// automatic check that finds an update raises an actionable "Version X available" toast with a
+// Download button (it does NOT auto-dismiss — the user would otherwise never learn, since nothing
+// downloads on its own). Download → progress → the "ready to restart" toast at completion (also
+// non-dismissing). Automatic FAILURES stay silent. The Settings "Check for updates" button ALWAYS
+// answers via the window-level CustomEvent below (checking / available / latest / failed).
 export type UpdateToastSignal =
   | { stage: "checking" }
   | { stage: "none"; version: string }
@@ -101,37 +101,53 @@ export function signalUpdateToast(detail: UpdateToastSignal): void {
   window.dispatchEvent(new CustomEvent<UpdateToastSignal>(UPDATE_TOAST_EVENT, { detail }));
 }
 
-type UpdateToastState = UpdateToastSignal | { stage: "ready" };
+type UpdateToastState = UpdateToastSignal | { stage: "downloading"; percent: number } | { stage: "ready" };
 
 function UpdateToast() {
   const [state, setState] = useState<UpdateToastState | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    // Download-complete is the only automatic, un-solicited toast — and it's an ACTION.
+    // A found update (automatic OR manual) is an ACTION — Download, non-dismissing.
+    const onAvailable = (p: UpdateAvailableInfo) => { setDismissed(false); setState({ stage: "available", version: p.version }); };
+    const onProgress = (p: UpdateProgressInfo) => setState({ stage: "downloading", percent: p.percent });
     const onDownloaded = () => { setDismissed(false); setState({ stage: "ready" }); };
     // Manual states from the Settings button (the user asked — always answer, even after a dismiss).
     const onManual = (e: Event) => { setDismissed(false); setState((e as CustomEvent<UpdateToastSignal>).detail); };
+    window.api.on("updater:available", onAvailable);
+    window.api.on("updater:progress", onProgress);
     window.api.on("updater:downloaded", onDownloaded);
     window.addEventListener(UPDATE_TOAST_EVENT, onManual);
     return () => {
+      window.api.off("updater:available", onAvailable);
+      window.api.off("updater:progress", onProgress);
       window.api.off("updater:downloaded", onDownloaded);
       window.removeEventListener(UPDATE_TOAST_EVENT, onManual);
     };
   }, []);
 
-  // Informational manual answers leave on their own; "ready" is an action and NEVER auto-dismisses.
+  // Only "you're on the latest" leaves on its own. "available" and "ready" are ACTIONS — they never
+  // auto-dismiss (§Task 1.2/1.4); error stays until dismissed; checking/downloading transition.
   useEffect(() => {
-    if (state?.stage !== "none" && state?.stage !== "available") return;
-    const t = setTimeout(() => setState(null), state.stage === "available" ? 6000 : 4000);
+    if (state?.stage !== "none") return;
+    const t = setTimeout(() => setState(null), 4000);
     return () => clearTimeout(t);
   }, [state]);
 
   if (!state || dismissed) return null;
-  const ready = state.stage === "ready";
+  const startDownload = () => {
+    setState({ stage: "downloading", percent: 0 });
+    void window.api.updater.download().catch(() => {}); // errors stay silent (main logs them)
+  };
+  const attention = state.stage === "available" || state.stage === "ready";
   return (
-    <div className={`updatetoast${ready ? " attention" : ""}`} role={ready ? "alert" : "status"}>
-      {ready ? (
+    <div className={`updatetoast${attention ? " attention" : ""}`} role={attention ? "alert" : "status"}>
+      {state.stage === "available" ? (
+        <div className="updatetoast-main">
+          <div className="updatetoast-title">Update available</div>
+          <div className="updatetoast-body">Version {state.version} is ready to download.</div>
+        </div>
+      ) : state.stage === "ready" ? (
         <div className="updatetoast-main">
           <div className="updatetoast-title">Update ready to install</div>
           <div className="updatetoast-body">A new version has been downloaded. Restart to finish updating.</div>
@@ -141,13 +157,14 @@ function UpdateToast() {
           {state.stage === "checking" && "Checking for updates…"}
           {state.stage === "none" && `You're on the latest version (${state.version})`}
           {state.stage === "error" && "Couldn't check for updates. Check your connection."}
-          {state.stage === "available" && `Version ${state.version} found — downloading in the background…`}
+          {state.stage === "downloading" && `Downloading update… ${state.percent}%`}
         </span>
       )}
-      {ready && (
-        <button className="updatetoast-action" onClick={() => void window.api.updater.install()}>
-          Restart now
-        </button>
+      {state.stage === "available" && (
+        <button className="updatetoast-action" onClick={startDownload}>Download</button>
+      )}
+      {state.stage === "ready" && (
+        <button className="updatetoast-action" onClick={() => void window.api.updater.install()}>Restart now</button>
       )}
       <button className="updatetoast-close" aria-label="Dismiss" onClick={() => setDismissed(true)}>×</button>
     </div>

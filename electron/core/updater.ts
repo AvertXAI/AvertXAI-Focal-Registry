@@ -6,9 +6,10 @@
 //              Automatic checks are fire-and-forget, armed only by boot:done, hard-capped at
 //              10 seconds, and silent on failure — offline is a normal condition, not an error.
 //              Manual checks (Settings button) always answer, including the failure case.
-//              autoDownload ON (this product only): updates download by themselves; the renderer's
-//              only automatic toast is the actionable "ready to restart" at download-complete. Install
-//              happens on quit.
+//              autoDownload OFF (consent-first): an automatic check that finds an update raises a
+//              "Version X available" toast with a Download button — the user consents before any
+//              download. Unsigned alpha builds mean the feed supplies its own SHA512, so consent is
+//              the last human gate against a hostile feed. Install happens on quit.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/updater.ts
 //------------------------------------------------------------
@@ -75,10 +76,12 @@ export function initUpdater(win: BrowserWindow): void {
 
   if (!app.isPackaged) return; // no app-update.yml in dev — event wiring and the auto cycle are packaged-only
 
-  // autoDownload TRUE for this product (FR-DECISIONS §Auto-update — Paul never thinks about updating,
-  // ruled by Jason 2026-07-20; see CANON-UPDATES). An automatic check that finds an update downloads
-  // by itself; the ONLY actionable moment is download-complete, where the renderer raises its toast.
-  autoUpdater.autoDownload = true;
+  // autoDownload FALSE — consent-first (Jason ruled 2026-07-20, reversing the earlier same-day
+  // TRUE; see CANON-UPDATES). THE REASON, so it is never reopened: builds are UNSIGNED by design for
+  // the alpha, so electron-updater validates only a SHA512 the FEED ITSELF supplies — an attacker
+  // controlling the feed controls both the installer and its hash, so auto-download would be code
+  // execution with no click. The consent button is the last human gate, and it costs one click.
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   const send = (channel: string, payload: unknown): void => {

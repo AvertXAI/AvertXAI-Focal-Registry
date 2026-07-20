@@ -59,8 +59,8 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
       if (r.status === "none") signalUpdateToast({ stage: "none", version: r.version ?? appVersion });
       else if (r.status === "error") signalUpdateToast({ stage: "error" });
       else if (r.status === "available") signalUpdateToast({ stage: "available", version: r.version ?? "" });
-      // available → autoDownload starts the download itself; the actionable "ready to restart" toast
-      // fires from the updater:downloaded push when it completes.
+      // available → the toast shows a Download button (consent-first; autoDownload is OFF). Download →
+      // progress → the "ready to restart" toast fires from updater:downloaded when it completes.
     } catch {
       signalUpdateToast({ stage: "error" });
     }

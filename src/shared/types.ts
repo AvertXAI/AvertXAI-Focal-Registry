@@ -158,6 +158,8 @@ export interface ScanRunRow {
   /** EXACT media-file denominator from the counting walk (Phase 4) — real %, no clamp. */
   total_files_expected: number | null;
   total_folders_expected: number | null;
+  /** Joined from scan_drives on listRuns — the run's volume serial, for the per-drive scanned dot. */
+  volume_serial?: string | null;
 }
 /** Double-scan guard answer — data only; the UI presents the choice, the service never decides. */
 export interface ScanSourceDecision {
@@ -180,6 +182,8 @@ export interface ScanProgress {
   errorsLogged: number;
   estimatedFiles: number | null;
   note?: string; // e.g. "source-missing" when a drive vanished mid-run
+  lastFolderFiles?: number; // most-recent committed folder's media count (console per-folder line)
+  lastFolderBytes?: number;
   reportPath?: string | null; // terminal only — the written report, or null on write failure
   reportError?: string | null; // terminal only — surfaced when the report write failed
 }

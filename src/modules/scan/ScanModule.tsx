@@ -11,14 +11,24 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: src/modules/scan/ScanModule.tsx
 //------------------------------------------------------------
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ScanErrorRow, ScanFolderSummary, ScanProgress, ScanRunRow, ScanVolume } from "../../shared/types";
 import { bumpRender } from "../../diag";
 import "./scan.css";
 
 type Tab = "new" | "history" | "reports";
-type LogLine = { at: string; kind: "folder" | "warn" | "check"; text: string };
+type LogLine =
+  | { kind: "folder"; at: string; path: string; files: number; bytes: number }
+  | { kind: "warn"; at: string; count: number }
+  | { kind: "check"; at: string; folders: number };
 const MAX_LOG_LINES = 200; // console keeps the tail only — a multi-hour run must not grow the heap
+const CHECKPOINT_EVERY = 25; // emit a "checkpoint" console line every N committed folders
+
+function fmtGB(n: number): string {
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
+  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(0)} MB`;
+  return `${Math.max(1, Math.round(n / 1024))} KB`;
+}
 
 const IN_FLIGHT = new Set(["counting", "probing", "estimating", "running", "paused"]);
 const SCANNING = new Set(["running", "paused"]);
@@ -42,6 +52,104 @@ function fmtElapsed(ms: number): string {
   return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${sec}s` : `${sec}s`;
 }
 
+// ---- report viewers (no dependency) --------------------------------------------------------
+// The report is our OWN generated markdown (§4.3) — a fixed shape: YAML frontmatter, a couple of
+// headings, pipe tables, italic notes, inline `code`. Two views off one small parser: a colored
+// SOURCE view and a rendered READING view (the Secure-Note-style look). No editor, no markdown lib
+// — canon keeps generated artifacts read-only (§3.1/§4.3). ponytail: single-palette, no theme matrix.
+const RE_TOKEN = /("[^"]*")|(`[^`]*`)|(\b\d[\d,]*(?:\.\d+)?\b)/g;
+function inlineTokens(text: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  let last = 0, i = 0, m: RegExpExecArray | null;
+  RE_TOKEN.lastIndex = 0;
+  while ((m = RE_TOKEN.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(<span key={i++} className={m[1] ? "rs" : m[2] ? "rc" : "rn"}>{m[0]}</span>);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+function highlightReport(content: string): ReactNode[] {
+  let inFm = false;
+  return content.split("\n").map((line, i) => {
+    const t = line.trim();
+    let body: ReactNode;
+    if (t === "---") { inFm = !inFm; body = <span className="rp">{line}</span>; }
+    else if (/^#{1,6}\s/.test(t)) body = <span className="rh">{line}</span>;
+    else if (/^_.*_$/.test(t)) body = <span className="ri">{line}</span>;
+    else if (inFm && /^[a-z_]+:/i.test(line)) {
+      const idx = line.indexOf(":");
+      body = <><span className="rk">{line.slice(0, idx)}</span><span className="rp">:</span>{inlineTokens(line.slice(idx + 1))}</>;
+    } else body = <>{inlineTokens(line)}</>;
+    return <div key={i}>{body}</div>;
+  });
+}
+function inlineMd(text: string): ReactNode[] {
+  return text.split(/(`[^`]*`)/g).map((seg, j) =>
+    seg.length > 1 && seg.startsWith("`") && seg.endsWith("`")
+      ? <code key={j} className="rr-code">{seg.slice(1, -1)}</code> : seg);
+}
+// Render a frontmatter value for reading: JSON objects → "png 11,037 · jpg 6,837 · …"; quotes stripped.
+function fmtMetaVal(raw: string): string {
+  if (raw.startsWith("{")) {
+    try {
+      const o = JSON.parse(raw) as Record<string, unknown>;
+      const parts = Object.entries(o).map(([k, v]) => `${k} ${typeof v === "number" ? v.toLocaleString() : String(v)}`);
+      return parts.length ? parts.join(" · ") : "—";
+    } catch { return raw; }
+  }
+  return raw.replace(/^"|"$/g, "");
+}
+const splitRow = (line: string): string[] => line.replace(/^\s*\||\|\s*$/g, "").split("|").map((c) => c.trim());
+const isSep = (line: string): boolean => /^\s*\|[\s:|-]+\|?\s*$/.test(line) && line.includes("-");
+function renderReport(content: string): ReactNode[] {
+  const lines = content.split("\n");
+  const out: ReactNode[] = [];
+  let i = 0, key = 0, inFm = false;
+  while (i < lines.length) {
+    const line = lines[i], t = line.trim();
+    if (t === "---") { inFm = !inFm; i++; continue; }
+    if (inFm) {
+      // Reading view shows only the rich rollups the body table lacks — non-empty object values
+      // (formats, cameras, codecs). Scalar frontmatter (files, stills, dates…) is already in the
+      // summary table below, so skip it here to avoid a redundant YAML wall. Source view shows all.
+      const idx = line.indexOf(":");
+      if (idx > 0) {
+        const raw = line.slice(idx + 1).trim();
+        if (raw.startsWith("{") && raw !== "{}") {
+          out.push(<div className="rr-meta" key={key++}><span className="rr-mk">{line.slice(0, idx).replace(/_/g, " ")}</span><span className="rr-mv">{fmtMetaVal(raw)}</span></div>);
+        }
+      }
+      i++; continue;
+    }
+    if (/^#{1,6}\s/.test(t)) {
+      const level = (t.match(/^#+/) as RegExpMatchArray)[0].length;
+      const text = t.replace(/^#+\s*/, "");
+      out.push(level <= 1 ? <h2 className="rr-h1" key={key++}>{text}</h2> : <h3 className="rr-h2" key={key++}>{text}</h3>);
+      i++; continue;
+    }
+    if (t.startsWith("|")) {
+      const rows: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) { rows.push(lines[i]); i++; }
+      const header = splitRow(rows[0]);
+      const hasHeader = rows[1] != null && isSep(rows[1]) && header.some(Boolean);
+      const bodyStart = rows[1] != null && isSep(rows[1]) ? 2 : 1;
+      out.push(
+        <table className="rr-tbl" key={key++}>
+          {hasHeader && <thead><tr>{header.map((c, j) => <th key={j}>{inlineMd(c)}</th>)}</tr></thead>}
+          <tbody>{rows.slice(bodyStart).map((r, ri) => <tr key={ri}>{splitRow(r).map((c, j) => <td key={j}>{inlineMd(c)}</td>)}</tr>)}</tbody>
+        </table>
+      );
+      continue;
+    }
+    if (t === "") { i++; continue; }
+    if (/^_.*_$/.test(t)) { out.push(<p className="rr-note" key={key++}>{t.replace(/^_|_$/g, "")}</p>); i++; continue; }
+    out.push(<p className="rr-p" key={key++}>{inlineMd(line)}</p>); i++;
+  }
+  return out;
+}
+
 export default function ScanModule() {
   bumpRender("scan"); // DIAG-2
   const [tab, setTab] = useState<Tab>("new");
@@ -58,9 +166,12 @@ export default function ScanModule() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reportModal, setReportModal] = useState<{ path: string; content: string } | null>(null);
+  const [reportView, setReportView] = useState<"read" | "source">("read");
   const [errorsModal, setErrorsModal] = useState<{ rows: ScanErrorRow[] } | null>(null);
   const startedAt = useRef<number | null>(null);
   const rateWindow = useRef<Array<{ t: number; files: number }>>([]); // trailing window for ETA
+  const prevErrors = useRef(0); // last errorsLogged seen — to emit a warn line on increase
+  const prevCheckpoint = useRef(0); // last checkpoint bucket emitted
   const [, forceTick] = useState(0);
 
   // Elapsed ticker while a run is live.
@@ -115,11 +226,15 @@ export default function ScanModule() {
         w.push({ t: Date.now(), files: p.filesRecorded });
         while (w.length > 8) w.shift();
       }
-      if (p.currentFolder && (SCANNING.has(p.status) || p.status === "counting")) {
-        setLog((prev) => {
-          const line: LogLine = { at: new Date().toLocaleTimeString(), kind: "folder", text: p.currentFolder as string };
-          return [...prev.slice(-(MAX_LOG_LINES - 1)), line];
-        });
+      if (p.currentFolder && SCANNING.has(p.status)) {
+        const at = new Date().toLocaleTimeString();
+        const add: LogLine[] = [{ kind: "folder", at, path: p.currentFolder, files: p.lastFolderFiles ?? 0, bytes: p.lastFolderBytes ?? 0 }];
+        // warn line when new issues were logged since the last tick; checkpoint line every N folders.
+        if (p.errorsLogged > prevErrors.current) add.push({ kind: "warn", at, count: p.errorsLogged - prevErrors.current });
+        const chk = Math.floor(p.foldersCommitted / CHECKPOINT_EVERY);
+        if (chk > prevCheckpoint.current) { prevCheckpoint.current = chk; add.push({ kind: "check", at, folders: p.foldersCommitted }); }
+        prevErrors.current = p.errorsLogged;
+        setLog((prev) => [...prev, ...add].slice(-MAX_LOG_LINES));
       }
       if (isTerminal(p.status)) {
         void refreshRuns();
@@ -165,7 +280,7 @@ export default function ScanModule() {
 
   const startRun = async (): Promise<void> => {
     if (probeRunId === null) return;
-    setBusy(true); setError(null); setLog([]); rateWindow.current = [];
+    setBusy(true); setError(null); setLog([]); rateWindow.current = []; prevErrors.current = 0; prevCheckpoint.current = 0;
     setActiveRunId(probeRunId);
     startedAt.current = Date.now();
     // Optimistically flip to the running console the instant Start is pressed — the real 'running'
@@ -214,6 +329,9 @@ export default function ScanModule() {
   const estimating = st === "estimating";
   const running = mine && SCANNING.has(st ?? "");
   const otherScanning = scanningSerial != null && scanningSerial !== selected?.serial; // a different drive is busy
+  // Serials with at least one completed run — a persistent green dot on every scanned drive, whether
+  // selected or not, sourced from the runs table (§4.3), not from selection state.
+  const scannedSerials = new Set(runs.filter((r) => r.status === "completed").map((r) => r.volume_serial));
   // REAL arithmetic — denominator is the exact media count; no 99% clamp, reaches 100 at the end.
   const total = progress?.estimatedFiles ?? null;
   const pct = total && total > 0 ? Math.min(100, Math.round((progress!.filesRecorded / total) * 100)) : null;
@@ -256,7 +374,7 @@ export default function ScanModule() {
                 return (
                   <button key={d.serial} className={`scan-drv${selected?.serial === d.serial ? " on" : ""}`}
                     onClick={() => { setSelected(d); if (d.serial !== scanningSerial) { setProbeRunId(null); setProgress(null); } }}>
-                    <span className={`scan-dot ${isScanning ? "scanning" : selected?.serial === d.serial ? "ok" : "off"}`} />
+                    <span className={`scan-dot ${isScanning ? "scanning" : scannedSerials.has(d.serial) ? "ok" : "off"}`} />
                     <span>
                       <span style={{ display: "block" }}>{d.letter}\ {d.label || "(no label)"}{isScanning ? " · scanning" : ""}</span>
                       <span className="sub">{d.serial} · {fmtBytes(d.totalBytes)}</span>
@@ -332,11 +450,17 @@ export default function ScanModule() {
           <div className="scan-modal" onClick={(e) => e.stopPropagation()}>
             <div className="scan-modal-head">
               <div className="scan-h">Scan report</div>
+              <div className="scan-seg" role="group" aria-label="Report view">
+                <button className={`scan-seg-btn${reportView === "read" ? " on" : ""}`} onClick={() => setReportView("read")}>Reading</button>
+                <button className={`scan-seg-btn${reportView === "source" ? " on" : ""}`} onClick={() => setReportView("source")}>Source</button>
+              </div>
               <button className="scan-modal-close" aria-label="Close" onClick={() => setReportModal(null)}>×</button>
             </div>
             <div className="scan-modal-body">
               <div className="scan-sub scan-mono" style={{ marginBottom: 12, wordBreak: "break-all" }}>{reportModal.path}</div>
-              <pre className="scan-report-md">{reportModal.content}</pre>
+              {reportView === "read"
+                ? <div className="scan-report-read">{renderReport(reportModal.content)}</div>
+                : <div className="scan-report-md">{highlightReport(reportModal.content)}</div>}
             </div>
           </div>
         </div>
@@ -439,9 +563,17 @@ function RunningConsole({ progress, pct, elapsed, eta, log, onAbort, onPause, on
       <div className="scan-consolewrap">
         <div className="scan-term" ref={termRef}>
           {log.length === 0 && <div className="t">Waiting for the first folder…</div>}
-          {log.map((l, i) => (
-            <div key={i}><span className="t">{l.at}</span> <span className="w">{l.text}</span> <span className="t">→ committed</span></div>
-          ))}
+          {log.map((l, i) => {
+            if (l.kind === "warn") return (
+              <div key={i}><span className="ts">{l.at}</span> <span className="warn">warn</span> <span className="w">{l.count} file{l.count === 1 ? "" : "s"} unreadable</span> <span className="t">— logged, continuing</span></div>
+            );
+            if (l.kind === "check") return (
+              <div key={i}><span className="ts">{l.at}</span> <span className="b">checkpoint</span> <span className="t">— {l.folders.toLocaleString()} folders committed</span></div>
+            );
+            return (
+              <div key={i}><span className="ts">{l.at}</span> <span className="w">{l.path}</span> <span className="t">→</span> <span className="ok">{l.files.toLocaleString()} files{l.bytes > 0 ? ` · ${fmtGB(l.bytes)}` : ""} · ok</span></div>
+            );
+          })}
         </div>
         <div className="scan-side">
           <div className="scan-card2"><div className="scan-mlabel">Files so far</div><div className="scan-stat">{progress.filesRecorded.toLocaleString()}</div></div>

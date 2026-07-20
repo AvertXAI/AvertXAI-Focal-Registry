@@ -75,7 +75,14 @@
    jump on every progress tick. Each line is ONE row (nowrap + ellipsis); no horizontal scroll. */
 .scan-term{background:var(--mc-boot-bg);border:1px solid var(--mc-border);border-radius:10px;padding:16px 18px;font-family:var(--mc-mono);font-size:12px;line-height:1.85;color:var(--scan-ok);height:320px;overflow-y:scroll;overflow-x:hidden}
 .scan-term > div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.scan-term .t{color:var(--mc-dimmer)} .scan-term .w{color:var(--mc-text)} .scan-term .warn{color:var(--scan-warn)} .scan-term .b{color:var(--mc-accent-primary)}
+/* JARVIS console palette: light-blue timestamps, white paths, green counts+ok, orange warn,
+   blue checkpoints, dim-gray connectors. */
+.scan-term .ts{color:#5b8dc9}
+.scan-term .t{color:var(--mc-dimmer)}
+.scan-term .w{color:#e8edf7}
+.scan-term .ok{color:var(--scan-ok)}
+.scan-term .b{color:#4f8df0;font-weight:600}
+.scan-term .warn{color:var(--scan-warn);font-weight:600}
 .scan-side{display:flex;flex-direction:column;gap:11px}
 
 .scan-tbl{width:100%;font-size:12.5px;border-collapse:collapse}
@@ -95,7 +102,36 @@
 .scan-modal-close{margin-left:auto;background:none;border:none;color:var(--mc-muted);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px}
 .scan-modal-close:hover{color:var(--mc-text)}
 .scan-modal-body{padding:18px 20px;overflow:auto}
-.scan-report-md{white-space:pre-wrap;font-family:var(--mc-mono);font-size:12px;line-height:1.6;color:var(--mc-text);margin:0}
+/* SOURCE view — colored raw markdown. Single palette, tuned to read on both dark panels and the
+   light-theme white modal (no per-theme matrix). ponytail: one palette. */
+.scan-report-md{white-space:pre-wrap;font-family:var(--mc-mono);font-size:12px;line-height:1.65;color:var(--mc-text);margin:0}
+.scan-report-md > div{white-space:pre-wrap;word-break:break-word}
+.scan-report-md .rk{color:#3b82c4}
+.scan-report-md .rs{color:#c26a2e}
+.scan-report-md .rn{color:#2f9e57}
+.scan-report-md .rc{color:#0d8f86}
+.scan-report-md .rh{color:#c0397e;font-weight:600}
+.scan-report-md .rp{color:var(--mc-dimmer)}
+.scan-report-md .ri{color:var(--mc-muted);font-style:italic}
+/* READING view — rendered document, Secure-Note-style. */
+.scan-report-read{font-size:13px;line-height:1.6;color:var(--mc-text)}
+.scan-report-read .rr-h1{font-size:18px;font-weight:700;margin:18px 0 10px}
+.scan-report-read .rr-h2{font-size:14px;font-weight:600;margin:16px 0 8px;color:var(--mc-text)}
+.scan-report-read .rr-meta{display:flex;gap:10px;font-size:12px;padding:2px 0}
+.scan-report-read .rr-mk{color:var(--mc-muted);min-width:130px;font-family:var(--mc-mono)}
+.scan-report-read .rr-mv{color:var(--mc-text);font-family:var(--mc-mono);word-break:break-word}
+.scan-report-read .rr-p{margin:8px 0}
+.scan-report-read .rr-note{margin:8px 0;color:var(--mc-muted);font-style:italic;font-size:12px}
+.scan-report-read .rr-code{font-family:var(--mc-mono);font-size:12px;background:var(--mc-nested);padding:1px 5px;border-radius:4px}
+.scan-report-read .rr-tbl{border-collapse:collapse;width:100%;margin:8px 0;font-size:12.5px}
+.scan-report-read .rr-tbl th{text-align:left;padding:6px 12px 6px 0;color:var(--mc-dimmer);font-weight:600;border-bottom:1px solid var(--mc-border)}
+.scan-report-read .rr-tbl td{padding:6px 12px 6px 0;border-bottom:1px solid var(--mc-border);color:var(--mc-text);vertical-align:top}
+/* segmented Reading/Source toggle in the modal head */
+.scan-seg{display:inline-flex;border:1px solid var(--mc-border);border-radius:7px;overflow:hidden}
+.scan-seg-btn{background:none;border:none;color:var(--mc-muted);font:inherit;font-size:12px;padding:5px 12px;cursor:pointer}
+.scan-seg-btn + .scan-seg-btn{border-left:1px solid var(--mc-border)}
+.scan-seg-btn.on{background:var(--mc-seg-on-background);color:var(--mc-text)}
+.scan-seg-btn:not(.on):hover{color:var(--mc-text)}
 .scan-err-row{display:grid;grid-template-columns:64px 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--mc-border);font-size:12px}
 .scan-err-row .stage{color:var(--scan-warn);font-family:var(--mc-mono)}
 .scan-err-row .epath{color:var(--mc-text);font-family:var(--mc-mono);word-break:break-all}

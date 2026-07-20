@@ -397,6 +397,9 @@ export interface ScanProgress {
   estimatedFiles: number | null;
   /** Present when the engine paused itself, e.g. "source-missing" after a drive unplug. */
   note?: string;
+  /** The most-recently committed folder's media count + bytes — for the console's per-folder line. */
+  lastFolderFiles?: number;
+  lastFolderBytes?: number;
   /** Terminal-only: the written report path, or the write error, surfaced on completion. */
   reportPath?: string | null;
   reportError?: string | null;
@@ -471,12 +474,14 @@ export async function startRun(
   // Real arithmetic: the denominator is the EXACT media-file count from the counting walk (Phase 4),
   // stored on the run. No 99% clamp — filesRecorded reaches total_files_expected at completion.
   let lastEmit = 0;
+  let lastFolderFiles = 0, lastFolderBytes = 0; // stats of the most recent committed folder
   const emit = (note?: string): void => {
     const r = getRun(db, runId);
     opts.onProgress?.({
       runId, volumeSerial, status: r.status, currentFolder: r.resume_cursor,
       foldersCommitted: r.folders_committed, filesRecorded: r.files_recorded,
       errorsLogged: r.errors_logged, estimatedFiles: r.total_files_expected ?? r.estimated_files,
+      lastFolderFiles, lastFolderBytes,
       ...(note ? { note } : {}),
     });
   };
@@ -557,6 +562,7 @@ export async function startRun(
         }
       }
       mediaTotal += files.length;
+      lastFolderFiles = files.length; lastFolderBytes = bytes; // for the console per-folder line
       cursor = dir;
     }
     bumpRun.run(batch.length, mediaTotal, errorTotal, cursor, runId);
@@ -691,8 +697,13 @@ export async function startRun(
 }
 
 export function listRuns(db: Db, orgId: string, limit = 50): ScanRunRow[] {
+  // Join the drive's serial onto each run so the UI can mark which volumes have been scanned
+  // (persistent green dot) without an extra per-drive lookup.
   return db
-    .prepare("SELECT * FROM scan_runs WHERE org_id = ? ORDER BY id DESC LIMIT ?")
+    .prepare(
+      "SELECT r.*, d.volume_serial AS volume_serial FROM scan_runs r " +
+      "LEFT JOIN scan_drives d ON d.id = r.drive_id WHERE r.org_id = ? ORDER BY r.id DESC LIMIT ?"
+    )
     .all(orgId, limit) as ScanRunRow[];
 }
 

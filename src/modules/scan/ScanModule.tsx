@@ -776,6 +776,7 @@ function PopulatedDashboard({ drive, run, folders, present, onView, onFolder, on
       <div className="scan-card">
         <div className="scan-mlabel" style={{ marginBottom: 6 }}>Folders — top level</div>
         {folders.length === 0 ? <div className="scan-sub">No folder rollups recorded.</div> : (
+          <div className="scan-folders-scroll">
           <table className="scan-tbl folders">
             <colgroup><col /><col className="c-files" /><col className="c-date" /><col className="c-cam" /><col className="c-size" /></colgroup>
             <thead><tr><th>Folder</th><th>Files</th><th>Date range</th><th>Top camera</th><th>Size</th></tr></thead>
@@ -807,6 +808,7 @@ function PopulatedDashboard({ drive, run, folders, present, onView, onFolder, on
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </>

@@ -113,10 +113,13 @@
 .scan-tbl.folders .c-cam{width:150px}
 .scan-tbl.folders .c-size{width:88px}
 .scan-tbl.folders td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Sticky column headers — FOLDER/FILES/DATE RANGE/TOP CAMERA/SIZE stay visible while scrolling a long
-   folder list, so the user always knows which column is which. top:58px clears the sticky topbar;
-   opaque panel background + a border so rows scroll cleanly underneath. */
-.scan-tbl.folders thead th{position:sticky;top:58px;z-index:1;background:var(--mc-panels);border-bottom:1px solid var(--mc-border)}
+/* The folder list scrolls INSIDE its own region (not the document) so the sticky header is anchored to
+   a real scroll container — this avoids the shell's #root:height:100% sticky-confinement, where a
+   document-scroll header floats free with a gap. max-height bounds a long list; short lists don't box. */
+.scan-folders-scroll{max-height:60vh;overflow-y:auto;overflow-x:hidden}
+/* Sticky column headers — FOLDER/FILES/DATE RANGE/TOP CAMERA/SIZE stay visible while scrolling the list,
+   pinned to the scroll region's top. Opaque panel background + a border so rows scroll cleanly under. */
+.scan-tbl.folders thead th{position:sticky;top:0;z-index:1;background:var(--mc-panels);border-bottom:1px solid var(--mc-border)}
 .scan-tbl.folders .scan-cam-row td{white-space:normal;overflow:visible}
 /* clickable cell affordance (open folder / show cameras) */
 .cell-link{cursor:pointer;color:var(--mc-accent-primary)}

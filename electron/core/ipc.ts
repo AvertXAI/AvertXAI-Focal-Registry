@@ -351,10 +351,23 @@ export function registerIpcHandlers(): void {
       const doc = `<!doctype html><html><head><meta charset="utf-8"><style>${String(css ?? "")}</style></head><body>${String(html ?? "")}</body></html>`;
       tmp = path.join(app.getPath("temp"), `focal-report-${run.id}-${Date.now()}.html`);
       fs.writeFileSync(tmp, doc, "utf8");
+      // Drive label for the repeating page header — from the DB (our data), never renderer input.
+      const drive = run.drive_id != null
+        ? (db.prepare("SELECT volume_label FROM scan_drives WHERE id = ?").get(run.drive_id) as { volume_label: string | null } | undefined)
+        : undefined;
+      const headerLabel = (drive?.volume_label ?? "").replace(/[<>&]/g, "");
       const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false } });
       try {
         await win.webContents.loadFile(tmp);
-        const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: "A4" });
+        // Letter, explicit margins (inches) leaving room for the header/footer; printBackground on.
+        const pdf = await win.webContents.printToPDF({
+          printBackground: true,
+          pageSize: "Letter",
+          margins: { top: 0.75, bottom: 0.7, left: 0.6, right: 0.6 },
+          displayHeaderFooter: true,
+          headerTemplate: `<div style="font-size:8px;width:100%;padding:0 0.6in;text-align:right;color:#888;">${headerLabel}</div>`,
+          footerTemplate: `<div style="font-size:8px;width:100%;padding:0 0.6in;text-align:center;color:#888;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>`,
+        });
         fs.writeFileSync(outPath, pdf);
       } finally { win.destroy(); }
       return { ok: true, path: outPath };

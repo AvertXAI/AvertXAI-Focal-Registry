@@ -12,9 +12,9 @@
 // File: src/modules/scan/ScanModule.tsx
 //------------------------------------------------------------
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import type { ScanCameraCount, ScanErrorRow, ScanFolderSummary, ScanProgress, ScanRunRow, ScanVolume } from "../../shared/types";
 import { formatRange, formatStamp } from "../../shared/datetime";
+import { PRINT_STYLESHEET, renderReportPrintHtml } from "./reportPrint";
 import { bumpRender } from "../../diag";
 import "./scan.css";
 
@@ -82,23 +82,8 @@ function highlightReport(content: string): ReactNode[] {
     return <div key={i}>{body}</div>;
   });
 }
-// Self-contained light stylesheet for the PDF (print is always black-on-white; the app theme tokens
-// don't exist in the isolated print window). Mirrors the .scan-report-read structure.
-const PRINT_CSS = `
-  *{box-sizing:border-box}
-  body{font:13px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#1a1a1a;margin:28px}
-  .scan-report-read .rr-h1{font-size:18px;font-weight:700;margin:18px 0 10px}
-  .scan-report-read .rr-h2{font-size:14px;font-weight:600;margin:16px 0 8px}
-  .scan-report-read .rr-meta{display:flex;gap:10px;font-size:12px;padding:2px 0}
-  .scan-report-read .rr-mk{color:#555;min-width:150px;font-family:ui-monospace,Consolas,monospace}
-  .scan-report-read .rr-mv{font-family:ui-monospace,Consolas,monospace;word-break:break-word}
-  .scan-report-read .rr-p{margin:8px 0}
-  .scan-report-read .rr-note{margin:8px 0;color:#555;font-style:italic;font-size:12px}
-  .scan-report-read .rr-code{font-family:ui-monospace,Consolas,monospace;font-size:12px;background:#f2f2f2;padding:1px 5px;border-radius:4px}
-  .scan-report-read .rr-tbl{border-collapse:collapse;width:100%;margin:8px 0;font-size:12px}
-  .scan-report-read .rr-tbl th{text-align:left;padding:6px 12px 6px 0;color:#555;font-weight:600;border-bottom:1px solid #ccc}
-  .scan-report-read .rr-tbl td{padding:6px 12px 6px 0;border-bottom:1px solid #eee;vertical-align:top}
-`;
+// The PDF's HTML + stylesheet live in reportPrint.ts — a DEDICATED print renderer, separate from the
+// on-screen Reading view (renderReport) so changing one never silently changes the other (§3.7).
 function inlineMd(text: string): ReactNode[] {
   return text.split(/(`[^`]*`)/g).map((seg, j) =>
     seg.length > 1 && seg.startsWith("`") && seg.endsWith("`")
@@ -338,10 +323,7 @@ export default function ScanModule() {
     setExporting(kind); setExportMsg(null);
     try {
       const res = kind === "pdf"
-        ? await window.api.scan.exportReportPdf(
-            reportModal.runId,
-            renderToStaticMarkup(<div className="scan-report-read">{renderReport(reportModal.content)}</div>),
-            PRINT_CSS)
+        ? await window.api.scan.exportReportPdf(reportModal.runId, renderReportPrintHtml(reportModal.content), PRINT_STYLESHEET)
         : await window.api.scan.exportReportCsv(reportModal.runId);
       setExportMsg(res.ok ? { ok: true, text: `Saved ${res.path}` } : { ok: false, text: res.error ?? "Export failed." });
     } catch (e) {

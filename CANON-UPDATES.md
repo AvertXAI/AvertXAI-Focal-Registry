@@ -130,3 +130,17 @@ Canon governs until Jason rules. Never edit or reorder existing entries — appe
 **Evidence:** `scan/index.ts` RAW_MODE/RAW_COMMIT_BATCH; Phase 7 both-mode measurement.
 **Suggestion:** note the flag exists so it is never shipped true; no canon rule needed beyond awareness.
 **Severity:** cosmetic
+
+## [CONTRADICTS] 2026-07-20 — Jason ruled: automatic update SUCCESS now toasts at download-complete
+**Canon says:** "Check on boot and every 6 hours. Automatic checks fail **silently**; manual checks **always answer**, including failure." (FR-DECISIONS-1.md §Auto-update). Read together with "silent on failure — offline is a normal condition" this made BOTH outcomes of an automatic check silent.
+**Reality (ruled by Jason 2026-07-20):** an automatic check that FINDS an update is no longer fully silent — with autoDownload ON the update downloads itself, and at **download-complete** the renderer raises the actionable "ready to restart" toast (does not auto-dismiss). Automatic **failures remain silent** (unchanged). Manual checks still always answer (checking / found / latest / failed).
+**Evidence:** `electron/core/updater.ts` (`autoUpdater.autoDownload = true`; the `update-downloaded` push is the only automatic user-facing signal; `error` handler logs only, sends nothing); `src/App.tsx` `UpdateToast` (subscribes `updater:downloaded` → "ready to restart", no auto-dismiss; no automatic "available"/progress toast); `src/views/Settings.tsx` (manual "available" answer via the CustomEvent). Commit on branch `feature/isobmff-geometry`.
+**Suggestion:** amend FR-DECISIONS §Auto-update to "automatic checks fail silently; an automatic check that finds an update downloads it and raises ONE actionable 'ready to restart' toast at download-complete; manual checks always answer."
+**Severity:** worth-fixing (canon wording now lags the ruled behaviour)
+
+## [STALE] 2026-07-20 — autoDownload resolved to TRUE (earlier open discrepancy closed)
+**Canon says:** the 2026-07-19 entry above recorded the code set `autoDownload = false` (CLAUDE.md §3.12 consent-first) against FR-DECISIONS §Auto-update "autoDownload defaults TRUE in this product only," and left it "Jason picks one."
+**Reality:** Jason picked TRUE (2026-07-20, with the toast task). `electron/core/updater.ts` now sets `autoUpdater.autoDownload = true`, matching FR-DECISIONS. CLAUDE.md §3.12 ("Download only on user consent … Never pull a large download silently") is now the lagging document for this product.
+**Evidence:** `electron/core/updater.ts` (`autoUpdater.autoDownload = true`); the actionable-moment toast at download-complete depends on it.
+**Suggestion:** update CLAUDE.md §3.12 to record the this-product-only autoDownload-TRUE exception (every other AvertXAI app stays consent-first), closing the 2026-07-19 open pick.
+**Severity:** worth-fixing

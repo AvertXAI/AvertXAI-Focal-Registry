@@ -6,7 +6,9 @@
 //              Automatic checks are fire-and-forget, armed only by boot:done, hard-capped at
 //              10 seconds, and silent on failure — offline is a normal condition, not an error.
 //              Manual checks (Settings button) always answer, including the failure case.
-//              autoDownload OFF: the user consents before any download; install happens on quit.
+//              autoDownload ON (this product only): updates download by themselves; the renderer's
+//              only automatic toast is the actionable "ready to restart" at download-complete. Install
+//              happens on quit.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/updater.ts
 //------------------------------------------------------------
@@ -73,7 +75,10 @@ export function initUpdater(win: BrowserWindow): void {
 
   if (!app.isPackaged) return; // no app-update.yml in dev — event wiring and the auto cycle are packaged-only
 
-  autoUpdater.autoDownload = false;
+  // autoDownload TRUE for this product (FR-DECISIONS §Auto-update — Paul never thinks about updating,
+  // ruled by Jason 2026-07-20; see CANON-UPDATES). An automatic check that finds an update downloads
+  // by itself; the ONLY actionable moment is download-complete, where the renderer raises its toast.
+  autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
   const send = (channel: string, payload: unknown): void => {

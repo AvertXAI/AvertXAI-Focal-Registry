@@ -352,6 +352,26 @@ tbody tr:hover{background:var(--mc-nested)}
 .updatetoast{position:fixed;right:16px;bottom:16px;z-index:70;display:flex;align-items:center;gap:10px;
   padding:10px 14px;background:var(--mc-panels);color:var(--mc-text);border:1px solid var(--mc-border);
   border-radius:var(--mc-radius);box-shadow:0 8px 30px rgba(0,0,0,.35);font-size:13px}
+.updatetoast-line{line-height:1.4}
 .updatetoast-click{cursor:pointer}
 .updatetoast-close{background:none;border:none;color:var(--mc-muted);cursor:pointer;font-size:15px;line-height:1;padding:2px 4px}
 .updatetoast-close:hover{color:var(--mc-text)}
+/* The actionable "ready to restart" toast — announces itself with --mc-orange (declared in all three
+   themes, #ff9100). Bigger than the info toasts, with room for the body and a real action target. */
+.updatetoast.attention{align-items:flex-start;gap:16px;min-width:360px;max-width:440px;padding:18px 20px;
+  border-color:var(--mc-orange);border-left:4px solid var(--mc-orange);font-size:14px}
+.updatetoast.attention .updatetoast-main{display:flex;flex-direction:column;gap:5px}
+/* title stays --mc-text: orange text on the LIGHT panel is only 2.26:1 (fails AA). Orange announces
+   itself via the border + Restart button instead, both of which keep AA-safe contrast in all themes. */
+.updatetoast.attention .updatetoast-title{font-weight:700;font-size:15px;color:var(--mc-text)}
+.updatetoast.attention .updatetoast-body{color:var(--mc-text);line-height:1.5}
+.updatetoast-action{margin-left:auto;align-self:center;white-space:nowrap;background:var(--mc-orange);
+  border:1px solid var(--mc-orange);color:#1a1200;font:inherit;font-weight:700;
+  padding:10px 18px;border-radius:var(--mc-radius);cursor:pointer}
+.updatetoast-action:hover{filter:brightness(1.06)}
+/* slide-in entrance + a brief attention pulse (twice), not a fade. */
+@keyframes updatetoast-in{from{transform:translateY(18px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes updatetoast-pulse{0%,100%{box-shadow:0 8px 30px rgba(0,0,0,.35),0 0 0 0 rgba(255,145,0,0)}
+  50%{box-shadow:0 8px 30px rgba(0,0,0,.35),0 0 0 5px rgba(255,145,0,.34)}}
+.updatetoast.attention{animation:updatetoast-in .28s ease-out, updatetoast-pulse 1.2s ease-in-out .28s 2}
+@media (prefers-reduced-motion:reduce){.updatetoast.attention{animation:none}}

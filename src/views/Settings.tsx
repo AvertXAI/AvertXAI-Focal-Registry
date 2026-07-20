@@ -58,7 +58,9 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
       const r = await window.api.updater.check();
       if (r.status === "none") signalUpdateToast({ stage: "none", version: r.version ?? appVersion });
       else if (r.status === "error") signalUpdateToast({ stage: "error" });
-      // "available": the main-process updater:available push already drove the toast
+      else if (r.status === "available") signalUpdateToast({ stage: "available", version: r.version ?? "" });
+      // available → autoDownload starts the download itself; the actionable "ready to restart" toast
+      // fires from the updater:downloaded push when it completes.
     } catch {
       signalUpdateToast({ stage: "error" });
     }

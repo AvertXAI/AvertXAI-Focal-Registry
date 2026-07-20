@@ -3,10 +3,10 @@
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
 // Project: AvertXAI Focal Registry
 // Description: Scan engine — READ-ONLY against the source, always. The only writes are rows into
-//              the org database. Deterministic sorted depth-first order everywhere (probe and
-//              traversal share the same walk shape) so a resume lands exactly where a fresh run
-//              would. The probe samples PROBE_FOLDER_SAMPLE folders, extrapolates a ROUGH estimate
-//              (labelled as such), persists it, and returns — it never rolls into the full scan.
+//              the org database. Deterministic sorted depth-first order everywhere (counting walk
+//              and traversal share the same walk shape) so a resume lands exactly where a fresh run
+//              would. A pre-scan counting walk (countRun) measures EXACT folder + media-file counts
+//              — no extrapolation. Only media files get rows; non-media is counted and skipped.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/scan/index.ts
 //------------------------------------------------------------
@@ -15,12 +15,21 @@ import path from "node:path";
 import exifr from "exifr";
 import { parseFile } from "music-metadata";
 import { readIsoBmffGeometry } from "./isobmff-reader";
+import { canExifr, canIsoBmff, canMusicMetadata, mediaClass } from "./media";
 import { generateUUIDv7 } from "../utils/uuidv7";
 import type { Db } from "./db";
 import type { ScanRunRow } from "./drives";
 
-/** Folders sampled by the probe before estimating. Named constant by design. */
-export const PROBE_FOLDER_SAMPLE = 50;
+// ── RAW_MODE — diagnostic throughput configuration. DEFAULT FALSE. One place, easily flipped. ──
+// When true: commit every RAW_COMMIT_BATCH folders instead of every folder (a crash loses up to
+// that many folders instead of one — deliberately traded for throughput measurement), skip the
+// double-scan guard so a drive can be re-run for benchmarking, and log files/sec + folders/sec to
+// the console. When false the shipped default is UNCHANGED. NEVER ship this true.
+export const RAW_MODE = false;
+export const RAW_COMMIT_BATCH = 100;
+
+/** Progress emitted at most this often during long walks (counting + scanning). */
+const PROGRESS_EMIT_INTERVAL_MS = 400;
 
 // ---- skip rules — defaults per spec; configurable per run; every skip is LOGGED, never silent ----
 export interface SkipRules {
@@ -51,18 +60,10 @@ function fileSkipRule(name: string, rules: SkipRules): string | null {
   return null;
 }
 
-// ---- kind from extension only (this phase reads no file contents) ----
-const IMAGE_EXTS = new Set(["jpg","jpeg","png","gif","tif","tiff","bmp","heic","heif","webp","dng","cr2","cr3","crw","nef","nrw","arw","srf","sr2","raf","orf","rw2","pef","srw","rwl","iiq","dcr","x3f","3fr","erf","kdc","k25","mef","mrw","raw","psd"]);
-const VIDEO_EXTS = new Set(["mp4","mov","avi","mts","m2ts","mkv","wmv","mpg","mpeg","m4v","webm","braw","r3d","3gp"]);
-const AUDIO_EXTS = new Set(["wav","mp3","aac","m4a","flac","ogg","wma","aif","aiff"]);
-const SIDECAR_EXTS = new Set(["xmp","thm","aae","lrv","pp3","dop","cos"]);
-export function kindForExtension(ext: string): "image" | "video" | "audio" | "sidecar" | "other" {
-  const e = ext.toLowerCase();
-  if (IMAGE_EXTS.has(e)) return "image";
-  if (VIDEO_EXTS.has(e)) return "video";
-  if (AUDIO_EXTS.has(e)) return "audio";
-  if (SIDECAR_EXTS.has(e)) return "sidecar";
-  return "other";
+// Classification is the single source of truth in media.ts. kindForExtension stays exported for
+// the harness; non-media returns "other" (media-only traversal never writes an "other" row).
+export function kindForExtension(ext: string): "image" | "video" | "audio" | "other" {
+  return mediaClass(ext) ?? "other";
 }
 
 // ---- deterministic listing — ONE sort used by probe and traversal (codepoint order, locale-free) ----
@@ -135,76 +136,76 @@ function logEvent(db: Db, orgId: string, runId: number, p: string | null, stage:
   db.prepare("UPDATE scan_runs SET errors_logged = errors_logged + 1 WHERE id = ?").run(runId);
 }
 
-// ---- probe — sample, extrapolate, persist, RETURN (never continues into the full scan) ----
-export interface ProbeResult {
+// ---- counting walk — EXACT denominators (Phase 4). Replaces extrapolation entirely. ----
+export interface CountResult {
   runId: number;
-  foldersSampled: number;
-  filesFound: number;
+  folders: number;
+  mediaFiles: number; // the EXACT denominator that matches files_recorded
+  totalFiles: number; // everything seen (media + non-media), for the record
   elapsedMs: number;
-  /** ROUGH GUIDE ONLY — extrapolated from a small sample; label it as such wherever it surfaces. */
-  estimatedFiles: number | null;
-  estimatedSeconds: number | null;
-  roughGuide: true;
 }
 
-export function probeRun(db: Db, _orgId: string, runId: number, rules: SkipRules = DEFAULT_SKIP_RULES): ProbeResult {
+/**
+ * Walk the ENTIRE tree with directory listing only — no stat, no metadata, no inserts, no
+ * transactions. Counts folders and, by extension alone, the exact number of MEDIA files the scan
+ * will record. Descends exactly the folders the scan will (same dir-skip rules), so the media count
+ * is the true denominator. Emits an indeterminate 'counting' progress with a live folder count —
+ * it is NOT a percentage, because nothing is known until the walk finishes. Async + throttled so a
+ * multi-terabyte count keeps the main process responsive.
+ */
+export async function countRun(
+  db: Db, _orgId: string, runId: number,
+  opts: { onProgress?: (p: ScanProgress) => void; rules?: SkipRules } = {}
+): Promise<CountResult> {
+  const rules = opts.rules ?? DEFAULT_SKIP_RULES;
   const run = getRun(db, runId);
   db.prepare(
-    "UPDATE scan_runs SET status = 'probing', started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    "UPDATE scan_runs SET status = 'counting', started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = ?"
   ).run(runId);
 
   const t0 = Date.now();
-  let foldersSampled = 0;
-  let filesFound = 0;
-  let bytesSeen = 0;
-
-  // Same deterministic DFS the real traversal uses, capped at PROBE_FOLDER_SAMPLE folders.
+  let folders = 0, mediaFiles = 0, totalFiles = 0, lastEmit = 0;
   const stack: string[] = [run.root_path];
-  while (stack.length > 0 && foldersSampled < PROBE_FOLDER_SAMPLE) {
+  while (stack.length > 0) {
     const dir = stack.pop() as string;
     let listing: Listing;
     try {
       listing = listDirSorted(dir);
     } catch {
-      continue; // probe is a sample — unreadable folders just shrink it
+      continue; // an unreadable folder during counting just isn't counted; the scan will log it
     }
-    foldersSampled += 1;
-    for (const f of listing.files) {
-      if (fileSkipRule(f, rules)) continue;
-      filesFound += 1;
-      try {
-        bytesSeen += fs.lstatSync(path.join(dir, f)).size;
-      } catch {
-        /* unreadable during probe — sample only */
-      }
+    folders += 1;
+    for (const name of listing.files) {
+      totalFiles += 1;
+      if (fileSkipRule(name, rules)) continue;
+      if (mediaClass(path.extname(name).replace(/^\./, "")) !== null) mediaFiles += 1;
     }
-    const subdirs = listing.dirs.filter((d) => !dirSkipRule(d, rules));
-    for (let i = subdirs.length - 1; i >= 0; i--) stack.push(path.join(dir, subdirs[i]));
+    for (const d of listing.dirs) {
+      const full = path.join(dir, d);
+      if (!dirSkipRule(d, rules) && !isReparseDir(full)) stack.push(full);
+    }
+    const now = Date.now();
+    if (now - lastEmit >= PROGRESS_EMIT_INTERVAL_MS) {
+      lastEmit = now;
+      opts.onProgress?.({
+        runId, status: "counting", currentFolder: dir, foldersCommitted: folders,
+        filesRecorded: 0, errorsLogged: 0, estimatedFiles: mediaFiles, // running media tally, not a %
+      });
+    }
+    await tick();
   }
   const elapsedMs = Math.max(1, Date.now() - t0);
 
-  // Extrapolation: average file size from the sample vs the volume's used bytes gives estimated
-  // files (drive unit only — a folder's total bytes are unknowable without the full walk);
-  // observed files-per-second gives estimated seconds. Rough guide, stored beside the eventual
-  // real duration (started_at/finished_at) so later estimates can be calibrated.
-  const filesPerSecond = filesFound / (elapsedMs / 1000);
-  const avgBytesPerFile = filesFound > 0 ? bytesSeen / filesFound : 0;
-  let estimatedFiles: number | null = null;
-  if (run.scan_unit === "drive" && avgBytesPerFile > 0 && run.drive_id != null) {
-    const drive = db.prepare("SELECT total_bytes, free_bytes FROM scan_drives WHERE id = ?").get(run.drive_id) as
-      | { total_bytes: number | null; free_bytes: number | null }
-      | undefined;
-    const used = (drive?.total_bytes ?? 0) - (drive?.free_bytes ?? 0);
-    if (used > 0) estimatedFiles = Math.round(used / avgBytesPerFile);
-  }
-  const estimatedSeconds = estimatedFiles != null && filesPerSecond > 0 ? estimatedFiles / filesPerSecond : null;
-
   db.prepare(
-    `UPDATE scan_runs SET status = 'estimating', probe_folders_sampled = ?, probe_files_found = ?,
-     estimated_files = ?, estimated_seconds = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-  ).run(foldersSampled, filesFound, estimatedFiles, estimatedSeconds, runId);
-
-  return { runId, foldersSampled, filesFound, elapsedMs, estimatedFiles, estimatedSeconds, roughGuide: true };
+    `UPDATE scan_runs SET status = 'estimating', total_files_expected = ?, total_folders_expected = ?,
+     estimated_files = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+  ).run(mediaFiles, folders, mediaFiles, runId);
+  // Terminal-ish 'estimating' event carries the EXACT numbers for the estimate card.
+  opts.onProgress?.({
+    runId, status: "estimating", currentFolder: null, foldersCommitted: folders,
+    filesRecorded: 0, errorsLogged: 0, estimatedFiles: mediaFiles,
+  });
+  return { runId, folders, mediaFiles, totalFiles, elapsedMs };
 }
 
 // ---- the crash-safe traversal core ----
@@ -237,10 +238,6 @@ interface FileRow {
   errors: Array<{ stage: string; text: string }>; // become scan_errors rows in the same tx
 }
 
-/** The SECOND engine's jurisdiction — ISO base-media containers only. music-metadata stays the
-    first engine and keeps codec/duration/tags ownership; isobmff fills what it leaves null. */
-const ISO_BMFF_EXTS = new Set(["mp4", "mov", "m4v", "3gp"]);
-
 // EXIF fields read — header tags only; exifr does chunked header reads and NEVER decodes pixels.
 const EXIF_PICK = [
   "DateTimeOriginal", "DateTimeDigitized", "Make", "Model", "LensModel",
@@ -257,6 +254,13 @@ const EXIF_PICK = [
 async function extractMediaMetadata(files: FileRow[]): Promise<void> {
   for (const f of files) {
     if (f.kind !== "video" && f.kind !== "audio") continue;
+    // Route by capability: only call music-metadata for a container it can read. A known-unsupported
+    // format (avi/mts/m2ts/mpg/wmv/braw/r3d) gets NO call and NO error row — it is a media row with
+    // null container metadata, honestly. isobmff still runs below for iso-bmff video.
+    if (!canMusicMetadata(f.extension)) {
+      if (f.kind === "video" && canIsoBmff(f.extension)) runIsoBmff(f);
+      continue;
+    }
     try {
       const meta = await parseFile(f.path, { duration: true });
       const fmt = meta.format;
@@ -304,32 +308,31 @@ async function extractMediaMetadata(files: FileRow[]): Promise<void> {
     } catch (e) {
       f.errors.push({ stage: "media", text: e instanceof Error ? e.message : String(e) });
     }
+    // SECOND ENGINE for iso-bmff video — merge, never overwrite.
+    if (canIsoBmff(f.extension)) runIsoBmff(f);
+  }
+}
 
-    // SECOND ENGINE — isobmff geometry (mp4/mov/m4v/3gp only). MERGE, NEVER OVERWRITE:
-    // music-metadata keeps ownership of codec, duration, tags, and dates; isobmff fills only
-    // what it left null or zero, and owns the new display/rotation/bitrate-source fields
-    // outright. A null return is a legitimate unreadable-format outcome — NOT an error row;
-    // an error row is written only if the reader throws, which its contract forbids.
-    if (ISO_BMFF_EXTS.has(f.extension.toLowerCase())) {
-      try {
-        const g = readIsoBmffGeometry(f.path);
-        if (g !== null) {
-          if ((f.width === null || f.width === 0) && g.encodedWidth !== null) f.width = g.encodedWidth;
-          if ((f.height === null || f.height === 0) && g.encodedHeight !== null) f.height = g.encodedHeight;
-          if ((f.bitrate === null || f.bitrate === 0) && g.bitrate !== null) {
-            f.bitrate = g.bitrate;
-            f.bitrateSource = g.bitrateSource; // 'btrt' | 'esds' | 'computed', verbatim — never conflated
-          }
-          if (f.videoCodec === null && g.videoFourCharacterCode !== null) f.videoCodec = g.videoFourCharacterCode;
-          if (f.durationSeconds === null && g.durationSeconds !== null) f.durationSeconds = g.durationSeconds;
-          f.displayWidth = g.displayWidth;
-          f.displayHeight = g.displayHeight;
-          f.rotation = g.rotation;
-        }
-      } catch (e) {
-        f.errors.push({ stage: "media", text: `isobmff reader threw unexpectedly: ${e instanceof Error ? e.message : String(e)}` });
-      }
+// isobmff geometry — MERGE, NEVER OVERWRITE: fills only what music-metadata left null/zero, and
+// owns display/rotation/bitrate-source outright. A null return is a legitimate unreadable outcome,
+// NOT an error row; an error row is written only if the reader throws (its contract forbids that).
+function runIsoBmff(f: FileRow): void {
+  try {
+    const g = readIsoBmffGeometry(f.path);
+    if (g === null) return;
+    if ((f.width === null || f.width === 0) && g.encodedWidth !== null) f.width = g.encodedWidth;
+    if ((f.height === null || f.height === 0) && g.encodedHeight !== null) f.height = g.encodedHeight;
+    if ((f.bitrate === null || f.bitrate === 0) && g.bitrate !== null) {
+      f.bitrate = g.bitrate;
+      f.bitrateSource = g.bitrateSource;
     }
+    if (f.videoCodec === null && g.videoFourCharacterCode !== null) f.videoCodec = g.videoFourCharacterCode;
+    if (f.durationSeconds === null && g.durationSeconds !== null) f.durationSeconds = g.durationSeconds;
+    f.displayWidth = g.displayWidth;
+    f.displayHeight = g.displayHeight;
+    f.rotation = g.rotation;
+  } catch (e) {
+    f.errors.push({ stage: "media", text: `isobmff reader threw unexpectedly: ${e instanceof Error ? e.message : String(e)}` });
   }
 }
 
@@ -338,6 +341,10 @@ async function extractMediaMetadata(files: FileRow[]): Promise<void> {
 async function extractStillsMetadata(files: FileRow[]): Promise<void> {
   for (const f of files) {
     if (f.kind !== "image") continue;
+    // Route by capability: bmp/gif are stills but exifr cannot read them — they get their row with
+    // the honest file-date baseline and NO exifr call, NO error row. exifr runs only where it can,
+    // so a throw here is a genuine failure on a format we expected to parse.
+    if (!canExifr(f.extension)) continue;
     try {
       const meta = (await exifr.parse(f.path, { pick: EXIF_PICK })) as Record<string, unknown> | undefined;
       const dto = meta?.DateTimeOriginal ?? meta?.DateTimeDigitized;
@@ -356,8 +363,14 @@ async function extractStillsMetadata(files: FileRow[]): Promise<void> {
       // current stem (set at stat time) is the documented fallback until/unless that changes.
     } catch (e) {
       // EXIF failure is never fatal: kind stays 'image', metadata stays at the honest file-date
-      // baseline, an error row records it, the run continues.
-      f.errors.push({ stage: "exif", text: e instanceof Error ? e.message : String(e) });
+      // baseline, the run continues. ABSENCE of EXIF is NOT a failure — a PNG/WebP/CR3 with no
+      // parseable header makes exifr throw "Unknown file format"; that is the normal no-metadata
+      // case, not corruption, and must NOT produce an error row (Defect D). Only a genuinely
+      // unexpected exception is logged.
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/unknown file format|no exif|not a|unsupported|invalid/i.test(msg)) {
+        f.errors.push({ stage: "exif", text: msg });
+      }
     }
   }
 }
@@ -427,10 +440,11 @@ export async function startRun(
   db: Db,
   orgId: string,
   runId: number,
-  opts: { resume?: boolean; onProgress?: (p: ScanProgress) => void; rules?: SkipRules } = {}
+  opts: { resume?: boolean; onProgress?: (p: ScanProgress) => void; rules?: SkipRules; rawMode?: boolean } = {}
 ): Promise<ScanRunRow> {
   if (active?.running) throw new Error("a scan is already running — one at a time");
   const rules = opts.rules ?? DEFAULT_SKIP_RULES;
+  const raw = opts.rawMode ?? RAW_MODE; // per-call override for the benchmark harness; const is the default
   const run = getRun(db, runId);
   const startable = opts.resume ? ["crashed", "paused"] : ["probing", "estimating"];
   if (!startable.includes(run.status)) {
@@ -442,26 +456,31 @@ export async function startRun(
     "UPDATE scan_runs SET status = 'running', started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = ?"
   ).run(runId);
 
-  const progress = (note?: string): void => {
+  // Real arithmetic: the denominator is the EXACT media-file count from the counting walk (Phase 4),
+  // stored on the run. No 99% clamp — filesRecorded reaches total_files_expected at completion.
+  let lastEmit = 0;
+  const emit = (note?: string): void => {
     const r = getRun(db, runId);
     opts.onProgress?.({
-      runId,
-      status: r.status,
-      currentFolder: r.resume_cursor,
-      foldersCommitted: r.folders_committed,
-      filesRecorded: r.files_recorded,
-      errorsLogged: r.errors_logged,
-      estimatedFiles: r.estimated_files,
+      runId, status: r.status, currentFolder: r.resume_cursor,
+      foldersCommitted: r.folders_committed, filesRecorded: r.files_recorded,
+      errorsLogged: r.errors_logged, estimatedFiles: r.total_files_expected ?? r.estimated_files,
       ...(note ? { note } : {}),
     });
+  };
+  const maybeEmit = (): void => {
+    const now = Date.now();
+    if (now - lastEmit < PROGRESS_EMIT_INTERVAL_MS) return;
+    lastEmit = now;
+    emit();
   };
 
   const isCommitted = db.prepare("SELECT 1 FROM scan_folders WHERE run_id = ? AND path = ?");
   const insFolder = db.prepare(
     `INSERT INTO scan_folders (uuid, org_id, run_id, drive_id, path, depth, parent_path, file_count,
        image_count, video_count, audio_count, other_count, unreadable_count, total_bytes,
-       date_min, date_max, top_camera, top_lens, committed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+       total_files, media_files, date_min, date_max, top_camera, top_lens, committed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
   );
   const insFile = db.prepare(
     `INSERT INTO scan_files (uuid, org_id, run_id, folder_id, path, filename, extension, size_bytes, kind,
@@ -471,7 +490,7 @@ export async function startRun(
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const bumpRun = db.prepare(
-    `UPDATE scan_runs SET folders_committed = folders_committed + 1, files_recorded = files_recorded + ?,
+    `UPDATE scan_runs SET folders_committed = folders_committed + ?, files_recorded = files_recorded + ?,
      errors_logged = errors_logged + ?, resume_cursor = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
   );
   const insError = db.prepare(
@@ -479,26 +498,24 @@ export async function startRun(
      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
   );
 
-  // ONE transaction per folder: rollup + every file row (metadata included) + counters + cursor.
-  // All or nothing — metadata extraction runs BEFORE this, so a committed folder is always complete.
-  const commitFolder = db.transaction(
-    (dir: string, depth: number, parent: string | null, files: FileRow[]) => {
-      const counts = { image: 0, video: 0, audio: 0, other: 0, unreadable: 0 };
-      let bytes = 0;
-      let dateMin: string | null = null;
-      let dateMax: string | null = null;
-      const cameraFreq = new Map<string, number>();
-      const lensFreq = new Map<string, number>();
+  interface Committable { dir: string; depth: number; parent: string | null; files: FileRow[]; totalFilesSeen: number }
+
+  // Commit a BATCH of folders in ONE transaction — one folder by default; up to RAW_COMMIT_BATCH in
+  // RAW_MODE. Metadata extraction runs BEFORE this, so every committed folder is complete; the
+  // resume_cursor advances to the last folder in the batch (a crash loses only the uncommitted tail).
+  const commitBatch = db.transaction((batch: Committable[]) => {
+    let mediaTotal = 0, errorTotal = 0, cursor = "";
+    for (const { dir, depth, parent, files, totalFilesSeen } of batch) {
+      const counts = { image: 0, video: 0, audio: 0, unreadable: 0 };
+      let bytes = 0, dateMin: string | null = null, dateMax: string | null = null;
+      const cameraFreq = new Map<string, number>(), lensFreq = new Map<string, number>();
       for (const f of files) {
         if (f.kind === "image") counts.image++;
         else if (f.kind === "video") counts.video++;
         else if (f.kind === "audio") counts.audio++;
-        else if (f.kind === "unreadable") counts.unreadable++;
-        else counts.other++; // sidecar folds into other for the rollup
+        else counts.unreadable++;
         bytes += f.sizeBytes ?? 0;
-        // Rollups from this folder's own files: date range over media capture dates, most
-        // frequent camera and lens over the stills.
-        if (f.capturedAt && (f.kind === "image" || f.kind === "video" || f.kind === "audio")) {
+        if (f.capturedAt) {
           if (dateMin === null || f.capturedAt < dateMin) dateMin = f.capturedAt;
           if (dateMax === null || f.capturedAt > dateMax) dateMax = f.capturedAt;
         }
@@ -509,11 +526,10 @@ export async function startRun(
         m.size === 0 ? null : [...m.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
       const folderInfo = insFolder.run(
         generateUUIDv7(), orgId, runId, run.drive_id, dir, depth, parent, files.length,
-        counts.image, counts.video, counts.audio, counts.other, counts.unreadable, bytes,
-        dateMin, dateMax, top(cameraFreq), top(lensFreq)
+        counts.image, counts.video, counts.audio, 0, counts.unreadable, bytes,
+        totalFilesSeen, files.length, dateMin, dateMax, top(cameraFreq), top(lensFreq)
       );
       const folderId = Number(folderInfo.lastInsertRowid);
-      let errorRows = 0;
       for (const f of files) {
         insFile.run(
           generateUUIDv7(), orgId, runId, folderId, f.path, f.filename, f.extension, f.sizeBytes, f.kind,
@@ -523,32 +539,47 @@ export async function startRun(
         );
         for (const err of f.errors) {
           insError.run(generateUUIDv7(), orgId, runId, f.path, f.extension, err.stage, err.text);
-          errorRows += 1;
+          errorTotal += 1;
         }
       }
-      bumpRun.run(files.length, errorRows, dir, runId);
+      mediaTotal += files.length;
+      cursor = dir;
     }
-  );
+    bumpRun.run(batch.length, mediaTotal, errorTotal, cursor, runId);
+  });
 
-  interface Node {
-    dir: string;
-    depth: number;
-    parent: string | null;
-  }
+  const pending: Committable[] = [];
+  const flushPending = (): void => {
+    if (pending.length === 0) return;
+    commitBatch(pending.splice(0, pending.length));
+  };
+
+  // RAW_MODE throughput logging — files/sec, folders/sec, elapsed, to the console only.
+  const rawStart = Date.now();
+  const rawLog = (): void => {
+    if (!raw) return;
+    const r = getRun(db, runId);
+    const secs = Math.max(0.001, (Date.now() - rawStart) / 1000);
+    console.log(`[scan RAW] ${r.folders_committed} folders · ${r.files_recorded} media files · ${(r.files_recorded / secs).toFixed(0)} files/s · ${(r.folders_committed / secs).toFixed(1)} folders/s · ${secs.toFixed(0)}s elapsed`);
+  };
+
+  interface Node { dir: string; depth: number; parent: string | null }
   const stack: Node[] = [{ dir: run.root_path, depth: 0, parent: null }];
 
   try {
     while (stack.length > 0) {
       if (active.abortRequested) {
+        flushPending(); // commit whatever is gathered before stopping
         db.prepare(
           "UPDATE scan_runs SET status = 'aborted', finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
         ).run(runId);
-        progress();
+        emit();
         return getRun(db, runId);
       }
       if (active.pauseRequested) {
+        flushPending();
         db.prepare("UPDATE scan_runs SET status = 'paused', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(runId);
-        progress();
+        emit();
         return getRun(db, runId);
       }
 
@@ -558,46 +589,38 @@ export async function startRun(
         listing = listDirSorted(node.dir);
       } catch (e) {
         if (!fs.existsSync(run.root_path)) {
-          // Source vanished mid-run (drive unplugged): pause, stay resumable, say so plainly.
+          // Source vanished mid-run (drive unplugged): commit gathered work, pause, stay resumable.
+          flushPending();
           db.prepare("UPDATE scan_runs SET status = 'paused', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(runId);
-          progress("source-missing");
+          emit("source-missing");
           return getRun(db, runId);
         }
-        // One unreadable folder never aborts a run — log and move on.
+        // One unreadable folder is a genuine failure (permission denied) — error row, then move on.
+        // Distinct from a deliberate skip, which is never logged.
         logEvent(db, orgId, runId, node.dir, "stat", e instanceof Error ? e.message : String(e));
         continue;
       }
 
-      // Reparse points (symlinks, junctions): never followed, logged, never silent.
-      for (const s of listing.symlinks) {
-        logEvent(db, orgId, runId, path.join(node.dir, s), "stat", "skipped: symlink/junction (not followed)");
-      }
-
+      // Reparse points and rule-skipped dirs: never followed. DELIBERATE SKIPS ARE NOT ERROR ROWS
+      // (Phase 3.5) — they are simply not descended. isReparseDir/dirSkipRule govern; nothing logged.
       const subdirs: string[] = [];
       for (const d of listing.dirs) {
-        const rule = dirSkipRule(d, rules);
         const full = path.join(node.dir, d);
-        if (rule) {
-          logEvent(db, orgId, runId, full, "stat", `skipped: ${rule}`);
-        } else if (isReparseDir(full)) {
-          logEvent(db, orgId, runId, full, "stat", "skipped: symlink/junction (not followed)");
-        } else {
-          subdirs.push(d);
-        }
+        if (!dirSkipRule(d, rules) && !isReparseDir(full)) subdirs.push(d);
       }
 
       // Resume: a folder that already has its committed row is skipped — but its SUBFOLDERS may
       // not be, so descent continues either way. Deterministic order makes the cursor meaningful.
       if (!isCommitted.get(runId, node.dir)) {
         const fileRows: FileRow[] = [];
+        let totalFilesSeen = 0; // everything the listing showed (media + non-media + rule-skipped)
         for (const name of listing.files) {
-          const full = path.join(node.dir, name);
-          const rule = fileSkipRule(name, rules);
-          if (rule) {
-            logEvent(db, orgId, runId, full, "stat", `skipped: ${rule}`);
-            continue;
-          }
+          totalFilesSeen += 1;
+          if (fileSkipRule(name, rules)) continue; // deliberate skip — counted, no row, no error
           const ext = path.extname(name).replace(/^\./, "");
+          const cls = mediaClass(ext);
+          if (cls === null) continue; // NON-MEDIA — counted in totalFilesSeen, no row, no parser, no error
+          const full = path.join(node.dir, name);
           const blank = {
             capturedAt: null, capturedAtSource: null as FileRow["capturedAtSource"], cameraMake: null,
             cameraModel: null, lens: null, width: null, height: null, originalFilename: null,
@@ -607,30 +630,29 @@ export async function startRun(
           };
           try {
             const st = fs.lstatSync(full);
-            const kind = kindForExtension(ext);
-            const media = kind === "image" || kind === "video" || kind === "audio";
             fileRows.push({
-              path: full, filename: name, extension: ext, sizeBytes: st.size, kind,
+              path: full, filename: name, extension: ext, sizeBytes: st.size, kind: cls,
               mtimeIso: st.mtime.toISOString(), errors: [], ...blank,
-              // Baseline before extraction: honest file-date, honestly labelled. EXIF upgrades it.
-              capturedAt: media ? st.mtime.toISOString() : null,
-              capturedAtSource: media ? "file" : null,
-              originalFilename: media ? path.basename(name, path.extname(name)) : null,
+              capturedAt: st.mtime.toISOString(), // honest file-date baseline; EXIF upgrades it
+              capturedAtSource: "file",
+              originalFilename: path.basename(name, path.extname(name)),
             });
           } catch (e) {
+            // A MEDIA file we could not even stat is a genuine failure — error row, kind unreadable.
             fileRows.push({
               path: full, filename: name, extension: ext, sizeBytes: null, kind: "unreadable",
               mtimeIso: null, errors: [{ stage: "stat", text: e instanceof Error ? e.message : String(e) }], ...blank,
             });
           }
         }
-        // Metadata extraction happens HERE — before the transaction — so the per-folder commit
-        // stays atomic: a committed folder always carries its metadata, a crash mid-extraction
-        // loses only the uncommitted folder. Failures become error rows, never aborts.
+        // Metadata BEFORE the transaction — a committed folder always carries its metadata; a crash
+        // mid-extraction loses only the uncommitted folder. Class-routed inside each extractor.
         await extractStillsMetadata(fileRows);
         await extractMediaMetadata(fileRows);
-        commitFolder(node.dir, node.depth, node.parent, fileRows);
-        progress(); // folder-level, never per-file
+        pending.push({ dir: node.dir, depth: node.depth, parent: node.parent, files: fileRows, totalFilesSeen });
+        // Commit per folder (default) or every RAW_COMMIT_BATCH folders (RAW_MODE diagnostic).
+        if (!raw || pending.length >= RAW_COMMIT_BATCH) { flushPending(); rawLog(); }
+        maybeEmit();
       }
 
       for (let i = subdirs.length - 1; i >= 0; i--) {
@@ -638,6 +660,8 @@ export async function startRun(
       }
       await tick(); // yield between folders — the main process must stay responsive for hours
     }
+    flushPending(); // RAW_MODE tail — commit whatever is left before finishing
+    rawLog();
 
     db.prepare(
       "UPDATE scan_runs SET status = 'completed', finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -645,7 +669,7 @@ export async function startRun(
     if (run.drive_id != null) {
       db.prepare("UPDATE scan_drives SET last_scanned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(run.drive_id);
     }
-    progress();
+    emit();
     return getRun(db, runId);
   } finally {
     active.running = false;

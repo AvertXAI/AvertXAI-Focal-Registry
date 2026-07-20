@@ -574,8 +574,8 @@ function RunningConsole({ progress, pct, elapsed, eta, log, onAbort, onPause, on
   return (
     <>
       <div className="scan-card" style={{ padding: "16px 20px" }}>
-        <div className="scan-row">
-          <div style={{ minWidth: 0 }}>
+        <div className="scan-row" style={{ flexWrap: "nowrap" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div className="scan-mlabel" style={{ marginBottom: 5, display: "flex", gap: 10, alignItems: "center" }}>
               <span>Scanning</span>
               {/* Always-animating heartbeat — a frozen % (big folder mid-extraction) never reads as hung. */}

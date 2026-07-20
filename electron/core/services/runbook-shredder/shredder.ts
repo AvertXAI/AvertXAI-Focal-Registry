@@ -141,23 +141,60 @@ export function removeFile(db: Db, filePath: string): void {
   db.prepare("DELETE FROM runbooks WHERE file_path = ?").run(filePath);
 }
 
+// Dependency/build/system directories never hold user runbooks but can hold tens of thousands of .md
+// (node_modules alone) — descending them made the initial ingest walk froze the app. Skipped at any
+// depth, mirroring the Scan module's dir-exclusion rule.
+const EXCLUDED_DIRS = new Set([
+  "node_modules", ".git", ".hg", ".svn", "dist", "build", "release", "release-new", "win-unpacked",
+  ".next", ".cache", ".turbo", "vendor", "coverage", "$recycle.bin", "system volume information",
+]);
+
 function* walkMd(dir: string): Generator<string> {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return; // unreadable dir (permissions / vanished) — skip, don't crash the walk
+  }
+  for (const entry of entries) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) yield* walkMd(full);
-    else if (entry.isFile() && full.toLowerCase().endsWith(".md")) yield full;
+    if (entry.isDirectory()) {
+      if (EXCLUDED_DIRS.has(entry.name.toLowerCase())) continue;
+      yield* walkMd(full);
+    } else if (entry.isFile() && full.toLowerCase().endsWith(".md")) yield full;
   }
 }
 
-// Initial full scan of the folder.
-export function ingestAll(db: Db, dir: string): void {
-  for (const file of walkMd(dir)) {
+export interface IngestProgress {
+  done: number;
+  total: number;
+}
+
+// Initial/full scan of the folder — ASYNC and YIELDING so the main event loop stays responsive (a
+// large tree no longer freezes the app) and progress streams to the UI. Files are collected first so
+// there is a real total for the percentage; ingestion yields every 32 files. Returns final counts.
+export async function ingestAll(
+  db: Db,
+  dir: string,
+  onProgress?: (p: IngestProgress) => void
+): Promise<{ ingested: number; quarantined: number }> {
+  const files = [...walkMd(dir)];
+  const total = files.length;
+  onProgress?.({ done: 0, total });
+  for (let i = 0; i < total; i++) {
     try {
-      ingestFile(db, file);
+      ingestFile(db, files[i]);
     } catch {
       // A file that vanished mid-scan (or is unreadable) is skipped; the watcher will catch it next.
     }
+    if ((i & 31) === 31 || i === total - 1) {
+      onProgress?.({ done: i + 1, total });
+      await new Promise((resolve) => setImmediate(resolve)); // yield: flush IPC/paint, keep UI alive
+    }
   }
+  const count = (status: string): number =>
+    (db.prepare("SELECT COUNT(*) AS n FROM runbooks WHERE parse_status = ?").get(status) as { n: number }).n;
+  return { ingested: count("ok"), quarantined: count("error") };
 }
 
 // Watch the folder: fs.watch recursive + a single 500ms debounce window that coalesces bursts, then
@@ -202,14 +239,20 @@ export interface ShredderHandle {
 
 // Public entry — ties DB + initial scan + watcher together, consuming injected settings (no root
 // app_settings read). Returns a handle whose stop() closes the watcher (used by tests / teardown).
-export function startShredder(opts: { orgId: string; baseDir: string; settings: ShredderSettings }): ShredderHandle {
-  const { orgId, baseDir, settings } = opts;
+export function startShredder(opts: {
+  orgId: string;
+  baseDir: string;
+  settings: ShredderSettings;
+  onProgress?: (p: IngestProgress) => void;
+}): ShredderHandle {
+  const { orgId, baseDir, settings, onProgress } = opts;
   const db = openShredderDb(orgId, baseDir);
   const watchPath = settings["runbook-shredder.watch_path"];
   let watcher: fs.FSWatcher | null = null;
 
   if (watchPath && fs.existsSync(watchPath)) {
-    ingestAll(db, watchPath);
+    // Fire-and-forget: the initial ingest runs async so boot is never blocked by a large folder.
+    void ingestAll(db, watchPath, onProgress);
     if (settings["runbook-shredder.watch_enabled"]) {
       watcher = watch(db, watchPath, settings["runbook-shredder.auto_reparse"]);
     }

@@ -17,6 +17,11 @@
 .rbs-dot{width:7px;height:7px;border-radius:50%}
 .rbs-dot.ok{background:var(--mc-accent-primary)}
 .rbs-dot.err{background:var(--mc-orange)}
+/* live folder-ingest ticker — a spinner + % so a large watch folder reads as loading, not hung */
+.rbs-loading{color:var(--mc-text);border-color:var(--mc-accent-primary)}
+.rbs-spin{width:10px;height:10px;border-radius:50%;border:2px solid var(--mc-accent-primary);border-top-color:transparent;box-sizing:border-box;animation:rbs-spin .7s linear infinite}
+@keyframes rbs-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.rbs-spin{animation:none}}
 .rbs-sp{margin-left:auto;display:flex;align-items:center;gap:10px}
 .rbs-tgl{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--mc-muted)}
 .rbs-sw{width:30px;height:17px;border-radius:20px;background:var(--mc-border);position:relative;display:inline-block}

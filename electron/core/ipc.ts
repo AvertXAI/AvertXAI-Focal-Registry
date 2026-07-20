@@ -18,7 +18,7 @@ import * as dataviewer from "./services/dataviewer";
 import * as firstrun from "./services/firstrun";
 import * as modules from "./services/modules";
 import * as shredderApi from "./services/runbook-shredder/api";
-import { ingestAll, startShredder, type ShredderHandle } from "./services/runbook-shredder/shredder";
+import { ingestAll, startShredder, type IngestProgress, type ShredderHandle } from "./services/runbook-shredder/shredder";
 import * as scout from "./services/scout-viewer";
 import * as scoutTargets from "./services/scout-viewer/targets";
 import * as scan from "./services/scan";
@@ -51,6 +51,16 @@ function readShredderSettings(): ShredderSettings {
   return s;
 }
 
+// Throttled ingest-progress push — the Secure Note strip shows a live % so a large-folder ingest
+// reads as "loading", not hung. Always sends the final tick (done === total) so the ticker clears.
+let shredderProgressAt = 0;
+function sendShredderProgress(p: IngestProgress): void {
+  const now = Date.now();
+  if (p.done < p.total && now - shredderProgressAt < 150) return;
+  shredderProgressAt = now;
+  getMainWindow()?.webContents.send("shredder:progress", p);
+}
+
 export function ensureShredder(): ShredderHandle {
   if (shredderHandle) return shredderHandle;
   const org = getActiveOrg();
@@ -59,6 +69,7 @@ export function ensureShredder(): ShredderHandle {
     orgId: org.org_id,
     baseDir: app.getPath("userData"),
     settings: readShredderSettings(),
+    onProgress: sendShredderProgress,
   });
   return shredderHandle;
 }
@@ -74,10 +85,11 @@ export function restartShredder(): void {
 }
 
 // Full re-ingest of the current watch folder on demand; returns live ok/error counts for the UI.
-function rescanShredder(): { ingested: number; quarantined: number } {
+// Async + progress-streaming so a large folder neither freezes the app nor looks hung.
+async function rescanShredder(): Promise<{ ingested: number; quarantined: number }> {
   const h = ensureShredder();
   const watchPath = readShredderSettings()["runbook-shredder.watch_path"];
-  if (watchPath && fs.existsSync(watchPath)) ingestAll(h.db, watchPath);
+  if (watchPath && fs.existsSync(watchPath)) return ingestAll(h.db, watchPath, sendShredderProgress);
   const count = (status: string): number =>
     (h.db.prepare("SELECT COUNT(*) AS n FROM runbooks WHERE parse_status = ?").get(status) as { n: number }).n;
   return { ingested: count("ok"), quarantined: count("error") };

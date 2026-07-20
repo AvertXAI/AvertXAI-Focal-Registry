@@ -10,7 +10,7 @@
 // File: src/modules/runbook-shredder/RunbookShredderModule.tsx
 //------------------------------------------------------------
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { RunbookFilter, RunbookRow } from "../../shared/types";
+import type { RunbookFilter, RunbookRow, ShredderProgress } from "../../shared/types";
 import { defaultSettings, type ShredderSettings } from "./config.manifest";
 import { formatStamp } from "../../shared/datetime";
 import { highlightText, renderMarkdown } from "./markdown";
@@ -107,6 +107,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   const [reloadKey, setReloadKey] = useState(0);
   const [scanning, setScanning] = useState(false);
   const [quarCount, setQuarCount] = useState(0); // chip count — rescan return is authoritative
+  const [ingest, setIngest] = useState<ShredderProgress | null>(null); // live folder-ingest ticker
   // Collapsed-strip search modal — module-scoped overlay; queries the SAME FTS prefix engine.
   const [searchOpen, setSearchOpen] = useState(false);
   const [modalQuery, setModalQuery] = useState("");
@@ -129,6 +130,14 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   useEffect(() => {
     if (propFontSize) setFontSize(propFontSize);
   }, [propFontSize]);
+
+  // Live ingest ticker — a large watch folder streams done/total over shredder:progress so the strip
+  // shows a percentage instead of appearing frozen. The final tick (done === total) clears it.
+  useEffect(() => {
+    const onIngest = (p: ShredderProgress): void => setIngest(p.total > 0 && p.done < p.total ? p : null);
+    api.on<ShredderProgress>("shredder:progress", onIngest);
+    return () => api.off<ShredderProgress>("shredder:progress", onIngest);
+  }, []);
   const changeFontSize = (v: string) => {
     const n = Number(v) || 13;
     setFontSize(n);
@@ -313,6 +322,12 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
           <span className="rbs-dot err" />
           {quarCount} quarantined
         </button>
+        {ingest && (
+          <span className="rbs-chip rbs-loading" title={`Reading ${ingest.done.toLocaleString()} of ${ingest.total.toLocaleString()} files`}>
+            <span className="rbs-spin" />
+            loading {Math.round((ingest.done / ingest.total) * 100)}%
+          </span>
+        )}
         <div className="rbs-sp">
           <button
             className={"rbs-tgl" + (watchEnabled ? " on" : "") + (live ? "" : " nb")}

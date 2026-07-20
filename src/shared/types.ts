@@ -110,7 +110,12 @@ export interface ScoutDomCard {
 }
 
 /** Main → renderer push channels the preload bridge whitelists. */
-export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded" | "scan:progress" | "scan:drives";
+export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded" | "scan:progress" | "scan:drives" | "shredder:progress";
+/** shredder:progress push — folder ingest ticker (done/total) so a large Secure Note folder reads as loading. */
+export interface ShredderProgress {
+  done: number;
+  total: number;
+}
 
 // ---- Scan module (renderer-safe copies of the service shapes at electron/core/services/scan/ —
 // the renderer imports from HERE, never from services/) ----

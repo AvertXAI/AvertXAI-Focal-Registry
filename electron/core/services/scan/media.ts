@@ -47,8 +47,13 @@ export function mediaClass(ext: string): MediaClass | null {
 // set would use to become user-editable. (Verified against the audit: node_modules alone held 31,568
 // of 31,604 .mts, all TypeScript.)
 export const EXCLUDED_DIR_NAMES = new Set([
+  // build / dependency artifacts
   "node_modules", ".git", "dist", "build", "release", "release-new", "win-unpacked",
   ".next", ".cache", "vendor",
+  // Windows system trees — never hold a photographer's archive, and descending C:\Windows\WinSxS
+  // (1M+ hard-linked files) froze the counting walk. Excluded by name at any depth.
+  "windows", "windows.old", "$recycle.bin", "$winreagent", "$sysreset", "recovery", "perflogs", "msocache",
+  "system volume information",
 ]);
 export const isExcludedDir = (name: string): boolean => EXCLUDED_DIR_NAMES.has(name.toLowerCase());
 

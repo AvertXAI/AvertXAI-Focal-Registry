@@ -191,12 +191,22 @@ export async function countRun(
     "UPDATE scan_runs SET status = 'counting', started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = ?"
   ).run(runId);
 
+  // Make counting CANCELLABLE. It never registered in the engine slot, so requestAbort couldn't flag
+  // it and 'counting' wasn't a status the fallback UPDATE matched — Cancel did nothing and a runaway
+  // count of a system drive (C:\Windows\WinSxS) froze the app with no way out. Claim the slot now,
+  // check the flag each folder, and always release it.
+  if (active?.running) throw new Error("a scan is already in progress");
+  active = { runId, pauseRequested: false, abortRequested: false, running: true };
+
   const t0 = Date.now();
   let folders = 0, mediaFiles = 0, totalFiles = 0, lastEmit = 0;
+  let aborted = false;
   const stack: string[] = [run.root_path];
-  while (stack.length > 0) {
-    const dir = stack.pop() as string;
-    let listing: Listing;
+  try {
+    while (stack.length > 0) {
+      if (active?.abortRequested) { aborted = true; break; } // Cancel — stop before reading the next folder
+      const dir = stack.pop() as string;
+      let listing: Listing;
     try {
       listing = listDirSorted(dir);
     } catch {
@@ -224,9 +234,21 @@ export async function countRun(
         filesRecorded: 0, errorsLogged: 0, estimatedFiles: mediaFiles, // running media tally, not a %
       });
     }
-    await tick();
+      await tick();
+    }
+  } finally {
+    active = null; // always release the slot — counting finished, was cancelled, or threw
   }
   const elapsedMs = Math.max(1, Date.now() - t0);
+
+  if (aborted) {
+    db.prepare("UPDATE scan_runs SET status = 'aborted', finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(runId);
+    opts.onProgress?.({
+      runId, volumeSerial, status: "aborted", currentFolder: null, foldersCommitted: folders,
+      filesRecorded: 0, errorsLogged: 0, estimatedFiles: mediaFiles,
+    });
+    return { runId, folders, mediaFiles, totalFiles, elapsedMs };
+  }
 
   db.prepare(
     `UPDATE scan_runs SET status = 'estimating', total_files_expected = ?, total_folders_expected = ?,
@@ -460,7 +482,7 @@ export function requestAbort(db: Db, runId: number): boolean {
   // Not in flight (paused / crashed / estimating) — abort is a plain status write.
   const r = db
     .prepare(
-      "UPDATE scan_runs SET status = 'aborted', finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('probing', 'estimating', 'paused', 'crashed')"
+      "UPDATE scan_runs SET status = 'aborted', finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('probing', 'counting', 'estimating', 'paused', 'crashed')"
     )
     .run(runId);
   return r.changes > 0;

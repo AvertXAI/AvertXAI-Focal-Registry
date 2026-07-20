@@ -11,8 +11,8 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: src/modules/scan/ScanModule.tsx
 //------------------------------------------------------------
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { ScanErrorRow, ScanFolderSummary, ScanProgress, ScanRunRow, ScanVolume } from "../../shared/types";
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import type { ScanCameraCount, ScanErrorRow, ScanFolderSummary, ScanProgress, ScanRunRow, ScanVolume } from "../../shared/types";
 import { bumpRender } from "../../diag";
 import "./scan.css";
 
@@ -609,6 +609,14 @@ function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, o
   drive: ScanVolume; run: ScanRunRow; folders: ScanFolderSummary[];
   onView: () => void; onFolder: () => void; onRescan: () => void; onIssues: () => void; busy: boolean;
 }) {
+  // Top-camera click-through: fetch the folder's distinct cameras and expand a detail row beneath it.
+  // Toggling the same folder closes it. Inline row = no popover-positioning math (ponytail).
+  const [cams, setCams] = useState<{ id: number; rows: ScanCameraCount[] } | null>(null);
+  const showCameras = async (folderId: number): Promise<void> => {
+    if (cams?.id === folderId) { setCams(null); return; }
+    try { setCams({ id: folderId, rows: await window.api.scan.folderCameras(folderId) }); }
+    catch { setCams({ id: folderId, rows: [] }); }
+  };
   return (
     <>
       <div className="scan-card">
@@ -635,17 +643,30 @@ function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, o
       <div className="scan-card">
         <div className="scan-mlabel" style={{ marginBottom: 6 }}>Folders — top level</div>
         {folders.length === 0 ? <div className="scan-sub">No folder rollups recorded.</div> : (
-          <table className="scan-tbl">
+          <table className="scan-tbl folders">
+            <colgroup><col /><col className="c-files" /><col className="c-date" /><col className="c-cam" /><col className="c-size" /></colgroup>
             <thead><tr><th>Folder</th><th>Files</th><th>Date range</th><th>Top camera</th><th>Size</th></tr></thead>
             <tbody>
               {folders.slice(0, 40).map((f) => (
-                <tr key={f.path}>
-                  <td className="w scan-mono" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.path}</td>
-                  <td className="scan-mono">{f.file_count.toLocaleString()}</td>
-                  <td className="scan-mono">{fmtDateRange(f.date_min, f.date_max)}</td>
-                  <td>{f.top_camera ?? "—"}</td>
-                  <td className="scan-mono">{fmtBytes(f.total_bytes)}</td>
-                </tr>
+                <Fragment key={f.path}>
+                  <tr>
+                    <td className="w scan-mono cell-link" title={`Open ${f.path}`} onClick={() => void window.api.scan.openPath(f.path)}>{f.path}</td>
+                    <td className="scan-mono">{f.file_count.toLocaleString()}</td>
+                    <td className="scan-mono">{fmtDateRange(f.date_min, f.date_max)}</td>
+                    <td className={f.top_camera ? "cell-link" : undefined} title={f.top_camera ? "Show all cameras in this folder" : undefined}
+                        onClick={f.top_camera ? () => void showCameras(f.id) : undefined}>{f.top_camera ?? "—"}</td>
+                    <td className="scan-mono">{fmtBytes(f.total_bytes)}</td>
+                  </tr>
+                  {cams?.id === f.id && (
+                    <tr className="scan-cam-row"><td colSpan={5}>
+                      {cams.rows.length === 0
+                        ? <span className="scan-sub">No camera metadata recorded for this folder.</span>
+                        : <div className="scan-cam-list">{cams.rows.map((c) => (
+                            <span className="scan-cam-chip" key={c.camera}>{c.camera} <b>{c.count.toLocaleString()}</b></span>
+                          ))}</div>}
+                    </td></tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

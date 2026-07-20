@@ -738,6 +738,7 @@ export function listErrors(db: Db, runId: number, limit = 500): ScanErrorRow[] {
 }
 
 export interface ScanFolderSummary {
+  id: number;
   path: string;
   depth: number;
   file_count: number;
@@ -749,13 +750,29 @@ export interface ScanFolderSummary {
   date_max: string | null;
   top_camera: string | null;
 }
-/** Top-level folders of a run for Option B's table (shallowest first, largest first within depth). */
+/** Top-level folders of a run for Option B's table (shallowest first, largest first within depth).
+    Only folders that actually hold media (file_count = media rows written) — empty/non-media folders
+    are noise in this table. */
 export function listFolders(db: Db, runId: number, limit = 200): ScanFolderSummary[] {
   return db
     .prepare(
-      `SELECT path, depth, file_count, image_count, video_count, audio_count, total_bytes,
+      `SELECT id, path, depth, file_count, image_count, video_count, audio_count, total_bytes,
               date_min, date_max, top_camera
-       FROM scan_folders WHERE run_id = ? ORDER BY depth ASC, total_bytes DESC LIMIT ?`
+       FROM scan_folders WHERE run_id = ? AND file_count > 0 ORDER BY depth ASC, total_bytes DESC LIMIT ?`
     )
     .all(runId, limit) as ScanFolderSummary[];
+}
+
+export interface ScanCameraCount { camera: string; count: number }
+/** Every distinct camera seen in one folder's media, most-used first — powers the click-through
+    on the Top-camera cell. Empty when the folder's files carried no camera make/model. */
+export function folderCameras(db: Db, folderId: number): ScanCameraCount[] {
+  return db
+    .prepare(
+      `SELECT COALESCE(NULLIF(TRIM(camera_make || ' ' || camera_model), ''), camera_model, camera_make) AS camera,
+              COUNT(*) AS count
+       FROM scan_files WHERE folder_id = ? AND (camera_make IS NOT NULL OR camera_model IS NOT NULL)
+       GROUP BY camera ORDER BY count DESC`
+    )
+    .all(folderId) as ScanCameraCount[];
 }

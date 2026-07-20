@@ -89,6 +89,23 @@
 .scan-tbl th{text-align:left;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--mc-dimmer);padding:0 10px 9px 0;font-weight:500}
 .scan-tbl td{padding:8px 10px 8px 0;border-top:1px solid var(--mc-border);color:var(--mc-muted)}
 .scan-tbl td.w{color:var(--mc-text)}
+/* Folders table: FIXED layout so column widths sum to 100% and nothing overflows the card (the row
+   highlight was bleeding past the right edge on narrow widths). The folder column takes the
+   remainder and ellipsis-truncates; the rest are fixed. */
+.scan-tbl.folders{table-layout:fixed}
+.scan-tbl.folders .c-files{width:64px}
+.scan-tbl.folders .c-date{width:190px}
+.scan-tbl.folders .c-cam{width:150px}
+.scan-tbl.folders .c-size{width:88px}
+.scan-tbl.folders td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scan-tbl.folders .scan-cam-row td{white-space:normal;overflow:visible}
+/* clickable cell affordance (open folder / show cameras) */
+.cell-link{cursor:pointer;color:var(--mc-accent-primary)}
+.cell-link:hover{text-decoration:underline}
+.scan-cam-row td{padding-top:2px;padding-bottom:12px}
+.scan-cam-list{display:flex;flex-wrap:wrap;gap:8px}
+.scan-cam-chip{font-size:11.5px;padding:3px 9px;border-radius:12px;background:var(--mc-nested);border:1px solid var(--mc-border);color:var(--mc-text)}
+.scan-cam-chip b{color:var(--scan-ok);font-weight:600}
 .scan-note{font-size:12px;color:var(--scan-warn)}
 .scan-empty{text-align:center;color:var(--mc-muted);padding:40px 20px}
 .scan-issues-link{cursor:pointer}

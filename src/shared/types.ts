@@ -195,6 +195,7 @@ export interface ScanErrorRow {
   occurred_at: string | null;
 }
 export interface ScanFolderSummary {
+  id: number;
   path: string;
   depth: number;
   file_count: number;
@@ -206,6 +207,7 @@ export interface ScanFolderSummary {
   date_max: string | null;
   top_camera: string | null;
 }
+export interface ScanCameraCount { camera: string; count: number }
 /** Report writer outcome — never throws; a failure is data, and the scan stays completed. */
 export interface ScanReportResult {
   ok: boolean;
@@ -322,6 +324,10 @@ export interface Api {
     readReport: (runId: number) => Promise<{ ok: boolean; path?: string; content?: string; error?: string }>;
     /** scan_errors rows for the Logged-Issues modal. */
     listErrors: (runId: number) => Promise<ScanErrorRow[]>;
+    /** Reveal a scanned folder in the OS file manager. */
+    openPath: (target: string) => Promise<{ ok: boolean; error?: string }>;
+    /** Distinct cameras in one folder's media, most-used first — Top-camera click-through. */
+    folderCameras: (folderId: number) => Promise<ScanCameraCount[]>;
   };
   /** Auto-updater (§3.12) — user-consented download, install on quit. Auto cycle is packaged-only;
    *  check/version answer in every build so the Settings button is never dead. */

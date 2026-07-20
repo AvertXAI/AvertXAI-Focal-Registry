@@ -99,6 +99,8 @@ const api: Api = {
     openReportsFolder: (runId: number) => ipcRenderer.invoke("scan:openReportsFolder", runId),
     readReport: (runId: number) => ipcRenderer.invoke("scan:readReport", runId),
     listErrors: (runId: number) => ipcRenderer.invoke("scan:listErrors", runId),
+    openPath: (target: string) => ipcRenderer.invoke("scan:openPath", target),
+    folderCameras: (folderId: number) => ipcRenderer.invoke("scan:folderCameras", folderId),
   },
   updater: {
     download: () => ipcRenderer.invoke("updater:download"),

@@ -292,6 +292,19 @@ export function registerIpcHandlers(): void {
     void shell.showItemInFolder(run.report_path); // reveals + selects; the safe cross-format open
     return { ok: true };
   });
+  // Open a scanned folder in the OS file manager. Data-only app: this reveals the folder, never
+  // decodes anything. Existence-guarded so a moved/offline drive fails soft rather than throwing.
+  safeHandle("scan:openPath", (_e, target: unknown) => {
+    const p = String(target ?? "");
+    if (p === "" || !fs.existsSync(p)) return { ok: false, error: "Folder not found (drive offline or moved?)." };
+    void shell.openPath(p);
+    return { ok: true };
+  });
+  // Distinct cameras for one folder's media (most-used first) — the Top-camera click-through.
+  safeHandle("scan:folderCameras", (_e, folderId: unknown) => {
+    const { db } = scanCtx();
+    return scan.folderCameras(db, Number(folderId));
+  });
   safeHandle("scan:openReportsFolder", (_e, runId: unknown) => {
     const { db } = scanCtx();
     const run = scan.getRun(db, Number(runId));

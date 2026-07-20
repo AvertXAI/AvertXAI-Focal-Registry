@@ -50,7 +50,8 @@ export function ensureScanSchema(db: Db): void {
     "files_recorded INTEGER DEFAULT 0",
     "errors_logged INTEGER DEFAULT 0",
     "resume_cursor TEXT",
-    "report_path TEXT",
+    "report_path TEXT", // the copy on the scanned drive (travels with a shelved archive)
+    "report_local_path TEXT", // the copy in the app-managed Markdown tree (always here, drive or not)
     "total_files_expected INTEGER", // EXACT denominator from the pre-scan counting walk (Phase 4)
     "total_folders_expected INTEGER",
     "cleared_at DATETIME", // soft-clear (History Nuke): hidden from all viewers, purged after 30 days
@@ -132,6 +133,7 @@ export function ensureScanSchema(db: Db): void {
     if (!runCols.includes("total_files_expected")) db.exec("ALTER TABLE scan_runs ADD COLUMN total_files_expected INTEGER;");
     if (!runCols.includes("total_folders_expected")) db.exec("ALTER TABLE scan_runs ADD COLUMN total_folders_expected INTEGER;");
     if (!runCols.includes("cleared_at")) db.exec("ALTER TABLE scan_runs ADD COLUMN cleared_at DATETIME;");
+    if (!runCols.includes("report_local_path")) db.exec("ALTER TABLE scan_runs ADD COLUMN report_local_path TEXT;");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_run_folder ON scan_files (run_id, folder_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_org_path ON scan_files (org_id, path);");

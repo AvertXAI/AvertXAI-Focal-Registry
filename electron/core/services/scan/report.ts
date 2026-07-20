@@ -16,14 +16,51 @@ import path from "node:path";
 import type { Db } from "./db";
 import type { ScanDriveRow, ScanRunRow } from "./drives";
 import { formatStamp } from "../../../../src/shared/datetime";
+import * as storage from "../storage";
 
 export const REPORTS_FOLDER_NAME = "_FocalRegistry-Reports";
 
 export interface ReportWriteResult {
-  ok: boolean;
-  path?: string;
+  ok: boolean; // true if the report landed in AT LEAST ONE location
+  path?: string; // the drive copy (or the local copy if the drive write failed) — for the UI toast
+  drivePath?: string | null; // [drive]:\_FocalRegistry-Reports\… — null if that write failed
+  localPath?: string | null; // <root>\_source\…\Scan\… — null if that write failed
+  driveError?: string;
+  localError?: string;
   secureNoteCopy?: string | null;
   error?: string;
+}
+
+/** Stream the report to ONE target (positioned writes — the body is never one in-memory string; wx
+    refuses to overwrite). Returns per-target success so drive and local writes stay independent. */
+function streamReportTo(
+  targetPath: string,
+  header: string,
+  topFolders: Array<{ id: number; path: string; media_files: number; total_files: number; image_count: number; video_count: number; audio_count: number; unreadable_count: number; total_bytes: number; date_min: string | null; date_max: string | null; top_camera: string | null }>,
+  formatsByFolder: Map<number, Array<{ key: string; n: number }>>
+): { ok: boolean; path?: string; error?: string } {
+  try {
+    const fd = fs.openSync(targetPath, "wx");
+    try {
+      fs.writeSync(fd, header);
+      for (const f of topFolders) {
+        const fmts = formatsByFolder.get(f.id) ?? [];
+        const fmtLine = fmts.length > 0 ? fmts.map((x) => `${x.key || "(none)"}: ${x.n}`).join(" · ") : "—";
+        const section =
+          `## ${f.path}\n\n` +
+          `- Media files: ${f.media_files.toLocaleString()} of ${f.total_files.toLocaleString()} seen (stills ${f.image_count}, video ${f.video_count}, audio ${f.audio_count}, unreadable ${f.unreadable_count})\n` +
+          `- Size: ${fmtBytes(f.total_bytes)}\n` +
+          `- Formats: ${fmtLine}\n` +
+          `- Capture range: ${fmtDate(f.date_min)} → ${fmtDate(f.date_max)}${f.top_camera ? ` · Top camera: ${f.top_camera}` : ""}\n\n`;
+        fs.writeSync(fd, section);
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+    return { ok: true, path: targetPath };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 function sanitizeLabel(label: string | null, fallback: string): string {
@@ -148,7 +185,8 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
     const driveRoot = reportRootOverride ?? path.parse(path.resolve(run.root_path)).root;
     const reportsDir = path.join(driveRoot, REPORTS_FOLDER_NAME);
     fs.mkdirSync(reportsDir, { recursive: true });
-    const reportPath = collisionFreePath(reportsDir, `SCAN-${label}-${dateStamp}`);
+    const baseName = `SCAN-${label}-${dateStamp}`;
+    const reportPath = collisionFreePath(reportsDir, baseName);
 
     const fm = [
       "---",
@@ -201,49 +239,62 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
       "",
     ].join("\n");
 
-    // Stream the document with positioned writes — the body is NEVER assembled as one in-memory
-    // string. wx refuses to overwrite an existing file, ever.
-    const fd = fs.openSync(reportPath, "wx");
+    const header = `${fm}\n${summary}\n`;
+
+    // DOUBLE-SAVE (Phase 3). The report is written TWICE, INDEPENDENTLY:
+    //   1. onto the scanned drive — it travels with a shelved archive.
+    //   2. into the app-managed Markdown tree — because an archive drive gets UNPLUGGED, and Paul
+    //      wants the report whether or not that drive is connected.
+    // Either write can fail on its own; the other still happens, and neither failure fails the scan
+    // (the data is already committed). We record which succeeded.
+    const driveResult = streamReportTo(reportPath, header, topFolders, formatsByFolder);
+
+    let localResult: { ok: boolean; path?: string; error?: string };
     try {
-      fs.writeSync(fd, `${fm}\n${summary}\n`);
-      for (const f of topFolders) {
-        const fmts = formatsByFolder.get(f.id) ?? [];
-        const fmtLine = fmts.length > 0 ? fmts.map((x) => `${x.key || "(none)"}: ${x.n}`).join(" · ") : "—";
-        const section =
-          `## ${f.path}\n\n` +
-          `- Media files: ${f.media_files.toLocaleString()} of ${f.total_files.toLocaleString()} seen (stills ${f.image_count}, video ${f.video_count}, audio ${f.audio_count}, unreadable ${f.unreadable_count})\n` +
-          `- Size: ${fmtBytes(f.total_bytes)}\n` +
-          `- Formats: ${fmtLine}\n` +
-          `- Capture range: ${fmtDate(f.date_min)} → ${fmtDate(f.date_max)}${f.top_camera ? ` · Top camera: ${f.top_camera}` : ""}\n\n`;
-        fs.writeSync(fd, section);
-      }
-    } finally {
-      fs.closeSync(fd);
+      const root = storage.resolveMarkdownRoot();
+      storage.ensureManagedTree(root);
+      const localPath = collisionFreePath(storage.scanMarkdownDir(root), baseName);
+      localResult = streamReportTo(localPath, header, topFolders, formatsByFolder);
+    } catch (e) {
+      localResult = { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
 
-    // ---- Secure Note handoff: a COPY into the watch folder when configured. OPTIONAL and isolated:
-    //      the report is already on disk and the run is complete — a handoff failure (no watch
-    //      folder set, no app_settings, an unwritable target) must NEVER turn a written report into
-    //      a failure result. It is best-effort, swallowed to null. ----
+    // ---- Secure Note handoff: a COPY into the watch folder when configured. Best-effort, isolated —
+    //      a handoff failure never turns a written report into a failure result. Copies from whichever
+    //      of the two reports actually landed. ----
     let secureNoteCopy: string | null = null;
+    const anyPath = driveResult.path ?? localResult.path;
     try {
       const watch = (db.prepare("SELECT value FROM app_settings WHERE key = 'runbook-shredder.watch_path'").get() as
         | { value: string }
         | undefined)?.value;
-      if (watch && fs.existsSync(watch)) {
-        const copyTarget = collisionFreePath(watch, path.basename(reportPath, ".md"));
-        fs.copyFileSync(reportPath, copyTarget, fs.constants.COPYFILE_EXCL);
+      if (anyPath && watch && fs.existsSync(watch)) {
+        const copyTarget = collisionFreePath(watch, path.basename(anyPath, ".md"));
+        fs.copyFileSync(anyPath, copyTarget, fs.constants.COPYFILE_EXCL);
         secureNoteCopy = copyTarget;
       }
     } catch {
-      secureNoteCopy = null; // handoff is a nice-to-have; the report and the run stand regardless
+      secureNoteCopy = null;
     }
 
-    db.prepare("UPDATE scan_runs SET report_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(reportPath, runId);
+    db.prepare("UPDATE scan_runs SET report_path = ?, report_local_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .run(driveResult.ok ? reportPath : null, localResult.ok ? (localResult.path ?? null) : null, runId);
     if (run.drive_id != null) {
       db.prepare("UPDATE scan_drives SET last_scanned_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(run.drive_id);
     }
-    return { ok: true, path: reportPath, secureNoteCopy };
+
+    const ok = driveResult.ok || localResult.ok; // a report exists if EITHER write succeeded
+    const bothFailed = !driveResult.ok && !localResult.ok;
+    return {
+      ok,
+      path: anyPath,
+      drivePath: driveResult.ok ? reportPath : null,
+      localPath: localResult.ok ? (localResult.path ?? null) : null,
+      driveError: driveResult.ok ? undefined : driveResult.error,
+      localError: localResult.ok ? undefined : localResult.error,
+      secureNoteCopy,
+      error: bothFailed ? `drive: ${driveResult.error ?? "?"}; local: ${localResult.error ?? "?"}` : undefined,
+    };
   } catch (e) {
     // The run stays COMPLETED — the data is already committed. The failure is surfaced, not retried.
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

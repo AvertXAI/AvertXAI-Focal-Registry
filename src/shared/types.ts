@@ -154,7 +154,8 @@ export interface ScanRunRow {
   files_recorded: number;
   errors_logged: number;
   resume_cursor: string | null;
-  report_path: string | null;
+  report_path: string | null; // the copy on the scanned drive
+  report_local_path?: string | null; // the copy in the app-managed Markdown tree (Phase 3 double-save)
   /** EXACT media-file denominator from the counting walk (Phase 4) — real %, no clamp. */
   total_files_expected: number | null;
   total_folders_expected: number | null;

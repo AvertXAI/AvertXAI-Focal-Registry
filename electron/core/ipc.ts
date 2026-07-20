@@ -97,15 +97,16 @@ function scanCtx(): { db: ReturnType<typeof getDb>; orgId: string } {
   return { db, orgId: org.org_id };
 }
 // A scan walks thousands of files; per-folder progress can still burst on a shallow-wide tree.
-// Throttle RUNNING updates to one every SCAN_PROGRESS_THROTTLE_MS, but flush terminal states
-// (completed / aborted / paused / crashed / error) immediately so the UI never misses the ending.
+// ONLY the high-frequency in-phase updates ('counting' and 'running') are throttled. Every STATE
+// TRANSITION ('estimating', 'completed', 'aborted', 'paused', 'crashed', 'error') always sends —
+// otherwise a fast count's final 'estimating' event lands within the throttle window and is dropped,
+// and the Step-2 estimate card never appears.
 const SCAN_PROGRESS_THROTTLE_MS = 400;
 let lastProgressAt = 0;
-const TERMINAL_STATES = new Set(["completed", "aborted", "paused", "crashed", "error"]);
+const THROTTLED_STATES = new Set(["counting", "running"]);
 const sendScanProgress = (p: scan.ScanProgress): void => {
-  const terminal = TERMINAL_STATES.has(p.status);
   const now = Date.now();
-  if (!terminal && now - lastProgressAt < SCAN_PROGRESS_THROTTLE_MS) return;
+  if (THROTTLED_STATES.has(p.status) && now - lastProgressAt < SCAN_PROGRESS_THROTTLE_MS) return;
   lastProgressAt = now;
   getMainWindow()?.webContents.send("scan:progress", p);
 };

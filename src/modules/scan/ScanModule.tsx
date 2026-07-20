@@ -160,10 +160,13 @@ export default function ScanModule() {
   const startRun = async (): Promise<void> => {
     if (probeRunId === null) return;
     setBusy(true); setError(null); setLog([]); rateWindow.current = [];
+    setActiveRunId(probeRunId);
+    startedAt.current = Date.now();
+    // Optimistically flip to the running console the instant Start is pressed — the real 'running'
+    // pushes replace this. Without it the estimate card lingers until the first throttled push.
+    setProgress((p) => (p ? { ...p, status: "running", currentFolder: null } : p));
     try {
       await window.api.scan.start(probeRunId);
-      setActiveRunId(probeRunId);
-      startedAt.current = Date.now();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }

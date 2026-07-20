@@ -253,7 +253,7 @@ export interface Api {
   db: {
     tables: () => Promise<DbTable[]>;
     columns: (table: string) => Promise<DbColumn[]>;
-    rows: (table: string, limit: number, offset: number) => Promise<DbRowsPage>;
+    rows: (table: string, limit: number, offset: number, sortColumn?: string, sortDir?: "ASC" | "DESC") => Promise<DbRowsPage>;
     fks: (table: string) => Promise<DbForeignKey[]>;
   };
   /** Data Viewer persisted View(false)/Developer(true) mode — app_settings 'dataviewer_dev_mode'. */

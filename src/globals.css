@@ -281,8 +281,17 @@ tbody tr:hover{background:var(--mc-nested)}
 @keyframes dv-flash{0%{background:rgba(99,102,241,.45)}100%{background:transparent}}
 .dv-null{color:var(--mc-muted);font-style:italic}
 .dv-empty,.dv-placeholder{padding:24px;color:var(--mc-muted);text-align:center}
+/* click-to-sort headers */
+.dv-grid th.dv-sortable{cursor:pointer;user-select:none}
+.dv-grid th.dv-sortable:hover .dv-th-name{color:var(--mc-accent-primary)}
+.dv-grid th.dv-sorted .dv-th-name{color:var(--mc-accent-primary)}
+.dv-sortmark{margin-left:5px;font-size:9px;color:var(--mc-accent-primary)}
 .dv-pager{display:flex;align-items:center;gap:14px;padding:10px 16px;border-top:1px solid var(--mc-border)}
 .dv-pageinfo{font:12px var(--mc-mono);color:var(--mc-muted)}
+/* page-jump input */
+.dv-jump{width:74px;background:var(--mc-field);border:1px solid var(--mc-border);color:var(--mc-text);
+  font:12px var(--mc-mono);padding:5px 8px;border-radius:var(--mc-radius)}
+.dv-jump::placeholder{color:var(--mc-dimmer)}
 /* record modal */
 .dv-record{max-width:640px;width:90vw;max-height:84vh;display:flex;flex-direction:column}
 .dv-record-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}

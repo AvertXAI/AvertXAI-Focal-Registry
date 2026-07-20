@@ -149,8 +149,8 @@ export function registerIpcHandlers(): void {
   // clamps limit/offset, so the raw `unknown` args can't reach a writable or injectable statement.
   safeHandle("db:tables", () => dataviewer.listTables());
   safeHandle("db:columns", (_e, table: unknown) => dataviewer.getColumns(table));
-  safeHandle("db:rows", (_e, table: unknown, limit: unknown, offset: unknown) =>
-    dataviewer.getRows(table, limit, offset)
+  safeHandle("db:rows", (_e, table: unknown, limit: unknown, offset: unknown, sortColumn: unknown, sortDir: unknown) =>
+    dataviewer.getRows(table, limit, offset, sortColumn, sortDir)
   );
   safeHandle("db:fks", (_e, table: unknown) => dataviewer.getForeignKeys(table));
   safeHandle("dataviewer:getDevMode", () => dataviewer.getDevMode());

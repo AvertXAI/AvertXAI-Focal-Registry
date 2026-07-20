@@ -33,7 +33,8 @@ const api: Api = {
   db: {
     tables: () => ipcRenderer.invoke("db:tables"),
     columns: (table: string) => ipcRenderer.invoke("db:columns", table),
-    rows: (table: string, limit: number, offset: number) => ipcRenderer.invoke("db:rows", table, limit, offset),
+    rows: (table: string, limit: number, offset: number, sortColumn?: string, sortDir?: "ASC" | "DESC") =>
+      ipcRenderer.invoke("db:rows", table, limit, offset, sortColumn, sortDir),
     fks: (table: string) => ipcRenderer.invoke("db:fks", table),
   },
   dataviewer: {

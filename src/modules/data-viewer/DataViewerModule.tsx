@@ -35,6 +35,8 @@ export default function DataViewerModule() {
   const [record, setRecord] = useState<Record<string, unknown> | null>(null);
   const [changed, setChanged] = useState<Set<number>>(new Set()); // row indices flashing after a live update
   const prevRowsRef = useRef<string[]>([]); // serialized rows from the last fetch, for the flash diff
+  const [sort, setSort] = useState<{ col: string; dir: "ASC" | "DESC" } | null>(null); // click-a-header sort
+  const [jump, setJump] = useState(""); // page-jump input
 
   // initial load: table list + persisted mode
   useEffect(() => {
@@ -46,8 +48,16 @@ export default function DataViewerModule() {
   const loadTable = useCallback((name: string) => {
     setSelected(name);
     setPageIndex(0);
+    setSort(null); // sort is per-table
+    setJump("");
     void window.api.db.columns(name).then(setColumns);
     void window.api.db.fks(name).then(setFks);
+  }, []);
+
+  // Click a header to sort; click the same header to flip direction. Resets to page 1.
+  const toggleSort = useCallback((col: string) => {
+    setPageIndex(0);
+    setSort((s) => (s?.col === col ? { col, dir: s.dir === "ASC" ? "DESC" : "ASC" } : { col, dir: "ASC" }));
   }, []);
 
   // fetch the open table's current page; flash rows whose value changed in-place (same-size page only)
@@ -57,7 +67,7 @@ export default function DataViewerModule() {
       return;
     }
     const table = selected;
-    void window.api.db.rows(table, PAGE_SIZE, pageIndex * PAGE_SIZE).then((p) => {
+    void window.api.db.rows(table, PAGE_SIZE, pageIndex * PAGE_SIZE, sort?.col, sort?.dir).then((p) => {
       const next = p.rows.map((r) => JSON.stringify(r));
       const prev = prevRowsRef.current;
       const flash = new Set<number>();
@@ -73,11 +83,17 @@ export default function DataViewerModule() {
         window.setTimeout(() => setChanged(new Set()), 1200);
       }
     });
-  }, [selected, pageIndex]);
+  }, [selected, pageIndex, sort]);
 
   useEffect(() => {
-    prevRowsRef.current = []; // reset the flash baseline whenever the table or page changes
-  }, [selected, pageIndex]);
+    prevRowsRef.current = []; // reset the flash baseline whenever the table, page, or sort changes
+  }, [selected, pageIndex, sort]);
+
+  const goToPage = () => {
+    const n = parseInt(jump, 10);
+    if (Number.isFinite(n)) setPageIndex(Math.min(Math.max(1, n), totalPages) - 1);
+    setJump("");
+  };
   useEffect(() => fetchPage(), [fetchPage]);
 
   const toggleDev = () => {
@@ -147,10 +163,16 @@ export default function DataViewerModule() {
                 <thead>
                   <tr>
                     {displayColumns.map((c) => (
-                      <th key={c.name} className={UUID_CAP.has(c.name) ? "dv-cap-uuid" : undefined}>
+                      <th
+                        key={c.name}
+                        className={`dv-sortable${UUID_CAP.has(c.name) ? " dv-cap-uuid" : ""}${sort?.col === c.name ? " dv-sorted" : ""}`}
+                        onClick={() => toggleSort(c.name)}
+                        title={`Sort by ${c.name}`}
+                      >
                         <span className="dv-th-name">
                           {c.name}
                           {c.pk && <span className="dv-keymark" title="primary key">🔑</span>}
+                          {sort?.col === c.name && <span className="dv-sortmark">{sort.dir === "ASC" ? "▲" : "▼"}</span>}
                         </span>
                         <span className="dv-coltype">{c.type || "—"}</span>
                       </th>
@@ -192,6 +214,17 @@ export default function DataViewerModule() {
               <span className="dv-pageinfo">
                 Page {pageIndex + 1} / {totalPages}
               </span>
+              <input
+                className="dv-jump"
+                type="number"
+                min={1}
+                max={totalPages}
+                value={jump}
+                placeholder="Go to #"
+                onChange={(e) => setJump(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") goToPage(); }}
+              />
+              <button className="btn" disabled={jump === ""} onClick={goToPage}>Go</button>
               <button
                 className="btn"
                 disabled={pageIndex + 1 >= totalPages}

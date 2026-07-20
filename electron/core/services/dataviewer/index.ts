@@ -52,13 +52,20 @@ export function getColumns(table: unknown): DbColumn[] {
   return cols.map((c) => ({ name: c.name, type: c.type || "", pk: c.pk > 0, notnull: c.notnull > 0 }));
 }
 
-export function getRows(table: unknown, limit: unknown, offset: unknown): DbRowsPage {
+export function getRows(table: unknown, limit: unknown, offset: unknown, sortColumn?: unknown, sortDir?: unknown): DbRowsPage {
   const t = safeTable(table);
   const lim = Math.min(Math.max(Math.floor(Number(limit)) || 50, 1), 500); // clamp 1..500
   const off = Math.max(Math.floor(Number(offset)) || 0, 0);
-  const rows = db().prepare(`SELECT * FROM "${t}" LIMIT ? OFFSET ?`).all(lim, off) as Record<string, unknown>[];
-  const columns = getColumns(t).map((c) => c.name);
-  return { columns, rows, total: rowCount(t) };
+  const cols = getColumns(t);
+  // ORDER BY only on a WHITELISTED real column (SQLite can't bind identifiers) + a fixed direction —
+  // same safe pattern as the table name. An unknown column just drops the sort (no throw).
+  let order = "";
+  if (typeof sortColumn === "string" && cols.some((c) => c.name === sortColumn)) {
+    const dir = String(sortDir).toUpperCase() === "DESC" ? "DESC" : "ASC";
+    order = ` ORDER BY "${sortColumn}" ${dir}`;
+  }
+  const rows = db().prepare(`SELECT * FROM "${t}"${order} LIMIT ? OFFSET ?`).all(lim, off) as Record<string, unknown>[];
+  return { columns: cols.map((c) => c.name), rows, total: rowCount(t) };
 }
 
 /** Outgoing FK references — used this build only for the destruction-guard message text. */

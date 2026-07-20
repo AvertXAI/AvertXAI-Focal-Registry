@@ -116,3 +116,17 @@ Canon governs until Jason rules. Never edit or reorder existing entries — appe
 **Evidence:** `src/modules/scan/ScanModule.tsx` (whole-drive flow; rejoin-on-mount); no session-dot component in the tree; mockup Option C shows the dot, Option A/B show whole-drive.
 **Suggestion:** scope the Jarvis process-overlay as a shell-lane task and the folder-unit picker as its own mockup+build; both are additive to what shipped.
 **Severity:** worth-fixing (feature-completeness, not a defect — the shipped flow is whole and correct)
+
+## [GAP] 2026-07-19 — media set narrowed + scan is media-only (Jason approval recorded)
+**Canon says:** FR-DECISIONS §Scan — "Stills, video, and audio equally"; no explicit media extension list or media-only rule.
+**Reality:** the shipped media set is now fixed in `electron/core/services/scan/media.ts` (stills: jpg jpeg png tif tiff heic heif webp bmp gif cr2 cr3 nef arw dng orf rw2 raf pef srw · video: mp4 mov m4v 3gp avi mts m2ts mkv wmv mpg mpeg webm braw r3d · audio: wav mp3 m4a flac aac ogg wma aiff), and ONLY media files get scan_files rows (non-media counted, no row) — a deliberate behaviour change fixing a 1.29M-row / 20,173-error-row scan down to 36,407 media rows / 7 genuine errors on the real D: drive.
+**Evidence:** `media.ts`; Phase 7 measurement REPORT-scan-defects-2026-07-19.md (D: run: 123,924 folders, 36,407 media of 1,289,909 files, 7 error rows).
+**Suggestion:** record the media set + media-only decision in DECISIONS; the earlier canon set (which included psd/raw/crw/etc.) is superseded.
+**Severity:** worth-fixing (behaviour is shipped and proven; canon should reflect it)
+
+## [GAP] 2026-07-19 — RAW_MODE diagnostic flag added (default false)
+**Canon says:** nothing on a diagnostic throughput mode.
+**Reality:** `RAW_MODE` (const, default FALSE, in `scan/index.ts`) batches commits every RAW_COMMIT_BATCH=100 folders, skips the double-scan guard, and logs throughput — for benchmarking only. Shipped default behaviour (per-folder commit) is unchanged.
+**Evidence:** `scan/index.ts` RAW_MODE/RAW_COMMIT_BATCH; Phase 7 both-mode measurement.
+**Suggestion:** note the flag exists so it is never shipped true; no canon rule needed beyond awareness.
+**Severity:** cosmetic

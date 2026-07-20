@@ -393,6 +393,10 @@ export interface Api {
     /** Persist the tray-on-close setting and rewire the ✕ behaviour live (no restart). */
     setEnabled: (enabled: boolean) => Promise<{ ok: boolean }>;
   };
+  startup: {
+    /** Persist the open-at-login choice and write/clear the OS login item (Windows Run key). */
+    setEnabled: (enabled: boolean) => Promise<{ ok: boolean }>;
+  };
   /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the
    *  channel: updater:available → UpdateAvailableInfo, updater:progress → UpdateProgressInfo,
    *  updater:downloaded → empty object. */

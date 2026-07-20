@@ -126,6 +126,10 @@ const api: Api = {
     // Persist the tray-on-close setting AND rewire the ✕ behaviour live (handled in main.ts).
     setEnabled: (enabled: boolean) => ipcRenderer.invoke("tray:setEnabled", enabled),
   },
+  startup: {
+    // Persist the open-at-login choice AND write/clear the OS login item (handled in main.ts).
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke("startup:setEnabled", enabled),
+  },
   on: (channel: PushChannel, cb: (payload: never) => void) => {
     const w = (_e: Electron.IpcRendererEvent, payload: unknown) => (cb as (p: unknown) => void)(payload);
     wrapped.set(cb, w);

@@ -17,6 +17,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   bumpRender("settings"); // DIAG-2
   const [skipBoot, setSkipBoot] = useState(false);
   const [trayOn, setTrayOn] = useState(true); // tray-on-close — default ON (§3.11)
+  const [launchStartup, setLaunchStartup] = useState(false); // open at Windows login — default OFF
   const [activeSection, setActiveSection] = useState("General");
   const [appVersion, setAppVersion] = useState("");
   const [checking, setChecking] = useState(false);
@@ -32,6 +33,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   useEffect(() => {
     void window.api.settings.get("skip_fast_boot").then((v) => setSkipBoot(v === "1"));
     void window.api.settings.get("tray_enabled").then((v) => setTrayOn(v !== "0")); // default ON
+    void window.api.settings.get("launch_at_startup").then((v) => setLaunchStartup(v === "1")); // default OFF
     void window.api.updater.version().then(setAppVersion).catch(() => {}); // never hardcoded
   }, []);
 
@@ -100,6 +102,11 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
     const next = !trayOn;
     setTrayOn(next);
     void window.api.tray.setEnabled(next); // persists to app_settings AND rewires the ✕ behaviour live
+  };
+  const toggleLaunchStartup = () => {
+    const next = !launchStartup;
+    setLaunchStartup(next);
+    void window.api.startup.setEnabled(next); // persists AND writes/clears the OS login item
   };
 
   // Left-nav class — active drives the right pane. Only real sections switch; .nb items are not-built
@@ -188,6 +195,22 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                   <p className="hint">
                     On: closing the window (✕) keeps the app running in the system tray — reopen it from the
                     tray icon. Off: closing the window quits completely, with nothing left in the background.
+                  </p>
+                </div>
+                <div className="field" style={{ marginTop: 26 }}>
+                  <div className="setrow">
+                    <label htmlFor="launchstartup">Open on startup</label>
+                    <button
+                      id="launchstartup"
+                      role="switch"
+                      aria-checked={launchStartup}
+                      className={`switch${launchStartup ? " on" : ""}`}
+                      onClick={toggleLaunchStartup}
+                    />
+                  </div>
+                  <p className="hint">
+                    Launch the app automatically when you sign in to Windows. Takes effect on your next
+                    restart. (Applies to the installed app, not the development build.)
                   </p>
                 </div>
                 <div className="field" style={{ marginTop: 26 }}>

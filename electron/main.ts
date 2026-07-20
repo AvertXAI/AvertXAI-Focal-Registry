@@ -174,6 +174,19 @@ function setTrayEnabled(enabled: boolean): void {
   }
 }
 
+// Open-at-Windows-login (§ user request). setLoginItemSettings writes/clears the OS login item (HKCU
+// Run key on Windows), so Windows itself launches the app on restart — no polling. Guarded to packaged
+// builds so `electron .` in dev never registers electron.exe in the user's startup. The choice is the
+// DB source of truth; this re-asserts the OS state from it.
+function applyLaunchAtStartup(enabled: boolean): void {
+  if (!app.isPackaged) return; // dev: don't pollute the developer's startup with electron.exe
+  try {
+    app.setLoginItemSettings({ openAtLogin: enabled, path: process.execPath });
+  } catch (e) {
+    console.error("[startup] setLoginItemSettings failed:", e);
+  }
+}
+
 app.whenReady().then(async () => {
   // Own app identity so Windows uses our icon/identity AND so we don't collide
   // (single-instance lock + userData) with other AvertXAI builds.
@@ -237,6 +250,21 @@ app.whenReady().then(async () => {
     const on = enabled !== false && enabled !== "0" && enabled !== 0;
     setSetting("tray_enabled", on ? "1" : "0");
     setTrayEnabled(on);
+    return { ok: true };
+  });
+  // Open-at-login — DEFAULT OFF. Re-assert the OS login item from the DB choice at boot (keeps the
+  // registry path correct across reinstalls/moves), and flip it live from the Settings toggle.
+  if (org) {
+    try {
+      applyLaunchAtStartup(getSetting("launch_at_startup") === "1");
+    } catch {
+      /* setting unreadable — leave the OS state as-is */
+    }
+  }
+  ipcMain.handle("startup:setEnabled", (_e, enabled: unknown) => {
+    const on = enabled === true || enabled === "1" || enabled === 1;
+    setSetting("launch_at_startup", on ? "1" : "0");
+    applyLaunchAtStartup(on);
     return { ok: true };
   });
   initUpdater(win); // §3.12 — no-op in dev (packaged builds only)

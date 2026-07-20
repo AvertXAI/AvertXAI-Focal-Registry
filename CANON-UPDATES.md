@@ -144,3 +144,10 @@ Canon governs until Jason rules. Never edit or reorder existing entries — appe
 **Evidence:** `electron/core/updater.ts` (`autoUpdater.autoDownload = true`); the actionable-moment toast at download-complete depends on it.
 **Suggestion:** update CLAUDE.md §3.12 to record the this-product-only autoDownload-TRUE exception (every other AvertXAI app stays consent-first), closing the 2026-07-19 open pick.
 **Severity:** worth-fixing
+
+## [GAP] 2026-07-20 — volume enumeration uses child_process(powershell); canon bans "child_process bridge to a script"
+**Canon says:** "Node-native. NO Python runtime, no sidecar interpreter, no `child_process` bridge to a script." (FR-DECISIONS-1.md §Identity and build)
+**Reality:** `scan/drives.ts listVolumes()` calls `spawnSync("powershell.exe", ["-NoProfile","-NonInteractive","-Command","Get-CimInstance Win32_LogicalDisk | Select-Object … | ConvertTo-Json -Compress"], …)` to enumerate attached volumes. It is a fixed one-shot CIM query — no interpreter runtime for app logic, no script file, and NO argument interpolation (so no command injection) — but it IS `child_process` to an external shell, which the letter of the ban could be read to forbid.
+**Evidence:** `electron/core/services/scan/drives.ts` (`spawnSync("powershell.exe", …)`, fixed `-Command` string); security audit REPORT-security-audit-2026-07-20.md §2.7/Phase 3 R5.
+**Suggestion:** clarify FR-DECISIONS that the ban targets a scripting-language RUNTIME / sidecar interpreter (Python/PySide), not a fixed one-shot system query via the OS shell; optionally pin the full `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe` path to remove a (local-write-required) PATH-hijack vector.
+**Severity:** cosmetic (no injection; ruling is a wording clarification)

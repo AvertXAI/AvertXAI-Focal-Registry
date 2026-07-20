@@ -35,7 +35,8 @@
     },
     "files": [
       "dist/**",
-      "dist-electron/**",
+      "dist-electron/main.cjs",
+      "dist-electron/preload.cjs",
       "build/icon.ico",
       "package.json"
     ],

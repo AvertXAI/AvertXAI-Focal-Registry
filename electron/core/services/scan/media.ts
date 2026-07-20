@@ -14,16 +14,19 @@
 
 export type MediaClass = "image" | "video" | "audio";
 
-// --- the media set (Jason-approved list, 2026-07-19) — one place, reported for approval ---
+// --- the media set (Jason-approved, 2026-07-19; extended 2026-07-20) — one place, one source ---
+// THM (Canon thumbnail sidecars) is deliberately EXCLUDED — it would inflate stills counts.
 export const STILL_EXTS = new Set([
-  "jpg", "jpeg", "png", "tif", "tiff", "heic", "heif", "webp", "bmp", "gif",
-  "cr2", "cr3", "nef", "arw", "dng", "orf", "rw2", "raf", "pef", "srw",
+  "jpg", "jpeg", "png", "tif", "tiff", "heic", "heif", "webp", "bmp", "gif", "avif", "jxl",
+  "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raf", "pef", "srw",
+  "3fr", "rwl", "psd", "psb", // psd/psb get a row but NO parser call (same as bmp/gif)
 ]);
 export const VIDEO_EXTS = new Set([
-  "mp4", "mov", "m4v", "3gp", "avi", "mts", "m2ts", "mkv", "wmv", "mpg", "mpeg", "webm", "braw", "r3d",
+  "mp4", "mov", "m4v", "3gp", "avi", "mts", "m2ts", "m2t", "mkv", "wmv", "mpg", "mpeg", "mpe",
+  "webm", "braw", "r3d", "mxf", "insv",
 ]);
 export const AUDIO_EXTS = new Set([
-  "wav", "mp3", "m4a", "flac", "aac", "ogg", "wma", "aiff",
+  "wav", "mp3", "m4a", "m4b", "flac", "aac", "ogg", "opus", "wma", "aiff", "caf",
 ]);
 
 /** Media class of an extension, or null when the file is NOT media (counted + skipped). */
@@ -36,16 +39,17 @@ export function mediaClass(ext: string): MediaClass | null {
 }
 
 // --- routing capability: only call a parser for a format it can actually read ---
-// exifr reads JPEG/TIFF(+TIFF-based RAW)/HEIC/PNG/WebP headers; it CANNOT read bmp or gif.
+// exifr reads JPEG/TIFF(+TIFF-based RAW)/HEIC/AVIF/PNG/WebP headers; it CANNOT read bmp, gif, psd,
+// psb, or jxl — those get a row with the file-date baseline and NO parser call, NO error row.
 const EXIFR_READABLE = new Set([
-  "jpg", "jpeg", "tif", "tiff", "heic", "heif", "png", "webp",
-  "cr2", "cr3", "nef", "arw", "dng", "orf", "rw2", "raf", "pef", "srw",
+  "jpg", "jpeg", "tif", "tiff", "heic", "heif", "avif", "png", "webp",
+  "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raf", "pef", "srw", "3fr", "rwl",
 ]);
-// music-metadata parses these containers; it cannot read avi/mts/m2ts/mpg/wmv/braw/r3d — handing
-// those to it yields an empty shell, which must NOT become an error row (they are known-unsupported).
+// music-metadata parses these containers; it cannot read avi/mts/m2t/mpg/mpe/wmv/braw/r3d/mxf/insv —
+// handing those to it yields an empty shell, which must NOT become an error row (known-unsupported).
 const MUSIC_METADATA_READABLE = new Set([
   "mp4", "mov", "m4v", "3gp", "mkv", "webm", // video containers mm understands
-  "wav", "mp3", "m4a", "flac", "aac", "ogg", "wma", "aiff", // audio
+  "wav", "mp3", "m4a", "m4b", "flac", "aac", "ogg", "opus", "wma", "aiff", "caf", // audio
 ]);
 // isobmff geometry reader — ISO base-media containers only.
 const ISO_BMFF_READABLE = new Set(["mp4", "mov", "m4v", "3gp"]);

@@ -1,21 +1,27 @@
 // Uploads in the ONLY safe order, then proves the feed is live.
 import { execSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { createRequire } from "node:module";
 
 const HOST = "avert-core-01";
 const DEST = "/data/focal-updates/prerelease";
 const { version } = createRequire(import.meta.url)("../package.json");
 
-const files = readdirSync("release");
-const exe   = files.find(f => f.endsWith(".exe"));
-const map   = files.find(f => f.endsWith(".blockmap"));
-const yml   = files.find(f => f.endsWith(".yml"));
+// Name-pinned selection — first-match find() is unsafe here: the portable target emits a second
+// .exe, electron-builder always writes builder-debug.yml, and release/ is not cleaned between builds
+// (stale 0.1.x artifacts linger). Pin the CURRENT version's Setup installer, its blockmap, and the
+// real channel manifest; assert each exists before any upload.
+const exe = `AvertXAI-Focal-Registry-Setup-${version}.exe`;
+const map = `${exe}.blockmap`;
+const yml = "prerelease.yml";
 
-if (!exe || !map || !yml) {
-  console.error("MISSING ARTIFACT — refusing to publish a partial release.");
-  console.error({ exe, map, yml });
-  process.exit(1);
+for (const f of [exe, map, yml]) {
+  if (!existsSync(path.join("release", f))) {
+    console.error(`MISSING ARTIFACT: release/${f}`);
+    console.error("Refusing to publish a partial release.");
+    process.exit(1);
+  }
 }
 
 const run = c => execSync(c, { stdio: "inherit" });

@@ -22,3 +22,9 @@ console.log(
     ? "reset-dev: removed platform_registry.db — next boot shows the First-Run wizard"
     : "reset-dev: no platform_registry.db — already clean"
 );
+console.log("");
+console.log("WARNING: dev:clean does NOT reset First-Run for this product.");
+console.log("  It only removes platform_registry.db (and from the legacy \"runbooks\" userData folder,");
+console.log("  not \"AvertXAI Focal Registry\"), so the ORG database survives, the boot migration finds it,");
+console.log("  and First-Run never reappears. For a TRUE blank slate use:  npm run dev:reset");
+console.log("  (it renames the whole userData folder to a timestamped backup — nothing deleted).");

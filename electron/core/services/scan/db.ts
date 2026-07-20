@@ -51,6 +51,8 @@ export function ensureScanSchema(db: Db): void {
     "errors_logged INTEGER DEFAULT 0",
     "resume_cursor TEXT",
     "report_path TEXT",
+    "total_files_expected INTEGER", // EXACT denominator from the pre-scan counting walk (Phase 4)
+    "total_folders_expected INTEGER",
   ]);
 
   // Per-folder rollup, written in the SAME transaction as the folder's scan_files rows.
@@ -62,13 +64,15 @@ export function ensureScanSchema(db: Db): void {
     "path TEXT NOT NULL",
     "depth INTEGER",
     "parent_path TEXT",
-    "file_count INTEGER DEFAULT 0",
+    "file_count INTEGER DEFAULT 0", // = media_files (rows written) — kept for existing consumers
     "image_count INTEGER DEFAULT 0",
     "video_count INTEGER DEFAULT 0",
     "audio_count INTEGER DEFAULT 0",
     "other_count INTEGER DEFAULT 0",
     "unreadable_count INTEGER DEFAULT 0",
     "total_bytes INTEGER DEFAULT 0",
+    "total_files INTEGER DEFAULT 0", // everything seen in the folder (media + non-media)
+    "media_files INTEGER DEFAULT 0", // rows written (media only) — Phase 3 media-only behaviour
     "date_min TEXT",
     "date_max TEXT",
     "top_camera TEXT",
@@ -119,6 +123,13 @@ export function ensureScanSchema(db: Db): void {
     if (!fileCols.includes("display_height")) db.exec("ALTER TABLE scan_files ADD COLUMN display_height INTEGER;");
     if (!fileCols.includes("rotation")) db.exec("ALTER TABLE scan_files ADD COLUMN rotation INTEGER;");
     if (!fileCols.includes("bitrate_source")) db.exec("ALTER TABLE scan_files ADD COLUMN bitrate_source TEXT;");
+    // Phase 3/4 additive columns — media-only counts + exact denominators.
+    const folderCols = (db.pragma("table_info(scan_folders)") as { name: string }[]).map((c) => c.name);
+    if (!folderCols.includes("total_files")) db.exec("ALTER TABLE scan_folders ADD COLUMN total_files INTEGER DEFAULT 0;");
+    if (!folderCols.includes("media_files")) db.exec("ALTER TABLE scan_folders ADD COLUMN media_files INTEGER DEFAULT 0;");
+    const runCols = (db.pragma("table_info(scan_runs)") as { name: string }[]).map((c) => c.name);
+    if (!runCols.includes("total_files_expected")) db.exec("ALTER TABLE scan_runs ADD COLUMN total_files_expected INTEGER;");
+    if (!runCols.includes("total_folders_expected")) db.exec("ALTER TABLE scan_runs ADD COLUMN total_folders_expected INTEGER;");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_run_folder ON scan_files (run_id, folder_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_org_path ON scan_files (org_id, path);");

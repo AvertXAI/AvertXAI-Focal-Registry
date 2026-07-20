@@ -290,6 +290,27 @@ export default function App() {
     void window.api.theme.applyOverlay(themeMode);
   }, [themeMode]);
 
+  // ONE constant that dims the native min/max/close buttons for EVERY modal. Those buttons are
+  // OS-drawn ABOVE all web content, so no DOM backdrop can cover them (§3.3/§3.4) — they must be
+  // dimmed via the overlay funnel while a modal is open. This used to be left to each modal to call
+  // and so kept regressing; instead a single body observer toggles the dim whenever ANY modal
+  // backdrop is in the DOM. New modals need only use the shell's .overlay class (or opt in with
+  // data-modal-backdrop) — no per-modal wiring to forget.
+  useEffect(() => {
+    const SELECTOR = ".overlay, .scan-modal-back, [data-modal-backdrop]";
+    let dimmed = false;
+    const sync = (): void => {
+      const open = document.querySelector(SELECTOR) !== null;
+      if (open === dimmed) return; // only cross the IPC when the state actually flips
+      dimmed = open;
+      void window.api.theme.setModalDim(open);
+    };
+    const obs = new MutationObserver(sync);
+    obs.observe(document.body, { childList: true, subtree: true });
+    sync();
+    return () => { obs.disconnect(); if (dimmed) void window.api.theme.setModalDim(false); };
+  }, []);
+
   // Boot edges → main (boot-dark frame + resize lock). ONE effect covers every flip: skip-fast-boot,
   // terminal complete/fail, AND Safe-Mode Retry re-entering boot. Optional-chained: harmless if the
   // bridge is absent (e.g. web preview).

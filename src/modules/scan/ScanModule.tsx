@@ -229,10 +229,27 @@ export default function ScanModule() {
         setScannedDrives(sd);
         const live = rs.find((r) => IN_FLIGHT.has(r.status));
         if (live) {
-          // Rejoin the in-flight run — the console renders off the progress push, not off a
-          // selected drive, so a scan started before navigating away reappears immediately.
+          // Rejoin the in-flight run. The engine kept running in the main process; on remount we lost
+          // the React state, so we must RESTORE it: the running console renders only when the run's
+          // drive is SELECTED (`mine`), so auto-select that drive AND seed progress from the DB row —
+          // otherwise the scan looks like it vanished until the next throttled push. The next real
+          // push refreshes these values seamlessly.
           setActiveRunId(live.id);
+          setProbeRunId(live.id);
+          setScanningSerial(live.volume_serial ?? null);
           startedAt.current = live.started_at ? Date.parse(live.started_at) : Date.now();
+          const liveDrive = dv.find((d) => d.serial === live.volume_serial);
+          if (liveDrive) setSelected(liveDrive);
+          setProgress({
+            runId: live.id,
+            volumeSerial: live.volume_serial ?? null,
+            status: live.status,
+            currentFolder: null,
+            foldersCommitted: live.folders_committed,
+            filesRecorded: live.files_recorded,
+            errorsLogged: live.errors_logged,
+            estimatedFiles: live.total_files_expected ?? live.estimated_files ?? null,
+          });
         }
       } catch (e) {
         if (alive) setError(e instanceof Error ? e.message : String(e));

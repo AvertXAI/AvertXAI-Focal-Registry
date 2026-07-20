@@ -40,6 +40,16 @@
 .scan-live .pip{width:8px;height:8px;border-radius:50%;background:var(--scan-ok);animation:scan-pulse 1s ease-in-out infinite}
 .scan-live.paused{color:var(--mc-muted)}.scan-live.paused .pip{background:var(--mc-muted);animation:none}
 .scan-drv .sub{color:var(--mc-muted);font-size:11px;font-family:var(--mc-mono)}
+/* a scanned drive that is currently UNPLUGGED — hollow amber ring (present drives keep solid dots) */
+.scan-dot.notconn{background:transparent;border:1.5px solid var(--scan-warn);box-sizing:border-box}
+.scan-pill.notconn{color:var(--scan-warn);border-color:var(--scan-warn)}
+/* manual drive re-check — a green ring that spins while re-enumerating (fallback to the live watcher) */
+.scan-refresh{margin-left:auto;background:none;border:none;cursor:pointer;padding:4px;display:inline-flex;align-items:center;justify-content:center}
+.scan-refresh:disabled{cursor:default}
+.scan-refresh-dot{width:11px;height:11px;border-radius:50%;border:2px solid var(--scan-ok);box-sizing:border-box}
+.scan-refresh-dot.spin{border-top-color:transparent;animation:scan-spin .7s linear infinite}
+@keyframes scan-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.scan-refresh-dot.spin{animation:none}}
 
 .scan-stage{display:flex;flex-direction:column;gap:14px}
 .scan-card{background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:12px;padding:20px 22px}

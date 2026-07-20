@@ -12,7 +12,7 @@
 // File: src/modules/scan/ScanModule.tsx
 //------------------------------------------------------------
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { ScanCameraCount, ScanErrorList, ScanFolderSummary, ScanProgress, ScanRunRow, ScanVolume } from "../../shared/types";
+import type { ScanCameraCount, ScanErrorList, ScanFolderSummary, ScanProgress, ScanRunRow, ScannedDrive, ScanVolume } from "../../shared/types";
 import { formatRange, formatStamp } from "../../shared/datetime";
 import { PRINT_STYLESHEET, renderReportPrintHtml } from "./reportPrint";
 import { bumpRender } from "../../diag";
@@ -153,7 +153,9 @@ export default function ScanModule() {
   bumpRender("scan"); // DIAG-2
   const [tab, setTab] = useState<Tab>("new");
   const [drives, setDrives] = useState<ScanVolume[]>([]);
+  const [scannedDrives, setScannedDrives] = useState<ScannedDrive[]>([]); // completed-scan drives (may be unplugged)
   const [selected, setSelected] = useState<ScanVolume | null>(null);
+  const [refreshing, setRefreshing] = useState(false); // manual drive re-enumeration in flight (spinner)
   const [runs, setRuns] = useState<ScanRunRow[]>([]);
   const [lastRun, setLastRun] = useState<ScanRunRow | null>(null); // last run for the selected drive
   const [folders, setFolders] = useState<ScanFolderSummary[]>([]);
@@ -185,9 +187,28 @@ export default function ScanModule() {
 
   const refreshRuns = useCallback(async () => {
     try {
-      setRuns(await window.api.scan.listRuns());
+      // A completed run changes both the run list AND the scanned-drive set (a freshly scanned drive
+      // becomes reviewable-while-unplugged), so refresh both together.
+      const [rs, sd] = await Promise.all([window.api.scan.listRuns(), window.api.scan.listScannedDrives()]);
+      setRuns(rs);
+      setScannedDrives(sd);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  // Manual re-enumeration — the fallback if the live watcher ever misses an event. Refreshes the
+  // attached drives AND the scanned-drive set, with a brief spinner on the button.
+  const refreshDrives = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const [dv, sd] = await Promise.all([window.api.scan.listDrives(), window.api.scan.listScannedDrives()]);
+      setDrives(dv);
+      setScannedDrives(sd);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRefreshing(false);
     }
   }, []);
 
@@ -197,10 +218,15 @@ export default function ScanModule() {
     let alive = true;
     void (async () => {
       try {
-        const [dv, rs] = await Promise.all([window.api.scan.listDrives(), window.api.scan.listRuns()]);
+        const [dv, rs, sd] = await Promise.all([
+          window.api.scan.listDrives(),
+          window.api.scan.listRuns(),
+          window.api.scan.listScannedDrives(),
+        ]);
         if (!alive) return;
         setDrives(dv);
         setRuns(rs);
+        setScannedDrives(sd);
         const live = rs.find((r) => IN_FLIGHT.has(r.status));
         if (live) {
           // Rejoin the in-flight run — the console renders off the progress push, not off a
@@ -247,6 +273,22 @@ export default function ScanModule() {
     return () => window.api.off<ScanProgress>("scan:progress", onProgress);
   }, [refreshRuns]);
 
+  // Live drive detection — the main process pushes a fresh attached-drive list the instant a drive is
+  // connected or removed (WMI volume event), so a newly plugged drive appears without Ctrl+R.
+  useEffect(() => {
+    const onDrives = (vols: ScanVolume[]): void => setDrives(vols);
+    window.api.on<ScanVolume[]>("scan:drives", onDrives);
+    return () => window.api.off<ScanVolume[]>("scan:drives", onDrives);
+  }, []);
+
+  // Keep `selected` pointing at the LIVE volume object as presence changes — a drive plugged back in
+  // refreshes its letter/sizes; a removed drive stays selected but now reads "not connected".
+  useEffect(() => {
+    if (!selected) return;
+    const live = drives.find((d) => d.serial === selected.serial);
+    if (live && live !== selected) setSelected(live);
+  }, [drives, selected]);
+
   // When a drive is selected, look up its last run (by serial — identity, not letter) + folders.
   useEffect(() => {
     if (!selected) { setLastRun(null); setFolders([]); return; }
@@ -269,11 +311,15 @@ export default function ScanModule() {
 
   const doProbe = async (): Promise<void> => {
     if (!selected) return;
+    // Resolve the LIVE volume by serial (authoritative letter) — `selected` may be a synthesized
+    // "not connected" entry with no letter. Can't count/scan a drive that isn't attached.
+    const vol = drives.find((d) => d.serial === selected.serial);
+    if (!vol) { setError("That drive isn't connected — reconnect it to scan."); return; }
     setBusy(true); setError(null); setProgress(null); setLog([]);
-    setScanningSerial(selected.serial); // mark this drive busy immediately (other drives disable)
+    setScanningSerial(vol.serial); // mark this drive busy immediately (other drives disable)
     try {
       // Kicks off the EXACT counting walk; returns immediately. Counts arrive over scan:progress.
-      const r = await window.api.scan.probe(`${selected.letter}\\`, "drive");
+      const r = await window.api.scan.probe(`${vol.letter}\\`, "drive");
       setProbeRunId(r.runId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -357,6 +403,15 @@ export default function ScanModule() {
   // Serials with at least one completed run — a persistent green dot on every scanned drive, whether
   // selected or not, sourced from the runs table (§4.3), not from selection state.
   const scannedSerials = new Set(runs.filter((r) => r.status === "completed").map((r) => r.volume_serial));
+  // Merge attached drives with scanned-but-UNPLUGGED drives so the latter still appear ("not
+  // connected"). Absent entries are synthesized ScanVolumes with no letter (identity is the serial);
+  // their report/folders/issues all resolve from the DB + local copy, so they stay reviewable.
+  const presentSerials = new Set(drives.map((d) => d.serial));
+  const absentDrives: ScanVolume[] = scannedDrives
+    .filter((s) => !presentSerials.has(s.serial))
+    .map((s) => ({ letter: "", label: s.label ?? "", filesystem: "", totalBytes: s.total_bytes ?? 0, freeBytes: 0, serial: s.serial }));
+  const driveList: ScanVolume[] = [...drives, ...absentDrives];
+  const selectedPresent = selected != null && presentSerials.has(selected.serial); // false = unplugged
   // REAL arithmetic — denominator is the exact media count; no 99% clamp, reaches 100 at the end.
   const total = progress?.estimatedFiles ?? null;
   const pct = total && total > 0 ? Math.min(100, Math.round((progress!.filesRecorded / total) * 100)) : null;
@@ -392,16 +447,26 @@ export default function ScanModule() {
           <div className="scan-split">
             {/* LEFT — drives list (Option B), always visible */}
             <div className="scan-drives">
-              <div className="scan-drives-head"><span className="scan-mlabel">Drives</span></div>
-              {drives.length === 0 && <div className="scan-sub">No drives detected. Connect a source drive.</div>}
-              {drives.map((d) => {
+              <div className="scan-drives-head">
+                <span className="scan-mlabel">Drives</span>
+                {/* Manual re-check — the fallback if the live watcher ever misses an event. The dot
+                    spins green while re-enumerating. */}
+                <button className="scan-refresh" onClick={() => void refreshDrives()} disabled={refreshing}
+                  title="Re-check connected drives" aria-label="Refresh drives">
+                  <span className={`scan-refresh-dot${refreshing ? " spin" : ""}`} />
+                </button>
+              </div>
+              {driveList.length === 0 && <div className="scan-sub">No drives detected. Connect a source drive.</div>}
+              {driveList.map((d) => {
                 const isScanning = d.serial === scanningSerial;
+                const present = presentSerials.has(d.serial);
+                const dot = isScanning ? "scanning" : !present ? "notconn" : scannedSerials.has(d.serial) ? "ok" : "off";
                 return (
                   <button key={d.serial} className={`scan-drv${selected?.serial === d.serial ? " on" : ""}`}
                     onClick={() => { setSelected(d); if (d.serial !== scanningSerial) { setProbeRunId(null); setProgress(null); } }}>
-                    <span className={`scan-dot ${isScanning ? "scanning" : scannedSerials.has(d.serial) ? "ok" : "off"}`} />
+                    <span className={`scan-dot ${dot}`} />
                     <span>
-                      <span style={{ display: "block" }}>{d.letter}\ {d.label || "(no label)"}{isScanning ? " · scanning" : ""}</span>
+                      <span style={{ display: "block" }}>{present ? `${d.letter}\\ ` : ""}{d.label || "(no label)"}{isScanning ? " · scanning" : !present ? " · not connected" : ""}</span>
                       <span className="sub">{d.serial} · {fmtBytes(d.totalBytes)}</span>
                     </span>
                   </button>
@@ -447,7 +512,7 @@ export default function ScanModule() {
               )}
 
               {selected && !running && !counting && !estimating && !(mine && progress && progress.runId === probeRunId && isTerminal(progress.status)) && lastRun?.status === "completed" && (
-                <PopulatedDashboard drive={selected} run={lastRun} folders={folders}
+                <PopulatedDashboard drive={selected} run={lastRun} folders={folders} present={selectedPresent}
                   onView={() => viewReport(lastRun.id)} onFolder={() => openReportsFolder(lastRun.id)}
                   onIssues={() => openIssues(lastRun.id)} onRescan={doProbe} busy={busy || otherScanning} />
               )}
@@ -643,8 +708,8 @@ function CompletionCard({ status, reportPath, onView, onFolder, onRescan }: {
   );
 }
 
-function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, onIssues, busy }: {
-  drive: ScanVolume; run: ScanRunRow; folders: ScanFolderSummary[];
+function PopulatedDashboard({ drive, run, folders, present, onView, onFolder, onRescan, onIssues, busy }: {
+  drive: ScanVolume; run: ScanRunRow; folders: ScanFolderSummary[]; present: boolean;
   onView: () => void; onFolder: () => void; onRescan: () => void; onIssues: () => void; busy: boolean;
 }) {
   // Top-camera click-through: fetch the folder's distinct cameras and expand a detail row beneath it.
@@ -660,12 +725,20 @@ function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, o
       <div className="scan-card">
         <div className="scan-row" style={{ marginBottom: 14 }}>
           <div>
-            <div className="scan-h" style={{ margin: 0 }}>{drive.letter}\ {drive.label || "(no label)"}</div>
+            <div className="scan-h" style={{ margin: 0 }}>{present ? `${drive.letter}\\ ` : ""}{drive.label || "(no label)"}</div>
             <div className="scan-sub">Last scanned {formatStamp(run.finished_at, "eventTime") || "—"} · {run.files_recorded.toLocaleString()} files</div>
           </div>
-          <span className="scan-pill ok" style={{ marginLeft: "auto" }}>Up to date</span>
-          <button className="scan-btn blue" onClick={onRescan} disabled={busy}>Rescan</button>
+          {present
+            ? <span className="scan-pill ok" style={{ marginLeft: "auto" }}>Up to date</span>
+            : <span className="scan-pill notconn" style={{ marginLeft: "auto" }}>Not connected</span>}
+          <button className="scan-btn blue" onClick={onRescan} disabled={busy || !present}
+            title={present ? undefined : "Reconnect the drive to scan"}>Rescan</button>
         </div>
+        {!present && (
+          <div className="scan-card2 scan-sub" style={{ marginBottom: 14 }}>
+            This drive isn't connected — showing its last scan from your local copy. Reconnect it to rescan or open folders.
+          </div>
+        )}
         <div className="scan-grid4">
           <div className="scan-card2"><div className="scan-mlabel">Files</div><div className="scan-stat">{run.files_recorded.toLocaleString()}</div></div>
           <div className="scan-card2"><div className="scan-mlabel">Folders</div><div className="scan-stat">{run.folders_committed.toLocaleString()}</div></div>
@@ -688,7 +761,9 @@ function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, o
               {folders.slice(0, 40).map((f) => (
                 <Fragment key={f.path}>
                   <tr>
-                    <td className="w scan-mono cell-link" title={`Open ${f.path}`} onClick={() => void window.api.scan.openPath(f.path)}>{f.path}</td>
+                    <td className={`w scan-mono${present ? " cell-link" : ""}`}
+                        title={present ? `Open ${f.path}` : "Reconnect the drive to open this folder"}
+                        onClick={present ? () => void window.api.scan.openPath(f.path) : undefined}>{f.path}</td>
                     <td className="scan-mono">{f.file_count.toLocaleString()}</td>
                     <td className="scan-mono">{formatRange(f.date_min, f.date_max, "dateOnly")}
                       {f.date_source && <span className="scan-datesrc"> ({f.date_source === "capture" ? "capture dates" : "file dates"})</span>}

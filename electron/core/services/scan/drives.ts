@@ -10,7 +10,7 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/scan/drives.ts
 //------------------------------------------------------------
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import type { Db } from "./db";
 
@@ -101,6 +101,34 @@ export function listVolumes(): ScanVolume[] {
       freeBytes: Number(d.FreeSpace) || 0,
       serial: d.VolumeSerialNumber as string,
     }));
+}
+
+/** Event-driven volume watcher — a long-lived PowerShell subscribed to Win32_VolumeChangeEvent, the
+ *  SAME WMI signal Windows itself raises on a drive arrival/removal (EventType 2 = arrival, 3 =
+ *  removal). Delivered by the OS the instant a drive connects/disconnects — no polling lag. Calls
+ *  onChange() on every such event (the caller debounces + re-enumerates). Returns a stop() that kills
+ *  the child. Never throws: if PowerShell can't start, the app still works off the mount-time
+ *  enumeration + the manual refresh, just without live detection. */
+export function watchVolumes(onChange: () => void): () => void {
+  const script =
+    "$q='SELECT * FROM Win32_VolumeChangeEvent WHERE EventType=2 OR EventType=3';" +
+    "Register-CimIndicationEvent -Query $q -SourceIdentifier FRVol;" +
+    "while($true){ Wait-Event -SourceIdentifier FRVol | Out-Null; Remove-Event -SourceIdentifier FRVol; Write-Output 'change'; [Console]::Out.Flush() }";
+  let child: ReturnType<typeof spawn> | null = null;
+  try {
+    child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true });
+    child.stdout?.on("data", (buf: Buffer) => { if (buf.toString().includes("change")) onChange(); });
+    child.on("error", () => { /* PowerShell unavailable — degrade to no live detection */ });
+  } catch {
+    /* spawn failed — degrade silently */
+  }
+  return () => {
+    try {
+      child?.kill();
+    } catch {
+      /* already gone */
+    }
+  };
 }
 
 /** The volume a path lives on, by drive letter root. Throws if the letter is not attached. */

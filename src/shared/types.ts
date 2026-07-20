@@ -110,7 +110,7 @@ export interface ScoutDomCard {
 }
 
 /** Main → renderer push channels the preload bridge whitelists. */
-export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded" | "scan:progress";
+export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded" | "scan:progress" | "scan:drives";
 
 // ---- Scan module (renderer-safe copies of the service shapes at electron/core/services/scan/ —
 // the renderer imports from HERE, never from services/) ----
@@ -134,6 +134,15 @@ export interface ScanDriveRow {
   first_seen_at: string | null;
   last_seen_at: string | null;
   last_scanned_at: string | null;
+}
+/** A drive with at least one completed scan — shown in the drive list even when UNPLUGGED, as
+    "not connected", still opening its (locally-copied) report. Serial is identity; no letter. */
+export interface ScannedDrive {
+  serial: string;
+  label: string | null;
+  total_bytes: number | null;
+  last_run_id: number | null;
+  last_finished_at: string | null;
 }
 export interface ScanRunRow {
   id: number;
@@ -326,6 +335,7 @@ export interface Api {
    *  over the scan:progress push. The double-scan guard's decision is data; the UI owns the choice. */
   scan: {
     listDrives: () => Promise<ScanVolume[]>;
+    listScannedDrives: () => Promise<ScannedDrive[]>;
     selectSource: (rootPath: string, scanUnit: "drive" | "folder") => Promise<ScanSourceDecision>;
     /** Creates the run and kicks off the EXACT counting walk (Phase 4). Returns the runId
      *  immediately; exact folder/media counts arrive over scan:progress ('counting' → 'estimating'). */

@@ -813,6 +813,33 @@ export function lastRunForVolume(db: Db, orgId: string, volumeSerial: string): S
     .get(orgId, drive.id) as ScanRunRow | undefined) ?? null;
 }
 
+export interface ScannedDriveRow {
+  serial: string;
+  label: string | null;
+  total_bytes: number | null;
+  last_run_id: number | null;
+  last_finished_at: string | null;
+}
+/** Every drive this org has a COMPLETED, non-cleared scan for — identity + label from scan_drives, so
+    the drive list can show a scanned drive that is currently unplugged ("not connected"). The report,
+    folders, and issues for its last run all live in the DB / local Markdown copy, so it stays fully
+    reviewable while absent. Serial is identity; the letter is deliberately absent (it can change). */
+export function listScannedDrives(db: Db, orgId: string): ScannedDriveRow[] {
+  return db
+    .prepare(
+      `SELECT d.volume_serial AS serial, d.volume_label AS label, d.total_bytes AS total_bytes,
+              lr.id AS last_run_id, lr.finished_at AS last_finished_at
+         FROM scan_drives d
+         JOIN (SELECT drive_id, MAX(id) AS id FROM scan_runs
+                 WHERE org_id = ? AND status = 'completed' AND cleared_at IS NULL
+                 GROUP BY drive_id) last ON last.drive_id = d.id
+         JOIN scan_runs lr ON lr.id = last.id
+        WHERE d.org_id = ?
+        ORDER BY lr.finished_at DESC`
+    )
+    .all(orgId, orgId) as ScannedDriveRow[];
+}
+
 export interface ScanErrorRow {
   path: string | null;
   extension: string | null;

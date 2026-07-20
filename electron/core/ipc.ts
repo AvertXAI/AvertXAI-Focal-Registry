@@ -113,6 +113,31 @@ const sendScanProgress = (p: scan.ScanProgress): void => {
   getMainWindow()?.webContents.send("scan:progress", p);
 };
 
+// --- Live drive watcher — pushes a fresh drive list on every OS volume arrival/removal, so a newly
+// connected drive appears WITHOUT Ctrl+R (Windows-speed, event-driven). Debounced: one connect can
+// raise several events, and a freshly-mounted volume needs a beat before it enumerates cleanly.
+let stopDriveWatcher: (() => void) | null = null;
+let driveDebounce: ReturnType<typeof setTimeout> | null = null;
+function startDriveWatcher(): void {
+  if (stopDriveWatcher) return; // already watching
+  stopDriveWatcher = scanDrives.watchVolumes(() => {
+    if (driveDebounce) clearTimeout(driveDebounce);
+    driveDebounce = setTimeout(() => {
+      try {
+        getMainWindow()?.webContents.send("scan:drives", scanDrives.listVolumes());
+      } catch {
+        /* transient enumeration hiccup — the next event or a manual refresh recovers */
+      }
+    }, 600);
+  });
+}
+// Kill the PowerShell child on quit so no orphan process survives the app.
+app.on("before-quit", () => {
+  if (driveDebounce) clearTimeout(driveDebounce);
+  stopDriveWatcher?.();
+  stopDriveWatcher = null;
+});
+
 // --- handlers ---
 
 // Resilient registration: one channel failing to register must NEVER silently kill the rest
@@ -140,6 +165,9 @@ export function registerIpcHandlers(): void {
   } catch {
     /* no active org yet */
   }
+  // Live drive detection — starts once, independent of any org (enumeration is org-agnostic). A new
+  // drive now pushes scan:drives to the renderer immediately; no Ctrl+R.
+  startDriveWatcher();
   // data viewer — READ-ONLY introspection. The service whitelists `table` against sqlite_master and
   // clamps limit/offset, so the raw `unknown` args can't reach a writable or injectable statement.
   safeHandle("db:tables", () => dataviewer.listTables());
@@ -227,6 +255,12 @@ export function registerIpcHandlers(): void {
   // as a status note, and the invoke returns immediately so the renderer never holds a pending
   // promise for hours.
   safeHandle("scan:listDrives", () => scanDrives.listVolumes());
+  // Drives with a completed scan — including ones currently UNPLUGGED, so the list can show them as
+  // "not connected" and still open their (locally-copied) report. Serial is identity; no letter.
+  safeHandle("scan:listScannedDrives", () => {
+    const { db, orgId } = scanCtx();
+    return scan.listScannedDrives(db, orgId);
+  });
   safeHandle("scan:selectSource", (_e, rootPath: unknown, scanUnit: unknown) => {
     const { db, orgId } = scanCtx();
     if (typeof rootPath !== "string" || rootPath.trim() === "") throw new Error("selectSource: rootPath required");

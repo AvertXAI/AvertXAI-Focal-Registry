@@ -71,11 +71,13 @@
 
 /* Option C console — same language as the JARVIS boot terminal. */
 .scan-consolewrap{display:flex;flex-direction:column;gap:14px}
-@container (min-width:900px){ .scan-consolewrap{flex-direction:row} .scan-term{flex:1;min-width:0} .scan-side{width:250px;flex:none} }
+/* align-items:flex-start so the terminal is NEVER vertically stretched to the side column's height —
+   its height stays the fixed 320px below, the log scrolls INSIDE it, and the scan section never jumps. */
+@container (min-width:900px){ .scan-consolewrap{flex-direction:row;align-items:flex-start} .scan-term{flex:1;min-width:0} .scan-side{width:250px;flex:none} }
 /* FIXED height + ALWAYS-reserved vertical scrollbar (overflow-y:scroll) so the box never changes
    size and the horizontal scrollbar never toggles — both of which reflow the page and make the view
    jump on every progress tick. Each line is ONE row (nowrap + ellipsis); no horizontal scroll. */
-.scan-term{background:var(--mc-boot-bg);border:1px solid var(--mc-border);border-radius:10px;padding:16px 18px;font-family:var(--mc-mono);font-size:12px;line-height:1.85;color:var(--scan-ok);height:320px;overflow-y:scroll;overflow-x:hidden}
+.scan-term{background:var(--mc-boot-bg);border:1px solid var(--mc-border);border-radius:10px;padding:16px 18px;font-family:var(--mc-mono);font-size:12px;line-height:1.85;color:var(--scan-ok);height:320px;min-height:320px;max-height:320px;overflow-y:scroll;overflow-x:hidden}
 .scan-term > div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* JARVIS console palette: light-blue timestamps, white paths, green counts+ok, orange warn,
    blue checkpoints, dim-gray connectors. */

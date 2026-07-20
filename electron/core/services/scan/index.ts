@@ -474,6 +474,8 @@ export async function startRun(
     lastEmit = now;
     emit();
   };
+  emit(); // immediate 'running' so the UI switches to the console the instant Start is pressed
+  lastEmit = Date.now();
 
   const isCommitted = db.prepare("SELECT 1 FROM scan_folders WHERE run_id = ? AND path = ?");
   const insFolder = db.prepare(

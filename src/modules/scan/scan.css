@@ -61,7 +61,10 @@
 /* Option C console — same language as the JARVIS boot terminal. */
 .scan-consolewrap{display:flex;flex-direction:column;gap:14px}
 @container (min-width:900px){ .scan-consolewrap{flex-direction:row} .scan-term{flex:1;min-width:0} .scan-side{width:250px;flex:none} }
-.scan-term{background:var(--mc-boot-bg);border:1px solid var(--mc-border);border-radius:10px;padding:16px 18px;font-family:var(--mc-mono);font-size:12px;line-height:1.85;color:var(--scan-ok);max-height:46vh;overflow:auto}
+/* FIXED height (not max-height) so the console never grows/shrinks as log lines arrive — a
+   changing height reflows the page and makes the whole view jump on every progress tick. It scrolls
+   internally from the first line instead. */
+.scan-term{background:var(--mc-boot-bg);border:1px solid var(--mc-border);border-radius:10px;padding:16px 18px;font-family:var(--mc-mono);font-size:12px;line-height:1.85;color:var(--scan-ok);height:320px;overflow:auto}
 .scan-term .t{color:var(--mc-dimmer)} .scan-term .w{color:var(--mc-text)} .scan-term .warn{color:var(--scan-warn)} .scan-term .b{color:var(--mc-accent-primary)}
 .scan-side{display:flex;flex-direction:column;gap:11px}
 

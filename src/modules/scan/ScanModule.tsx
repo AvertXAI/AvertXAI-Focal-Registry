@@ -135,8 +135,11 @@ export default function ScanModule() {
         if (!alive) return;
         setLastRun(lr);
         setFolders(lr && lr.status === "completed" ? await window.api.scan.folders(lr.id) : []);
-      } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
+      } catch {
+        // The prior-run lookup is a convenience, not load-bearing — its failure must NEVER take
+        // over the page. Degrade to "no prior run" (the drive reads as never-scanned) so a drive
+        // can still be scanned. (A stale dev bundle missing this handler lands here harmlessly.)
+        if (alive) { setLastRun(null); setFolders([]); }
       }
     })();
     return () => { alive = false; };
@@ -290,7 +293,7 @@ export default function ScanModule() {
                   <p className="scan-sub" style={{ marginBottom: 14 }}>
                     {lastRun ? `Last run ended '${lastRun.status}'.` : "Never scanned."} Serial {selected.serial} · {fmtBytes(selected.freeBytes)} free of {fmtBytes(selected.totalBytes)}.
                   </p>
-                  <button className="scan-btn go" onClick={doProbe} disabled={busy}>{busy ? "Counting…" : "Count &amp; estimate"}</button>
+                  <button className="scan-btn go" onClick={doProbe} disabled={busy}>{busy ? "Counting…" : "Count & estimate"}</button>
                 </div>
               )}
             </div>
@@ -338,6 +341,13 @@ function RunningConsole({ progress, pct, elapsed, eta, log, onAbort, onPause, on
   onAbort: () => void; onPause: () => void; onResume: () => void;
 }) {
   const paused = progress.status === "paused";
+  // Auto-scroll the fixed-height console to the newest line; the box height never changes, so the
+  // page does not reflow (fixes the up/down jump on every progress tick).
+  const termRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = termRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [log]);
   return (
     <>
       <div className="scan-card" style={{ padding: "16px 20px" }}>
@@ -351,7 +361,8 @@ function RunningConsole({ progress, pct, elapsed, eta, log, onAbort, onPause, on
             <div className="scan-sub scan-mono" style={{ fontSize: 11 }}>{elapsed} elapsed{eta ? ` · ~${eta} left` : ""}</div>
           </div>
         </div>
-        {pct != null && <div className="scan-bar" style={{ marginTop: 12 }}><div className="scan-fill" style={{ width: `${pct}%` }} /></div>}
+        {/* Bar is ALWAYS rendered (fill 0 when unknown) so it never appears/disappears and jumps the layout. */}
+        <div className="scan-bar" style={{ marginTop: 12 }}><div className="scan-fill" style={{ width: `${pct ?? 0}%` }} /></div>
         <div className="scan-row" style={{ marginTop: 12 }}>
           {paused
             ? <button className="scan-btn go" onClick={onResume}>Resume</button>
@@ -361,7 +372,7 @@ function RunningConsole({ progress, pct, elapsed, eta, log, onAbort, onPause, on
         </div>
       </div>
       <div className="scan-consolewrap">
-        <div className="scan-term">
+        <div className="scan-term" ref={termRef}>
           {log.length === 0 && <div className="t">Waiting for the first folder…</div>}
           {log.map((l, i) => (
             <div key={i}><span className="t">{l.at}</span> <span className="w">{l.text}</span> <span className="t">→ committed</span></div>

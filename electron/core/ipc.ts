@@ -152,6 +152,9 @@ export function registerIpcHandlers(): void {
   safeHandle("db:rows", (_e, table: unknown, limit: unknown, offset: unknown, sortColumn: unknown, sortDir: unknown) =>
     dataviewer.getRows(table, limit, offset, sortColumn, sortDir)
   );
+  // DIAG is env-gated (DIAG=1). Answer explicitly so the renderer's invoke resolves cleanly instead
+  // of logging "No handler registered for 'diag:enabled'" on every boot — a red herring in the log.
+  safeHandle("diag:enabled", () => process.env.DIAG === "1");
   safeHandle("db:fks", (_e, table: unknown) => dataviewer.getForeignKeys(table));
   safeHandle("dataviewer:getDevMode", () => dataviewer.getDevMode());
   safeHandle("dataviewer:setDevMode", (_e, on: unknown) => dataviewer.setDevMode(on === true));

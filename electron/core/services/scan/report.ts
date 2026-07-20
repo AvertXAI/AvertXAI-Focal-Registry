@@ -98,20 +98,26 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
     const audioCodecs = grouped("audio_codec", "AND kind IN ('video','audio')");
     const totalVideoDuration = one<number | null>(
       "SELECT SUM(duration_seconds) AS v FROM scan_files WHERE run_id = ? AND kind = 'video'", runId) ?? 0;
-    const folderRows = db.prepare(
-      `SELECT path, depth, file_count, image_count, video_count, audio_count, other_count,
+    // TOP 100 folders by media file count — NEVER one section per folder (Defect C: 123,928 folders
+    // exhausted memory as one string). Full per-folder detail stays queryable in scan_folders.
+    const TOP_FOLDERS = 100;
+    const topFolders = db.prepare(
+      `SELECT id, path, media_files, total_files, image_count, video_count, audio_count,
               unreadable_count, total_bytes, date_min, date_max, top_camera
-       FROM scan_folders WHERE run_id = ? ORDER BY path`
-    ).all(runId) as Array<{ path: string; depth: number; file_count: number; image_count: number; video_count: number; audio_count: number; other_count: number; unreadable_count: number; total_bytes: number; date_min: string | null; date_max: string | null; top_camera: string | null }>;
-    const folderFormats = db.prepare(
-      "SELECT folder_id, LOWER(extension) AS key, COUNT(*) AS n FROM scan_files WHERE run_id = ? GROUP BY folder_id, LOWER(extension)"
-    ).all(runId) as Array<{ folder_id: number; key: string; n: number }>;
-    const folderIds = db.prepare("SELECT id, path FROM scan_folders WHERE run_id = ?").all(runId) as Array<{ id: number; path: string }>;
-    const idByPath = new Map(folderIds.map((r) => [r.path, r.id]));
+       FROM scan_folders WHERE run_id = ? ORDER BY media_files DESC, total_bytes DESC LIMIT ?`
+    ).all(runId, TOP_FOLDERS) as Array<{ id: number; path: string; media_files: number; total_files: number; image_count: number; video_count: number; audio_count: number; unreadable_count: number; total_bytes: number; date_min: string | null; date_max: string | null; top_camera: string | null }>;
+    // Per-format breakdown ONLY for the top folders (bounded), not the whole 1.28M-row table.
     const formatsByFolder = new Map<number, Array<{ key: string; n: number }>>();
-    for (const ff of folderFormats) {
-      if (!formatsByFolder.has(ff.folder_id)) formatsByFolder.set(ff.folder_id, []);
-      formatsByFolder.get(ff.folder_id)!.push({ key: ff.key, n: ff.n });
+    if (topFolders.length > 0) {
+      const ph = topFolders.map(() => "?").join(",");
+      const ff = db.prepare(
+        `SELECT folder_id, LOWER(extension) AS key, COUNT(*) AS n FROM scan_files
+         WHERE run_id = ? AND folder_id IN (${ph}) GROUP BY folder_id, LOWER(extension)`
+      ).all(runId, ...topFolders.map((f) => f.id)) as Array<{ folder_id: number; key: string; n: number }>;
+      for (const r of ff) {
+        if (!formatsByFolder.has(r.folder_id)) formatsByFolder.set(r.folder_id, []);
+        formatsByFolder.get(r.folder_id)!.push({ key: r.key, n: r.n });
+      }
     }
 
     const label = sanitizeLabel(drive?.volume_label ?? null, drive?.volume_serial ?? `run-${runId}`);
@@ -163,7 +169,7 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
       `| Volume serial | ${drive?.volume_serial ?? "—"} |`,
       `| Scanned | ${scannedAt} |`,
       `| Folders | ${folders.toLocaleString()} |`,
-      `| Files | ${files.toLocaleString()} |`,
+      `| Media files | ${files.toLocaleString()} |`,
       `| Stills | ${stills.toLocaleString()} |`,
       `| Video | ${video.toLocaleString()} |`,
       `| Audio | ${audio.toLocaleString()} |`,
@@ -171,23 +177,29 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
       `| Capture range | ${fmtDate(oldest)} → ${fmtDate(newest)} |`,
       `| Errors logged | ${run.errors_logged.toLocaleString()} |`,
       "",
+      `_Showing the top ${Math.min(TOP_FOLDERS, topFolders.length)} folders by media file count. Full per-folder detail for all ${folders.toLocaleString()} folders is queryable in the Focal Registry database (\`scan_folders\` / \`scan_files\` for run ${runId})._`,
+      "",
     ].join("\n");
 
-    const folderSections = folderRows.map((f) => {
-      const fmts = formatsByFolder.get(idByPath.get(f.path) ?? -1) ?? [];
-      const fmtLine = fmts.length > 0 ? fmts.map((x) => `${x.key || "(none)"}: ${x.n}`).join(" · ") : "—";
-      return [
-        `## ${f.path}`,
-        "",
-        `- Files: ${f.file_count.toLocaleString()} (stills ${f.image_count}, video ${f.video_count}, audio ${f.audio_count}, other ${f.other_count}, unreadable ${f.unreadable_count})`,
-        `- Size: ${fmtBytes(f.total_bytes)}`,
-        `- Formats: ${fmtLine}`,
-        `- Capture range: ${fmtDate(f.date_min)} → ${fmtDate(f.date_max)}${f.top_camera ? ` · Top camera: ${f.top_camera}` : ""}`,
-        "",
-      ].join("\n");
-    }).join("\n");
-
-    fs.writeFileSync(reportPath, `${fm}\n${summary}\n${folderSections}`, { flag: "wx" }); // wx: refuse to overwrite, ever
+    // Stream the document with positioned writes — the body is NEVER assembled as one in-memory
+    // string. wx refuses to overwrite an existing file, ever.
+    const fd = fs.openSync(reportPath, "wx");
+    try {
+      fs.writeSync(fd, `${fm}\n${summary}\n`);
+      for (const f of topFolders) {
+        const fmts = formatsByFolder.get(f.id) ?? [];
+        const fmtLine = fmts.length > 0 ? fmts.map((x) => `${x.key || "(none)"}: ${x.n}`).join(" · ") : "—";
+        const section =
+          `## ${f.path}\n\n` +
+          `- Media files: ${f.media_files.toLocaleString()} of ${f.total_files.toLocaleString()} seen (stills ${f.image_count}, video ${f.video_count}, audio ${f.audio_count}, unreadable ${f.unreadable_count})\n` +
+          `- Size: ${fmtBytes(f.total_bytes)}\n` +
+          `- Formats: ${fmtLine}\n` +
+          `- Capture range: ${fmtDate(f.date_min)} → ${fmtDate(f.date_max)}${f.top_camera ? ` · Top camera: ${f.top_camera}` : ""}\n\n`;
+        fs.writeSync(fd, section);
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
 
     // ---- Secure Note handoff: a COPY into the watch folder when configured. OPTIONAL and isolated:
     //      the report is already on disk and the run is complete — a handoff failure (no watch

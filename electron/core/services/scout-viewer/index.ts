@@ -110,6 +110,12 @@ function createGuestView(clientId: string): WebContentsView {
   view.setBackgroundColor("#00000000"); // transparent until the page paints — kills the white flash
   const wc = view.webContents;
   wc.setUserAgent(CHROME_UA); // strip the Electron signature — applied per-view so tab swaps keep it
+  // Audit R3 — the guest is a HOSTILE page: deny every permission by DEFAULT on its partition session
+  // (camera / microphone / geolocation / notifications …), and deny permission CHECKS too so a page
+  // cannot query its way around the request handler. Set on the partition session; idempotent across
+  // tab recreation. There is no reason to grant a browsed page any device permission here.
+  wc.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  wc.session.setPermissionCheckHandler(() => false);
   // Popups: destroy the native child window, but keep the target IN-SESSION — navigate the single
   // guest engine instead of shell.openExternal (which would leak _blank links outside the
   // persist:client_<id> partition → logged-out). http(s) guard stays.

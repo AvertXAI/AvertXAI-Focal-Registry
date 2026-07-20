@@ -9,6 +9,7 @@ import BootTerminal from "./components/BootTerminal";
 import NotBuilt from "./components/NotBuilt";
 import AppFooter from "./components/AppFooter";
 import ScanModule from "./modules/scan/ScanModule";
+import RenameModule from "./modules/rename/RenameModule";
 import type { ModuleRow, UpdateAvailableInfo, UpdateProgressInfo } from "./shared/types";
 import Home from "./views/Home";
 import Settings from "./views/Settings";
@@ -80,7 +81,7 @@ function RunbookShredderMount() {
 // A row with no entry renders the not-built placeholder instead of a dead view.
 const MODULE_COMPONENTS: Record<string, ComponentType> = {
   scan: ScanModule,
-  rename: NotBuilt, // seeded, not built — plain not-built page (§3.6)
+  rename: RenameModule,
   vault: VaultModule,
   "runbook-shredder": RunbookShredderMount,
   "scout-viewer": ScoutViewerModule,

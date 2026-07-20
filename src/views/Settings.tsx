@@ -256,6 +256,12 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                   Where Focal Registry keeps your files. You choose the root folder for the Markdown records;
                   the app manages everything below it. Click a path to open that folder.
                 </p>
+                {storageLoc && !storageLoc.reachable && (
+                  <p className="hint" style={{ color: "#e0574f", marginBottom: 14 }}>
+                    This folder can’t be reached right now, so nothing is being written to it. Pick a reachable
+                    location below — the app never creates a copy anywhere else.
+                  </p>
+                )}
                 <div className="field">
                   <label>Markdown records (app-managed)</label>
                   <button className="pathrow" title="Open this folder" onClick={() => void window.api.storage.openFolder(storageLoc?.scanMarkdown ?? "")}>

@@ -2,13 +2,15 @@
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
 // Project: AvertXAI Focal Registry
-// Description: The app-managed Markdown storage root. The USER picks a ROOT only; the app owns the
-//              tree below it — <root>\_source\MissionControl\Focal-Registry\<Module>\. _source\
-//              MissionControl\ is SHARED with other AvertXAI products (one index covers all), so we
-//              REUSE it if present and never overwrite, clear, or assume it is ours alone. The
-//              _source folder is Windows-HIDDEN (an attribute, not a dot-prefix — a leading dot does
-//              nothing on Windows). A plain-English DO-NOT-DELETE.txt (NOT hidden) explains the
-//              folder. All paths resolve through app.getPath — never a hardcoded drive letter.
+// Description: The app-managed Markdown storage root. The USER picks a ROOT only (default home\AvertXAI,
+//              NOT Documents — Documents is OneDrive-redirected here and would cloud-sync + conflict-copy
+//              the tree). The app owns everything below the root: <root>\MissionControl\Focal-Registry\
+//              <Module>\. MissionControl\ is SHARED with other AvertXAI products (one index covers all),
+//              so we REUSE it if present and never overwrite or clear it. The AvertXAI folder is
+//              Windows-HIDDEN (an attribute, not a dot-prefix). A plain-English DO-NOT-DELETE.txt (NOT
+//              hidden) explains the folder. ONE tree at the configured root and nowhere else — NO
+//              userData fallback: if the root is unreachable, we write nothing. All paths resolve
+//              through app.getPath — never a hardcoded drive letter or user path.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/storage/index.ts
 //------------------------------------------------------------
@@ -24,14 +26,19 @@ export const MARKDOWN_ROOT_KEY = "markdown_root";
 const MODULE_DIRS = ["Scan", "SecureNote", "ScoutViewer", "Rename"] as const;
 
 export function defaultMarkdownRoot(): string {
-  return app.getPath("documents"); // localized, follows a redirected Documents folder; never C:-assumed
+  // home\AvertXAI — NOT Documents. app.getPath("documents") resolves inside OneDrive on this machine,
+  // which cloud-syncs the app-managed tree and spawns conflict copies on racing writes. Home is local.
+  return path.join(app.getPath("home"), "AvertXAI");
 }
-export const sourceDir = (root: string): string => path.join(root, "_source");
-export const focalRegistryDir = (root: string): string => path.join(sourceDir(root), "MissionControl", "Focal-Registry");
+// Layout is two levels shallower — the _source segment is REMOVED (1.3):
+//   <root>\MissionControl\Focal-Registry\<Module>\
+export const missionControlDir = (root: string): string => path.join(root, "MissionControl");
+export const focalRegistryDir = (root: string): string => path.join(missionControlDir(root), "Focal-Registry");
 export const scanMarkdownDir = (root: string): string => path.join(focalRegistryDir(root), "Scan");
 export const documentsExportsDir = (): string => path.join(app.getPath("documents"), "Focal Registry", "Scan", "Exports");
 
-/** Configured root, or the Documents default — which is RECORDED when unset (2.2). */
+/** Configured root, or the home\AvertXAI default — RECORDED when unset. NEVER falls back to userData;
+    if the configured root is unreachable, ensureManagedTree fails and nothing is written elsewhere. */
 export function resolveMarkdownRoot(): string {
   const cur = getSetting(MARKDOWN_ROOT_KEY);
   if (cur && cur.trim() !== "") return cur;
@@ -42,8 +49,11 @@ export function resolveMarkdownRoot(): string {
 
 function setHiddenAttribute(dir: string): void {
   if (process.platform !== "win32") return;
+  const sysRoot = process.env.SystemRoot;
+  if (!sysRoot) return; // resolve attrib from SystemRoot, NEVER via PATH (DECISIONS-48); no hardcoded C:\Windows
+  const attrib = path.join(sysRoot, "System32", "attrib.exe");
   try {
-    spawnSync("attrib", ["+h", dir], { windowsHide: true, timeout: 10_000 }); // +h = hidden ATTRIBUTE
+    spawnSync(attrib, ["+h", dir], { windowsHide: true, timeout: 10_000 }); // +h = hidden ATTRIBUTE
   } catch {
     /* best-effort — a missing hidden bit never blocks anything */
   }
@@ -54,8 +64,8 @@ const DO_NOT_DELETE = `FOCAL REGISTRY — PLEASE DO NOT DELETE THIS FOLDER
 WHAT THIS IS
   This folder holds the Markdown records the Focal Registry desktop app keeps for you —
   scan reports, and (as those modules arrive) Secure Notes, Scout Viewer captures, and
-  Rename logs. It lives under _source\\MissionControl\\ so one index can cover every
-  AvertXAI product that shares this computer.
+  Rename logs. It lives under MissionControl\\ so one index can cover every AvertXAI
+  product that shares this computer.
 
 WHAT THE APP USES IT FOR
   The app reads and writes these files here. Scan reports are ALSO saved onto the scanned
@@ -80,21 +90,30 @@ function writeDoNotDelete(fr: string): void {
   }
 }
 
-/** Create the app-managed tree (idempotent; REUSES an existing _source\MissionControl, never clears
-    it), hide _source, and drop the DO-NOT-DELETE note. mkdir recursive never overwrites contents. */
+/** Create the app-managed tree (idempotent; REUSES an existing <root>\MissionControl, never clears it),
+    hide the AvertXAI folder (only when the root IS the default AvertXAI folder — a custom root the user
+    named themselves is left visible), and drop the DO-NOT-DELETE note. mkdir recursive never overwrites
+    contents. Throws if the root is unreachable — the caller reports it; nothing is written elsewhere. */
 export function ensureManagedTree(root: string): void {
   const fr = focalRegistryDir(root);
   for (const m of MODULE_DIRS) fs.mkdirSync(path.join(fr, m), { recursive: true });
-  setHiddenAttribute(sourceDir(root));
+  // The _source hidden-wrapper is gone (1.3); hide the AvertXAI folder itself instead — only when the
+  // root's own name is "AvertXAI" (the default), never a user's custom-named folder (1.6).
+  if (path.basename(root).toLowerCase() === "avertxai") setHiddenAttribute(root);
   writeDoNotDelete(fr);
 }
 
 /** The two storage locations for the Settings transparency section (2.5). */
-export function storageLocations(): { markdownRoot: string; focalRegistry: string; scanMarkdown: string; documentsExports: string } {
+export function storageLocations(): { markdownRoot: string; focalRegistry: string; scanMarkdown: string; documentsExports: string; reachable: boolean } {
   const root = resolveMarkdownRoot();
-  ensureManagedTree(root); // first look creates it — no prompt beyond the root choice (2.2)
-  fs.mkdirSync(documentsExportsDir(), { recursive: true });
-  return { markdownRoot: root, focalRegistry: focalRegistryDir(root), scanMarkdown: scanMarkdownDir(root), documentsExports: documentsExportsDir() };
+  let reachable = true;
+  try {
+    ensureManagedTree(root); // first look creates it — no prompt beyond the root choice
+  } catch {
+    reachable = false; // root unreachable — report it, write NOTHING elsewhere (no userData fallback)
+  }
+  try { fs.mkdirSync(documentsExportsDir(), { recursive: true }); } catch { /* best-effort */ }
+  return { markdownRoot: root, focalRegistry: focalRegistryDir(root), scanMarkdown: scanMarkdownDir(root), documentsExports: documentsExportsDir(), reachable };
 }
 
 /** Change the root: COPY the existing Focal-Registry tree to the new root (never move, never delete

@@ -24,7 +24,7 @@ export interface ReportWriteResult {
   ok: boolean; // true if the report landed in AT LEAST ONE location
   path?: string; // the drive copy (or the local copy if the drive write failed) — for the UI toast
   drivePath?: string | null; // [drive]:\_FocalRegistry-Reports\… — null if that write failed
-  localPath?: string | null; // <root>\_source\…\Scan\… — null if that write failed
+  localPath?: string | null; // <root>\MissionControl\Focal-Registry\Scan\… — null if that write failed
   driveError?: string;
   localError?: string;
   secureNoteCopy?: string | null;

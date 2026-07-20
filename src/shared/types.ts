@@ -208,6 +208,7 @@ export interface StorageLocations {
   focalRegistry: string;
   scanMarkdown: string;
   documentsExports: string;
+  reachable: boolean; // false when the configured root could not be created/reached (nothing written elsewhere)
 }
 export interface ScanFolderSummary {
   id: number;

@@ -103,6 +103,10 @@ const api: Api = {
     folderCameras: (folderId: number) => ipcRenderer.invoke("scan:folderCameras", folderId),
     exportReportPdf: (runId: number, html: string, css: string) => ipcRenderer.invoke("scan:exportReportPdf", runId, html, css),
     exportReportCsv: (runId: number) => ipcRenderer.invoke("scan:exportReportCsv", runId),
+    clearHistory: () => ipcRenderer.invoke("scan:clearHistory"),
+    restoreHistory: () => ipcRenderer.invoke("scan:restoreHistory"),
+    deleteHistoryForever: () => ipcRenderer.invoke("scan:deleteHistoryForever"),
+    clearedHistoryCount: () => ipcRenderer.invoke("scan:clearedHistoryCount"),
   },
   updater: {
     download: () => ipcRenderer.invoke("updater:download"),

@@ -53,6 +53,7 @@ export function ensureScanSchema(db: Db): void {
     "report_path TEXT",
     "total_files_expected INTEGER", // EXACT denominator from the pre-scan counting walk (Phase 4)
     "total_folders_expected INTEGER",
+    "cleared_at DATETIME", // soft-clear (History Nuke): hidden from all viewers, purged after 30 days
   ]);
 
   // Per-folder rollup, written in the SAME transaction as the folder's scan_files rows.
@@ -130,6 +131,7 @@ export function ensureScanSchema(db: Db): void {
     const runCols = (db.pragma("table_info(scan_runs)") as { name: string }[]).map((c) => c.name);
     if (!runCols.includes("total_files_expected")) db.exec("ALTER TABLE scan_runs ADD COLUMN total_files_expected INTEGER;");
     if (!runCols.includes("total_folders_expected")) db.exec("ALTER TABLE scan_runs ADD COLUMN total_folders_expected INTEGER;");
+    if (!runCols.includes("cleared_at")) db.exec("ALTER TABLE scan_runs ADD COLUMN cleared_at DATETIME;");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_run_folder ON scan_files (run_id, folder_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_org_path ON scan_files (org_id, path);");
@@ -145,4 +147,23 @@ export function ensureScanSchema(db: Db): void {
     "error_text TEXT",
     "occurred_at DATETIME",
   ]);
+
+  purgeExpiredHistory(db);
+}
+
+// Retention: hard-delete history that was soft-cleared (Nuke) more than 30 days ago, plus its
+// scan_files / scan_folders / scan_errors children. Runs once per DB open (ensureScanSchema) — no
+// scheduler. Additive-migration safe: cleared_at only exists after the ALTER above.
+function purgeExpiredHistory(db: Db): void {
+  const ids = (db
+    .prepare("SELECT id FROM scan_runs WHERE cleared_at IS NOT NULL AND cleared_at < datetime('now','-30 days')")
+    .all() as { id: number }[]).map((r) => r.id);
+  if (ids.length === 0) return;
+  const ph = ids.map(() => "?").join(",");
+  db.transaction(() => {
+    db.prepare(`DELETE FROM scan_files WHERE run_id IN (${ph})`).run(...ids);
+    db.prepare(`DELETE FROM scan_folders WHERE run_id IN (${ph})`).run(...ids);
+    db.prepare(`DELETE FROM scan_errors WHERE run_id IN (${ph})`).run(...ids);
+    db.prepare(`DELETE FROM scan_runs WHERE id IN (${ph})`).run(...ids);
+  })();
 }

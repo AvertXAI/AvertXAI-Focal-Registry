@@ -160,6 +160,8 @@ export interface ScanRunRow {
   total_folders_expected: number | null;
   /** Joined from scan_drives on listRuns — the run's volume serial, for the per-drive scanned dot. */
   volume_serial?: string | null;
+  /** Soft-clear timestamp (History Nuke); null/absent = visible. Purged 30 days after being set. */
+  cleared_at?: string | null;
 }
 /** Double-scan guard answer — data only; the UI presents the choice, the service never decides. */
 export interface ScanSourceDecision {
@@ -332,6 +334,14 @@ export interface Api {
     exportReportPdf: (runId: number, html: string, css: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
     /** Stream every media-bearing folder row to a CSV beside the .md report. */
     exportReportCsv: (runId: number) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    /** Soft-clear ALL scan history (History Nuke) — hidden from viewers, kept 30 days, restorable. */
+    clearHistory: () => Promise<{ cleared: number }>;
+    /** Restore soft-cleared history — runs reappear ordered by date. */
+    restoreHistory: () => Promise<{ restored: number }>;
+    /** Permanently delete all soft-cleared history now (Settings, double-confirmed). */
+    deleteHistoryForever: () => Promise<{ deleted: number }>;
+    /** Count of soft-cleared runs — gates the Settings Restore / delete-forever controls. */
+    clearedHistoryCount: () => Promise<number>;
   };
   /** Auto-updater (§3.12) — user-consented download, install on quit. Auto cycle is packaged-only;
    *  check/version answer in every build so the Settings button is never dead. */

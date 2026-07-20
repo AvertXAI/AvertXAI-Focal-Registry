@@ -60,6 +60,8 @@
 .scan-btn.go{background:var(--scan-go);border-color:var(--scan-go);color:#fff;font-weight:600}
 .scan-btn.blue{background:var(--mc-accent-primary);border-color:var(--mc-accent-primary);color:#fff;font-weight:600}
 .scan-btn.ghost{background:transparent;color:var(--mc-muted)}
+.scan-btn.danger{background:#e0574f;border-color:#e0574f;color:#fff;font-weight:600}
+.scan-btn.danger:hover{background:#d64339;border-color:#d64339}
 
 .scan-pill{font-size:10px;letter-spacing:.8px;text-transform:uppercase;padding:3px 8px;border-radius:6px;border:1px solid var(--mc-border);color:var(--mc-muted)}
 .scan-pill.ok{color:var(--scan-ok);border-color:var(--scan-ok)}

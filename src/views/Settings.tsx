@@ -18,11 +18,36 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const [activeSection, setActiveSection] = useState("General");
   const [appVersion, setAppVersion] = useState("");
   const [checking, setChecking] = useState(false);
+  // Scan · history retention controls
+  const [clearedCount, setClearedCount] = useState(0);
+  const [confirmStep, setConfirmStep] = useState(0); // 0 idle → 1 first confirm → 2 second confirm (double-confirm delete-forever)
+  const [scanMsg, setScanMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     void window.api.settings.get("skip_fast_boot").then((v) => setSkipBoot(v === "1"));
     void window.api.updater.version().then(setAppVersion).catch(() => {}); // never hardcoded
   }, []);
+
+  const loadCleared = () => void window.api.scan.clearedHistoryCount().then(setClearedCount).catch(() => {});
+  // Refresh the cleared-run count whenever the Scan section opens; reset any in-flight confirm/message.
+  useEffect(() => {
+    if (activeSection === "Scan") { loadCleared(); setConfirmStep(0); setScanMsg(null); }
+  }, [activeSection]);
+
+  const restoreHistory = async () => {
+    try {
+      const r = await window.api.scan.restoreHistory();
+      setScanMsg({ ok: true, text: `Restored ${r.restored} run${r.restored === 1 ? "" : "s"} to the history viewer.` });
+      loadCleared();
+    } catch (e) { setScanMsg({ ok: false, text: e instanceof Error ? e.message : String(e) }); }
+  };
+  const deleteForever = async () => {
+    try {
+      const r = await window.api.scan.deleteHistoryForever();
+      setScanMsg({ ok: true, text: `Permanently deleted ${r.deleted} run${r.deleted === 1 ? "" : "s"}.` });
+    } catch (e) { setScanMsg({ ok: false, text: e instanceof Error ? e.message : String(e) }); }
+    finally { setConfirmStep(0); loadCleared(); }
+  };
 
   // Manual check — unlike the silent automatic cycle, the user asked, so every outcome toasts:
   // checking → latest-version / available (pushed from main) / couldn't-check.
@@ -65,6 +90,10 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
             </button>
             <div className="setsec">Access</div>
             <div className="setsec">Modules</div>
+            <button className={nav("Scan")} onClick={() => setActiveSection("Scan")}>
+              <ScanIcon />
+              Scan
+            </button>
             <button className="navitem nb">
               <Vault />
               Vault
@@ -191,6 +220,57 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                 </div>
               </>
             )}
+
+            {activeSection === "Scan" && (
+              <>
+                <h2>Scan</h2>
+                <p className="hint" style={{ marginBottom: 20 }}>
+                  Nuking scan history hides it from the viewer but keeps it in the database for 30 days. Restore it here
+                  before then, or delete it permanently.
+                </p>
+                <div className="field">
+                  <div className="setrow">
+                    <label>Restore scanner history logs</label>
+                    <button className="btn" onClick={() => void restoreHistory()} disabled={clearedCount === 0}>
+                      Restore{clearedCount > 0 ? ` (${clearedCount})` : ""}
+                    </button>
+                  </div>
+                  <p className="hint">Brings history nuked within the last 30 days back into the viewer, ordered by date.</p>
+                </div>
+                <div className="field" style={{ marginTop: 26 }}>
+                  <div className="setrow">
+                    <label>Delete cleared history forever</label>
+                    {confirmStep === 0 ? (
+                      <button
+                        className="iconbtn"
+                        style={{ color: "#e0574f", borderColor: "#e0574f" }}
+                        title="Delete forever"
+                        aria-label="Delete cleared history forever"
+                        disabled={clearedCount === 0}
+                        onClick={() => { setScanMsg(null); setConfirmStep(1); }}
+                      >
+                        <TrashIcon />
+                      </button>
+                    ) : (
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="btn" onClick={() => setConfirmStep(0)}>Cancel</button>
+                        <button
+                          className="btn"
+                          style={{ background: "#e0574f", borderColor: "#e0574f", color: "#fff", fontWeight: 600 }}
+                          onClick={() => (confirmStep === 1 ? setConfirmStep(2) : void deleteForever())}
+                        >
+                          {confirmStep === 1 ? `Delete ${clearedCount} forever…` : "Yes — permanently delete"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <p className="hint">Permanently removes all nuked runs and their folder and file rows. This cannot be undone.</p>
+                  {scanMsg && (
+                    <p className="hint" style={{ color: scanMsg.ok ? "var(--mc-green)" : "#e0574f", marginTop: 8 }}>{scanMsg.text}</p>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -219,6 +299,23 @@ function MoonIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
       <path d="M13.2 9.4A5.6 5.6 0 0 1 6.6 2.8a5.6 5.6 0 1 0 6.6 6.6Z" />
+    </svg>
+  );
+}
+function ScanIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 5.2V3.4A1.4 1.4 0 0 1 3.4 2h1.8M10.8 2h1.8A1.4 1.4 0 0 1 14 3.4v1.8M14 10.8v1.8a1.4 1.4 0 0 1-1.4 1.4h-1.8M5.2 14H3.4A1.4 1.4 0 0 1 2 12.6v-1.8" />
+      <path d="M2 8h12" />
+    </svg>
+  );
+}
+// Outline trash can — the delete-forever glyph. Rendered in red (#e0574f) by the button, never orange.
+function TrashIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.5 4h11M6.2 4V2.9c0-.4.3-.7.7-.7h2.2c.4 0 .7.3.7.7V4M4 4l.6 8.4c0 .5.5.9 1 .9h4.8c.5 0 1-.4 1-.9L12 4" />
+      <path d="M6.5 6.5v4.5M9.5 6.5v4.5" />
     </svg>
   );
 }

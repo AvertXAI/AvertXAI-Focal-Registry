@@ -187,6 +187,7 @@ export default function ScanModule() {
   const [reportView, setReportView] = useState<"read" | "source">("read");
   const [exportMsg, setExportMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [exporting, setExporting] = useState<"pdf" | "csv" | null>(null);
+  const [reloadTick, setReloadTick] = useState(0); // bump to re-pull the selected drive's card after a nuke
   const [errorsModal, setErrorsModal] = useState<{ rows: ScanErrorRow[] } | null>(null);
   const startedAt = useRef<number | null>(null);
   const rateWindow = useRef<Array<{ t: number; files: number }>>([]); // trailing window for ETA
@@ -283,7 +284,7 @@ export default function ScanModule() {
       }
     })();
     return () => { alive = false; };
-  }, [selected]);
+  }, [selected, reloadTick]);
 
   const doProbe = async (): Promise<void> => {
     if (!selected) return;
@@ -352,6 +353,15 @@ export default function ScanModule() {
     } finally { setExporting(null); }
   };
   const openReportsFolder = (runId: number): void => { void window.api.scan.openReportsFolder(runId); };
+  // History Nuke — one press, no confirm: it's a soft-clear (kept 30 days, restorable in Settings).
+  // Refresh the run list AND the selected drive's card (which now reads never-scanned).
+  const nukeHistory = async (): Promise<void> => {
+    try {
+      await window.api.scan.clearHistory();
+      await refreshRuns();
+      setReloadTick((n) => n + 1);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
   const openIssues = async (runId: number): Promise<void> => {
     try { setErrorsModal({ rows: await window.api.scan.listErrors(runId) }); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -478,7 +488,7 @@ export default function ScanModule() {
           </div>
         )}
 
-        {tab === "history" && <HistoryTable runs={runs} onView={viewReport} />}
+        {tab === "history" && <HistoryTable runs={runs} onView={viewReport} onNuke={nukeHistory} />}
         {tab === "reports" && <ReportsList runs={runs} onView={viewReport} onFolder={openReportsFolder} />}
       </div>
 
@@ -721,10 +731,17 @@ function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, o
   );
 }
 
-function HistoryTable({ runs, onView }: { runs: ScanRunRow[]; onView: (id: number) => void }) {
-  if (runs.length === 0) return <div className="scan-card scan-empty">No scans yet.</div>;
+function HistoryTable({ runs, onView, onNuke }: { runs: ScanRunRow[]; onView: (id: number) => void; onNuke: () => void }) {
   return (
     <div className="scan-card">
+      <div className="scan-row" style={{ marginBottom: 12 }}>
+        <div className="scan-h" style={{ margin: 0 }}>Scan history</div>
+        <button className="scan-btn danger" style={{ marginLeft: "auto" }} disabled={runs.length === 0}
+          onClick={onNuke} title="Clear the history viewer — records are kept 30 days and can be restored in Settings">
+          Nuke history
+        </button>
+      </div>
+      {runs.length === 0 ? <div className="scan-empty">No scans in the viewer.</div> : (
       <table className="scan-tbl">
         <thead><tr><th>Run</th><th>Root</th><th>Status</th><th>Files</th><th>Folders</th><th>Finished</th><th>Report</th></tr></thead>
         <tbody>
@@ -741,6 +758,7 @@ function HistoryTable({ runs, onView }: { runs: ScanRunRow[]; onView: (id: numbe
           ))}
         </tbody>
       </table>
+      )}
     </div>
   );
 }

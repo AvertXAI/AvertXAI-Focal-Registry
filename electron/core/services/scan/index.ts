@@ -696,15 +696,57 @@ export async function startRun(
   }
 }
 
+// Soft-cleared (Nuked) runs are hidden from every viewer until restored/purged; in-flight runs are
+// never clearable, so this list still surfaces a scan to rejoin.
+const HISTORY_INFLIGHT = "('counting','probing','estimating','running','paused')";
+
 export function listRuns(db: Db, orgId: string, limit = 50): ScanRunRow[] {
   // Join the drive's serial onto each run so the UI can mark which volumes have been scanned
-  // (persistent green dot) without an extra per-drive lookup.
+  // (persistent green dot) without an extra per-drive lookup. Cleared runs are excluded; order is by
+  // DATE (newest first) so a restore slots older runs back in by date, not at the end.
   return db
     .prepare(
       "SELECT r.*, d.volume_serial AS volume_serial FROM scan_runs r " +
-      "LEFT JOIN scan_drives d ON d.id = r.drive_id WHERE r.org_id = ? ORDER BY r.id DESC LIMIT ?"
+      "LEFT JOIN scan_drives d ON d.id = r.drive_id WHERE r.org_id = ? AND r.cleared_at IS NULL " +
+      "ORDER BY COALESCE(r.finished_at, r.started_at, r.created_at) DESC, r.id DESC LIMIT ?"
     )
     .all(orgId, limit) as ScanRunRow[];
+}
+
+/** Soft-clear ALL history for an org (History Nuke) — hidden from viewers, kept 30 days, restorable.
+    Skips in-flight runs so a live scan is never orphaned. Returns how many rows were cleared. */
+export function clearHistory(db: Db, orgId: string): number {
+  return db
+    .prepare(`UPDATE scan_runs SET cleared_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+              WHERE org_id = ? AND cleared_at IS NULL AND status NOT IN ${HISTORY_INFLIGHT}`)
+    .run(orgId).changes;
+}
+
+/** Un-clear every soft-cleared run for an org — they reappear in the viewer, ordered by date. */
+export function restoreHistory(db: Db, orgId: string): number {
+  return db
+    .prepare("UPDATE scan_runs SET cleared_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE org_id = ? AND cleared_at IS NOT NULL")
+    .run(orgId).changes;
+}
+
+/** Count of soft-cleared runs for an org — gates the Settings Restore / delete-forever controls. */
+export function clearedHistoryCount(db: Db, orgId: string): number {
+  return (db.prepare("SELECT COUNT(*) AS n FROM scan_runs WHERE org_id = ? AND cleared_at IS NOT NULL").get(orgId) as { n: number }).n;
+}
+
+/** Hard-delete every soft-cleared run for an org NOW (Settings trashbin, double-confirmed) plus its
+    scan_files / scan_folders / scan_errors children. Returns how many runs were deleted. */
+export function deleteHistoryForever(db: Db, orgId: string): number {
+  const ids = (db.prepare("SELECT id FROM scan_runs WHERE org_id = ? AND cleared_at IS NOT NULL").all(orgId) as { id: number }[]).map((r) => r.id);
+  if (ids.length === 0) return 0;
+  const ph = ids.map(() => "?").join(",");
+  db.transaction(() => {
+    db.prepare(`DELETE FROM scan_files WHERE run_id IN (${ph})`).run(...ids);
+    db.prepare(`DELETE FROM scan_folders WHERE run_id IN (${ph})`).run(...ids);
+    db.prepare(`DELETE FROM scan_errors WHERE run_id IN (${ph})`).run(...ids);
+    db.prepare(`DELETE FROM scan_runs WHERE id IN (${ph})`).run(...ids);
+  })();
+  return ids.length;
 }
 
 export function runStatus(db: Db, runId: number): { run: ScanRunRow; engineActive: boolean } {
@@ -719,7 +761,7 @@ export function lastRunForVolume(db: Db, orgId: string, volumeSerial: string): S
     .get(orgId, volumeSerial) as { id: number } | undefined;
   if (!drive) return null;
   return (db
-    .prepare("SELECT * FROM scan_runs WHERE org_id = ? AND drive_id = ? ORDER BY id DESC LIMIT 1")
+    .prepare("SELECT * FROM scan_runs WHERE org_id = ? AND drive_id = ? AND cleared_at IS NULL ORDER BY id DESC LIMIT 1")
     .get(orgId, drive.id) as ScanRunRow | undefined) ?? null;
 }
 

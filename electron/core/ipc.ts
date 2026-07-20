@@ -306,6 +306,24 @@ export function registerIpcHandlers(): void {
     const { db } = scanCtx();
     return scan.folderCameras(db, Number(folderId));
   });
+  // History retention. clearHistory = soft-clear (History Nuke, one press, reversible 30 days);
+  // restoreHistory / deleteHistoryForever + clearedCount drive the Settings Scan controls.
+  safeHandle("scan:clearHistory", (_e) => {
+    const { db, orgId } = scanCtx();
+    return { cleared: scan.clearHistory(db, orgId) };
+  });
+  safeHandle("scan:restoreHistory", (_e) => {
+    const { db, orgId } = scanCtx();
+    return { restored: scan.restoreHistory(db, orgId) };
+  });
+  safeHandle("scan:deleteHistoryForever", (_e) => {
+    const { db, orgId } = scanCtx();
+    return { deleted: scan.deleteHistoryForever(db, orgId) };
+  });
+  safeHandle("scan:clearedHistoryCount", (_e) => {
+    const { db, orgId } = scanCtx();
+    return scan.clearedHistoryCount(db, orgId);
+  });
   // Export the Reading view to PDF via Electron's built-in printToPDF (no dependency). The renderer
   // sends the rendered HTML + a print stylesheet; we print it in a hidden, script-disabled window and
   // save beside the .md report, never overwriting (collision → -02). Any failure returns { ok:false }.

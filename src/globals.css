@@ -17,6 +17,9 @@
 }
 :root{
   --mc-flyout-width:300px; /* shell sidebar width — App re-sets it inline on drag (clamped ≤ 300) */
+  /* standing shell footer height — reserved by the full-height modules (dv/rbs/scv calc below) so the
+     footer never overlaps or scrolls them; sized for the 2-line wrap at the 740px min width. */
+  --mc-footer-height:65px;
   /* boot-dark surface — matches .bootterm's #0b0e16 and the main-process boot frame (windows.ts
      OVERLAYS.boot/BASE_BG.boot), so the whole pre-shell phase reads as ONE surface. */
   --mc-boot-bg:#0b0e16;
@@ -165,6 +168,16 @@ body.rail-collapsed{padding-left:58px} /* content area expands when the rail col
 .view.shown{display:block}
 .wrap{max-width:1280px;margin:0 auto;padding:24px 16px}
 @media (min-width:768px){.wrap{padding:32px 24px}}
+/* Standing AvertXAI shell footer — ONE instance (App.tsx), on every module page. Normal flow below the
+   module content, spanning the content column, centered. min-height reserves the 2-line-at-740px
+   height so the full-height modules (dv/rbs/scv subtract --mc-footer-height) never scroll or overlap.
+   The two links are plain anchors — main.ts's will-navigate guard opens them in the default browser. */
+.app-footer{display:flex;align-items:center;justify-content:center;text-align:center;box-sizing:border-box;
+  min-height:var(--mc-footer-height);padding:14px;border-top:1px solid var(--mc-border);
+  font-size:12px;color:var(--mc-dimmer)}
+.app-footer-txt{line-height:1.5}
+.app-footer a{color:var(--mc-dimmer);text-decoration:none}
+.app-footer a:hover{color:var(--mc-text);text-decoration:underline}
 h1.pagetitle{font-size:24px;font-weight:600;margin-bottom:4px}
 .subtitle{color:var(--mc-muted);margin-bottom:24px}
 
@@ -243,7 +256,7 @@ tbody tr:hover{background:var(--mc-nested)}
 /* ============================================================
    Data Viewer module — read-only SQLite browser.
    ============================================================ */
-.dv-shell{display:flex;height:calc(100vh - 58px);overflow:hidden}
+.dv-shell{display:flex;height:calc(100vh - 58px - var(--mc-footer-height));overflow:hidden}
 .dv-rail{width:180px;flex:0 0 180px;border-right:1px solid var(--mc-border);
   background:var(--mc-panels);display:flex;flex-direction:column;overflow:hidden}
 .dv-rail-head{padding:12px 14px;font-weight:600;font-size:13px;color:var(--mc-muted);

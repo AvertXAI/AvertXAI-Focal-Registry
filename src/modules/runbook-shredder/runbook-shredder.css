@@ -1,7 +1,7 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
 /* Runbook Shredder module styles. Shell tokens ONLY (--mc-*, RULES-27; the module defines none of its own) — zero hardcoded colors; tints via color-mix. */
 
-.rbs-shell{position:relative;display:flex;flex-direction:column;height:calc(100vh - 58px);overflow:hidden;background:var(--mc-base);color:var(--mc-text)}
+.rbs-shell{position:relative;display:flex;flex-direction:column;height:calc(100vh - 58px - var(--mc-footer-height));overflow:hidden;background:var(--mc-base);color:var(--mc-text)}
 /* module-owned highlighter tokens (module prefix + spelled-out roles, RULES-29) — full-bright solid
    yellow chip, tightened (no padding); opacity routes rejected — alpha over dark surfaces reads olive. */
 .rbs-shell{--shredder-highlighter-background:#ffe14d;--shredder-highlighter-foreground:#1a1500}

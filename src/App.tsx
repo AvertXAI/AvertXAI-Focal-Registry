@@ -7,6 +7,7 @@ import Flyout from "./components/Flyout";
 import FirstRunWizard from "./components/FirstRunWizard";
 import BootTerminal from "./components/BootTerminal";
 import NotBuilt from "./components/NotBuilt";
+import AppFooter from "./components/AppFooter";
 import ScanModule from "./modules/scan/ScanModule";
 import type { ModuleRow, UpdateAvailableInfo, UpdateProgressInfo } from "./shared/types";
 import Home from "./views/Home";
@@ -407,6 +408,9 @@ export default function App() {
       {view === "data-viewer" && <DataViewerModule />}
       {ActiveModule && <ActiveModule />}
       {!ActiveModule && activeRow && <NotBuilt name={activeRow.name} />}
+
+      {/* Standing AvertXAI footer — one instance, below the module content on every page (root-lane). */}
+      <AppFooter />
 
       {/* AI spark — present in v7 chrome; not-built stub (wiring is a later phase). */}
       <button className="spark nb" aria-label="AI assistant">

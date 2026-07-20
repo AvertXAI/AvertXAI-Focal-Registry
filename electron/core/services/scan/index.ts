@@ -813,6 +813,20 @@ export function listFolders(db: Db, runId: number, limit = 200): ScanFolderSumma
     .all(runId, limit) as ScanFolderSummary[];
 }
 
+/** True iff `target` is equal to, or nested under, a root_path this org actually scanned. Bounds
+    scan:openPath to folders the user really scanned instead of "open anything on the machine".
+    path.relative on win32 compares case-insensitively; a "../" or absolute relative means outside. */
+export function isUnderScannedRoot(db: Db, orgId: string, target: string): boolean {
+  const roots = (db
+    .prepare("SELECT DISTINCT root_path FROM scan_runs WHERE org_id = ? AND root_path IS NOT NULL")
+    .all(orgId) as { root_path: string }[]).map((r) => r.root_path);
+  const t = path.resolve(target);
+  return roots.some((root) => {
+    const rel = path.relative(path.resolve(root), t);
+    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  });
+}
+
 export interface ScanCameraCount { camera: string; count: number }
 /** Every distinct camera seen in one folder's media, most-used first — powers the click-through
     on the Top-camera cell. Empty when the folder's files carried no camera make/model. */

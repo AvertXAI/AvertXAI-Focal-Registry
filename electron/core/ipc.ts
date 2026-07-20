@@ -293,11 +293,22 @@ export function registerIpcHandlers(): void {
     void shell.showItemInFolder(run.report_path); // reveals + selects; the safe cross-format open
     return { ok: true };
   });
-  // Open a scanned folder in the OS file manager. Data-only app: this reveals the folder, never
-  // decodes anything. Existence-guarded so a moved/offline drive fails soft rather than throwing.
+  // Reveal a scanned folder in the OS file manager. Hardened (audit R2): the path must (a) exist,
+  // (b) be a DIRECTORY — never a file, so shell.openPath can't LAUNCH an .exe/.bat/.ps1 — and (c) sit
+  // under a root_path this org actually scanned, so the channel can't open arbitrary paths on the
+  // machine. Every rejection returns a clean error; it never throws.
   safeHandle("scan:openPath", (_e, target: unknown) => {
+    const { db, orgId } = scanCtx();
     const p = String(target ?? "");
     if (p === "" || !fs.existsSync(p)) return { ok: false, error: "Folder not found (drive offline or moved?)." };
+    let isDir = false;
+    try {
+      isDir = fs.statSync(p).isDirectory();
+    } catch {
+      return { ok: false, error: "Folder not found (drive offline or moved?)." };
+    }
+    if (!isDir) return { ok: false, error: "That path is not a folder." };
+    if (!scan.isUnderScannedRoot(db, orgId, p)) return { ok: false, error: "That folder is outside any scanned drive." };
     void shell.openPath(p);
     return { ok: true };
   });

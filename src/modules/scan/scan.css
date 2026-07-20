@@ -30,6 +30,15 @@
 .scan-drv.on{background:var(--mc-nested);border-color:var(--mc-border)}
 .scan-dot{width:8px;height:8px;border-radius:50%;flex:none}
 .scan-dot.ok{background:var(--scan-ok)} .scan-dot.off{background:var(--mc-dimmer)} .scan-dot.never{background:var(--scan-estimate)}
+/* a drive currently being scanned — pulses like an HDD activity light so the list shows what is busy */
+.scan-dot.scanning{background:var(--scan-ok);animation:scan-pulse 1s ease-in-out infinite}
+@keyframes scan-pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(56,217,130,.5)}50%{opacity:.4;box-shadow:0 0 0 4px rgba(56,217,130,0)}}
+@media (prefers-reduced-motion:reduce){.scan-dot.scanning{animation:none}}
+/* live heartbeat in the scanning header — always animating while a scan runs, so a frozen % (a big
+   folder mid-extraction) never reads as hung. */
+.scan-live{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--scan-ok);letter-spacing:.04em}
+.scan-live .pip{width:8px;height:8px;border-radius:50%;background:var(--scan-ok);animation:scan-pulse 1s ease-in-out infinite}
+.scan-live.paused{color:var(--mc-muted)}.scan-live.paused .pip{background:var(--mc-muted);animation:none}
 .scan-drv .sub{color:var(--mc-muted);font-size:11px;font-family:var(--mc-mono)}
 
 .scan-stage{display:flex;flex-direction:column;gap:14px}
@@ -49,7 +58,7 @@
 .scan-btn:hover{background:var(--mc-nested)}
 .scan-btn:disabled{opacity:.5;cursor:not-allowed}
 .scan-btn.go{background:var(--scan-go);border-color:var(--scan-go);color:#fff;font-weight:600}
-.scan-btn.blue{background:var(--mc-accent-primary);border-color:var(--mc-accent-primary);color:#04101f;font-weight:600}
+.scan-btn.blue{background:var(--mc-accent-primary);border-color:var(--mc-accent-primary);color:#fff;font-weight:600}
 .scan-btn.ghost{background:transparent;color:var(--mc-muted)}
 
 .scan-pill{font-size:10px;letter-spacing:.8px;text-transform:uppercase;padding:3px 8px;border-radius:6px;border:1px solid var(--mc-border);color:var(--mc-muted)}
@@ -61,10 +70,11 @@
 /* Option C console — same language as the JARVIS boot terminal. */
 .scan-consolewrap{display:flex;flex-direction:column;gap:14px}
 @container (min-width:900px){ .scan-consolewrap{flex-direction:row} .scan-term{flex:1;min-width:0} .scan-side{width:250px;flex:none} }
-/* FIXED height (not max-height) so the console never grows/shrinks as log lines arrive — a
-   changing height reflows the page and makes the whole view jump on every progress tick. It scrolls
-   internally from the first line instead. */
-.scan-term{background:var(--mc-boot-bg);border:1px solid var(--mc-border);border-radius:10px;padding:16px 18px;font-family:var(--mc-mono);font-size:12px;line-height:1.85;color:var(--scan-ok);height:320px;overflow:auto}
+/* FIXED height + ALWAYS-reserved vertical scrollbar (overflow-y:scroll) so the box never changes
+   size and the horizontal scrollbar never toggles — both of which reflow the page and make the view
+   jump on every progress tick. Each line is ONE row (nowrap + ellipsis); no horizontal scroll. */
+.scan-term{background:var(--mc-boot-bg);border:1px solid var(--mc-border);border-radius:10px;padding:16px 18px;font-family:var(--mc-mono);font-size:12px;line-height:1.85;color:var(--scan-ok);height:320px;overflow-y:scroll;overflow-x:hidden}
+.scan-term > div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .scan-term .t{color:var(--mc-dimmer)} .scan-term .w{color:var(--mc-text)} .scan-term .warn{color:var(--scan-warn)} .scan-term .b{color:var(--mc-accent-primary)}
 .scan-side{display:flex;flex-direction:column;gap:11px}
 
@@ -74,3 +84,19 @@
 .scan-tbl td.w{color:var(--mc-text)}
 .scan-note{font-size:12px;color:var(--scan-warn)}
 .scan-empty{text-align:center;color:var(--mc-muted);padding:40px 20px}
+.scan-issues-link{cursor:pointer}
+.scan-issues-link:hover{text-decoration:underline}
+
+/* modal — report viewer + logged-issues detail. Backdrop dims the page; card scrolls internally. */
+.scan-modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:80;display:flex;align-items:center;justify-content:center;padding:32px}
+.scan-modal{background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:12px;width:min(900px,100%);max-height:85vh;display:flex;flex-direction:column;overflow:hidden}
+.scan-modal-head{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--mc-border)}
+.scan-modal-head .scan-h{margin:0}
+.scan-modal-close{margin-left:auto;background:none;border:none;color:var(--mc-muted);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px}
+.scan-modal-close:hover{color:var(--mc-text)}
+.scan-modal-body{padding:18px 20px;overflow:auto}
+.scan-report-md{white-space:pre-wrap;font-family:var(--mc-mono);font-size:12px;line-height:1.6;color:var(--mc-text);margin:0}
+.scan-err-row{display:grid;grid-template-columns:64px 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--mc-border);font-size:12px}
+.scan-err-row .stage{color:var(--scan-warn);font-family:var(--mc-mono)}
+.scan-err-row .epath{color:var(--mc-text);font-family:var(--mc-mono);word-break:break-all}
+.scan-err-row .etext{color:var(--mc-muted)}

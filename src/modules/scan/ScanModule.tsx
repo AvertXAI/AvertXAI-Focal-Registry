@@ -12,7 +12,7 @@
 // File: src/modules/scan/ScanModule.tsx
 //------------------------------------------------------------
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ScanFolderSummary, ScanProgress, ScanRunRow, ScanVolume } from "../../shared/types";
+import type { ScanErrorRow, ScanFolderSummary, ScanProgress, ScanRunRow, ScanVolume } from "../../shared/types";
 import { bumpRender } from "../../diag";
 import "./scan.css";
 
@@ -53,9 +53,12 @@ export default function ScanModule() {
   const [probeRunId, setProbeRunId] = useState<number | null>(null); // the run we counted/are scanning
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [activeRunId, setActiveRunId] = useState<number | null>(null);
+  const [scanningSerial, setScanningSerial] = useState<string | null>(null); // volume serial of the in-flight run
   const [log, setLog] = useState<LogLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reportModal, setReportModal] = useState<{ path: string; content: string } | null>(null);
+  const [errorsModal, setErrorsModal] = useState<{ rows: ScanErrorRow[] } | null>(null);
   const startedAt = useRef<number | null>(null);
   const rateWindow = useRef<Array<{ t: number; files: number }>>([]); // trailing window for ETA
   const [, forceTick] = useState(0);
@@ -103,7 +106,9 @@ export default function ScanModule() {
   useEffect(() => {
     const onProgress = (p: ScanProgress): void => {
       setProgress(p);
-      setActiveRunId(IN_FLIGHT.has(p.status) ? p.runId : null);
+      const live = IN_FLIGHT.has(p.status);
+      setActiveRunId(live ? p.runId : null);
+      setScanningSerial(live ? p.volumeSerial : null); // which drive is busy — drives-list indicator
       if (SCANNING.has(p.status)) {
         // Trailing window for a measured throughput ETA (never a fixed assumption).
         const w = rateWindow.current;
@@ -148,6 +153,7 @@ export default function ScanModule() {
   const doProbe = async (): Promise<void> => {
     if (!selected) return;
     setBusy(true); setError(null); setProgress(null); setLog([]);
+    setScanningSerial(selected.serial); // mark this drive busy immediately (other drives disable)
     try {
       // Kicks off the EXACT counting walk; returns immediately. Counts arrive over scan:progress.
       const r = await window.api.scan.probe(`${selected.letter}\\`, "drive");
@@ -187,17 +193,27 @@ export default function ScanModule() {
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
 
+  // View report → read the markdown and show it in a modal (Secure Note ingestion is the later path).
   const viewReport = async (runId: number): Promise<void> => {
-    const r = await window.api.scan.openReport(runId);
-    if (!r.ok) setError(r.error ?? "No report to open.");
+    const r = await window.api.scan.readReport(runId);
+    if (r.ok && typeof r.content === "string") setReportModal({ path: r.path ?? "", content: r.content });
+    else setError(r.error ?? "No report to open.");
   };
   const openReportsFolder = (runId: number): void => { void window.api.scan.openReportsFolder(runId); };
+  const openIssues = async (runId: number): Promise<void> => {
+    try { setErrorsModal({ rows: await window.api.scan.listErrors(runId) }); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  };
 
   const elapsedMs = startedAt.current ? Date.now() - startedAt.current : 0;
-  const st = progress?.status;
+  // A run's UI shows ONLY on the drive it belongs to. `mine` = the current progress is for the
+  // selected drive; clicking a different drive shows THAT drive's own stage, never this run's.
+  const mine = progress != null && selected != null && progress.volumeSerial === selected.serial;
+  const st = mine ? progress!.status : undefined;
   const counting = st === "counting";
   const estimating = st === "estimating";
-  const running = progress != null && SCANNING.has(st ?? "") && activeRunId !== null;
+  const running = mine && SCANNING.has(st ?? "");
+  const otherScanning = scanningSerial != null && scanningSerial !== selected?.serial; // a different drive is busy
   // REAL arithmetic — denominator is the exact media count; no 99% clamp, reaches 100 at the end.
   const total = progress?.estimatedFiles ?? null;
   const pct = total && total > 0 ? Math.min(100, Math.round((progress!.filesRecorded / total) * 100)) : null;
@@ -212,9 +228,6 @@ export default function ScanModule() {
     const remaining = Math.max(0, total - progress!.filesRecorded);
     return fmtElapsed((remaining / (df / dt)) * 1000);
   })();
-
-  const driveState = (d: ScanVolume): "ok" | "off" | "never" =>
-    d.serial === selected?.serial ? "ok" : "off";
 
   return (
     <main className="view shown">
@@ -238,22 +251,26 @@ export default function ScanModule() {
             <div className="scan-drives">
               <div className="scan-drives-head"><span className="scan-mlabel">Drives</span></div>
               {drives.length === 0 && <div className="scan-sub">No drives detected. Connect a source drive.</div>}
-              {drives.map((d) => (
-                <button key={d.serial} className={`scan-drv${selected?.serial === d.serial ? " on" : ""}`} onClick={() => { setSelected(d); setProbeRunId(null); setProgress(null); }}>
-                  <span className={`scan-dot ${driveState(d)}`} />
-                  <span>
-                    <span style={{ display: "block" }}>{d.letter}\ {d.label || "(no label)"}</span>
-                    <span className="sub">{d.serial} · {fmtBytes(d.totalBytes)}</span>
-                  </span>
-                </button>
-              ))}
+              {drives.map((d) => {
+                const isScanning = d.serial === scanningSerial;
+                return (
+                  <button key={d.serial} className={`scan-drv${selected?.serial === d.serial ? " on" : ""}`}
+                    onClick={() => { setSelected(d); if (d.serial !== scanningSerial) { setProbeRunId(null); setProgress(null); } }}>
+                    <span className={`scan-dot ${isScanning ? "scanning" : selected?.serial === d.serial ? "ok" : "off"}`} />
+                    <span>
+                      <span style={{ display: "block" }}>{d.letter}\ {d.label || "(no label)"}{isScanning ? " · scanning" : ""}</span>
+                      <span className="sub">{d.serial} · {fmtBytes(d.totalBytes)}</span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* RIGHT — stage, chosen by run state (a live run wins over any selection) */}
             <div className="scan-stage">
               {running && (
                 <RunningConsole progress={progress!} pct={pct} elapsed={fmtElapsed(elapsedMs)} eta={eta} log={log}
-                  onAbort={abortRun} onPause={pauseRun} onResume={resumeRun} />
+                  onAbort={abortRun} onPause={pauseRun} onResume={resumeRun} onIssues={() => openIssues(progress!.runId)} />
               )}
 
               {!running && counting && (
@@ -279,24 +296,27 @@ export default function ScanModule() {
 
               {!running && !counting && !estimating && !selected && <div className="scan-card scan-empty">Select a drive to scan or review.</div>}
 
-              {selected && !running && !counting && !estimating && progress && isTerminal(progress.status) && progress.runId === probeRunId && (
+              {/* Completion card ONLY for the selected drive's own just-finished run (mine). */}
+              {selected && !running && !counting && !estimating && mine && progress && isTerminal(progress.status) && progress.runId === probeRunId && (
                 <CompletionCard status={progress.status} reportPath={progress.reportPath ?? lastRun?.report_path ?? null}
                   onView={() => viewReport(progress.runId)} onFolder={() => openReportsFolder(progress.runId)}
                   onRescan={() => { setProbeRunId(null); setProgress(null); void doProbe(); }} />
               )}
 
-              {selected && !running && !counting && !estimating && !(progress && progress.runId === probeRunId && isTerminal(progress.status)) && lastRun?.status === "completed" && (
+              {selected && !running && !counting && !estimating && !(mine && progress && progress.runId === probeRunId && isTerminal(progress.status)) && lastRun?.status === "completed" && (
                 <PopulatedDashboard drive={selected} run={lastRun} folders={folders}
-                  onView={() => viewReport(lastRun.id)} onFolder={() => openReportsFolder(lastRun.id)} onRescan={doProbe} busy={busy} />
+                  onView={() => viewReport(lastRun.id)} onFolder={() => openReportsFolder(lastRun.id)}
+                  onIssues={() => openIssues(lastRun.id)} onRescan={doProbe} busy={busy || otherScanning} />
               )}
 
-              {selected && !running && !counting && !estimating && !(progress && isTerminal(progress.status)) && (!lastRun || lastRun.status !== "completed") && (
+              {selected && !running && !counting && !estimating && !(mine && progress && isTerminal(progress.status)) && (!lastRun || lastRun.status !== "completed") && (
                 <div className="scan-card">
                   <div className="scan-h">{selected.letter}\ {selected.label || "(no label)"}</div>
                   <p className="scan-sub" style={{ marginBottom: 14 }}>
                     {lastRun ? `Last run ended '${lastRun.status}'.` : "Never scanned."} Serial {selected.serial} · {fmtBytes(selected.freeBytes)} free of {fmtBytes(selected.totalBytes)}.
                   </p>
-                  <button className="scan-btn go" onClick={doProbe} disabled={busy}>{busy ? "Counting…" : "Count & estimate"}</button>
+                  <button className="scan-btn go" onClick={doProbe} disabled={busy || otherScanning}>{busy ? "Counting…" : "Count & estimate"}</button>
+                  {otherScanning && <p className="scan-sub" style={{ marginTop: 8 }}>Another drive is scanning — one scan runs at a time.</p>}
                 </div>
               )}
             </div>
@@ -306,6 +326,44 @@ export default function ScanModule() {
         {tab === "history" && <HistoryTable runs={runs} onView={viewReport} />}
         {tab === "reports" && <ReportsList runs={runs} onView={viewReport} onFolder={openReportsFolder} />}
       </div>
+
+      {reportModal && (
+        <div className="scan-modal-back" onClick={() => setReportModal(null)}>
+          <div className="scan-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="scan-modal-head">
+              <div className="scan-h">Scan report</div>
+              <button className="scan-modal-close" aria-label="Close" onClick={() => setReportModal(null)}>×</button>
+            </div>
+            <div className="scan-modal-body">
+              <div className="scan-sub scan-mono" style={{ marginBottom: 12, wordBreak: "break-all" }}>{reportModal.path}</div>
+              <pre className="scan-report-md">{reportModal.content}</pre>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {errorsModal && (
+        <div className="scan-modal-back" onClick={() => setErrorsModal(null)}>
+          <div className="scan-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="scan-modal-head">
+              <div className="scan-h">Logged issues ({errorsModal.rows.length})</div>
+              <button className="scan-modal-close" aria-label="Close" onClick={() => setErrorsModal(null)}>×</button>
+            </div>
+            <div className="scan-modal-body">
+              {errorsModal.rows.length === 0 && <div className="scan-sub">No issues logged for this run.</div>}
+              {errorsModal.rows.map((r, i) => (
+                <div key={i} className="scan-err-row">
+                  <span className="stage">{r.stage ?? "—"}</span>
+                  <span>
+                    <span className="epath">{r.path ?? "(no path)"}</span>
+                    <span className="etext" style={{ display: "block" }}>{r.error_text ?? ""}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
@@ -339,9 +397,9 @@ function EstimateCard({ drive, folders, mediaFiles, busy, onStart, onAbort }: {
   );
 }
 
-function RunningConsole({ progress, pct, elapsed, eta, log, onAbort, onPause, onResume }: {
+function RunningConsole({ progress, pct, elapsed, eta, log, onAbort, onPause, onResume, onIssues }: {
   progress: ScanProgress; pct: number | null; elapsed: string; eta: string | null; log: LogLine[];
-  onAbort: () => void; onPause: () => void; onResume: () => void;
+  onAbort: () => void; onPause: () => void; onResume: () => void; onIssues: () => void;
 }) {
   const paused = progress.status === "paused";
   // Auto-scroll the fixed-height console to the newest line; the box height never changes, so the
@@ -356,7 +414,11 @@ function RunningConsole({ progress, pct, elapsed, eta, log, onAbort, onPause, on
       <div className="scan-card" style={{ padding: "16px 20px" }}>
         <div className="scan-row">
           <div style={{ minWidth: 0 }}>
-            <div className="scan-mlabel" style={{ marginBottom: 5 }}>Scanning</div>
+            <div className="scan-mlabel" style={{ marginBottom: 5, display: "flex", gap: 10, alignItems: "center" }}>
+              <span>Scanning</span>
+              {/* Always-animating heartbeat — a frozen % (big folder mid-extraction) never reads as hung. */}
+              <span className={`scan-live${paused ? " paused" : ""}`}><span className="pip" />{paused ? "paused" : "working"}</span>
+            </div>
             <div className="scan-mono" style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{progress.currentFolder ?? "…"}</div>
           </div>
           <div style={{ marginLeft: "auto", textAlign: "right" }}>
@@ -384,7 +446,7 @@ function RunningConsole({ progress, pct, elapsed, eta, log, onAbort, onPause, on
         <div className="scan-side">
           <div className="scan-card2"><div className="scan-mlabel">Files so far</div><div className="scan-stat">{progress.filesRecorded.toLocaleString()}</div></div>
           <div className="scan-card2"><div className="scan-mlabel">Folders committed</div><div className="scan-stat">{progress.foldersCommitted.toLocaleString()}</div></div>
-          <div className="scan-card2"><div className="scan-mlabel">Logged issues</div><div className="scan-stat warn">{progress.errorsLogged.toLocaleString()}</div></div>
+          <div className="scan-card2"><div className="scan-mlabel">Logged issues</div><div className="scan-stat warn scan-issues-link" onClick={onIssues} title="Show the logged issues">{progress.errorsLogged.toLocaleString()}</div></div>
         </div>
       </div>
     </>
@@ -411,9 +473,9 @@ function CompletionCard({ status, reportPath, onView, onFolder, onRescan }: {
   );
 }
 
-function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, busy }: {
+function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, onIssues, busy }: {
   drive: ScanVolume; run: ScanRunRow; folders: ScanFolderSummary[];
-  onView: () => void; onFolder: () => void; onRescan: () => void; busy: boolean;
+  onView: () => void; onFolder: () => void; onRescan: () => void; onIssues: () => void; busy: boolean;
 }) {
   return (
     <>
@@ -429,7 +491,7 @@ function PopulatedDashboard({ drive, run, folders, onView, onFolder, onRescan, b
         <div className="scan-grid4">
           <div className="scan-card2"><div className="scan-mlabel">Files</div><div className="scan-stat">{run.files_recorded.toLocaleString()}</div></div>
           <div className="scan-card2"><div className="scan-mlabel">Folders</div><div className="scan-stat">{run.folders_committed.toLocaleString()}</div></div>
-          <div className="scan-card2"><div className="scan-mlabel">Logged issues</div><div className="scan-stat warn">{run.errors_logged.toLocaleString()}</div></div>
+          <div className="scan-card2"><div className="scan-mlabel">Logged issues</div><div className="scan-stat warn scan-issues-link" onClick={onIssues} title="Show the logged issues">{run.errors_logged.toLocaleString()}</div></div>
           <div className="scan-card2"><div className="scan-mlabel">Report</div>
             <div className="scan-row" style={{ marginTop: 6 }}>
               {run.report_path ? <button className="scan-btn blue" onClick={onView}>View</button> : <span className="scan-sub">none</span>}

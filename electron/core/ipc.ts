@@ -186,7 +186,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("scan:selectSource", (_e, rootPath: unknown, scanUnit: unknown) => {
     const { db, orgId } = scanCtx();
     if (typeof rootPath !== "string" || rootPath.trim() === "") throw new Error("selectSource: rootPath required");
-    return scanDrives.selectSource(db, orgId, rootPath, scanUnit === "drive" ? "drive" : "folder", generateUUIDv7);
+    return scanDrives.selectSource(db, orgId, rootPath, scanUnit === "drive" ? "drive" : "folder", generateUUIDv7, scan.RAW_MODE);
   });
   ipcMain.handle("scan:probe", (_e, rootPath: unknown, scanUnit: unknown) => {
     const { db, orgId } = scanCtx();
@@ -194,7 +194,14 @@ export function registerIpcHandlers(): void {
     const unit = scanUnit === "drive" ? "drive" : "folder";
     const drive = scanDrives.resolveDrive(db, orgId, scanDrives.volumeForPath(rootPath), generateUUIDv7);
     const run = scan.createRun(db, orgId, drive.id, rootPath, unit);
-    return scan.probeRun(db, orgId, run.id); // persists the estimate and RETURNS — never rolls into the scan
+    // Fire-and-forget EXACT counting walk (Phase 4) — returns the runId immediately; the exact
+    // folder/media counts arrive over scan:progress ('counting' → 'estimating'). No extrapolation.
+    void scan.countRun(db, orgId, run.id, { onProgress: sendScanProgress }).catch((e) => {
+      console.error("[scan] count failed:", e);
+      sendScanProgress({ runId: run.id, status: "error", currentFolder: null, foldersCommitted: 0,
+        filesRecorded: 0, errorsLogged: 0, estimatedFiles: null, note: e instanceof Error ? e.message : String(e) });
+    });
+    return { runId: run.id };
   });
   const launchRun = (runId: number, resume: boolean): { ok: true; runId: number } => {
     const { db, orgId } = scanCtx();

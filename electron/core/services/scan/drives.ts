@@ -56,6 +56,8 @@ export interface ScanRunRow {
   errors_logged: number;
   resume_cursor: string | null;
   report_path: string | null;
+  total_files_expected: number | null;
+  total_folders_expected: number | null;
 }
 
 /** The double-scan guard's answer — data only, the UI owns the choice. */
@@ -139,14 +141,15 @@ export function selectSource(
   orgId: string,
   rootPath: string,
   scanUnit: "drive" | "folder",
-  uuid: () => string
+  uuid: () => string,
+  rawMode = false // RAW_MODE (Phase 6): skip the guard so a drive can be re-run for benchmarking
 ): SourceDecision {
   const vol = volumeForPath(rootPath);
   const known = db
     .prepare("SELECT id FROM scan_drives WHERE org_id = ? AND volume_serial = ?")
     .get(orgId, vol.serial) as { id: number } | undefined;
   const drive = resolveDrive(db, orgId, vol, uuid);
-  if (!known) return { decision: "proceed", drive, rootPath, scanUnit };
+  if (rawMode || !known) return { decision: "proceed", drive, rootPath, scanUnit };
 
   const runFor = (status: string): ScanRunRow | undefined =>
     db

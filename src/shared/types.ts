@@ -141,13 +141,13 @@ export interface ScanRunRow {
   org_id: string;
   drive_id: number | null;
   root_path: string;
-  status: "probing" | "estimating" | "running" | "paused" | "completed" | "aborted" | "crashed" | string;
+  status: "counting" | "probing" | "estimating" | "running" | "paused" | "completed" | "aborted" | "crashed" | string;
   scan_unit: "drive" | "folder" | string;
   started_at: string | null;
   finished_at: string | null;
   probe_folders_sampled: number | null;
   probe_files_found: number | null;
-  /** Rough guide only — probe extrapolation; always label it as an estimate in the UI. */
+  /** Legacy extrapolation field (unused since Phase 4); mirrors total_files_expected on new runs. */
   estimated_files: number | null;
   estimated_seconds: number | null;
   folders_committed: number;
@@ -155,6 +155,9 @@ export interface ScanRunRow {
   errors_logged: number;
   resume_cursor: string | null;
   report_path: string | null;
+  /** EXACT media-file denominator from the counting walk (Phase 4) — real %, no clamp. */
+  total_files_expected: number | null;
+  total_folders_expected: number | null;
 }
 /** Double-scan guard answer — data only; the UI presents the choice, the service never decides. */
 export interface ScanSourceDecision {
@@ -164,16 +167,6 @@ export interface ScanSourceDecision {
   scanUnit: "drive" | "folder";
   crashedRun?: ScanRunRow;
   completedRun?: ScanRunRow;
-}
-export interface ScanProbeResult {
-  runId: number;
-  foldersSampled: number;
-  filesFound: number;
-  elapsedMs: number;
-  /** ROUGH GUIDE ONLY — extrapolated from a small sample. */
-  estimatedFiles: number | null;
-  estimatedSeconds: number | null;
-  roughGuide: true;
 }
 /** scan:progress push payload — folder-level, never per-file, throttled main-side. */
 export interface ScanProgress {
@@ -294,8 +287,9 @@ export interface Api {
   scan: {
     listDrives: () => Promise<ScanVolume[]>;
     selectSource: (rootPath: string, scanUnit: "drive" | "folder") => Promise<ScanSourceDecision>;
-    /** Creates the run and probes — persists a ROUGH estimate and returns; never starts the scan. */
-    probe: (rootPath: string, scanUnit: "drive" | "folder") => Promise<ScanProbeResult>;
+    /** Creates the run and kicks off the EXACT counting walk (Phase 4). Returns the runId
+     *  immediately; exact folder/media counts arrive over scan:progress ('counting' → 'estimating'). */
+    probe: (rootPath: string, scanUnit: "drive" | "folder") => Promise<{ runId: number }>;
     start: (runId: number) => Promise<{ ok: true; runId: number }>;
     pause: (runId: number) => Promise<boolean>;
     resume: (runId: number) => Promise<{ ok: true; runId: number }>;

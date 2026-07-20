@@ -113,6 +113,24 @@ const sendScanProgress = (p: scan.ScanProgress): void => {
 
 // --- handlers ---
 
+// Resilient registration: one channel failing to register must NEVER silently kill the rest
+// (the failure mode that produced a wrong "stale bundle" diagnosis). Each registration is isolated
+// and any throw is logged LOUDLY with its channel name; the sequence continues.
+function safeHandle(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
+  try {
+    ipcMain.handle(channel, listener);
+  } catch (e) {
+    console.error(`[ipc] FAILED to register handler '${channel}':`, e);
+  }
+}
+function safeOn(channel: string, listener: Parameters<typeof ipcMain.on>[1]): void {
+  try {
+    ipcMain.on(channel, listener);
+  } catch (e) {
+    console.error(`[ipc] FAILED to register listener '${channel}':`, e);
+  }
+}
+
 export function registerIpcHandlers(): void {
   // Scan service start — pre-org boot (first-run wizard) skips; lazy init covers post-wizard.
   try {
@@ -122,25 +140,25 @@ export function registerIpcHandlers(): void {
   }
   // data viewer — READ-ONLY introspection. The service whitelists `table` against sqlite_master and
   // clamps limit/offset, so the raw `unknown` args can't reach a writable or injectable statement.
-  ipcMain.handle("db:tables", () => dataviewer.listTables());
-  ipcMain.handle("db:columns", (_e, table: unknown) => dataviewer.getColumns(table));
-  ipcMain.handle("db:rows", (_e, table: unknown, limit: unknown, offset: unknown) =>
+  safeHandle("db:tables", () => dataviewer.listTables());
+  safeHandle("db:columns", (_e, table: unknown) => dataviewer.getColumns(table));
+  safeHandle("db:rows", (_e, table: unknown, limit: unknown, offset: unknown) =>
     dataviewer.getRows(table, limit, offset)
   );
-  ipcMain.handle("db:fks", (_e, table: unknown) => dataviewer.getForeignKeys(table));
-  ipcMain.handle("dataviewer:getDevMode", () => dataviewer.getDevMode());
-  ipcMain.handle("dataviewer:setDevMode", (_e, on: unknown) => dataviewer.setDevMode(on === true));
+  safeHandle("db:fks", (_e, table: unknown) => dataviewer.getForeignKeys(table));
+  safeHandle("dataviewer:getDevMode", () => dataviewer.getDevMode());
+  safeHandle("dataviewer:setDevMode", (_e, on: unknown) => dataviewer.setDevMode(on === true));
 
   // first-run wizard — service validates orgName, then seeds settings + modules in one transaction.
-  ipcMain.handle("firstRun:get", () => firstrun.getFirstRunStatus());
-  ipcMain.handle("firstRun:complete", (_e, orgName: unknown) => firstrun.completeFirstRun(orgName));
+  safeHandle("firstRun:get", () => firstrun.getFirstRunStatus());
+  safeHandle("firstRun:complete", (_e, orgName: unknown) => firstrun.completeFirstRun(orgName));
 
   // module registry — Config-as-Data rows that drive the renderer nav + routing.
-  ipcMain.handle("modules:get", () => modules.listModules());
+  safeHandle("modules:get", () => modules.listModules());
 
   // platform settings — key-whitelisted app_settings access (service rejects unknown keys).
-  ipcMain.handle("settings:get", (_e, key: unknown) => settings.getSetting(key));
-  ipcMain.handle("settings:set", (_e, key: unknown, value: unknown) => {
+  safeHandle("settings:get", (_e, key: unknown) => settings.getSetting(key));
+  safeHandle("settings:set", (_e, key: unknown, value: unknown) => {
     settings.setSetting(key, value);
     // B4: persisting a shredder watch setting re-points the fs.watch engine at the new folder.
     if (key === "runbook-shredder.watch_path" || key === "runbook-shredder.watch_enabled") restartShredder();
@@ -148,48 +166,48 @@ export function registerIpcHandlers(): void {
 
   // Native window-control overlay tint. The window is born in the JARVIS boot navy; the renderer
   // drives every later tint (shell mount + theme flips) through this single channel.
-  ipcMain.handle("theme:modalDim", (_e, on: unknown) => setOverlayDim(on === true));
-  ipcMain.handle("theme:overlay", (_e, mode: unknown) =>
+  safeHandle("theme:modalDim", (_e, on: unknown) => setOverlayDim(on === true));
+  safeHandle("theme:overlay", (_e, mode: unknown) =>
     applyThemeOverlay(typeof mode === "string" ? mode : null)
   );
 
   // runbook-shredder module (shredder:*).
   // Read-only queries; the service whitelists filter keys and escapes the FTS input, so the raw
   // renderer args can't reach SQL/FTS syntax.
-  ipcMain.handle("shredder:list", (_e, filter: unknown) =>
+  safeHandle("shredder:list", (_e, filter: unknown) =>
     shredderApi.listRunbooks(
       ensureShredder().db,
       (typeof filter === "object" && filter !== null ? filter : {}) as shredderApi.RunbookFilter
     )
   );
-  ipcMain.handle("shredder:get", (_e, id: unknown) => shredderApi.getRunbook(ensureShredder().db, String(id)));
-  ipcMain.handle("shredder:search", (_e, q: unknown) =>
+  safeHandle("shredder:get", (_e, id: unknown) => shredderApi.getRunbook(ensureShredder().db, String(id)));
+  safeHandle("shredder:search", (_e, q: unknown) =>
     shredderApi.search(ensureShredder().db, typeof q === "string" ? q : "")
   );
-  ipcMain.handle("shredder:listQuarantined", () => shredderApi.listQuarantined(ensureShredder().db));
+  safeHandle("shredder:listQuarantined", () => shredderApi.listQuarantined(ensureShredder().db));
 
   // native folder picker → the chosen dir (or null on cancel); the renderer persists it via
   // settings:set, which re-points the engine (B4). rescan re-ingests the current folder on demand.
-  ipcMain.handle("shredder:pickWatchFolder", async () => {
+  safeHandle("shredder:pickWatchFolder", async () => {
     const win = getMainWindow();
     const res = win
       ? await dialog.showOpenDialog(win, { properties: ["openDirectory"] })
       : await dialog.showOpenDialog({ properties: ["openDirectory"] });
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
   });
-  ipcMain.handle("shredder:rescan", () => rescanShredder());
+  safeHandle("shredder:rescan", () => rescanShredder());
 
   // scan module — READ-ONLY against sources; the only writes are rows in the org DB. Long-running
   // start/resume are fire-and-forget: progress flows over the scan:progress push, errors are pushed
   // as a status note, and the invoke returns immediately so the renderer never holds a pending
   // promise for hours.
-  ipcMain.handle("scan:listDrives", () => scanDrives.listVolumes());
-  ipcMain.handle("scan:selectSource", (_e, rootPath: unknown, scanUnit: unknown) => {
+  safeHandle("scan:listDrives", () => scanDrives.listVolumes());
+  safeHandle("scan:selectSource", (_e, rootPath: unknown, scanUnit: unknown) => {
     const { db, orgId } = scanCtx();
     if (typeof rootPath !== "string" || rootPath.trim() === "") throw new Error("selectSource: rootPath required");
     return scanDrives.selectSource(db, orgId, rootPath, scanUnit === "drive" ? "drive" : "folder", generateUUIDv7, scan.RAW_MODE);
   });
-  ipcMain.handle("scan:probe", (_e, rootPath: unknown, scanUnit: unknown) => {
+  safeHandle("scan:probe", (_e, rootPath: unknown, scanUnit: unknown) => {
     const { db, orgId } = scanCtx();
     if (typeof rootPath !== "string" || rootPath.trim() === "") throw new Error("probe: rootPath required");
     const unit = scanUnit === "drive" ? "drive" : "folder";
@@ -197,15 +215,17 @@ export function registerIpcHandlers(): void {
     const run = scan.createRun(db, orgId, drive.id, rootPath, unit);
     // Fire-and-forget EXACT counting walk (Phase 4) — returns the runId immediately; the exact
     // folder/media counts arrive over scan:progress ('counting' → 'estimating'). No extrapolation.
+    const serial = scan.driveSerial(db, drive.id);
     void scan.countRun(db, orgId, run.id, { onProgress: sendScanProgress }).catch((e) => {
       console.error("[scan] count failed:", e);
-      sendScanProgress({ runId: run.id, status: "error", currentFolder: null, foldersCommitted: 0,
+      sendScanProgress({ runId: run.id, volumeSerial: serial, status: "error", currentFolder: null, foldersCommitted: 0,
         filesRecorded: 0, errorsLogged: 0, estimatedFiles: null, note: e instanceof Error ? e.message : String(e) });
     });
     return { runId: run.id };
   });
   const launchRun = (runId: number, resume: boolean): { ok: true; runId: number } => {
     const { db, orgId } = scanCtx();
+    const serial = scan.driveSerial(db, scan.getRun(db, runId).drive_id);
     scan
       .startRun(db, orgId, runId, { resume, onProgress: sendScanProgress })
       .then((finished) => {
@@ -215,7 +235,7 @@ export function registerIpcHandlers(): void {
         if (finished.status !== "completed") return;
         const result = scanReport.writeScanReport(db, runId);
         sendScanProgress({
-          runId, status: "completed", currentFolder: null,
+          runId, volumeSerial: serial, status: "completed", currentFolder: null,
           foldersCommitted: finished.folders_committed, filesRecorded: finished.files_recorded,
           errorsLogged: finished.errors_logged, estimatedFiles: finished.estimated_files,
           reportPath: result.ok ? (result.path ?? null) : null,
@@ -225,54 +245,54 @@ export function registerIpcHandlers(): void {
       .catch((e) => {
         console.error("[scan] run failed:", e);
         sendScanProgress({
-          runId, status: "error", currentFolder: null, foldersCommitted: 0, filesRecorded: 0,
+          runId, volumeSerial: serial, status: "error", currentFolder: null, foldersCommitted: 0, filesRecorded: 0,
           errorsLogged: 0, estimatedFiles: null, note: e instanceof Error ? e.message : String(e),
         });
       });
     return { ok: true, runId };
   };
-  ipcMain.handle("scan:start", (_e, runId: unknown) => launchRun(Number(runId), false));
-  ipcMain.handle("scan:resume", (_e, runId: unknown) => launchRun(Number(runId), true));
-  ipcMain.handle("scan:pause", (_e, runId: unknown) => scan.requestPause(Number(runId)));
-  ipcMain.handle("scan:abort", (_e, runId: unknown) => {
+  safeHandle("scan:start", (_e, runId: unknown) => launchRun(Number(runId), false));
+  safeHandle("scan:resume", (_e, runId: unknown) => launchRun(Number(runId), true));
+  safeHandle("scan:pause", (_e, runId: unknown) => scan.requestPause(Number(runId)));
+  safeHandle("scan:abort", (_e, runId: unknown) => {
     const { db } = scanCtx();
     return scan.requestAbort(db, Number(runId));
   });
-  ipcMain.handle("scan:status", (_e, runId: unknown) => {
+  safeHandle("scan:status", (_e, runId: unknown) => {
     const { db } = scanCtx();
     return scan.runStatus(db, Number(runId));
   });
-  ipcMain.handle("scan:listRuns", () => {
+  safeHandle("scan:listRuns", () => {
     const { db, orgId } = scanCtx();
     return scan.listRuns(db, orgId);
   });
   // Last run for a volume serial — drives the "already scanned → show the report" path (serial is
   // identity, not the letter) and Option B's populated dashboard.
-  ipcMain.handle("scan:lastRunForVolume", (_e, serial: unknown) => {
+  safeHandle("scan:lastRunForVolume", (_e, serial: unknown) => {
     const { db, orgId } = scanCtx();
     if (typeof serial !== "string") return null;
     return scan.lastRunForVolume(db, orgId, serial);
   });
   // Folder rollups for Option B's populated view (top-level folders of a run).
-  ipcMain.handle("scan:folders", (_e, runId: unknown) => {
+  safeHandle("scan:folders", (_e, runId: unknown) => {
     const { db } = scanCtx();
     return scan.listFolders(db, Number(runId));
   });
   // Manual report (re)write — used by the UI if the auto-write on completion failed. Returns the
   // path or an error string; never throws.
-  ipcMain.handle("scan:writeReport", (_e, runId: unknown) => {
+  safeHandle("scan:writeReport", (_e, runId: unknown) => {
     const { db } = scanCtx();
     return scanReport.writeScanReport(db, Number(runId));
   });
   // Open the report file / the reports folder in the OS. openPath never throws; returns "" on ok.
-  ipcMain.handle("scan:openReport", (_e, runId: unknown) => {
+  safeHandle("scan:openReport", (_e, runId: unknown) => {
     const { db } = scanCtx();
     const run = scan.getRun(db, Number(runId));
     if (!run.report_path) return { ok: false, error: "no report on this run" };
     void shell.showItemInFolder(run.report_path); // reveals + selects; the safe cross-format open
     return { ok: true };
   });
-  ipcMain.handle("scan:openReportsFolder", (_e, runId: unknown) => {
+  safeHandle("scan:openReportsFolder", (_e, runId: unknown) => {
     const { db } = scanCtx();
     const run = scan.getRun(db, Number(runId));
     const dir = run.report_path
@@ -281,51 +301,68 @@ export function registerIpcHandlers(): void {
     void shell.openPath(dir);
     return { ok: true };
   });
+  // Read the report markdown back for the in-app modal (until Secure Note ingestion lands). Bounded
+  // read; never throws. Returns { ok, content } or { ok:false, error }.
+  safeHandle("scan:readReport", (_e, runId: unknown) => {
+    const { db } = scanCtx();
+    const run = scan.getRun(db, Number(runId));
+    if (!run.report_path || !fs.existsSync(run.report_path)) return { ok: false, error: "No report file on disk." };
+    try {
+      return { ok: true, path: run.report_path, content: fs.readFileSync(run.report_path, "utf8") };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  // Logged-issues detail for the errors modal — the scan_errors rows for a run.
+  safeHandle("scan:listErrors", (_e, runId: unknown) => {
+    const { db } = scanCtx();
+    return scan.listErrors(db, Number(runId));
+  });
 
   // scout-viewer module — Fortified Browser engine (services/scout-viewer). Sender-verified: only
   // the shell window's own webContents may drive the engine (ported guard from the prototype);
   // the service re-validates every payload (URL scheme, clientId charset, bounds clamp) after this.
   const fromShell = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean =>
     event.sender === getMainWindow()?.webContents;
-  ipcMain.on("scout:visible", (e, v: unknown) => {
+  safeOn("scout:visible", (e, v: unknown) => {
     if (fromShell(e)) scout.setModuleVisible(v === true);
   });
-  ipcMain.on("scout:bounds", (e, raw: unknown) => {
+  safeOn("scout:bounds", (e, raw: unknown) => {
     if (fromShell(e)) scout.setBounds(raw);
   });
-  ipcMain.on("scout:navigate", (e, raw: unknown) => {
+  safeOn("scout:navigate", (e, raw: unknown) => {
     if (fromShell(e)) scout.navigate(raw);
   });
-  ipcMain.on("scout:back", (e) => {
+  safeOn("scout:back", (e) => {
     if (fromShell(e)) scout.goBack();
   });
-  ipcMain.on("scout:forward", (e) => {
+  safeOn("scout:forward", (e) => {
     if (fromShell(e)) scout.goForward();
   });
-  ipcMain.on("scout:reload", (e) => {
+  safeOn("scout:reload", (e) => {
     if (fromShell(e)) scout.reload();
   });
-  ipcMain.on("scout:stop", (e) => {
+  safeOn("scout:stop", (e) => {
     if (fromShell(e)) scout.stopLoad();
   });
-  ipcMain.on("scout:modal", (e, open: unknown) => {
+  safeOn("scout:modal", (e, open: unknown) => {
     if (fromShell(e)) scout.setModalOpen(open === true);
   });
-  ipcMain.on("scout:switch-tab", (e, clientId: unknown, url: unknown) => {
+  safeOn("scout:switch-tab", (e, clientId: unknown, url: unknown) => {
     if (fromShell(e)) void scout.switchClientTab(clientId, url);
   });
-  ipcMain.handle("scout:dom-read", (e) => (fromShell(e) ? scout.domRead() : null));
+  safeHandle("scout:dom-read", (e) => (fromShell(e) ? scout.domRead() : null));
 
   // scout target CRUD — same sender gate; the service validates every raw unknown arg (name
   // non-empty, url http(s)-only, id integer) before it reaches SQL. client_id is service-minted.
-  ipcMain.handle("scout:targets:list", (e) => (fromShell(e) ? scoutTargets.listTargets() : null));
-  ipcMain.handle("scout:targets:create", (e, name: unknown, url: unknown) =>
+  safeHandle("scout:targets:list", (e) => (fromShell(e) ? scoutTargets.listTargets() : null));
+  safeHandle("scout:targets:create", (e, name: unknown, url: unknown) =>
     fromShell(e) ? scoutTargets.createTarget(name, url) : null
   );
-  ipcMain.handle("scout:targets:update", (e, id: unknown, name: unknown, url: unknown) =>
+  safeHandle("scout:targets:update", (e, id: unknown, name: unknown, url: unknown) =>
     fromShell(e) ? scoutTargets.updateTarget(id, name, url) : null
   );
-  ipcMain.handle("scout:targets:delete", (e, id: unknown) => {
+  safeHandle("scout:targets:delete", (e, id: unknown) => {
     if (fromShell(e)) scoutTargets.deleteTarget(id);
   });
 

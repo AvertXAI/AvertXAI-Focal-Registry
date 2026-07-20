@@ -36,6 +36,7 @@ export interface RenameProgress {
   copied: number;
   skipped: number;
   errored: number;
+  error?: string; // set when the job itself failed to start/run (e.g. a guard rejection)
 }
 
 /** A volume root (E:\, C:\, \\server\share\) — refused as a source (B2 guard). */
@@ -309,6 +310,70 @@ export function batchSample(db: Db, orgId: string, batchId: number, limit = 6): 
       "SELECT source_filename, copy_filename, status FROM rename_files WHERE org_id = ? AND batch_id = ? ORDER BY sequence_number LIMIT ?"
     )
     .all(orgId, batchId, limit) as { source_filename: string; copy_filename: string | null; status: string }[];
+}
+
+// --- presets (spec 2.4 / 5.5) — named saved settings + one "(last used)" row rewritten every run ---
+const LAST_USED_NAME = "(last used)";
+export interface RenamePresetRow {
+  id: number;
+  name: string;
+  is_last_used: number;
+  prefix_mode: string | null;
+  business_name: string | null;
+  photographer_name: string | null;
+  sequence_start: number | null;
+  sequence_pad: number | null;
+  client_name: string | null;
+  project_name: string | null;
+  custom_tag: string | null;
+}
+export function listPresets(db: Db, orgId: string): RenamePresetRow[] {
+  return db.prepare("SELECT * FROM rename_presets WHERE org_id = ? ORDER BY is_last_used DESC, name COLLATE NOCASE").all(orgId) as RenamePresetRow[];
+}
+export function lastUsedPreset(db: Db, orgId: string): RenamePresetRow | null {
+  return (db.prepare("SELECT * FROM rename_presets WHERE org_id = ? AND is_last_used = 1").get(orgId) as RenamePresetRow | undefined) ?? null;
+}
+const presetCols = (s: RenameSettings): unknown[] => [
+  s.prefixMode, s.businessName, s.photographerName, s.sequenceStart, s.sequencePad, s.clientName, s.projectName, s.customTag,
+];
+/** Rewrite the single "(last used)" row on every run (restored on module open). */
+export function saveLastUsed(db: Db, orgId: string, s: RenameSettings): void {
+  const existing = db.prepare("SELECT id FROM rename_presets WHERE org_id = ? AND name = ?").get(orgId, LAST_USED_NAME) as { id: number } | undefined;
+  db.prepare("UPDATE rename_presets SET is_last_used = 0 WHERE org_id = ? AND is_last_used = 1").run(orgId);
+  if (existing) {
+    db.prepare(
+      `UPDATE rename_presets SET is_last_used = 1, prefix_mode = ?, business_name = ?, photographer_name = ?,
+         sequence_start = ?, sequence_pad = ?, client_name = ?, project_name = ?, custom_tag = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    ).run(...presetCols(s), existing.id);
+  } else {
+    db.prepare(
+      `INSERT INTO rename_presets (uuid, org_id, name, is_last_used, prefix_mode, business_name, photographer_name,
+         sequence_start, sequence_pad, client_name, project_name, custom_tag)
+       VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(generateUUIDv7(), orgId, LAST_USED_NAME, ...presetCols(s));
+  }
+}
+/** Save a NAMED preset (replaces one of the same name). */
+export function savePreset(db: Db, orgId: string, name: string, s: RenameSettings): void {
+  const clean = name.trim();
+  if (!clean || clean === LAST_USED_NAME) return;
+  const existing = db.prepare("SELECT id FROM rename_presets WHERE org_id = ? AND name = ?").get(orgId, clean) as { id: number } | undefined;
+  if (existing) {
+    db.prepare(
+      `UPDATE rename_presets SET prefix_mode = ?, business_name = ?, photographer_name = ?, sequence_start = ?,
+         sequence_pad = ?, client_name = ?, project_name = ?, custom_tag = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+    ).run(...presetCols(s), existing.id);
+  } else {
+    db.prepare(
+      `INSERT INTO rename_presets (uuid, org_id, name, is_last_used, prefix_mode, business_name, photographer_name,
+         sequence_start, sequence_pad, client_name, project_name, custom_tag)
+       VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(generateUUIDv7(), orgId, clean, ...presetCols(s));
+  }
+}
+export function deletePreset(db: Db, orgId: string, id: number): void {
+  db.prepare("DELETE FROM rename_presets WHERE org_id = ? AND id = ? AND name <> ?").run(orgId, id, LAST_USED_NAME);
 }
 
 // --- Phase 4: REVERT ENGINE ---

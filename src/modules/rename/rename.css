@@ -1,0 +1,98 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* Rename module styles. Consumes --mc-* shell tokens (theme-aware across all three modes) and declares
+   its OWN --rename-* tokens (module token law — never redefines a shell token). Layout follows the
+   approved MOCKUP-rename-module-3: left settings column + right preview pane, purple Revert accent,
+   orange primary copy action. The preview scrolls INSIDE its own region so the sticky header works
+   regardless of the shell's #root height. */
+.rename-shell{
+  --rename-accent:#7c6ce0;            /* purple — Revert, tab underline, focus, selected segment */
+  --rename-accent-soft:rgba(124,108,224,.14);
+  --rename-primary:#e8622c;           /* orange — the primary Copy & rename action (per mockup) */
+  container-type:inline-size;
+}
+
+.rename-shell .rn-tabs{display:flex;gap:22px;border-bottom:1px solid var(--mc-border);margin-bottom:16px}
+.rn-tab{background:none;border:none;color:var(--mc-muted);font:inherit;font-size:13.5px;padding:9px 0 11px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:7px}
+.rn-tab.on{color:var(--mc-text);font-weight:600;border-bottom-color:var(--rename-accent)}
+.rn-tab.rev.on{color:var(--rename-accent)}
+.rn-tabdot{width:6px;height:6px;border-radius:50%;background:var(--rename-accent)}
+.rn-tab:hover{color:var(--mc-text)}
+
+.rn-error{background:rgba(224,87,79,.12);border:1px solid #e0574f;color:#e0574f;border-radius:8px;padding:10px 13px;font-size:12.5px;margin-bottom:14px;cursor:pointer}
+
+/* two-column split — stacks below the one sanctioned 900px threshold */
+.rn-split{display:flex;flex-direction:column;gap:18px}
+@container (min-width:900px){ .rn-split{flex-direction:row;align-items:flex-start} .rn-left{width:392px;flex:none} .rn-rp{flex:1;min-width:0} }
+
+.rn-left{display:flex;flex-direction:column}
+.rn-lbl{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--mc-dimmer);margin:16px 0 7px;font-weight:600;display:flex;align-items:center;gap:7px}
+.rn-lbl:first-child{margin-top:0}
+.rn-tagdb{background:var(--mc-nested);color:var(--mc-muted);border-radius:4px;padding:1px 6px;font-size:9px;letter-spacing:.6px}
+.rn-row{display:flex;gap:8px;margin-bottom:9px}
+.rn-inp{width:100%;background:var(--mc-field);border:1px solid var(--mc-border);border-radius:8px;padding:8px 11px;font-size:13px;color:var(--mc-text);font-family:var(--mc-font)}
+.rn-inp.mono{font-family:var(--mc-mono);font-size:12.5px}
+.rn-inp:focus{outline:none;border-color:var(--rename-accent);box-shadow:0 0 0 3px var(--rename-accent-soft)}
+.rn-hint{font-size:11.5px;color:var(--mc-dimmer);margin:-3px 0 11px;line-height:1.5}
+.rn-hint b{color:var(--mc-muted)}
+
+.rn-btn{background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:8px;padding:8px 14px;font-size:12.5px;cursor:pointer;color:var(--mc-text);font-family:var(--mc-font);white-space:nowrap}
+.rn-btn:hover{background:var(--mc-panels)}
+.rn-btn:disabled{opacity:.5;cursor:not-allowed}
+.rn-btn.primary{background:var(--rename-primary);border-color:var(--rename-primary);color:#fff;font-weight:600}
+.rn-btn.rev{background:var(--rename-accent);border-color:var(--rename-accent);color:#fff;font-weight:600}
+.rn-btn.primary:hover,.rn-btn.rev:hover{filter:brightness(1.06)}
+
+.rn-seg{display:flex;border:1px solid var(--mc-border);border-radius:8px;overflow:hidden;margin-bottom:9px}
+.rn-seg div{flex:1;text-align:center;padding:8px 4px;font-size:12px;cursor:pointer;color:var(--mc-muted);background:var(--mc-field);border-right:1px solid var(--mc-border)}
+.rn-seg div:last-child{border-right:0}
+.rn-seg div.on{background:var(--rename-accent-soft);color:var(--rename-accent);font-weight:600}
+
+.rn-pattern{background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:9px;padding:11px 13px;font-family:var(--mc-mono);font-size:12px;line-height:1.9;word-break:break-all}
+.rn-pattern b{color:var(--rename-primary);font-weight:600}
+.rn-pattern .orig{color:var(--mc-accent-primary)}
+
+.rn-rp{display:flex;flex-direction:column}
+.rn-warn{background:rgba(181,121,26,.12);border:1px solid rgba(181,121,26,.4);border-left:3px solid #b5791a;border-radius:8px;padding:10px 13px;font-size:12px;color:var(--mc-text);margin-bottom:13px;line-height:1.55}
+.rn-info{background:var(--rename-accent-soft);border:1px solid var(--rename-accent);border-left:3px solid var(--rename-accent);border-radius:9px;padding:12px 15px;font-size:12.5px;color:var(--mc-text);line-height:1.62;margin-bottom:15px}
+
+.rn-pvhead{display:flex;align-items:center;gap:10px;margin-bottom:11px;flex-wrap:wrap}
+.rn-pvhead h2{font-size:14px;font-weight:650;margin:0}
+.rn-count{font-family:var(--mc-mono);font-size:11.5px;color:var(--mc-muted);background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:20px;padding:3px 11px}
+.rn-count.cr{color:var(--rename-primary);border-color:var(--rename-primary)}
+.rn-count.mv{color:var(--mc-accent-primary);border-color:var(--mc-accent-primary)}
+.rn-count.pu{color:var(--rename-accent);border-color:var(--rename-accent)}
+
+/* preview table — own scroll region so the sticky header works under the shell's #root:height:100% */
+.rn-pvwrap{border:1px solid var(--mc-border);border-radius:10px;overflow:auto;max-height:calc(100vh - 360px);background:var(--mc-field)}
+.rn-tbl{width:100%;border-collapse:collapse;table-layout:fixed}
+.rn-tbl th{position:sticky;top:0;z-index:1;background:var(--mc-panels);text-align:left;font-size:10px;letter-spacing:1.3px;text-transform:uppercase;color:var(--mc-dimmer);padding:9px 12px;border-bottom:1px solid var(--mc-border);font-weight:600}
+.rn-tbl td{padding:8px 12px;font-size:12.5px;border-bottom:1px solid var(--mc-border);font-family:var(--mc-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rn-tbl tr:hover td{background:var(--mc-nested)}
+.rn-new b{color:var(--rename-primary);font-weight:600}
+.rn-new b.pu{color:var(--rename-accent)}
+.rn-arrow{text-align:center;color:var(--mc-dimmer)}
+.rn-more{color:var(--mc-dimmer);font-family:var(--mc-font);font-size:12px;white-space:normal}
+
+.rn-pill{display:inline-block;font-family:var(--mc-font);font-size:10.5px;padding:2px 9px;border-radius:20px;border:1px solid}
+.rn-pill.ok{color:var(--mc-green);border-color:var(--mc-green)}
+.rn-pill.warn{color:var(--rename-primary);border-color:var(--rename-primary)}
+.rn-pill.rst{color:var(--rename-accent);border-color:var(--rename-accent)}
+
+.rn-bar{height:5px;background:var(--mc-nested);border-radius:3px;overflow:hidden;margin-top:11px}
+.rn-bar i{display:block;height:100%;transition:width .12s linear}
+.rn-foot{display:flex;align-items:center;gap:10px;padding-top:13px}
+.rn-msg{font-size:12px;color:var(--mc-muted);margin-left:auto;text-align:right}
+
+/* History + Presets cards */
+.rn-hist{display:flex;flex-direction:column}
+.rn-empty{text-align:center;color:var(--mc-muted);padding:40px 20px}
+.rn-batch{border:1px solid var(--mc-border);border-radius:11px;padding:15px 17px;margin-bottom:13px;background:var(--mc-panels)}
+.rn-batchtop{display:flex;align-items:center;gap:12px;margin-bottom:9px}
+.rn-batchtop h3{font-size:14px;font-weight:650;margin:0}
+.rn-when{font-family:var(--mc-mono);font-size:11.5px;color:var(--mc-dimmer);margin-left:auto}
+.rn-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:9px 18px;margin:11px 0 12px}
+@container (min-width:900px){ .rn-meta{grid-template-columns:repeat(4,1fr)} }
+.rn-meta div span{display:block;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--mc-dimmer);margin-bottom:3px}
+.rn-meta div b{font-size:12.5px;font-weight:500;font-family:var(--mc-mono);overflow:hidden;text-overflow:ellipsis;display:block;white-space:nowrap}
+.rn-sample{background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:8px;padding:9px 12px;font-family:var(--mc-mono);font-size:11.5px;color:var(--mc-muted);line-height:1.8;overflow:hidden}
+.rn-sample b{color:var(--rename-accent)}

@@ -98,11 +98,6 @@ function scanCtx(): { db: ReturnType<typeof getDb>; orgId: string } {
   }
   return { db, orgId: org.org_id };
 }
-// Documents\Focal Registry\Scan\Exports\ — the sanctioned home for PDF/CSV exports. Resolved via
-// app.getPath("documents") (localized, follows a redirected Documents folder), NEVER a hardcoded C:.
-function scanExportsDir(): string {
-  return path.join(app.getPath("documents"), "Focal Registry", "Scan", "Exports");
-}
 // A scan walks thousands of files; per-folder progress can still burst on a shallow-wide tree.
 // ONLY the high-frequency in-phase updates ('counting' and 'running') are throttled. Every STATE
 // TRANSITION ('estimating', 'completed', 'aborted', 'paused', 'crashed', 'error') always sends —
@@ -374,7 +369,7 @@ export function registerIpcHandlers(): void {
       const run = scan.getRun(db, Number(runId));
       if (run.status !== "completed") return { ok: false, error: "The scan has not completed yet." };
       const { base } = scanReport.reportStem(db, run.id); // filename stem only; exports live in Documents now
-      const exportDir = scanExportsDir();
+      const exportDir = storage.documentsExportsDir();
       fs.mkdirSync(exportDir, { recursive: true });
       const outPath = scanExport.collisionFreeName(exportDir, base, ".pdf");
       const doc = `<!doctype html><html><head><meta charset="utf-8"><style>${String(css ?? "")}</style></head><body>${String(html ?? "")}</body></html>`;
@@ -414,7 +409,7 @@ export function registerIpcHandlers(): void {
       const run = scan.getRun(db, Number(runId));
       if (run.status !== "completed") return { ok: false, error: "The scan has not completed yet." };
       const { base } = scanReport.reportStem(db, run.id); // filename stem only; exports live in Documents now
-      const exportDir = scanExportsDir();
+      const exportDir = storage.documentsExportsDir();
       fs.mkdirSync(exportDir, { recursive: true });
       const outPath = scanExport.collisionFreeName(exportDir, base, ".csv");
       await scanExport.exportFoldersCsv(db, run.id, outPath);

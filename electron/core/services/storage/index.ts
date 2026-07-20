@@ -35,7 +35,9 @@ export function defaultMarkdownRoot(): string {
 export const missionControlDir = (root: string): string => path.join(root, "MissionControl");
 export const focalRegistryDir = (root: string): string => path.join(missionControlDir(root), "Focal-Registry");
 export const scanMarkdownDir = (root: string): string => path.join(focalRegistryDir(root), "Scan");
-export const documentsExportsDir = (): string => path.join(app.getPath("documents"), "Focal Registry", "Scan", "Exports");
+// Local Documents (%USERPROFILE%\Documents), NOT app.getPath("documents") — that follows the OneDrive
+// redirect on this machine. Jason: exports must land OFF OneDrive, in C:\Users\<profile>\Documents.
+export const documentsExportsDir = (): string => path.join(app.getPath("home"), "Documents", "Focal Registry", "Scan", "Exports");
 
 /** Configured root, or the home\AvertXAI default — RECORDED when unset. NEVER falls back to userData;
     if the configured root is unreachable, ensureManagedTree fails and nothing is written elsewhere. */

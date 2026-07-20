@@ -196,6 +196,11 @@ export interface ScanErrorRow {
   error_text: string | null;
   occurred_at: string | null;
 }
+/** Logged-Issues payload — the true total plus a bounded page of rows (the modal never renders more). */
+export interface ScanErrorList {
+  total: number;
+  rows: ScanErrorRow[];
+}
 export interface ScanFolderSummary {
   id: number;
   path: string;
@@ -327,7 +332,7 @@ export interface Api {
     /** Read the report markdown for the in-app modal (Secure Note ingestion is the later path). */
     readReport: (runId: number) => Promise<{ ok: boolean; path?: string; content?: string; error?: string }>;
     /** scan_errors rows for the Logged-Issues modal. */
-    listErrors: (runId: number) => Promise<ScanErrorRow[]>;
+    listErrors: (runId: number) => Promise<ScanErrorList>;
     /** Reveal a scanned folder in the OS file manager. */
     openPath: (target: string) => Promise<{ ok: boolean; error?: string }>;
     /** Distinct cameras in one folder's media, most-used first — Top-camera click-through. */

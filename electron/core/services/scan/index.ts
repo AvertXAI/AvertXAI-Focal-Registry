@@ -798,11 +798,17 @@ export interface ScanErrorRow {
   error_text: string | null;
   occurred_at: string | null;
 }
-/** scan_errors rows for a run — the Logged-Issues modal (genuine media-parse failures only). */
-export function listErrors(db: Db, runId: number, limit = 500): ScanErrorRow[] {
-  return db
+export interface ScanErrorList { total: number; rows: ScanErrorRow[] }
+/** scan_errors for the Logged-Issues modal. Returns the TRUE total plus a BOUNDED page of rows —
+    an old run can hold tens of thousands of error rows (a pre-media-only scan had 20,173), and
+    rendering all of them froze then crashed the renderer. The cap keeps the modal responsive; the
+    honest total is shown so the number is never misleading. */
+export function listErrors(db: Db, runId: number, limit = 200): ScanErrorList {
+  const total = (db.prepare("SELECT COUNT(*) AS n FROM scan_errors WHERE run_id = ?").get(runId) as { n: number }).n;
+  const rows = db
     .prepare("SELECT path, extension, stage, error_text, occurred_at FROM scan_errors WHERE run_id = ? ORDER BY id DESC LIMIT ?")
     .all(runId, limit) as ScanErrorRow[];
+  return { total, rows };
 }
 
 export interface ScanFolderSummary {

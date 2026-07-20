@@ -12,7 +12,7 @@
 // File: src/modules/scan/ScanModule.tsx
 //------------------------------------------------------------
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { ScanCameraCount, ScanErrorRow, ScanFolderSummary, ScanProgress, ScanRunRow, ScanVolume } from "../../shared/types";
+import type { ScanCameraCount, ScanErrorList, ScanFolderSummary, ScanProgress, ScanRunRow, ScanVolume } from "../../shared/types";
 import { formatRange, formatStamp } from "../../shared/datetime";
 import { PRINT_STYLESHEET, renderReportPrintHtml } from "./reportPrint";
 import { bumpRender } from "../../diag";
@@ -169,7 +169,7 @@ export default function ScanModule() {
   const [exportMsg, setExportMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [exporting, setExporting] = useState<"pdf" | "csv" | null>(null);
   const [reloadTick, setReloadTick] = useState(0); // bump to re-pull the selected drive's card after a nuke
-  const [errorsModal, setErrorsModal] = useState<{ rows: ScanErrorRow[] } | null>(null);
+  const [errorsModal, setErrorsModal] = useState<ScanErrorList | null>(null);
   const startedAt = useRef<number | null>(null);
   const rateWindow = useRef<Array<{ t: number; files: number }>>([]); // trailing window for ETA
   const prevErrors = useRef(0); // last errorsLogged seen — to emit a warn line on increase
@@ -341,7 +341,7 @@ export default function ScanModule() {
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
   const openIssues = async (runId: number): Promise<void> => {
-    try { setErrorsModal({ rows: await window.api.scan.listErrors(runId) }); }
+    try { setErrorsModal(await window.api.scan.listErrors(runId)); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
 
@@ -503,11 +503,11 @@ export default function ScanModule() {
         <div className="scan-modal-back" onClick={() => setErrorsModal(null)}>
           <div className="scan-modal" onClick={(e) => e.stopPropagation()}>
             <div className="scan-modal-head">
-              <div className="scan-h">Logged issues ({errorsModal.rows.length})</div>
+              <div className="scan-h">Logged issues ({errorsModal.total.toLocaleString()})</div>
               <button className="scan-modal-close" aria-label="Close" onClick={() => setErrorsModal(null)}>×</button>
             </div>
             <div className="scan-modal-body">
-              {errorsModal.rows.length === 0 && <div className="scan-sub">No issues logged for this run.</div>}
+              {errorsModal.total === 0 && <div className="scan-sub">No issues logged for this run.</div>}
               {errorsModal.rows.map((r, i) => (
                 <div key={i} className="scan-err-row">
                   <span className="stage">{r.stage ?? "—"}</span>
@@ -517,6 +517,11 @@ export default function ScanModule() {
                   </span>
                 </div>
               ))}
+              {errorsModal.total > errorsModal.rows.length && (
+                <div className="scan-sub" style={{ marginTop: 14 }}>
+                  Showing the first {errorsModal.rows.length.toLocaleString()} of {errorsModal.total.toLocaleString()} issues. The full list stays in the database.
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -103,6 +103,14 @@ export function getRun(db: Db, runId: number): ScanRunRow {
   return run;
 }
 
+/** Volume serial for a run's drive — stamped on every progress event so the UI shows a run only on
+    the drive it belongs to (never bleeds a run onto another selected drive). */
+export function driveSerial(db: Db, driveId: number | null): string | null {
+  if (driveId == null) return null;
+  const r = db.prepare("SELECT volume_serial FROM scan_drives WHERE id = ?").get(driveId) as { volume_serial: string } | undefined;
+  return r?.volume_serial ?? null;
+}
+
 export function createRun(
   db: Db,
   orgId: string,
@@ -159,6 +167,7 @@ export async function countRun(
 ): Promise<CountResult> {
   const rules = opts.rules ?? DEFAULT_SKIP_RULES;
   const run = getRun(db, runId);
+  const volumeSerial = driveSerial(db, run.drive_id);
   db.prepare(
     "UPDATE scan_runs SET status = 'counting', started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = ?"
   ).run(runId);
@@ -188,7 +197,7 @@ export async function countRun(
     if (now - lastEmit >= PROGRESS_EMIT_INTERVAL_MS) {
       lastEmit = now;
       opts.onProgress?.({
-        runId, status: "counting", currentFolder: dir, foldersCommitted: folders,
+        runId, volumeSerial, status: "counting", currentFolder: dir, foldersCommitted: folders,
         filesRecorded: 0, errorsLogged: 0, estimatedFiles: mediaFiles, // running media tally, not a %
       });
     }
@@ -202,7 +211,7 @@ export async function countRun(
   ).run(mediaFiles, folders, mediaFiles, runId);
   // Terminal-ish 'estimating' event carries the EXACT numbers for the estimate card.
   opts.onProgress?.({
-    runId, status: "estimating", currentFolder: null, foldersCommitted: folders,
+    runId, volumeSerial, status: "estimating", currentFolder: null, foldersCommitted: folders,
     filesRecorded: 0, errorsLogged: 0, estimatedFiles: mediaFiles,
   });
   return { runId, folders, mediaFiles, totalFiles, elapsedMs };
@@ -377,6 +386,8 @@ async function extractStillsMetadata(files: FileRow[]): Promise<void> {
 
 export interface ScanProgress {
   runId: number;
+  /** Volume serial of the run's drive — so the UI shows a run only on the drive it belongs to. */
+  volumeSerial: string | null;
   status: string;
   currentFolder: string | null;
   foldersCommitted: number;
@@ -452,6 +463,7 @@ export async function startRun(
   }
 
   active = { runId, pauseRequested: false, abortRequested: false, running: true };
+  const volumeSerial = driveSerial(db, run.drive_id);
   db.prepare(
     "UPDATE scan_runs SET status = 'running', started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = ?"
   ).run(runId);
@@ -462,7 +474,7 @@ export async function startRun(
   const emit = (note?: string): void => {
     const r = getRun(db, runId);
     opts.onProgress?.({
-      runId, status: r.status, currentFolder: r.resume_cursor,
+      runId, volumeSerial, status: r.status, currentFolder: r.resume_cursor,
       foldersCommitted: r.folders_committed, filesRecorded: r.files_recorded,
       errorsLogged: r.errors_logged, estimatedFiles: r.total_files_expected ?? r.estimated_files,
       ...(note ? { note } : {}),
@@ -698,6 +710,20 @@ export function lastRunForVolume(db: Db, orgId: string, volumeSerial: string): S
   return (db
     .prepare("SELECT * FROM scan_runs WHERE org_id = ? AND drive_id = ? ORDER BY id DESC LIMIT 1")
     .get(orgId, drive.id) as ScanRunRow | undefined) ?? null;
+}
+
+export interface ScanErrorRow {
+  path: string | null;
+  extension: string | null;
+  stage: string | null;
+  error_text: string | null;
+  occurred_at: string | null;
+}
+/** scan_errors rows for a run — the Logged-Issues modal (genuine media-parse failures only). */
+export function listErrors(db: Db, runId: number, limit = 500): ScanErrorRow[] {
+  return db
+    .prepare("SELECT path, extension, stage, error_text, occurred_at FROM scan_errors WHERE run_id = ? ORDER BY id DESC LIMIT ?")
+    .all(runId, limit) as ScanErrorRow[];
 }
 
 export interface ScanFolderSummary {

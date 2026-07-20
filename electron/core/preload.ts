@@ -97,6 +97,8 @@ const api: Api = {
     writeReport: (runId: number) => ipcRenderer.invoke("scan:writeReport", runId),
     openReport: (runId: number) => ipcRenderer.invoke("scan:openReport", runId),
     openReportsFolder: (runId: number) => ipcRenderer.invoke("scan:openReportsFolder", runId),
+    readReport: (runId: number) => ipcRenderer.invoke("scan:readReport", runId),
+    listErrors: (runId: number) => ipcRenderer.invoke("scan:listErrors", runId),
   },
   updater: {
     download: () => ipcRenderer.invoke("updater:download"),

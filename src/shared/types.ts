@@ -171,6 +171,8 @@ export interface ScanSourceDecision {
 /** scan:progress push payload — folder-level, never per-file, throttled main-side. */
 export interface ScanProgress {
   runId: number;
+  /** Volume serial of the drive this run belongs to — so the UI shows a run only on ITS drive. */
+  volumeSerial: string | null;
   status: string;
   currentFolder: string | null;
   foldersCommitted: number;
@@ -180,6 +182,13 @@ export interface ScanProgress {
   note?: string; // e.g. "source-missing" when a drive vanished mid-run
   reportPath?: string | null; // terminal only — the written report, or null on write failure
   reportError?: string | null; // terminal only — surfaced when the report write failed
+}
+export interface ScanErrorRow {
+  path: string | null;
+  extension: string | null;
+  stage: string | null;
+  error_text: string | null;
+  occurred_at: string | null;
 }
 export interface ScanFolderSummary {
   path: string;
@@ -305,6 +314,10 @@ export interface Api {
     /** Reveal the report file / open the reports folder in the OS. */
     openReport: (runId: number) => Promise<{ ok: boolean; error?: string }>;
     openReportsFolder: (runId: number) => Promise<{ ok: boolean; error?: string }>;
+    /** Read the report markdown for the in-app modal (Secure Note ingestion is the later path). */
+    readReport: (runId: number) => Promise<{ ok: boolean; path?: string; content?: string; error?: string }>;
+    /** scan_errors rows for the Logged-Issues modal. */
+    listErrors: (runId: number) => Promise<ScanErrorRow[]>;
   };
   /** Auto-updater (§3.12) — user-consented download, install on quit. Auto cycle is packaged-only;
    *  check/version answer in every build so the Settings button is never dead. */

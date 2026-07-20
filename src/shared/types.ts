@@ -328,6 +328,10 @@ export interface Api {
     openPath: (target: string) => Promise<{ ok: boolean; error?: string }>;
     /** Distinct cameras in one folder's media, most-used first — Top-camera click-through. */
     folderCameras: (folderId: number) => Promise<ScanCameraCount[]>;
+    /** Print the Reading view to PDF beside the .md report (built-in printToPDF, no dependency). */
+    exportReportPdf: (runId: number, html: string, css: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    /** Stream every media-bearing folder row to a CSV beside the .md report. */
+    exportReportCsv: (runId: number) => Promise<{ ok: boolean; path?: string; error?: string }>;
   };
   /** Auto-updater (§3.12) — user-consented download, install on quit. Auto cycle is packaged-only;
    *  check/version answer in every build so the Settings button is never dead. */

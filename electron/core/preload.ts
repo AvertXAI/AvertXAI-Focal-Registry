@@ -101,6 +101,8 @@ const api: Api = {
     listErrors: (runId: number) => ipcRenderer.invoke("scan:listErrors", runId),
     openPath: (target: string) => ipcRenderer.invoke("scan:openPath", target),
     folderCameras: (folderId: number) => ipcRenderer.invoke("scan:folderCameras", folderId),
+    exportReportPdf: (runId: number, html: string, css: string) => ipcRenderer.invoke("scan:exportReportPdf", runId, html, css),
+    exportReportCsv: (runId: number) => ipcRenderer.invoke("scan:exportReportCsv", runId),
   },
   updater: {
     download: () => ipcRenderer.invoke("updater:download"),

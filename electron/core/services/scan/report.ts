@@ -39,6 +39,21 @@ function collisionFreePath(dir: string, base: string): string {
   return candidate;
 }
 
+/** Folder + filename stem for a run's on-drive artifacts, so a .pdf/.csv export lands beside the
+    .md report with the same name. Reuses report_path when present; else rebuilds the canonical name. */
+export function reportStem(db: Db, runId: number): { dir: string; base: string } {
+  const run = db.prepare("SELECT * FROM scan_runs WHERE id = ?").get(runId) as ScanRunRow | undefined;
+  if (!run) throw new Error(`scan run ${runId} not found`);
+  if (run.report_path) return { dir: path.dirname(run.report_path), base: path.basename(run.report_path, ".md") };
+  const drive = run.drive_id != null
+    ? (db.prepare("SELECT volume_label, volume_serial FROM scan_drives WHERE id = ?").get(run.drive_id) as { volume_label: string | null; volume_serial: string } | undefined)
+    : undefined;
+  const label = sanitizeLabel(drive?.volume_label ?? null, drive?.volume_serial ?? `run-${runId}`);
+  const dateStamp = (run.finished_at ?? run.started_at ?? new Date(0).toISOString()).slice(0, 10);
+  const driveRoot = path.parse(path.resolve(run.root_path)).root;
+  return { dir: path.join(driveRoot, REPORTS_FOLDER_NAME), base: `SCAN-${label}-${dateStamp}` };
+}
+
 function yamlList(pairs: Array<{ key: string; n: number }>): string {
   if (pairs.length === 0) return "{}";
   return `{ ${pairs.map((p) => `"${p.key}": ${p.n}`).join(", ")} }`;

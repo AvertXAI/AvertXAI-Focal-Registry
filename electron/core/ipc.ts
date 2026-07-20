@@ -8,7 +8,7 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/ipc.ts
 //------------------------------------------------------------
-import { app, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { defaultSettings, type ShredderSettings } from "../../src/modules/runbook-shredder/config.manifest";
@@ -24,6 +24,7 @@ import * as scoutTargets from "./services/scout-viewer/targets";
 import * as scan from "./services/scan";
 import * as scanDrives from "./services/scan/drives";
 import * as scanReport from "./services/scan/report";
+import * as scanExport from "./services/scan/export";
 import { ensureScanSchema } from "./services/scan/db";
 import { generateUUIDv7 } from "./services/utils/uuidv7";
 import * as settings from "./services/settings";
@@ -304,6 +305,49 @@ export function registerIpcHandlers(): void {
   safeHandle("scan:folderCameras", (_e, folderId: unknown) => {
     const { db } = scanCtx();
     return scan.folderCameras(db, Number(folderId));
+  });
+  // Export the Reading view to PDF via Electron's built-in printToPDF (no dependency). The renderer
+  // sends the rendered HTML + a print stylesheet; we print it in a hidden, script-disabled window and
+  // save beside the .md report, never overwriting (collision → -02). Any failure returns { ok:false }.
+  safeHandle("scan:exportReportPdf", async (_e, runId: unknown, html: unknown, css: unknown) => {
+    let tmp: string | null = null;
+    try {
+      const { db } = scanCtx();
+      const run = scan.getRun(db, Number(runId));
+      if (run.status !== "completed") return { ok: false, error: "The scan has not completed yet." };
+      const { dir, base } = scanReport.reportStem(db, run.id);
+      fs.mkdirSync(dir, { recursive: true });
+      const outPath = scanExport.collisionFreeName(dir, base, ".pdf");
+      const doc = `<!doctype html><html><head><meta charset="utf-8"><style>${String(css ?? "")}</style></head><body>${String(html ?? "")}</body></html>`;
+      tmp = path.join(app.getPath("temp"), `focal-report-${run.id}-${Date.now()}.html`);
+      fs.writeFileSync(tmp, doc, "utf8");
+      const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false } });
+      try {
+        await win.webContents.loadFile(tmp);
+        const pdf = await win.webContents.printToPDF({ printBackground: true, pageSize: "A4" });
+        fs.writeFileSync(outPath, pdf);
+      } finally { win.destroy(); }
+      return { ok: true, path: outPath };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    } finally {
+      if (tmp) { try { fs.unlinkSync(tmp); } catch { /* best-effort temp cleanup */ } }
+    }
+  });
+  // Export ALL media-bearing folder rows (not the report's top-100) to a streamed CSV beside the .md.
+  safeHandle("scan:exportReportCsv", async (_e, runId: unknown) => {
+    try {
+      const { db } = scanCtx();
+      const run = scan.getRun(db, Number(runId));
+      if (run.status !== "completed") return { ok: false, error: "The scan has not completed yet." };
+      const { dir, base } = scanReport.reportStem(db, run.id);
+      fs.mkdirSync(dir, { recursive: true });
+      const outPath = scanExport.collisionFreeName(dir, base, ".csv");
+      await scanExport.exportFoldersCsv(db, run.id, outPath);
+      return { ok: true, path: outPath };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
   });
   safeHandle("scan:openReportsFolder", (_e, runId: unknown) => {
     const { db } = scanCtx();

@@ -389,6 +389,10 @@ export interface Api {
     check: () => Promise<UpdateCheckOutcome>;
     version: () => Promise<string>;
   };
+  tray: {
+    /** Persist the tray-on-close setting and rewire the ✕ behaviour live (no restart). */
+    setEnabled: (enabled: boolean) => Promise<{ ok: boolean }>;
+  };
   /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the
    *  channel: updater:available → UpdateAvailableInfo, updater:progress → UpdateProgressInfo,
    *  updater:downloaded → empty object. */

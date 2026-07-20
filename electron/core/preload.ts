@@ -122,6 +122,10 @@ const api: Api = {
     check: () => ipcRenderer.invoke("updater:check"),
     version: () => ipcRenderer.invoke("updater:version"),
   },
+  tray: {
+    // Persist the tray-on-close setting AND rewire the ✕ behaviour live (handled in main.ts).
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke("tray:setEnabled", enabled),
+  },
   on: (channel: PushChannel, cb: (payload: never) => void) => {
     const w = (_e: Electron.IpcRendererEvent, payload: unknown) => (cb as (p: unknown) => void)(payload);
     wrapped.set(cb, w);

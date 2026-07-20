@@ -16,6 +16,7 @@ interface Props {
 export default function Settings({ themeMode, onThemeChange }: Props) {
   bumpRender("settings"); // DIAG-2
   const [skipBoot, setSkipBoot] = useState(false);
+  const [trayOn, setTrayOn] = useState(true); // tray-on-close — default ON (§3.11)
   const [activeSection, setActiveSection] = useState("General");
   const [appVersion, setAppVersion] = useState("");
   const [checking, setChecking] = useState(false);
@@ -30,6 +31,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
 
   useEffect(() => {
     void window.api.settings.get("skip_fast_boot").then((v) => setSkipBoot(v === "1"));
+    void window.api.settings.get("tray_enabled").then((v) => setTrayOn(v !== "0")); // default ON
     void window.api.updater.version().then(setAppVersion).catch(() => {}); // never hardcoded
   }, []);
 
@@ -93,6 +95,11 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
     const next = !skipBoot;
     setSkipBoot(next);
     void window.api.settings.set("skip_fast_boot", next ? "1" : "0");
+  };
+  const toggleTray = () => {
+    const next = !trayOn;
+    setTrayOn(next);
+    void window.api.tray.setEnabled(next); // persists to app_settings AND rewires the ✕ behaviour live
   };
 
   // Left-nav class — active drives the right pane. Only real sections switch; .nb items are not-built
@@ -165,6 +172,22 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                   </div>
                   <p className="hint">
                     Bypass the JARVIS terminal sequence on startup and load directly into the dashboard.
+                  </p>
+                </div>
+                <div className="field" style={{ marginTop: 26 }}>
+                  <div className="setrow">
+                    <label htmlFor="trayclose">Keep running in the tray on close</label>
+                    <button
+                      id="trayclose"
+                      role="switch"
+                      aria-checked={trayOn}
+                      className={`switch${trayOn ? " on" : ""}`}
+                      onClick={toggleTray}
+                    />
+                  </div>
+                  <p className="hint">
+                    On: closing the window (✕) keeps the app running in the system tray — reopen it from the
+                    tray icon. Off: closing the window quits completely, with nothing left in the background.
                   </p>
                 </div>
                 <div className="field" style={{ marginTop: 26 }}>

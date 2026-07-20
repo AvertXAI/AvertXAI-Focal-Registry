@@ -12,6 +12,7 @@ import { getDb } from "../db";
 
 const RENDERER_KEYS = new Set([
   "skip_fast_boot",
+  "tray_enabled", // system-tray hide-on-close — user setting, DEFAULT ON (§3.11); "0" = ✕ quits outright
   "rail_collapsed", // Mission Control sidebar collapse — persisted via app_settings, never localStorage
   "flyout_width", // shell sidebar drag-resize width (px, clamped renderer-side)
   "last_active_module", // boot-to-last-screen routing

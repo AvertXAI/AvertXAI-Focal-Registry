@@ -6,6 +6,7 @@ import path from "node:path";
 import { getDb, initDb, openDb } from "./core/services/db";
 import { migrateOrgDbSlugs } from "./core/services/db/migrate";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
+import { getSetting, setSetting } from "./core/services/settings";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/crypto";
 import { ensureShredder, registerIpcHandlers } from "./core/ipc";
 import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overlayFor, setBooting, setMainWindow, showMain } from "./core/windows";
@@ -60,6 +61,10 @@ app.on("before-quit", () => {
 });
 // Held so the OS doesn't garbage-collect the tray; process exit clears it (no destroy needed).
 let tray: Tray | null = null;
+// Tray-on-close is a USER SETTING (§3.11), DEFAULT ON. ON → ✕ hides to tray, process stays alive.
+// OFF → ✕ genuinely quits, no background process, no tray icon. The close handler reads this LIVE, so
+// flipping the toggle rewires behaviour with no restart.
+let trayEnabled = true;
 
 // Single-instance lock — a second launch focuses the existing window instead.
 if (!app.requestSingleInstanceLock()) {
@@ -122,7 +127,10 @@ function createWindow(): BrowserWindow {
   // Hide-to-tray: the ✕ hides the window instead of destroying it, unless a real Quit is underway.
   // The window is never destroyed by ✕, so window-all-closed never fires from it (tray keeps us alive).
   win.on("close", (e) => {
-    if (!isQuitting) {
+    // Read trayEnabled LIVE so the Settings toggle rewires this with no restart. Tray ON → hide to
+    // tray (unless a real quit is underway). Tray OFF → fall through: the window closes, then
+    // window-all-closed quits the app — no background process.
+    if (trayEnabled && !isQuitting) {
       e.preventDefault();
       win.hide();
     }
@@ -153,6 +161,17 @@ function createTray(): void {
   );
   tray.on("click", () => showMain());
   tray.on("double-click", () => showMain());
+}
+
+// Apply the tray setting live: create the tray icon when enabling, destroy it when disabling, and
+// flip the flag the close handler reads. Called at boot and from the Settings toggle (no restart).
+function setTrayEnabled(enabled: boolean): void {
+  trayEnabled = enabled;
+  if (enabled && !tray) createTray();
+  else if (!enabled && tray) {
+    tray.destroy();
+    tray = null;
+  }
 }
 
 app.whenReady().then(async () => {
@@ -201,7 +220,25 @@ app.whenReady().then(async () => {
   const win = createWindow();
   setMainWindow(win);
   applyThemeOverlay(bootThemeMode); // seed the funnel's theme; boot flag keeps the frame boot-dark
-  createTray(); // hide-to-tray target; keeps the app alive in the background after ✕
+  // Tray defaults ON (§3.11). Read the persisted setting once the org DB is open; "0" = user turned
+  // it off, so ✕ quits and no tray icon is created. First-run (no org) stays on the default.
+  let trayPref = true;
+  if (org) {
+    try {
+      trayPref = getSetting("tray_enabled") !== "0";
+    } catch {
+      /* setting unreadable — keep the default ON */
+    }
+  }
+  setTrayEnabled(trayPref); // creates the tray only when enabled; the ✕ handler reads trayEnabled live
+  // Live rewire from the Settings toggle: persist through the sanctioned settings service AND flip the
+  // tray with no restart. Kept in main.ts (owns the Tray + window) to avoid an ipc.ts→main.ts cycle.
+  ipcMain.handle("tray:setEnabled", (_e, enabled: unknown) => {
+    const on = enabled !== false && enabled !== "0" && enabled !== 0;
+    setSetting("tray_enabled", on ? "1" : "0");
+    setTrayEnabled(on);
+    return { ok: true };
+  });
   initUpdater(win); // §3.12 — no-op in dev (packaged builds only)
   initDiag(); // DIAG-1: dev-gated runtime collector — no-op unless env DIAG=1
 

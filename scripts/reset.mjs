@@ -1,18 +1,20 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-// dev:reset — RENAMES the whole userData folder to a timestamped backup so the next boot runs First-Run
-// from a TRUE blank slate. dev:clean only removed platform_registry (and from a legacy folder name), so
-// the org database survived, the boot migration found it, and First-Run never reappeared. This NEVER
-// deletes — it renames, so a mistake is one rename away from undone.
+// dev:reset — a TRUE WIPE for repeated First-Run testing (Jason ruled: nothing in here he can't
+// regenerate). DELETES both the userData folder (holds platform_registry + every org DB, in Roaming)
+// AND the app-managed Markdown root (home\AvertXAI — after the storage relocation it lives OUTSIDE
+// userData and would otherwise survive). Two guards only: never in a packaged app, never while the
+// app is running. Prints one line per target so the result is never ambiguous.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-// GUARD 1 (FIRST) — dev-only. A plain `node` script cannot read Electron's app.isPackaged, so the
-// equivalent guard is: this MUST run from the Focal Registry SOURCE repo. Refuse otherwise — this must
-// never run against a packaged install's data.
+// GUARD 1 — never in a packaged app. A plain `node` script cannot read Electron's app.isPackaged, and
+// this script is NOT shipped inside the asar, so a packaged app is already incapable of running it.
+// The runtime equivalent: refuse unless we are in the Focal Registry SOURCE repo.
 let pkg;
 try {
   pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
@@ -20,12 +22,12 @@ try {
   pkg = null;
 }
 if (!pkg || pkg.name !== "avertxai-focal-registry") {
-  console.error("dev:reset REFUSED — not the Focal Registry source repo. This is dev-only; never run it against a packaged install.");
+  console.error("dev:reset REFUSED — not the Focal Registry source repo. A packaged app must never run this.");
   process.exit(1);
 }
 
-// GUARD 2 — refuse if the app is running, and NAME which. Renaming a folder that holds an open SQLite
-// handle corrupts the database.
+// GUARD 2 — refuse if the app is running, and NAME which. Deleting under an open SQLite handle gives a
+// corrupt file, not a clean slate.
 const running = [];
 try {
   const out = (spawnSync("tasklist", { encoding: "utf8", windowsHide: true }).stdout || "").toLowerCase();
@@ -33,33 +35,29 @@ try {
     if (out.includes(name.toLowerCase())) running.push(name);
   }
 } catch {
-  /* tasklist unavailable — fall through; the rename fails loudly if a handle is actually open */
+  /* tasklist unavailable — rmSync fails loudly if a handle is actually open */
 }
 if (running.length) {
-  console.error(`dev:reset REFUSED — running: ${running.join(", ")}. Close them first (an open SQLite handle would be corrupted by the rename).`);
+  console.error(`dev:reset REFUSED — running: ${running.join(", ")}. Close them first, then re-run.`);
   process.exit(1);
 }
 
-// userData folder derives from productName — NEVER hardcoded.
 if (!process.env.APPDATA) {
   console.error("dev:reset: APPDATA is not set — cannot resolve the userData folder.");
   process.exit(1);
 }
 const productName = pkg.productName || "AvertXAI Focal Registry";
-const userData = path.join(process.env.APPDATA, productName);
-if (!fs.existsSync(userData)) {
-  console.log(`dev:reset: nothing to reset — "${userData}" does not exist (already a blank slate).`);
-  process.exit(0);
+const targets = [
+  { label: "userData     ", dir: path.join(process.env.APPDATA, productName) }, // Roaming — registry + all org DBs
+  { label: "markdown root", dir: path.join(os.homedir(), "AvertXAI") },         // home\AvertXAI — the app-managed tree
+];
+
+for (const t of targets) {
+  if (fs.existsSync(t.dir)) {
+    fs.rmSync(t.dir, { recursive: true, force: true });
+    console.log(`deleted    ${t.label}  ${t.dir}`);
+  } else {
+    console.log(`not found  ${t.label}  ${t.dir}`);
+  }
 }
-
-const d = new Date();
-const p2 = (n) => String(n).padStart(2, "0");
-const stamp = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}`;
-const backup = `${userData}.backup-${stamp}`;
-
-fs.renameSync(userData, backup); // NEVER delete
-console.log("dev:reset: the next boot runs First-Run from a blank slate. Nothing was deleted.");
-console.log(`  backed up to: ${backup}`);
-console.log(`  to undo:      rename it back to "${productName}"`);
-console.log("  note: the app-managed Markdown tree lives OUTSIDE userData (default %USERPROFILE%\\AvertXAI),");
-console.log("        so it is NOT touched by this reset. Delete %USERPROFILE%\\AvertXAI by hand for a true blank slate.");
+console.log("dev:reset: done — the next boot runs First-Run from a true blank slate.");

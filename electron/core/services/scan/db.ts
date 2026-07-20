@@ -136,6 +136,9 @@ export function ensureScanSchema(db: Db): void {
     if (!runCols.includes("report_local_path")) db.exec("ALTER TABLE scan_runs ADD COLUMN report_local_path TEXT;");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_run_folder ON scan_files (run_id, folder_id);");
+  // folder_id ALONE — folderCameras and any per-folder lookup query by folder_id without run_id;
+  // without this it full-scans scan_files (1M+ rows), which froze the dashboard as the table grew.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_folder ON scan_files (folder_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_org_path ON scan_files (org_id, path);");
 
   // Append-only event log for the run — failures AND rule-skips (error_text prefix 'skipped:'),

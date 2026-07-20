@@ -861,7 +861,7 @@ export function listFolders(db: Db, runId: number, limit = 200): ScanFolderSumma
                  WHEN SUM(CASE WHEN captured_at_source='exif' THEN 1 ELSE 0 END) >
                       SUM(CASE WHEN captured_at_source='file' THEN 1 ELSE 0 END) THEN 'capture'
                  WHEN COUNT(captured_at) > 0 THEN 'file' ELSE NULL END
-               FROM scan_files WHERE folder_id = scan_folders.id AND captured_at IS NOT NULL) AS date_source
+               FROM scan_files WHERE run_id = scan_folders.run_id AND folder_id = scan_folders.id AND captured_at IS NOT NULL) AS date_source
        FROM scan_folders WHERE run_id = ? AND file_count > 0 ORDER BY depth ASC, total_bytes DESC LIMIT ?`
     )
     .all(runId, limit) as ScanFolderSummary[];

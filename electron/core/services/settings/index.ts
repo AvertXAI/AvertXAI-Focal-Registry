@@ -18,6 +18,7 @@ const RENDERER_KEYS = new Set([
   "nav_section_state", // sidebar grouped-section expand/collapse (JSON map) — never localStorage
   "theme_mode", // 3-state theme toggle (system/light/dark) — persisted, never localStorage
   "org_name", // active org display name — read-only in the renderer (TopBar brand); written by first-run/setup
+  "markdown_root", // user-chosen ROOT for the app-managed Markdown tree (_source\MissionControl\…); app owns everything below it
   // Runbook Shredder namespaced settings — the module persists these through this sanctioned path,
   // never a direct app_settings write ("Expose, Don't Connect"). auto_reparse stays main-only.
   "runbook-shredder.watch_path",

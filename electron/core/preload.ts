@@ -51,6 +51,12 @@ const api: Api = {
     applyOverlay: (mode: string) => ipcRenderer.invoke("theme:overlay", mode),
     setModalDim: (on: boolean) => ipcRenderer.invoke("theme:modalDim", on),
   },
+  storage: {
+    locations: () => ipcRenderer.invoke("storage:locations"),
+    pickRoot: () => ipcRenderer.invoke("storage:pickRoot"),
+    changeRoot: (newRoot: string) => ipcRenderer.invoke("storage:changeRoot", newRoot),
+    openFolder: (target: string) => ipcRenderer.invoke("storage:openFolder", target),
+  },
   scout: {
     setVisible: (visible: boolean) => ipcRenderer.send("scout:visible", visible),
     updateBounds: (bounds: ScoutBounds) => ipcRenderer.send("scout:bounds", bounds),

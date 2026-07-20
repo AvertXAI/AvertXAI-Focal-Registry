@@ -201,6 +201,13 @@ export interface ScanErrorList {
   total: number;
   rows: ScanErrorRow[];
 }
+/** The two storage locations shown in Settings — the app-managed Markdown tree and the Documents exports. */
+export interface StorageLocations {
+  markdownRoot: string;
+  focalRegistry: string;
+  scanMarkdown: string;
+  documentsExports: string;
+}
 export interface ScanFolderSummary {
   id: number;
   path: string;
@@ -268,6 +275,13 @@ export interface Api {
     applyOverlay: (mode: string) => Promise<void>;
     /** Dim/restore the native min/□/✕ overlay while a modal is open (OS draws it above the DOM). */
     setModalDim: (on: boolean) => Promise<void>;
+  };
+  /** App-managed Markdown storage root + the Documents export folder (Settings transparency). */
+  storage: {
+    locations: () => Promise<StorageLocations>;
+    pickRoot: () => Promise<string | null>;
+    changeRoot: (newRoot: string) => Promise<{ ok: boolean; error?: string }>;
+    openFolder: (target: string) => Promise<{ ok: boolean; error?: string }>;
   };
   /** Scout Viewer — Fortified Browser engine bridge. Subscriptions return an unsubscribe fn. */
   scout: {

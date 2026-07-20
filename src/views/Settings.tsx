@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { DoorTheme, Gear, Mail, Vault, Webhook } from "../icons";
 import { bumpRender } from "../diag";
 import { signalUpdateToast, type ThemeMode } from "../App";
+import type { StorageLocations } from "../shared/types";
 
 interface Props {
   themeMode: ThemeMode;
@@ -22,6 +23,10 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const [clearedCount, setClearedCount] = useState(0);
   const [confirmStep, setConfirmStep] = useState(0); // 0 idle → 1 first confirm → 2 second confirm (double-confirm delete-forever)
   const [scanMsg, setScanMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Storage · locations transparency + change-root
+  const [storageLoc, setStorageLoc] = useState<StorageLocations | null>(null);
+  const [storageMsg, setStorageMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [pendingRoot, setPendingRoot] = useState<string | null>(null);
 
   useEffect(() => {
     void window.api.settings.get("skip_fast_boot").then((v) => setSkipBoot(v === "1"));
@@ -32,7 +37,24 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   // Refresh the cleared-run count whenever the Scan section opens; reset any in-flight confirm/message.
   useEffect(() => {
     if (activeSection === "Scan") { loadCleared(); setConfirmStep(0); setScanMsg(null); }
+    if (activeSection === "Storage") { setStorageMsg(null); setPendingRoot(null); void window.api.storage.locations().then(setStorageLoc).catch(() => {}); }
   }, [activeSection]);
+
+  const pickNewRoot = async () => {
+    const picked = await window.api.storage.pickRoot();
+    if (picked) { setStorageMsg(null); setPendingRoot(picked); } // offer to copy before committing (2.6)
+  };
+  const confirmChangeRoot = async () => {
+    if (!pendingRoot) return;
+    const r = await window.api.storage.changeRoot(pendingRoot);
+    setPendingRoot(null);
+    if (r.ok) {
+      setStorageMsg({ ok: true, text: "Location changed — your records were copied to the new folder. The old folder was left untouched." });
+      void window.api.storage.locations().then(setStorageLoc);
+    } else {
+      setStorageMsg({ ok: false, text: `Could not change location: ${r.error ?? "unknown error"}. Nothing was moved or deleted.` });
+    }
+  };
 
   const restoreHistory = async () => {
     try {
@@ -89,6 +111,10 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
             <button className={nav("Appearance")} onClick={() => setActiveSection("Appearance")}>
               <DoorTheme />
               Appearance
+            </button>
+            <button className={nav("Storage")} onClick={() => setActiveSection("Storage")}>
+              <FolderIcon />
+              Storage
             </button>
             <div className="setsec">Access</div>
             <div className="setsec">Modules</div>
@@ -223,6 +249,51 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
               </>
             )}
 
+            {activeSection === "Storage" && (
+              <>
+                <h2>Storage</h2>
+                <p className="hint" style={{ marginBottom: 18 }}>
+                  Where Focal Registry keeps your files. You choose the root folder for the Markdown records;
+                  the app manages everything below it. Click a path to open that folder.
+                </p>
+                <div className="field">
+                  <label>Markdown records (app-managed)</label>
+                  <button className="pathrow" title="Open this folder" onClick={() => void window.api.storage.openFolder(storageLoc?.scanMarkdown ?? "")}>
+                    {storageLoc?.scanMarkdown ?? "…"}
+                  </button>
+                  <p className="hint">Scan reports are saved here (and, for a scan, also onto the scanned drive so they travel with the archive).</p>
+                </div>
+                <div className="field" style={{ marginTop: 22 }}>
+                  <label>Exports (PDF / CSV)</label>
+                  <button className="pathrow" title="Open this folder" onClick={() => void window.api.storage.openFolder(storageLoc?.documentsExports ?? "")}>
+                    {storageLoc?.documentsExports ?? "…"}
+                  </button>
+                  <p className="hint">Every PDF or CSV you export lands here, and the folder opens with the file selected.</p>
+                </div>
+                <div className="field" style={{ marginTop: 22 }}>
+                  <div className="setrow">
+                    <label>Change the records location</label>
+                    {pendingRoot ? null : <button className="btn" onClick={() => void pickNewRoot()}>Choose folder…</button>}
+                  </div>
+                  {pendingRoot && (
+                    <div style={{ marginTop: 8 }}>
+                      <p className="hint" style={{ marginBottom: 8 }}>
+                        Copy your records into <b>{pendingRoot}</b>? The current folder is <b>left untouched</b> — nothing is moved or deleted.
+                      </p>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="btn" onClick={() => setPendingRoot(null)}>Cancel</button>
+                        <button className="btn" onClick={() => void confirmChangeRoot()}>Copy &amp; switch</button>
+                      </div>
+                    </div>
+                  )}
+                  <p className="hint">Picks a new root; the app copies the existing tree there and then points at it. The old location is never removed.</p>
+                  {storageMsg && (
+                    <p className="hint" style={{ color: storageMsg.ok ? "var(--mc-green)" : "#e0574f", marginTop: 8 }}>{storageMsg.text}</p>
+                  )}
+                </div>
+              </>
+            )}
+
             {activeSection === "Scan" && (
               <>
                 <h2>Scan</h2>
@@ -309,6 +380,13 @@ function ScanIcon() {
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
       <path d="M2 5.2V3.4A1.4 1.4 0 0 1 3.4 2h1.8M10.8 2h1.8A1.4 1.4 0 0 1 14 3.4v1.8M14 10.8v1.8a1.4 1.4 0 0 1-1.4 1.4h-1.8M5.2 14H3.4A1.4 1.4 0 0 1 2 12.6v-1.8" />
       <path d="M2 8h12" />
+    </svg>
+  );
+}
+function FolderIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1.8 4.4c0-.7.5-1.3 1.3-1.3h2.7l1.4 1.6h5.7c.7 0 1.3.6 1.3 1.3v5.9c0 .7-.6 1.3-1.3 1.3H3.1c-.7 0-1.3-.6-1.3-1.3V4.4Z" />
     </svg>
   );
 }

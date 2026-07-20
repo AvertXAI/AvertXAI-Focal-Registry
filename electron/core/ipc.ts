@@ -25,6 +25,7 @@ import * as scan from "./services/scan";
 import * as scanDrives from "./services/scan/drives";
 import * as scanReport from "./services/scan/report";
 import * as scanExport from "./services/scan/export";
+import * as storage from "./services/storage";
 import { ensureScanSchema } from "./services/scan/db";
 import { generateUUIDv7 } from "./services/utils/uuidv7";
 import * as settings from "./services/settings";
@@ -202,6 +203,26 @@ export function registerIpcHandlers(): void {
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
   });
   safeHandle("shredder:rescan", () => rescanShredder());
+
+  // --- storage (Phase 2): the app-managed Markdown root + the Documents export folder ---
+  // locations ENSURES the tree exists (first look creates it, no prompt beyond the root choice).
+  safeHandle("storage:locations", () => storage.storageLocations());
+  safeHandle("storage:pickRoot", async () => {
+    const win = getMainWindow();
+    const res = win
+      ? await dialog.showOpenDialog(win, { properties: ["openDirectory", "createDirectory"], title: "Choose a folder for Focal Registry's records" })
+      : await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"], title: "Choose a folder for Focal Registry's records" });
+    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
+  });
+  // Copies the existing tree to the new root, then re-points — never moves/deletes the old (2.6).
+  safeHandle("storage:changeRoot", (_e, newRoot: unknown) => storage.changeMarkdownRoot(String(newRoot ?? "")));
+  // Open one of the shown storage folders in the OS file manager (Settings transparency, 2.5).
+  safeHandle("storage:openFolder", (_e, target: unknown) => {
+    const p = String(target ?? "");
+    if (p === "" || !fs.existsSync(p)) return { ok: false, error: "Folder not found." };
+    void shell.openPath(p);
+    return { ok: true };
+  });
 
   // scan module — READ-ONLY against sources; the only writes are rows in the org DB. Long-running
   // start/resume are fire-and-forget: progress flows over the scan:progress push, errors are pushed

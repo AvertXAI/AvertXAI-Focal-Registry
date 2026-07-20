@@ -15,7 +15,7 @@ import path from "node:path";
 import exifr from "exifr";
 import { parseFile } from "music-metadata";
 import { readIsoBmffGeometry } from "./isobmff-reader";
-import { canExifr, canIsoBmff, canMusicMetadata, mediaClass } from "./media";
+import { canExifr, canIsoBmff, canMusicMetadata, isExcludedDir, isMpegTransportStream, mediaClass, needsContentSniff } from "./media";
 import { generateUUIDv7 } from "../utils/uuidv7";
 import type { Db } from "./db";
 import type { ScanRunRow } from "./drives";
@@ -49,10 +49,29 @@ export const DEFAULT_SKIP_RULES: SkipRules = {
 
 function dirSkipRule(name: string, rules: SkipRules): string | null {
   const lower = name.toLowerCase();
+  if (isExcludedDir(name)) return `excluded-dir ${name}`; // build/dependency artifact — list in media.ts
   if (rules.dirNames.some((n) => n.toLowerCase() === lower)) return `dir-name ${name}`;
   if (rules.dirSuffixes.some((s) => lower.endsWith(s))) return `dir-suffix ${name}`;
   if (rules.skipDotPrefixedDirs && name.startsWith(".")) return `hidden-dot ${name}`;
   return null;
+}
+
+// Content-sniff an ambiguous extension (.mts = AVCHD video OR TypeScript). Reads the first 512 bytes
+// and returns whether the file is a real MPEG transport stream. Any read failure → false (treated as
+// non-media, same as a skip). Cheap: after the node_modules/dist/etc. dir exclusions, only a handful
+// of stray config/test .mts reach this.
+function isRealTransportStream(full: string): boolean {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(full, "r");
+    const head = Buffer.alloc(512);
+    fs.readSync(fd, head, 0, 512, 0);
+    return isMpegTransportStream(head);
+  } catch {
+    return false;
+  } finally {
+    if (fd !== null) { try { fs.closeSync(fd); } catch { /* ignore */ } }
+  }
 }
 function fileSkipRule(name: string, rules: SkipRules): string | null {
   const lower = name.toLowerCase();
@@ -187,7 +206,11 @@ export async function countRun(
     for (const name of listing.files) {
       totalFiles += 1;
       if (fileSkipRule(name, rules)) continue;
-      if (mediaClass(path.extname(name).replace(/^\./, "")) !== null) mediaFiles += 1;
+      const ext = path.extname(name).replace(/^\./, "");
+      if (mediaClass(ext) === null) continue;
+      // Same content-sniff as the scan walk so the count denominator matches what actually gets rowed.
+      if (needsContentSniff(ext) && !isRealTransportStream(path.join(dir, name))) continue;
+      mediaFiles += 1;
     }
     for (const d of listing.dirs) {
       const full = path.join(dir, d);
@@ -641,6 +664,9 @@ export async function startRun(
           const cls = mediaClass(ext);
           if (cls === null) continue; // NON-MEDIA — counted in totalFilesSeen, no row, no parser, no error
           const full = path.join(node.dir, name);
+          // Ambiguous-by-name (.mts): only a real MPEG transport stream is media. A TypeScript .mts is
+          // skipped here — counted in totalFilesSeen, no row, no parser, no error (same as non-media).
+          if (needsContentSniff(ext) && !isRealTransportStream(full)) continue;
           const blank = {
             capturedAt: null, capturedAtSource: null as FileRow["capturedAtSource"], cameraMake: null,
             cameraModel: null, lens: null, width: null, height: null, originalFilename: null,

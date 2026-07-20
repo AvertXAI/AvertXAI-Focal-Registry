@@ -38,6 +38,38 @@ export function mediaClass(ext: string): MediaClass | null {
   return null;
 }
 
+// --- directories skipped at ANY depth (build / dependency artifacts, not a photo archive) ---
+// Skipped BY RULE: the folder is never descended, so nothing inside is counted, rowed, or parsed —
+// and it is NEVER an error row. Lives HERE, beside the media set, so the two "what to ignore" knobs
+// (which extensions are media, which folders to skip) sit in one file.
+// FUTURE SETTINGS HOOK: a Scan-settings surface would persist the user's added/removed dir names to
+// app_settings and merge them over this default set at run start — the SAME hook the media extension
+// set would use to become user-editable. (Verified against the audit: node_modules alone held 31,568
+// of 31,604 .mts, all TypeScript.)
+export const EXCLUDED_DIR_NAMES = new Set([
+  "node_modules", ".git", "dist", "build", "release", "release-new", "win-unpacked",
+  ".next", ".cache", "vendor",
+]);
+export const isExcludedDir = (name: string): boolean => EXCLUDED_DIR_NAMES.has(name.toLowerCase());
+
+// --- content-sniff: extensions ambiguous by NAME, classified by CONTENT ---
+// `.mts` is BOTH an AVCHD MPEG transport stream AND TypeScript's module extension (.mts / .d.mts).
+// Only a real transport stream is video; a TypeScript .mts is non-media (counted, no row, no parser,
+// no error). The dir exclusions above remove nearly all of them; this catches the stray config/test
+// .mts that live outside node_modules (vitest.config.mts, *.spec.mts, …).
+export const CONTENT_SNIFF_EXTS = new Set(["mts"]);
+export const needsContentSniff = (ext: string): boolean => CONTENT_SNIFF_EXTS.has(ext.toLowerCase());
+
+/** True iff the first bytes are a real MPEG transport stream. Accepts BOTH packet strides so a
+    genuine camcorder file is never skipped: 188-byte TS (sync 0x47 at 0/188/376) AND 192-byte
+    BDAV/M2TS as written by AVCHD camcorders (4-byte timecode prefix → sync at 4/196/388). Read the
+    first 512 bytes so offset 388 is covered. TypeScript text fails both. */
+export function isMpegTransportStream(head: Uint8Array): boolean {
+  if (head.length > 376 && head[0] === 0x47 && head[188] === 0x47 && head[376] === 0x47) return true;
+  if (head.length > 388 && head[4] === 0x47 && head[196] === 0x47 && head[388] === 0x47) return true;
+  return false;
+}
+
 // --- routing capability: only call a parser for a format it can actually read ---
 // exifr reads JPEG/TIFF(+TIFF-based RAW)/HEIC/AVIF/PNG/WebP headers; it CANNOT read bmp, gif, psd,
 // psb, or jxl — those get a row with the file-date baseline and NO parser call, NO error row.

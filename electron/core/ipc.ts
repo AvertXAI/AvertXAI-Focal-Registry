@@ -313,8 +313,12 @@ export function registerIpcHandlers(): void {
   safeHandle("scan:openReport", (_e, runId: unknown) => {
     const { db } = scanCtx();
     const run = scan.getRun(db, Number(runId));
-    if (!run.report_path) return { ok: false, error: "no report on this run" };
-    void shell.showItemInFolder(run.report_path); // reveals + selects; the safe cross-format open
+    // Prefer the on-drive copy; fall back to the local copy when the drive is unplugged.
+    const target = run.report_path && fs.existsSync(run.report_path) ? run.report_path
+      : run.report_local_path && fs.existsSync(run.report_local_path) ? run.report_local_path
+      : null;
+    if (!target) return { ok: false, error: "no report on this run" };
+    void shell.showItemInFolder(target); // reveals + selects; the safe cross-format open
     return { ok: true };
   });
   // Reveal a scanned folder in the OS file manager. Hardened (audit R2): the path must (a) exist,
@@ -422,8 +426,10 @@ export function registerIpcHandlers(): void {
   safeHandle("scan:openReportsFolder", (_e, runId: unknown) => {
     const { db } = scanCtx();
     const run = scan.getRun(db, Number(runId));
-    const dir = run.report_path
-      ? path.dirname(run.report_path)
+    // Drive copy's folder if the drive is present; else the local copy's folder (unplugged); else the
+    // drive's reports root as a last resort. Never send the OS at a dead drive letter.
+    const dir = run.report_path && fs.existsSync(run.report_path) ? path.dirname(run.report_path)
+      : run.report_local_path && fs.existsSync(run.report_local_path) ? path.dirname(run.report_local_path)
       : path.join(path.parse(path.resolve(run.root_path)).root, scanReport.REPORTS_FOLDER_NAME);
     void shell.openPath(dir);
     return { ok: true };
@@ -433,9 +439,15 @@ export function registerIpcHandlers(): void {
   safeHandle("scan:readReport", (_e, runId: unknown) => {
     const { db } = scanCtx();
     const run = scan.getRun(db, Number(runId));
-    if (!run.report_path || !fs.existsSync(run.report_path)) return { ok: false, error: "No report file on disk." };
+    // Prefer the drive copy (travels with the archive); fall back to the local copy in the app-managed
+    // tree when the drive is unplugged — report_local_path is ALWAYS on local disk (Phase 3 double-save),
+    // so reviewing a past scan works whether or not the drive is connected.
+    const src = run.report_path && fs.existsSync(run.report_path) ? run.report_path
+      : run.report_local_path && fs.existsSync(run.report_local_path) ? run.report_local_path
+      : null;
+    if (!src) return { ok: false, error: "No report file on disk." };
     try {
-      return { ok: true, path: run.report_path, content: fs.readFileSync(run.report_path, "utf8") };
+      return { ok: true, path: src, content: fs.readFileSync(src, "utf8") };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }

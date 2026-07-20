@@ -56,6 +56,7 @@ export interface ScanRunRow {
   errors_logged: number;
   resume_cursor: string | null;
   report_path: string | null;
+  report_local_path: string | null; // the copy in the app-managed Markdown tree — always local, drive or not
   total_files_expected: number | null;
   total_folders_expected: number | null;
 }

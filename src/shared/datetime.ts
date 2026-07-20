@@ -15,7 +15,7 @@
 // File: src/shared/datetime.ts
 //------------------------------------------------------------
 
-export type DateMode = "iso" | "eventTime" | "dateOnly" | "titleDate";
+export type DateMode = "iso" | "eventTime" | "dateOnly" | "titleDate" | "fileStamp";
 
 /** Normalize either stored shape to a Date, ALWAYS treating the stored value as UTC. */
 function parseUtc(value: string): Date | null {
@@ -46,6 +46,14 @@ function dateOnly(d: Date): string {
   return `${p.month}/${p.day}/${p.year}`;
 }
 
+// LOCAL "YYYY-MM-DD" — FILENAMES only. Lexically sortable, no time, no zone marker. Fixes the UTC
+// filename drift: a 10:05pm-Central-07/19 scan named its file 2026-07-20 (UTC) — wrong day, and two
+// scans on one local evening could split across files while two on different evenings collided.
+function fileStamp(d: Date): string {
+  const p = partsOf(d, { year: "numeric", month: "2-digit", day: "2-digit" });
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
 /**
  * Format ONE stored timestamp. Callers pick a mode; they never pass a format string.
  *  - iso       → normalized UTC ISO-8601 with Z. Report .md frontmatter and CSV ONLY (machine-ingestible).
@@ -61,6 +69,7 @@ export function formatStamp(value: string | null | undefined, mode: DateMode): s
   switch (mode) {
     case "iso": return d.toISOString();
     case "dateOnly": return dateOnly(d);
+    case "fileStamp": return fileStamp(d);
     case "eventTime":
     case "titleDate": return eventTime(d);
   }

@@ -50,7 +50,9 @@ export function reportStem(db: Db, runId: number): { dir: string; base: string }
     ? (db.prepare("SELECT volume_label, volume_serial FROM scan_drives WHERE id = ?").get(run.drive_id) as { volume_label: string | null; volume_serial: string } | undefined)
     : undefined;
   const label = sanitizeLabel(drive?.volume_label ?? null, drive?.volume_serial ?? `run-${runId}`);
-  const dateStamp = (run.finished_at ?? run.started_at ?? new Date(0).toISOString()).slice(0, 10);
+  // LOCAL date in the filename (fileStamp) — never UTC, so the file lands under the day Paul scanned.
+  const stampSrc = run.finished_at ?? run.started_at;
+  const dateStamp = stampSrc ? formatStamp(stampSrc, "fileStamp") : new Date(0).toISOString().slice(0, 10);
   const driveRoot = path.parse(path.resolve(run.root_path)).root;
   return { dir: path.join(driveRoot, REPORTS_FOLDER_NAME), base: `SCAN-${label}-${dateStamp}` };
 }
@@ -140,7 +142,7 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
 
     const label = sanitizeLabel(drive?.volume_label ?? null, drive?.volume_serial ?? `run-${runId}`);
     const scannedAt = run.finished_at ?? run.started_at ?? "";
-    const dateStamp = (scannedAt || new Date(0).toISOString()).slice(0, 10);
+    const dateStamp = scannedAt ? formatStamp(scannedAt, "fileStamp") : new Date(0).toISOString().slice(0, 10);
 
     // ---- destination: the SCANNED drive's root, the one sanctioned user-drive write ----
     const driveRoot = reportRootOverride ?? path.parse(path.resolve(run.root_path)).root;

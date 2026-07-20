@@ -251,3 +251,172 @@ export async function startRename(db: Db, orgId: string, opts: StartRenameOpts):
   onProgress({ batchId, status: finalStatus, currentFile: null, total, copied, skipped, errored });
   return batchId;
 }
+
+// --- queries (History / Revert / Presets consumers) ---
+export interface RenameBatchRow {
+  id: number;
+  kind: string;
+  reverted_from_batch_id: number | null;
+  client_name: string | null;
+  project_name: string | null;
+  shoot_date: string | null;
+  custom_tag: string | null;
+  prefix_mode: string;
+  business_name: string | null;
+  photographer_name: string | null;
+  sequence_start: number;
+  sequence_pad: number;
+  destination_path: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  image_count: number;
+  video_count: number;
+  audio_count: number;
+  files_copied: number;
+  files_skipped: number;
+  files_errored: number;
+  created_at: string;
+}
+
+export function getBatch(db: Db, orgId: string, id: number): RenameBatchRow | null {
+  return (db.prepare("SELECT * FROM rename_batches WHERE org_id = ? AND id = ?").get(orgId, id) as RenameBatchRow | undefined) ?? null;
+}
+export function listBatches(db: Db, orgId: string, limit = 50): RenameBatchRow[] {
+  return db.prepare("SELECT * FROM rename_batches WHERE org_id = ? ORDER BY id DESC LIMIT ?").all(orgId, limit) as RenameBatchRow[];
+}
+
+export interface RevertRow {
+  copy_filename: string;
+  source_filename: string;
+  source_path: string;
+  bytes: number;
+}
+/** The reverse mapping for a batch's successfully-copied files: copy name → original name (4.1). */
+export function revertMapping(db: Db, orgId: string, batchId: number): RevertRow[] {
+  return db
+    .prepare(
+      `SELECT copy_filename, source_filename, source_path, bytes FROM rename_files
+       WHERE org_id = ? AND batch_id = ? AND status = 'copied' AND copy_filename IS NOT NULL
+       ORDER BY sequence_number, source_filename`
+    )
+    .all(orgId, batchId) as RevertRow[];
+}
+/** A bounded sample of a batch's rows for the History card (spec 5.4). */
+export function batchSample(db: Db, orgId: string, batchId: number, limit = 6): { source_filename: string; copy_filename: string | null; status: string }[] {
+  return db
+    .prepare(
+      "SELECT source_filename, copy_filename, status FROM rename_files WHERE org_id = ? AND batch_id = ? ORDER BY sequence_number LIMIT ?"
+    )
+    .all(orgId, batchId, limit) as { source_filename: string; copy_filename: string | null; status: string }[];
+}
+
+// --- Phase 4: REVERT ENGINE ---
+// Given a batch and the folder holding its copies, restore each copy to a user-chosen destination
+// UNDER ITS ORIGINAL NAME. This makes a THIRD set of files: nothing is renamed in place, nothing is
+// deleted, nothing is overwritten (COPYFILE_EXCL). The revert is itself logged as a batch row (4.4).
+export interface StartRevertOpts {
+  batchId: number;
+  copiesFolder: string; // where the batch's copies currently live (read-only source of the revert)
+  destination: string; // where restored originals are written (a new, third location)
+  onProgress: (p: RenameProgress) => void;
+}
+export interface RevertResult {
+  revertBatchId: number;
+  restored: number;
+  skipped: number;
+  missing: number; // in the log but not on disk (4.3) — reported, not fatal
+  extraOnDisk: number; // on disk but not in the log (4.3) — left alone, reported
+}
+
+export async function startRevert(db: Db, orgId: string, opts: StartRevertOpts): Promise<RevertResult> {
+  const { batchId, copiesFolder, destination, onProgress } = opts;
+  if (isDriveRoot(destination)) throw new Error(`Refusing a drive root as the revert destination: "${destination}".`);
+
+  const mapping = revertMapping(db, orgId, batchId);
+  const loggedNames = new Set(mapping.map((m) => m.copy_filename.toLowerCase()));
+
+  // (4.3) files on disk not in the log — leave alone, count for the report.
+  let extraOnDisk = 0;
+  try {
+    for (const name of fs.readdirSync(copiesFolder)) {
+      const full = path.join(copiesFolder, name);
+      try {
+        if (fs.statSync(full).isFile() && !loggedNames.has(name.toLowerCase())) extraOnDisk++;
+      } catch {
+        /* vanished — ignore */
+      }
+    }
+  } catch {
+    /* copiesFolder unreadable — the mapping loop reports each entry as missing */
+  }
+
+  const original = getBatch(db, orgId, batchId);
+  const info = db
+    .prepare(
+      `INSERT INTO rename_batches (uuid, org_id, kind, reverted_from_batch_id, client_name, project_name,
+         prefix_mode, sequence_start, sequence_pad, destination_path, status, started_at)
+       VALUES (?, ?, 'revert', ?, ?, ?, 'photo', 1, 3, ?, 'running', CURRENT_TIMESTAMP)`
+    )
+    .run(generateUUIDv7(), orgId, batchId, original?.client_name ?? null, original?.project_name ?? null, destination);
+  const revertBatchId = Number(info.lastInsertRowid);
+  db.prepare("INSERT INTO rename_sources (uuid, org_id, batch_id, folder_path) VALUES (?, ?, ?, ?)").run(
+    generateUUIDv7(), orgId, revertBatchId, copiesFolder
+  );
+
+  fs.mkdirSync(destination, { recursive: true });
+
+  const total = mapping.length;
+  let restored = 0, skipped = 0, missing = 0;
+  const emit = (currentFile: string | null, status = "running"): void =>
+    onProgress({ batchId: revertBatchId, status, currentFile, total, copied: restored, skipped, errored: missing });
+  emit(null);
+
+  const pending: CommitRow[] = [];
+  const flush = (): void => {
+    if (pending.length) insertBatch(db, orgId, revertBatchId, pending.splice(0, pending.length));
+  };
+
+  for (let i = 0; i < mapping.length; i++) {
+    const m = mapping[i];
+    const src = path.join(copiesFolder, m.copy_filename); // the copy we revert FROM (read-only)
+    const dest = path.join(destination, m.source_filename); // restore under the ORIGINAL name
+    const base: CommitRow = {
+      source_path: src, source_filename: m.copy_filename, source_folder: copiesFolder, stem: "",
+      copy_path: null, copy_filename: m.source_filename, media_class: "", sequence_number: 0, bytes: m.bytes,
+      status: "error", error_text: null,
+    };
+    if (!fs.existsSync(src)) {
+      missing++;
+      pending.push({ ...base, status: "error", error_text: "copy missing on disk — not reverted" });
+    } else {
+      try {
+        fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
+        restored++;
+        pending.push({ ...base, copy_path: dest, status: "copied" });
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException)?.code;
+        if (code === "EEXIST") {
+          skipped++;
+          pending.push({ ...base, status: "skipped", error_text: "destination already exists — skipped, not overwritten" });
+        } else {
+          missing++;
+          pending.push({ ...base, status: "error", error_text: e instanceof Error ? e.message : String(e) });
+        }
+      }
+    }
+    if (pending.length >= RENAME_COMMIT_BATCH) flush();
+    if ((i & 15) === 15) {
+      emit(m.source_filename);
+      await new Promise((r) => setImmediate(r));
+    }
+  }
+  flush();
+
+  db.prepare(
+    `UPDATE rename_batches SET status = 'completed', finished_at = CURRENT_TIMESTAMP, files_copied = ?,
+       files_skipped = ?, files_errored = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+  ).run(restored, skipped, missing, revertBatchId);
+  onProgress({ batchId: revertBatchId, status: "completed", currentFile: null, total, copied: restored, skipped, errored: missing });
+  return { revertBatchId, restored, skipped, missing, extraOnDisk };
+}

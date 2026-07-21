@@ -46,8 +46,12 @@ const LEAF: Record<string, string> = {
 // root owns persistence, so it loads the module's namespaced app_settings and hands the module its
 // settings + an onChange that writes back through the sanctioned settings path (which re-points the
 // engine). Targeted to the shredder for now; a generic manifest-driven injector is a later refinement.
+// Module-level so a re-entry mount renders the real watch path on the FIRST paint instead of
+// flashing "No folder set" while the async settings.get round-trips. Warmed by the first load below.
+let shredderSettingsCache: ShredderSettings | null = null;
+
 function RunbookShredderMount() {
-  const [settings, setSettings] = useState<ShredderSettings>(defaultSettings);
+  const [settings, setSettings] = useState<ShredderSettings>(() => shredderSettingsCache ?? defaultSettings());
   useEffect(() => {
     void Promise.all([
       window.api.settings.get("runbook-shredder.watch_path"),
@@ -57,7 +61,7 @@ function RunbookShredderMount() {
     ]).then(([wp, we, rc, fs]) =>
       setSettings((s) => {
         const n = Number(fs);
-        return {
+        const next = {
           ...s,
           "runbook-shredder.watch_path": wp ?? s["runbook-shredder.watch_path"],
           "runbook-shredder.watch_enabled": we === null ? s["runbook-shredder.watch_enabled"] : we === "1",
@@ -65,11 +69,17 @@ function RunbookShredderMount() {
           // Number()-parse the persisted px; fall back to the default (13) on null/undefined/NaN.
           "runbook-shredder.font_size": fs == null || Number.isNaN(n) ? s["runbook-shredder.font_size"] : n,
         };
+        shredderSettingsCache = next;
+        return next;
       })
     );
   }, []);
   const onChange = (patch: Partial<ShredderSettings>) => {
-    setSettings((s) => ({ ...s, ...patch }));
+    setSettings((s) => {
+      const next = { ...s, ...patch };
+      shredderSettingsCache = next;
+      return next;
+    });
     for (const [k, v] of Object.entries(patch)) {
       void window.api.settings.set(k, typeof v === "boolean" ? (v ? "1" : "0") : String(v));
     }

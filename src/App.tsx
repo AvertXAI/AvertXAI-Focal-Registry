@@ -367,7 +367,11 @@ export default function App() {
   // so no flash), then wizard until setup completes, then the terminal mask over the shell mount.
   if (isFirstRun === null) return null;
   if (isFirstRun) return <FirstRunWizard onComplete={() => setIsFirstRun(false)} />;
-  if (isBooting)
+  // Skip Fast Boot (from ?skipBoot=, known before first paint): render a themed BLANK during boot
+  // instead of the dark JARVIS terminal — the module list still loads underneath and the shell appears
+  // with no dark-blue flash. Without this the terminal renders for a frame before the async skip read.
+  if (isBooting) {
+    if (new URLSearchParams(window.location.search).get("skipBoot") === "1") return null;
     return (
       <BootTerminal
         modules={modules}
@@ -377,6 +381,7 @@ export default function App() {
         onFail={() => setIsBooting(false)} // Safe Mode: land in the chrome (banner below), modules empty
       />
     );
+  }
 
   // Safe Mode never dereferences a failed/absent module list.
   const activeModules = bootError ? [] : (modules ?? []);

@@ -33,6 +33,10 @@ if (mcGpu === "off") {
 // (constructor backgroundColor + native overlay) is already the persisted theme. No org / read
 // failure -> "system" (Hybrid). The renderer receives it via the loadFile query param.
 let bootThemeMode = "system";
+// Skip-Fast-Boot, read at boot and handed to the renderer via ?skipBoot= so it can decide BEFORE the
+// first paint not to render the JARVIS terminal — otherwise the dark terminal flashes for a frame
+// before the async setting read bypasses it.
+let bootSkip = false;
 function readBootTheme(): string {
   try {
     const row = getDb().prepare("SELECT value FROM app_settings WHERE key = 'theme_mode'").get() as
@@ -138,7 +142,7 @@ function createWindow(): BrowserWindow {
 
   // Query param hands the boot theme to the renderer so src/main.tsx can set data-theme BEFORE
   // the first React paint (recon 3b) — no preload/IPC roundtrip on the critical path.
-  void win.loadFile(path.join(__dirname, "../dist/index.html"), { query: { theme: bootThemeMode } });
+  void win.loadFile(path.join(__dirname, "../dist/index.html"), { query: { theme: bootThemeMode, skipBoot: bootSkip ? "1" : "0" } });
   return win;
 }
 
@@ -218,7 +222,14 @@ app.whenReady().then(async () => {
     // Deferring it keeps boot instant; the module shows a loading overlay while that first ingest runs.
   }
   // Resolve the persisted theme AFTER the org DB opened, BEFORE the window exists (recon 3a).
-  if (org) bootThemeMode = readBootTheme();
+  if (org) {
+    bootThemeMode = readBootTheme();
+    try {
+      bootSkip = getSetting("skip_fast_boot") === "1";
+    } catch {
+      /* setting unreadable — default to showing the terminal */
+    }
+  }
   // Boot edges from the renderer (window.runbooks bridge — deliberately NOT in core/ipc.ts, which
   // carries un-gated work). Re-entrant: Safe-Mode Retry re-enters boot via boot:start.
   ipcMain.on("boot:done", () => {

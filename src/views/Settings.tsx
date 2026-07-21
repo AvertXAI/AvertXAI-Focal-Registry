@@ -13,12 +13,17 @@ interface Props {
   onThemeChange: (mode: ThemeMode) => void;
 }
 
+// Module-level cache of the toggle values — survives Settings unmount/remount within a session. On a
+// repeat visit the toggles initialize from here, so they render in the CORRECT position on the very
+// first paint (no async default→loaded jump, which was what "moved" when switching to Settings).
+const toggleCache: { skipBoot?: boolean; trayOn?: boolean; launchStartup?: boolean } = {};
+
 export default function Settings({ themeMode, onThemeChange }: Props) {
   bumpRender("settings"); // DIAG-2
-  const [skipBoot, setSkipBoot] = useState(false);
-  const [trayOn, setTrayOn] = useState(true); // tray-on-close — default ON (§3.11)
-  const [launchStartup, setLaunchStartup] = useState(false); // open at Windows login — default OFF
-  const [animReady, setAnimReady] = useState(false); // gates the toggle transition until loaded+painted
+  const [skipBoot, setSkipBoot] = useState(() => toggleCache.skipBoot ?? false);
+  const [trayOn, setTrayOn] = useState(() => toggleCache.trayOn ?? true); // tray-on-close — default ON (§3.11)
+  const [launchStartup, setLaunchStartup] = useState(() => toggleCache.launchStartup ?? false); // open at Windows login — default OFF
+  const [animReady, setAnimReady] = useState(() => toggleCache.skipBoot !== undefined); // cache warm → correct from first paint, no gate
   const [activeSection, setActiveSection] = useState("General");
   const [appVersion, setAppVersion] = useState("");
   const [checking, setChecking] = useState(false);
@@ -39,9 +44,11 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
       window.api.settings.get("tray_enabled"),
       window.api.settings.get("launch_at_startup"),
     ]).then(([sb, tr, ls]) => {
-      setSkipBoot(sb === "1");
-      setTrayOn(tr !== "0"); // default ON
-      setLaunchStartup(ls === "1"); // default OFF
+      const s = sb === "1", t = tr !== "0", l = ls === "1";
+      setSkipBoot(s);
+      setTrayOn(t);
+      setLaunchStartup(l);
+      toggleCache.skipBoot = s; toggleCache.trayOn = t; toggleCache.launchStartup = l; // warm the cache for next visit
       requestAnimationFrame(() => setAnimReady(true));
     });
     void window.api.updater.version().then(setAppVersion).catch(() => {}); // never hardcoded
@@ -106,16 +113,19 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const toggleSkipBoot = () => {
     const next = !skipBoot;
     setSkipBoot(next);
+    toggleCache.skipBoot = next;
     void window.api.settings.set("skip_fast_boot", next ? "1" : "0");
   };
   const toggleTray = () => {
     const next = !trayOn;
     setTrayOn(next);
+    toggleCache.trayOn = next;
     void window.api.tray.setEnabled(next); // persists to app_settings AND rewires the ✕ behaviour live
   };
   const toggleLaunchStartup = () => {
     const next = !launchStartup;
     setLaunchStartup(next);
+    toggleCache.launchStartup = next;
     void window.api.startup.setEnabled(next); // persists AND writes/clears the OS login item
   };
 

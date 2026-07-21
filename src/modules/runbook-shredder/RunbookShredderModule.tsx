@@ -109,6 +109,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   const [quarCount, setQuarCount] = useState(0); // chip count — rescan return is authoritative
   const [ingest, setIngest] = useState<ShredderProgress | null>(null); // latest {done,total} for the overlay %
   const [ingesting, setIngesting] = useState(false); // the loading overlay is up from module-open until 100%
+  const revealAfterLoad = useRef(false); // when true, drop the overlay only after the next list load renders
   // Collapsed-strip search modal — module-scoped overlay; queries the SAME FTS prefix engine.
   const [searchOpen, setSearchOpen] = useState(false);
   const [modalQuery, setModalQuery] = useState("");
@@ -140,7 +141,10 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
       if (p.total > 0 && p.done < p.total) {
         setIngesting(true); // keep the overlay up for the whole load
       } else {
-        setIngesting(false); // done (or nothing to do) → drop the overlay and reveal the finished list
+        // Ingest finished — DON'T drop the overlay yet. Reload the list and keep the overlay up until
+        // those fresh rows are actually rendered, so there is no ~0.5-1s blank gap between the spinner
+        // leaving and the directory appearing.
+        revealAfterLoad.current = true;
         setReloadKey((k) => k + 1);
       }
     };
@@ -224,6 +228,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
         const [list, quar] = await Promise.all([listP, api.shredder.listQuarantined()]);
         if (!alive) return;
         setRows(list);
+        if (revealAfterLoad.current) { revealAfterLoad.current = false; setIngesting(false); } // fresh rows are in → drop the overlay
         setQuarantined(quar);
         setQuarCount(quar.length);
         if (!query && chipIdx === 0 && !client) setOkCount(list.length);

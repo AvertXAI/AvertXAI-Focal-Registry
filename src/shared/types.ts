@@ -389,6 +389,7 @@ export interface Api {
   };
   /** Runbook Shredder module — read-only queries + watch-folder plumbing. */
   shredder: {
+    ensure: () => Promise<{ ingesting: boolean }>;
     list: (filter?: RunbookFilter) => Promise<RunbookRow[]>;
     get: (id: string) => Promise<RunbookRow | undefined>;
     search: (q: string) => Promise<RunbookRow[]>;

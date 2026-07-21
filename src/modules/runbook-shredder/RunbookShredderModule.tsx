@@ -107,7 +107,8 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   const [reloadKey, setReloadKey] = useState(0);
   const [scanning, setScanning] = useState(false);
   const [quarCount, setQuarCount] = useState(0); // chip count — rescan return is authoritative
-  const [ingest, setIngest] = useState<ShredderProgress | null>(null); // live folder-ingest ticker
+  const [ingest, setIngest] = useState<ShredderProgress | null>(null); // latest {done,total} for the overlay %
+  const [ingesting, setIngesting] = useState(false); // the loading overlay is up from module-open until 100%
   // Collapsed-strip search modal — module-scoped overlay; queries the SAME FTS prefix engine.
   const [searchOpen, setSearchOpen] = useState(false);
   const [modalQuery, setModalQuery] = useState("");
@@ -135,12 +136,23 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   // shows a percentage instead of appearing frozen. The final tick (done === total) clears it.
   useEffect(() => {
     const onIngest = (p: ShredderProgress): void => {
-      const running = p.total > 0 && p.done < p.total;
-      setIngest(running ? p : null);
-      if (p.total > 0 && p.done >= p.total) setReloadKey((k) => k + 1); // ingest finished → pull the freshly-ingested rows
+      setIngest(p);
+      if (p.total > 0 && p.done < p.total) {
+        setIngesting(true); // keep the overlay up for the whole load
+      } else {
+        setIngesting(false); // done (or nothing to do) → drop the overlay and reveal the finished list
+        setReloadKey((k) => k + 1);
+      }
     };
     api.on<ShredderProgress>("shredder:progress", onIngest);
     return () => api.off<ShredderProgress>("shredder:progress", onIngest);
+  }, []);
+
+  // Lazy engine start on module open. If this open actually kicks off an ingest, raise the overlay
+  // IMMEDIATELY (before the first progress tick) so the whole load — walk + parse — is covered, and no
+  // half-loaded list or skeleton shimmer shows through. Same on a fresh app start into Secure Note.
+  useEffect(() => {
+    void api.shredder.ensure().then((r) => { if (r.ingesting) setIngesting(true); }).catch(() => {});
   }, []);
   const changeFontSize = (v: string) => {
     const n = Number(v) || 13;
@@ -326,12 +338,6 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
           <span className="rbs-dot err" />
           {quarCount} quarantined
         </button>
-        {ingest && (
-          <span className="rbs-chip rbs-loading" title={`Reading ${ingest.done.toLocaleString()} of ${ingest.total.toLocaleString()} files`}>
-            <span className="rbs-spin" />
-            loading {Math.round((ingest.done / ingest.total) * 100)}%
-          </span>
-        )}
         <div className="rbs-sp">
           <button
             className={"rbs-tgl" + (watchEnabled ? " on" : "") + (live ? "" : " nb")}
@@ -661,15 +667,20 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
         </div>
       )}
 
-      {/* Initial-ingest overlay — the engine is lazy (starts on module open), so the FIRST open of a
-          large watch folder parses everything now. Opaque backdrop + spinner while there is nothing to
-          show yet; background re-scans (with rows already loaded) use the lighter strip pill instead. */}
-      {ingest && (!rows || rows.length === 0) && (
+      {/* Ingest overlay — the ONE loading indicator. The engine is lazy (starts on module open), so on
+          the first open / a fresh app start it parses the watch folder now. This opaque overlay covers
+          the WHOLE module from the instant you enter until the load hits 100%, then reveals the finished
+          list — no half-loaded list, no skeleton shimmer, no separate strip pill. */}
+      {ingesting && (
         <div className="rbs-loadmodal">
           <div className="rbs-loadmodal-card">
             <span className="rbs-loadspin" />
             <div className="rbs-loadmodal-title">Loading your notes…</div>
-            <div className="rbs-loadmodal-sub">Reading {ingest.done.toLocaleString()} of {ingest.total.toLocaleString()} files · {Math.round((ingest.done / ingest.total) * 100)}%</div>
+            <div className="rbs-loadmodal-sub">
+              {ingest && ingest.total > 0
+                ? `Reading ${ingest.done.toLocaleString()} of ${ingest.total.toLocaleString()} files · ${Math.round((ingest.done / ingest.total) * 100)}%`
+                : "Starting…"}
+            </div>
           </div>
         </div>
       )}

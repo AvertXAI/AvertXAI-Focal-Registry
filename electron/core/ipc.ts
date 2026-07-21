@@ -245,6 +245,19 @@ export function registerIpcHandlers(): void {
   // runbook-shredder module (shredder:*).
   // Read-only queries; the service whitelists filter keys and escapes the FTS input, so the raw
   // renderer args can't reach SQL/FTS syntax.
+  // Lazy engine start on module open. Returns whether THIS call actually kicks off an ingest (a fresh
+  // engine start with a real watch folder) so the module can show its loading overlay from the instant
+  // it opens — before the first progress tick — and only when there is genuinely a load to cover.
+  safeHandle("shredder:ensure", () => {
+    const fresh = shredderHandle === null;
+    try {
+      ensureShredder();
+    } catch {
+      return { ingesting: false };
+    }
+    const wp = readShredderSettings()["runbook-shredder.watch_path"];
+    return { ingesting: fresh && !!wp && fs.existsSync(wp) };
+  });
   safeHandle("shredder:list", (_e, filter: unknown) =>
     shredderApi.listRunbooks(
       ensureShredder().db,

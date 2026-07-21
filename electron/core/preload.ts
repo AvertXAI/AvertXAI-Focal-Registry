@@ -81,6 +81,7 @@ const api: Api = {
     },
   },
   shredder: {
+    ensure: () => ipcRenderer.invoke("shredder:ensure"),
     list: (filter?: RunbookFilter) => ipcRenderer.invoke("shredder:list", filter),
     get: (id: string) => ipcRenderer.invoke("shredder:get", id),
     search: (q: string) => ipcRenderer.invoke("shredder:search", q),

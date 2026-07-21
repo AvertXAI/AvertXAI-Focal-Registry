@@ -104,12 +104,14 @@ function createWindow(): BrowserWindow {
     // (baseFor/overlayFor "boot" = #0b0e16) in ALL themes, never baseFor(theme). The BootTerminal
     // is dark in every theme; theming the frame to the user's mode here causes a light-frame-on-
     // dark-terminal bleed. Real theme applies only on boot:done. See Config-As-Data-SOP-electron.md §2.
-    backgroundColor: baseFor("boot"),
+    // SKIP EXCEPTION: when Skip-Fast-Boot is on there is NO terminal to bleed against, so the frame is
+    // the real theme from birth — otherwise the boot-dark window flashes before boot:done.
+    backgroundColor: baseFor(bootSkip ? bootThemeMode : "boot"),
     title: "AvertXAI Focal Registry",
     icon: APP_ICON,
     show: false,
     titleBarStyle: "hidden",
-    titleBarOverlay: overlayFor("boot"),
+    titleBarOverlay: overlayFor(bootSkip ? bootThemeMode : "boot"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -241,6 +243,7 @@ app.whenReady().then(async () => {
   const win = createWindow();
   setMainWindow(win);
   applyThemeOverlay(bootThemeMode); // seed the funnel's theme; boot flag keeps the frame boot-dark
+  if (bootSkip) setBooting(false); // Skip Fast Boot: no terminal → clear the boot flag so the frame paints theme now (no boot-dark flash). The renderer's boot:done re-asserts idempotently.
   // Tray defaults ON (§3.11). Read the persisted setting once the org DB is open; "0" = user turned
   // it off, so ✕ quits and no tray icon is created. First-run (no org) stays on the default.
   let trayPref = true;

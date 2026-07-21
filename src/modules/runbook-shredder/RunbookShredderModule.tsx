@@ -92,24 +92,29 @@ function splitSections(md: string): { heading: string | null; body: string }[] {
 const vaultPointers = (md: string): string[] =>
   Array.from(new Set(Array.from(md.matchAll(/\bvault:\s*([\w./-]+)/g), (m) => m[1])));
 
+// Persist the last DEFAULT-view list across Secure Note unmount/remount so re-entering the module shows
+// the directory INSTANTLY (stale-while-revalidate) — no null→skeleton→list reload flash on every switch.
+let listCache: { rows: RunbookRow[]; quar: RunbookRow[]; ok: number; clients: string[] } | null = null;
+
 export default function RunbookShredderModule({ settings, onChange }: Props) {
   const [chipIdx, setChipIdx] = useState(0);
   const [client, setClient] = useState("");
-  const [clients, setClients] = useState<string[]>([]);
+  const [clients, setClients] = useState<string[]>(() => listCache?.clients ?? []);
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
-  const [rows, setRows] = useState<RunbookRow[] | null>(null); // null = loading
-  const [quarantined, setQuarantined] = useState<RunbookRow[]>([]);
-  const [okCount, setOkCount] = useState(0); // from the last unfiltered load (initial load qualifies)
+  const [rows, setRows] = useState<RunbookRow[] | null>(() => listCache?.rows ?? null); // null = loading
+  const [quarantined, setQuarantined] = useState<RunbookRow[]>(() => listCache?.quar ?? []);
+  const [okCount, setOkCount] = useState(() => listCache?.ok ?? 0); // from the last unfiltered load (initial load qualifies)
   const [selected, setSelected] = useState<RunbookRow | null>(null);
   const [showQuar, setShowQuar] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [scanning, setScanning] = useState(false);
-  const [quarCount, setQuarCount] = useState(0); // chip count — rescan return is authoritative
+  const [quarCount, setQuarCount] = useState(() => listCache?.quar.length ?? 0); // chip count — rescan return is authoritative
   const [ingest, setIngest] = useState<ShredderProgress | null>(null); // latest {done,total} for the overlay %
   const [ingesting, setIngesting] = useState(false); // the loading overlay is up from module-open until 100%
   const revealAfterLoad = useRef(false); // when true, drop the overlay only after the next list load renders
+  const firstLoad = useRef(true); // the initial mount load must NOT blank cached rows (stale-while-revalidate)
   // Collapsed-strip search modal — module-scoped overlay; queries the SAME FTS prefix engine.
   const [searchOpen, setSearchOpen] = useState(false);
   const [modalQuery, setModalQuery] = useState("");
@@ -215,7 +220,8 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   useEffect(() => {
     let alive = true;
     setError(null);
-    setRows(null);
+    if (!firstLoad.current) setRows(null); // blank → skeleton on a filter/search change; NOT on a remount with cached rows
+    firstLoad.current = false;
     void (async () => {
       try {
         const listP = query
@@ -231,7 +237,11 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
         if (revealAfterLoad.current) { revealAfterLoad.current = false; setIngesting(false); } // fresh rows are in → drop the overlay
         setQuarantined(quar);
         setQuarCount(quar.length);
-        if (!query && chipIdx === 0 && !client) setOkCount(list.length);
+        if (!query && chipIdx === 0 && !client) {
+          setOkCount(list.length);
+          const cl = Array.from(new Set(list.map((r) => r.client).filter(Boolean) as string[])).sort();
+          listCache = { rows: list, quar, ok: list.length, clients: cl }; // warm the cache for an instant re-entry
+        }
         setClients((prev) => {
           const s = new Set(prev);
           for (const r of list) if (r.client) s.add(r.client);

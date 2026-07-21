@@ -70,6 +70,7 @@ export default function RenameModule() {
 
   const [toast, setToast] = useState<string | null>(null);
   const [presetName, setPresetName] = useState("");
+  const [loadedPresetId, setLoadedPresetId] = useState<number | null>(null); // the currently-loaded business profile
   const [seqRaw, setSeqRaw] = useState(seqExample(3)); // the raw sequence-start text (free editing)
   const [seqGlow, setSeqGlow] = useState(false); // glow the start field after a pad change
   const [summary, setSummary] = useState<{ kind: "rename" | "revert"; folder: string; copied: number; skipped: number; errored: number } | null>(null);
@@ -188,13 +189,24 @@ export default function RenameModule() {
     else setProgress({ batchId: 0, status: "running", currentFile: null, total: revertRows.length, copied: 0, skipped: 0, errored: 0 });
   };
 
-  const savePresetNow = async (): Promise<void> => {
+  const saveProfileNew = async (): Promise<void> => {
     const name = presetName.trim();
     if (!name) return;
     await api.savePreset(name, settings);
-    await refreshPresets();
+    const fresh = await api.listPresets();
+    setPresets(fresh);
+    const saved = fresh.find((p) => p.name === name);
+    if (saved) setLoadedPresetId(saved.id); // the new profile becomes the loaded one
     setPresetName("");
-    setToast(`Preset "${name}" saved`);
+    setToast(`Profile "${name}" saved`);
+  };
+  const updateProfile = async (): Promise<void> => {
+    if (loadedPresetId == null) return;
+    const cur = presets.find((p) => p.id === loadedPresetId);
+    if (!cur) return;
+    await api.savePreset(cur.name, settings); // savePreset replaces by name
+    setPresets(await api.listPresets());
+    setToast(`Profile "${cur.name}" updated`);
   };
 
   const prefixPreview = useMemo(() => {
@@ -205,6 +217,19 @@ export default function RenameModule() {
   const pct = progress && progress.total > 0 ? Math.min(100, Math.round(((progress.copied + progress.skipped + progress.errored) / progress.total) * 100)) : 0;
 
   const renameOnly = batches.filter((b) => b.kind === "rename");
+  // Business profiles = named presets ("(last used)" is the internal auto-restore row, hidden from the list).
+  const namedPresets = presets.filter((p) => p.name !== "(last used)");
+  const loadedPreset = presets.find((p) => p.id === loadedPresetId) ?? null;
+  const profileDirty = loadedPreset != null && !(
+    (loadedPreset.prefix_mode ?? "both") === settings.prefixMode &&
+    (loadedPreset.business_name ?? "") === settings.businessName &&
+    (loadedPreset.photographer_name ?? "") === settings.photographerName &&
+    (loadedPreset.sequence_start ?? 1) === settings.sequenceStart &&
+    (loadedPreset.sequence_pad ?? 3) === settings.sequencePad &&
+    (loadedPreset.client_name ?? "") === settings.clientName &&
+    (loadedPreset.project_name ?? "") === settings.projectName &&
+    (loadedPreset.custom_tag ?? "") === settings.customTag
+  );
 
   return (
     <main className="view shown">
@@ -213,7 +238,7 @@ export default function RenameModule() {
         <p className="subtitle">Copies files to a destination with new names. Never renames, moves, or deletes an original.</p>
 
         <div className="rn-tabs">
-          {([["new", "New batch"], ["revert", "Revert"], ["history", "History"], ["presets", "Presets"]] as [Tab, string][]).map(([t, label]) => (
+          {([["new", "New batch"], ["revert", "Revert"], ["history", "History"], ["presets", "Profiles"]] as [Tab, string][]).map(([t, label]) => (
             <button key={t} className={`rn-tab${t === "revert" ? " rev" : ""}${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
               {t === "revert" && <span className="rn-tabdot" />}{label}
             </button>
@@ -259,31 +284,32 @@ export default function RenameModule() {
               <div className="rn-hint"><b>Each file type counts separately.</b> Stills, video, and audio each run their own 001, 002… A RAW + JPEG pair shares one number.
                 {seqGlow && <span style={{ color: "var(--rename-accent)" }}> Start reset to {seqExample(settings.sequencePad)} — edit it or keep the default.</span>}</div>
 
-              <div className="rn-lbl">Client info <span className="rn-tagdb">saved to database</span></div>
+              <div className="rn-lbl">Business profile &amp; client info <span className="rn-tagdb">saved to database</span></div>
+              <div className="rn-row">
+                <select className="rn-inp" value={loadedPresetId ?? ""}
+                  onChange={(e) => { const p = namedPresets.find((x) => x.id === Number(e.target.value)); if (p) { applyPreset(p); setLoadedPresetId(p.id); } else setLoadedPresetId(null); }}>
+                  <option value="">Load a saved profile…</option>
+                  {namedPresets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
               <div className="rn-row"><input className="rn-inp" value={settings.clientName} placeholder="Client name" onChange={(e) => set("clientName", e.target.value)} /></div>
               <div className="rn-row"><input className="rn-inp" value={settings.projectName} placeholder="Project / event name" onChange={(e) => set("projectName", e.target.value)} /></div>
               <div className="rn-row">
                 <input className="rn-inp mono" style={{ maxWidth: 150 }} value={settings.shootDate} placeholder="Date (MMDDYYYY)" onChange={(e) => set("shootDate", e.target.value.replace(/\D/g, "").slice(0, 8))} />
                 <input className="rn-inp" value={settings.customTag} placeholder="Custom tag (optional)" onChange={(e) => set("customTag", e.target.value)} />
               </div>
-              <div className="rn-hint">Stored against every folder in this batch — not in the filename.{parseMMDDYYYY(settings.shootDate) && <span> Shoot date: <b>{fmtShootDate(settings.shootDate)}</b>.</span>}</div>
+              <div className="rn-hint">A profile saves your business, photographer, sequence, and client info — load one and it all fills in. The shoot date is per-shoot.{parseMMDDYYYY(settings.shootDate) && <span> Shoot date: <b>{fmtShootDate(settings.shootDate)}</b>.</span>}</div>
+              <div className="rn-row">
+                <input className="rn-inp" placeholder="Name this profile…" value={presetName} onChange={(e) => setPresetName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void saveProfileNew(); }} />
+                <button className="rn-btn" disabled={!presetName.trim()} onClick={() => void saveProfileNew()}>Save as profile</button>
+              </div>
+              {loadedPreset && profileDirty && (
+                <div className="rn-row"><button className="rn-btn primary" style={{ width: "100%" }} onClick={() => void updateProfile()}>Update &ldquo;{loadedPreset.name}&rdquo; with these changes</button></div>
+              )}
+              <div className="rn-hint">Your last settings are restored automatically on open.</div>
 
               <div className="rn-lbl">Result</div>
               <div className="rn-pattern"><b>{prefixPreview}</b>-<b>{String(settings.sequenceStart).padStart(settings.sequencePad, "0")}</b>-<span className="orig">{files[0]?.filename ?? "original-name.CR3"}</span></div>
-
-              <div className="rn-lbl">Preset</div>
-              <div className="rn-row">
-                <select className="rn-inp" value="" onChange={(e) => { const p = presets.find((x) => x.id === Number(e.target.value)); if (p) applyPreset(p); }}>
-                  <option value="">Apply a saved preset…</option>
-                  {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              </div>
-              <div className="rn-row">
-                <input className="rn-inp" placeholder="Name this preset…" value={presetName} onChange={(e) => setPresetName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") void savePresetNow(); }} />
-                <button className="rn-btn" disabled={!presetName.trim()} onClick={() => void savePresetNow()}>Save</button>
-              </div>
-              <div className="rn-hint">Your last settings are restored automatically on open.</div>
             </div>
 
             <div className="rn-rp">
@@ -377,7 +403,7 @@ export default function RenameModule() {
         )}
 
         {tab === "history" && <History batches={batches} onRevert={gotoRevert} onOpen={(p) => void api.openFolder(p)} />}
-        {tab === "presets" && <Presets presets={presets} onApply={(p) => { applyPreset(p); setTab("new"); }} onDelete={async (id) => { await api.deletePreset(id); void refreshPresets(); setToast("Preset deleted"); }} />}
+        {tab === "presets" && <Presets presets={namedPresets} onApply={(p) => { applyPreset(p); setLoadedPresetId(p.id); setTab("new"); }} onDelete={async (id) => { await api.deletePreset(id); void refreshPresets(); if (loadedPresetId === id) setLoadedPresetId(null); setToast("Profile deleted"); }} />}
       </div>
 
       {summary && (
@@ -450,18 +476,19 @@ function History({ batches, onRevert, onOpen }: { batches: RenameBatchRow[]; onR
 function Presets({ presets, onApply, onDelete }: { presets: RenamePresetRow[]; onApply: (p: RenamePresetRow) => void; onDelete: (id: number) => void }) {
   return (
     <div className="rn-hist">
-      <div className="rn-info">Saved presets — prefix mode, names, sequence settings, and client defaults. The <b>(last used)</b> settings restore automatically on open.</div>
-      {presets.length === 0 && <div className="rn-empty">No presets saved yet.</div>}
+      <div className="rn-info">Business profiles — your business, photographer, sequence, and client info in one saved set. Load one from the New batch tab and everything fills in. Create or update them there.</div>
+      {presets.length === 0 && <div className="rn-empty">No profiles yet. On New batch, fill in your info and hit “Save as profile.”</div>}
       {presets.map((p) => (
         <div className="rn-batch" key={p.id}>
-          <div className="rn-batchtop"><h3>{p.name}</h3>{p.is_last_used === 1 && <span className="rn-count pu">last used</span>}</div>
+          <div className="rn-batchtop"><h3>{p.name}</h3></div>
           <div className="rn-meta">
-            <div><span>Prefix</span><b>{p.prefix_mode}</b></div><div><span>Business</span><b>{p.business_name || "—"}</b></div>
-            <div><span>Photographer</span><b>{p.photographer_name || "—"}</b></div><div><span>Start / pad</span><b>{p.sequence_start ?? 1} / {p.sequence_pad ?? 3}</b></div>
+            <div><span>Business</span><b>{p.business_name || "—"}</b></div><div><span>Photographer</span><b>{p.photographer_name || "—"}</b></div>
+            <div><span>Client</span><b>{p.client_name || "—"}</b></div><div><span>Project</span><b>{p.project_name || "—"}</b></div>
+            <div><span>Prefix</span><b>{p.prefix_mode}</b></div><div><span>Start / pad</span><b>{p.sequence_start ?? 1} / {p.sequence_pad ?? 3}</b></div>
           </div>
           <div className="rn-row" style={{ marginTop: 12 }}>
-            <button className="rn-btn primary" onClick={() => onApply(p)}>Apply</button>
-            {p.is_last_used !== 1 && <button className="rn-btn" onClick={() => onDelete(p.id)}>Delete</button>}
+            <button className="rn-btn primary" onClick={() => onApply(p)}>Load</button>
+            <button className="rn-btn" onClick={() => onDelete(p.id)}>Delete</button>
           </div>
         </div>
       ))}

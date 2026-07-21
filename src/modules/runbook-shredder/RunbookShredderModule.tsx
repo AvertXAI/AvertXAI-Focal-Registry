@@ -134,7 +134,11 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   // Live ingest ticker — a large watch folder streams done/total over shredder:progress so the strip
   // shows a percentage instead of appearing frozen. The final tick (done === total) clears it.
   useEffect(() => {
-    const onIngest = (p: ShredderProgress): void => setIngest(p.total > 0 && p.done < p.total ? p : null);
+    const onIngest = (p: ShredderProgress): void => {
+      const running = p.total > 0 && p.done < p.total;
+      setIngest(running ? p : null);
+      if (p.total > 0 && p.done >= p.total) setReloadKey((k) => k + 1); // ingest finished → pull the freshly-ingested rows
+    };
     api.on<ShredderProgress>("shredder:progress", onIngest);
     return () => api.off<ShredderProgress>("shredder:progress", onIngest);
   }, []);
@@ -653,6 +657,19 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
                 </button>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Initial-ingest overlay — the engine is lazy (starts on module open), so the FIRST open of a
+          large watch folder parses everything now. Opaque backdrop + spinner while there is nothing to
+          show yet; background re-scans (with rows already loaded) use the lighter strip pill instead. */}
+      {ingest && (!rows || rows.length === 0) && (
+        <div className="rbs-loadmodal">
+          <div className="rbs-loadmodal-card">
+            <span className="rbs-loadspin" />
+            <div className="rbs-loadmodal-title">Loading your notes…</div>
+            <div className="rbs-loadmodal-sub">Reading {ingest.done.toLocaleString()} of {ingest.total.toLocaleString()} files · {Math.round((ingest.done / ingest.total) * 100)}%</div>
           </div>
         </div>
       )}

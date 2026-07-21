@@ -8,7 +8,7 @@ import { migrateOrgDbSlugs } from "./core/services/db/migrate";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
 import { getSetting, setSetting } from "./core/services/settings";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/crypto";
-import { ensureShredder, registerIpcHandlers } from "./core/ipc";
+import { registerIpcHandlers } from "./core/ipc";
 import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overlayFor, setBooting, setMainWindow, showMain } from "./core/windows";
 import { initUpdater, notifyUpdaterBootDone } from "./core/updater";
 import { initDiag } from "./diag";
@@ -212,13 +212,10 @@ app.whenReady().then(async () => {
     // Vault lockdown: safeStorage-wrapped secret → Argon2id → SQLCipher key.
     const vaultKey = await deriveVaultKey(getOrCreateVaultSecret(org.org_id));
     openDb(path.join(userData, `vault_${org.org_id}.locked.db`), "vault", vaultKey);
-    // Runbook Shredder — start the fs.watch ingest engine alongside the org DBs. A module
-    // failure must never kill the shell boot.
-    try {
-      ensureShredder();
-    } catch (e) {
-      console.error("[runbook-shredder] engine start failed:", e);
-    }
+    // Runbook Shredder engine is now LAZY — it starts on the first Secure Note IPC (module open), not
+    // at boot. Its initial ingest walks + parses the whole watch folder + writes a DB row per file; on
+    // a dev-sized folder that is seconds of work and made the app unresponsive for ~4-5s at startup.
+    // Deferring it keeps boot instant; the module shows a loading overlay while that first ingest runs.
   }
   // Resolve the persisted theme AFTER the org DB opened, BEFORE the window exists (recon 3a).
   if (org) bootThemeMode = readBootTheme();

@@ -164,13 +164,9 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
     void api.shredder.ensure().then((r) => { if (r.ingesting) setIngesting(true); }).catch(() => {});
   }, []);
 
-  // While the loading overlay is up, DIM the native window buttons so they recede behind it (§3.4 — web
-  // content can't paint over OS-drawn buttons; recolouring the native overlay to the modal backdrop is
-  // the sanctioned way to make them match). Cleared when the overlay leaves or the module unmounts.
-  useEffect(() => {
-    void window.api.theme.setModalDim(ingesting);
-    return () => { void window.api.theme.setModalDim(false); };
-  }, [ingesting]);
+  // ponytail: the loading overlay is content-area only (absolute inset:0 below the topbar) — the native
+  // window buttons sit ABOVE it and are never covered, so we do NOT dim them. Dimming blends the strip
+  // toward the dark modal scrim, which in light theme paints a dark block over the buttons (the bug).
   const changeFontSize = (v: string) => {
     const n = Number(v) || 13;
     setFontSize(n);

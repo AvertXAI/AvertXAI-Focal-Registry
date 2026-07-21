@@ -244,15 +244,16 @@ export function startShredder(opts: {
   baseDir: string;
   settings: ShredderSettings;
   onProgress?: (p: IngestProgress) => void;
+  skipIngest?: boolean; // watch_enabled toggle only re-wires the watcher — files already in DB
 }): ShredderHandle {
-  const { orgId, baseDir, settings, onProgress } = opts;
+  const { orgId, baseDir, settings, onProgress, skipIngest } = opts;
   const db = openShredderDb(orgId, baseDir);
   const watchPath = settings["runbook-shredder.watch_path"];
   let watcher: fs.FSWatcher | null = null;
 
   if (watchPath && fs.existsSync(watchPath)) {
     // Fire-and-forget: the initial ingest runs async so boot is never blocked by a large folder.
-    void ingestAll(db, watchPath, onProgress);
+    if (!skipIngest) void ingestAll(db, watchPath, onProgress);
     if (settings["runbook-shredder.watch_enabled"]) {
       watcher = watch(db, watchPath, settings["runbook-shredder.auto_reparse"]);
     }

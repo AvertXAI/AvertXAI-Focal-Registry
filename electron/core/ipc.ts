@@ -64,7 +64,7 @@ function sendShredderProgress(p: IngestProgress): void {
   getMainWindow()?.webContents.send("shredder:progress", p);
 }
 
-export function ensureShredder(): ShredderHandle {
+export function ensureShredder(skipIngest = false): ShredderHandle {
   if (shredderHandle) return shredderHandle;
   const org = getActiveOrg();
   if (!org) throw new Error("Runbook Shredder: no active org");
@@ -73,6 +73,7 @@ export function ensureShredder(): ShredderHandle {
     baseDir: app.getPath("userData"),
     settings: readShredderSettings(),
     onProgress: sendShredderProgress,
+    skipIngest,
   });
   return shredderHandle;
 }
@@ -80,11 +81,11 @@ export function ensureShredder(): ShredderHandle {
 // B4 — re-point the engine when watch_path / watch_enabled changes: stop the old watcher, then
 // rebuild from the freshly-persisted settings (openShredderDb is cached, so the same DB carries
 // over; startShredder re-ingests + re-watches). Empty watch_path → engine stays idle.
-export function restartShredder(): void {
+export function restartShredder(skipIngest = false): void {
   if (!getActiveOrg()) return;
   shredderHandle?.stop();
   shredderHandle = null;
-  ensureShredder();
+  ensureShredder(skipIngest);
 }
 
 // Full re-ingest of the current watch folder on demand; returns live ok/error counts for the UI.
@@ -231,8 +232,11 @@ export function registerIpcHandlers(): void {
   safeHandle("settings:get", (_e, key: unknown) => settings.getSetting(key));
   safeHandle("settings:set", (_e, key: unknown, value: unknown) => {
     settings.setSetting(key, value);
-    // B4: persisting a shredder watch setting re-points the fs.watch engine at the new folder.
-    if (key === "runbook-shredder.watch_path" || key === "runbook-shredder.watch_enabled") restartShredder();
+    // B4: persisting a shredder watch setting re-points the fs.watch engine. A new watch_path means a
+    // different folder → full re-ingest. Toggling watch_enabled only starts/stops the live watcher; the
+    // files are already in the DB, so skipIngest=true avoids a needless re-read (no loading overlay).
+    if (key === "runbook-shredder.watch_path") restartShredder();
+    else if (key === "runbook-shredder.watch_enabled") restartShredder(true);
   });
 
   // Native window-control overlay tint. The window is born in the JARVIS boot navy; the renderer

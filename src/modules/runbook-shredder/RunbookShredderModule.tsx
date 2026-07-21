@@ -163,6 +163,14 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   useEffect(() => {
     void api.shredder.ensure().then((r) => { if (r.ingesting) setIngesting(true); }).catch(() => {});
   }, []);
+
+  // While the loading overlay is up, DIM the native window buttons so they recede behind it (§3.4 — web
+  // content can't paint over OS-drawn buttons; recolouring the native overlay to the modal backdrop is
+  // the sanctioned way to make them match). Cleared when the overlay leaves or the module unmounts.
+  useEffect(() => {
+    void window.api.theme.setModalDim(ingesting);
+    return () => { void window.api.theme.setModalDim(false); };
+  }, [ingesting]);
   const changeFontSize = (v: string) => {
     const n = Number(v) || 13;
     setFontSize(n);
@@ -462,6 +470,12 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
 
           {!railCollapsed && (
           <div className="rbs-rows">
+            {/* When the directory itself is (re)loading and the big ingest overlay is NOT up — e.g. a
+                switch back into the module before the cache is warm — show a small pill so it never
+                looks like a silent hang. The rows live in the DB, so this is only the query round-trip. */}
+            {listRows === null && !ingesting && !error && (
+              <div className="rbs-loadpill"><span className="rbs-spin" /> Loading directory…</div>
+            )}
             {listRows === null &&
               !error &&
               [0, 1, 2, 3, 4].map((i) => (

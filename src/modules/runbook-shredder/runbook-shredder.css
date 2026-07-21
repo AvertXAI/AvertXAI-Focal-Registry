@@ -29,6 +29,8 @@
 .rbs-loadmodal-sub{font-size:12px;color:var(--mc-muted);font-family:var(--mc-mono)}
 .rbs-loadspin{width:36px;height:36px;border-radius:50%;border:3px solid var(--mc-border);border-top-color:var(--mc-accent-primary);box-sizing:border-box;animation:rbs-spin .8s linear infinite}
 @media (prefers-reduced-motion:reduce){.rbs-loadspin{animation:none}}
+/* small pill above the directory when the list is (re)loading without the big overlay */
+.rbs-loadpill{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;margin:2px 0 10px;padding:6px 12px;border-radius:20px;border:1px solid var(--mc-border);background:var(--mc-panels);color:var(--mc-muted);font-size:11.5px;font-family:var(--mc-mono)}
 .rbs-sp{margin-left:auto;display:flex;align-items:center;gap:10px}
 .rbs-tgl{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--mc-muted)}
 .rbs-sw{width:30px;height:17px;border-radius:20px;background:var(--mc-border);position:relative;display:inline-block}

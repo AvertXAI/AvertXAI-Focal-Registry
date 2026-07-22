@@ -7,6 +7,7 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: CRM_v2/src/shared/types.ts
 //------------------------------------------------------------
+import type { RenameSettings, RenameSourceFile } from "./renamePreview";
 
 // ---- Data Viewer (read-only SQLite browser) ----
 export interface DbTable {
@@ -110,7 +111,68 @@ export interface ScoutDomCard {
 }
 
 /** Main → renderer push channels the preload bridge whitelists. */
-export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded" | "scan:progress" | "scan:drives" | "shredder:progress";
+export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded" | "scan:progress" | "scan:drives" | "shredder:progress" | "rename:progress";
+
+// ---- Rename module (renderer-safe copies of the service shapes) ----
+export interface RenameProgress {
+  batchId: number;
+  status: string; // 'running' | 'completed' | 'aborted' | 'crashed' | 'error'
+  currentFile: string | null;
+  total: number;
+  copied: number;
+  skipped: number;
+  errored: number;
+  error?: string;
+}
+export interface RenameBatchRow {
+  id: number;
+  kind: string; // 'rename' | 'revert'
+  reverted_from_batch_id: number | null;
+  client_name: string | null;
+  project_name: string | null;
+  shoot_date: string | null;
+  custom_tag: string | null;
+  prefix_mode: string;
+  business_name: string | null;
+  photographer_name: string | null;
+  sequence_start: number;
+  sequence_pad: number;
+  destination_path: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  image_count: number;
+  video_count: number;
+  audio_count: number;
+  files_copied: number;
+  files_skipped: number;
+  files_errored: number;
+  created_at: string;
+}
+export interface RenameRevertRow {
+  copy_filename: string;
+  source_filename: string;
+  source_path: string;
+  bytes: number;
+}
+export interface RenamePresetRow {
+  id: number;
+  name: string;
+  is_last_used: number;
+  prefix_mode: string | null;
+  business_name: string | null;
+  photographer_name: string | null;
+  sequence_start: number | null;
+  sequence_pad: number | null;
+  client_name: string | null;
+  project_name: string | null;
+  custom_tag: string | null;
+}
+export interface RenameBatchSample {
+  source_filename: string;
+  copy_filename: string | null;
+  status: string;
+}
 /** shredder:progress push — folder ingest ticker (done/total) so a large Secure Note folder reads as loading. */
 export interface ShredderProgress {
   done: number;
@@ -327,6 +389,7 @@ export interface Api {
   };
   /** Runbook Shredder module — read-only queries + watch-folder plumbing. */
   shredder: {
+    ensure: () => Promise<{ ingesting: boolean }>;
     list: (filter?: RunbookFilter) => Promise<RunbookRow[]>;
     get: (id: string) => Promise<RunbookRow | undefined>;
     search: (q: string) => Promise<RunbookRow[]>;
@@ -396,6 +459,22 @@ export interface Api {
   startup: {
     /** Persist the open-at-login choice and write/clear the OS login item (Windows Run key). */
     setEnabled: (enabled: boolean) => Promise<{ ok: boolean }>;
+  };
+  rename: {
+    gather: (sources: string[]) => Promise<RenameSourceFile[]>;
+    isDriveRoot: (p: string) => Promise<boolean>;
+    listBatches: () => Promise<RenameBatchRow[]>;
+    getBatch: (id: number) => Promise<RenameBatchRow | null>;
+    batchSample: (id: number) => Promise<RenameBatchSample[]>;
+    revertMapping: (id: number) => Promise<RenameRevertRow[]>;
+    start: (payload: { sources: string[]; destination: string; settings: RenameSettings }) => Promise<{ ok: boolean; error?: string }>;
+    abort: (id: number) => Promise<{ ok: boolean }>;
+    startRevert: (payload: { batchId: number; copiesFolder: string; destination: string }) => Promise<{ ok: boolean; error?: string }>;
+    listPresets: () => Promise<RenamePresetRow[]>;
+    savePreset: (name: string, settings: RenameSettings) => Promise<{ ok: boolean }>;
+    deletePreset: (id: number) => Promise<{ ok: boolean }>;
+    pickFolder: (title?: string) => Promise<string | null>;
+    openFolder: (p: string) => Promise<{ ok: boolean }>;
   };
   /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the
    *  channel: updater:available → UpdateAvailableInfo, updater:progress → UpdateProgressInfo,

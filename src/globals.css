@@ -17,6 +17,9 @@
 }
 :root{
   --mc-flyout-width:300px; /* shell sidebar width — App re-sets it inline on drag (clamped ≤ 300) */
+  /* standing shell footer height — reserved by the full-height modules (dv/rbs/scv calc below) so the
+     footer never overlaps or scrolls them; sized for the 2-line wrap at the 740px min width. */
+  --mc-footer-height:65px;
   /* boot-dark surface — matches .bootterm's #0b0e16 and the main-process boot frame (windows.ts
      OVERLAYS.boot/BASE_BG.boot), so the whole pre-shell phase reads as ONE surface. */
   --mc-boot-bg:#0b0e16;
@@ -128,7 +131,7 @@ svg{display:block;flex:none}
 .topbar .overlay,.topbar .search-pop{-webkit-app-region:no-drag}
 
 /* ---------- persistent left rail (always open — zero menu-diving) ---------- */
-body{padding-left:var(--mc-flyout-width,300px)} /* clears the fixed rail; fixed overlays (wizard/terminal) ignore it */
+body{padding-left:var(--mc-flyout-width,300px);padding-bottom:var(--mc-footer-height)} /* clears the fixed rail + the fixed footer; fixed overlays (wizard/terminal) ignore it */
 body.rail-collapsed{padding-left:58px} /* content area expands when the rail collapses (instant snap) */
 .flyout{position:fixed;top:0;left:0;bottom:0;width:var(--mc-flyout-width,300px);background:var(--mc-sidebar);
   border-right:1px solid var(--mc-border);z-index:35;display:flex;flex-direction:column;
@@ -165,6 +168,18 @@ body.rail-collapsed{padding-left:58px} /* content area expands when the rail col
 .view.shown{display:block}
 .wrap{max-width:1280px;margin:0 auto;padding:24px 16px}
 @media (min-width:768px){.wrap{padding:32px 24px}}
+/* Standing AvertXAI shell footer — ONE instance (App.tsx), on every module page. Normal flow below the
+   module content, spanning the content column, centered. min-height reserves the 2-line-at-740px
+   height so the full-height modules (dv/rbs/scv subtract --mc-footer-height) never scroll or overlap.
+   The two links are plain anchors — main.ts's will-navigate guard opens them in the default browser. */
+.app-footer{position:fixed;bottom:0;left:var(--mc-flyout-width);right:0;z-index:20;background:var(--mc-base);
+  display:flex;align-items:center;justify-content:center;text-align:center;box-sizing:border-box;
+  min-height:var(--mc-footer-height);padding:14px;border-top:1px solid var(--mc-border);
+  font-size:12px;color:var(--mc-dimmer)}
+body.rail-collapsed .app-footer{left:58px} /* follow the collapsed rail so the footer clears it */
+.app-footer-txt{line-height:1.5}
+.app-footer a{color:var(--mc-dimmer);text-decoration:none}
+.app-footer a:hover{color:var(--mc-text);text-decoration:underline}
 h1.pagetitle{font-size:24px;font-weight:600;margin-bottom:4px}
 .subtitle{color:var(--mc-muted);margin-bottom:24px}
 
@@ -243,7 +258,7 @@ tbody tr:hover{background:var(--mc-nested)}
 /* ============================================================
    Data Viewer module — read-only SQLite browser.
    ============================================================ */
-.dv-shell{display:flex;height:calc(100vh - 58px);overflow:hidden}
+.dv-shell{display:flex;height:calc(100vh - 58px - var(--mc-footer-height));overflow:hidden}
 .dv-rail{width:180px;flex:0 0 180px;border-right:1px solid var(--mc-border);
   background:var(--mc-panels);display:flex;flex-direction:column;overflow:hidden}
 .dv-rail-head{padding:12px 14px;font-weight:600;font-size:13px;color:var(--mc-muted);
@@ -355,6 +370,10 @@ tbody tr:hover{background:var(--mc-nested)}
 .switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--mc-muted);box-sizing:border-box;transition:left .15s,background .15s}
 /* on-state: track identical to off; the dot slides and gains a text-token ring (1.c.1) */
 .switch.on::after{left:20px;background:var(--mc-toggle-on);border:1.4px solid var(--mc-muted)}
+/* Suppress the knob slide until the persisted value has loaded + painted — otherwise every entry into
+   Settings animates the toggle from its default to the real value. Removed once loaded, so a USER click
+   still animates. */
+.switch.no-anim::after{transition:none}
 
 /* Safe Mode banner — persistent (not dismissible) strip under the top bar */
 .safemode{display:flex;align-items:center;justify-content:center;gap:14px;padding:8px 16px;

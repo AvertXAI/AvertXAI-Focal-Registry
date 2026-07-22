@@ -7,7 +7,9 @@ import Flyout from "./components/Flyout";
 import FirstRunWizard from "./components/FirstRunWizard";
 import BootTerminal from "./components/BootTerminal";
 import NotBuilt from "./components/NotBuilt";
+import AppFooter from "./components/AppFooter";
 import ScanModule from "./modules/scan/ScanModule";
+import RenameModule from "./modules/rename/RenameModule";
 import type { ModuleRow, UpdateAvailableInfo, UpdateProgressInfo } from "./shared/types";
 import Home from "./views/Home";
 import Settings from "./views/Settings";
@@ -44,8 +46,12 @@ const LEAF: Record<string, string> = {
 // root owns persistence, so it loads the module's namespaced app_settings and hands the module its
 // settings + an onChange that writes back through the sanctioned settings path (which re-points the
 // engine). Targeted to the shredder for now; a generic manifest-driven injector is a later refinement.
+// Module-level so a re-entry mount renders the real watch path on the FIRST paint instead of
+// flashing "No folder set" while the async settings.get round-trips. Warmed by the first load below.
+let shredderSettingsCache: ShredderSettings | null = null;
+
 function RunbookShredderMount() {
-  const [settings, setSettings] = useState<ShredderSettings>(defaultSettings);
+  const [settings, setSettings] = useState<ShredderSettings>(() => shredderSettingsCache ?? defaultSettings());
   useEffect(() => {
     void Promise.all([
       window.api.settings.get("runbook-shredder.watch_path"),
@@ -55,7 +61,7 @@ function RunbookShredderMount() {
     ]).then(([wp, we, rc, fs]) =>
       setSettings((s) => {
         const n = Number(fs);
-        return {
+        const next = {
           ...s,
           "runbook-shredder.watch_path": wp ?? s["runbook-shredder.watch_path"],
           "runbook-shredder.watch_enabled": we === null ? s["runbook-shredder.watch_enabled"] : we === "1",
@@ -63,11 +69,17 @@ function RunbookShredderMount() {
           // Number()-parse the persisted px; fall back to the default (13) on null/undefined/NaN.
           "runbook-shredder.font_size": fs == null || Number.isNaN(n) ? s["runbook-shredder.font_size"] : n,
         };
+        shredderSettingsCache = next;
+        return next;
       })
     );
   }, []);
   const onChange = (patch: Partial<ShredderSettings>) => {
-    setSettings((s) => ({ ...s, ...patch }));
+    setSettings((s) => {
+      const next = { ...s, ...patch };
+      shredderSettingsCache = next;
+      return next;
+    });
     for (const [k, v] of Object.entries(patch)) {
       void window.api.settings.set(k, typeof v === "boolean" ? (v ? "1" : "0") : String(v));
     }
@@ -79,7 +91,7 @@ function RunbookShredderMount() {
 // A row with no entry renders the not-built placeholder instead of a dead view.
 const MODULE_COMPONENTS: Record<string, ComponentType> = {
   scan: ScanModule,
-  rename: NotBuilt, // seeded, not built — plain not-built page (§3.6)
+  rename: RenameModule,
   vault: VaultModule,
   "runbook-shredder": RunbookShredderMount,
   "scout-viewer": ScoutViewerModule,
@@ -365,7 +377,11 @@ export default function App() {
   // so no flash), then wizard until setup completes, then the terminal mask over the shell mount.
   if (isFirstRun === null) return null;
   if (isFirstRun) return <FirstRunWizard onComplete={() => setIsFirstRun(false)} />;
-  if (isBooting)
+  // Skip Fast Boot (from ?skipBoot=, known before first paint): render a themed BLANK during boot
+  // instead of the dark JARVIS terminal — the module list still loads underneath and the shell appears
+  // with no dark-blue flash. Without this the terminal renders for a frame before the async skip read.
+  if (isBooting) {
+    if (new URLSearchParams(window.location.search).get("skipBoot") === "1") return null;
     return (
       <BootTerminal
         modules={modules}
@@ -375,6 +391,7 @@ export default function App() {
         onFail={() => setIsBooting(false)} // Safe Mode: land in the chrome (banner below), modules empty
       />
     );
+  }
 
   // Safe Mode never dereferences a failed/absent module list.
   const activeModules = bootError ? [] : (modules ?? []);
@@ -407,6 +424,9 @@ export default function App() {
       {view === "data-viewer" && <DataViewerModule />}
       {ActiveModule && <ActiveModule />}
       {!ActiveModule && activeRow && <NotBuilt name={activeRow.name} />}
+
+      {/* Standing AvertXAI footer — one instance, below the module content on every page (root-lane). */}
+      <AppFooter />
 
       {/* AI spark — present in v7 chrome; not-built stub (wiring is a later phase). */}
       <button className="spark nb" aria-label="AI assistant">

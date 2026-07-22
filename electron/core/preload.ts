@@ -22,7 +22,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 // Main → renderer push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of
 // the page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
-const PUSH_CHANNELS: readonly string[] = ["updater:available", "updater:progress", "updater:downloaded", "scan:progress", "scan:drives", "shredder:progress"];
+const PUSH_CHANNELS: readonly string[] = ["updater:available", "updater:progress", "updater:downloaded", "scan:progress", "scan:drives", "shredder:progress", "rename:progress"];
 const wrapped = new Map<(payload: never) => void, (e: Electron.IpcRendererEvent, payload: unknown) => void>();
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);
@@ -81,6 +81,7 @@ const api: Api = {
     },
   },
   shredder: {
+    ensure: () => ipcRenderer.invoke("shredder:ensure"),
     list: (filter?: RunbookFilter) => ipcRenderer.invoke("shredder:list", filter),
     get: (id: string) => ipcRenderer.invoke("shredder:get", id),
     search: (q: string) => ipcRenderer.invoke("shredder:search", q),
@@ -115,6 +116,22 @@ const api: Api = {
     restoreHistory: () => ipcRenderer.invoke("scan:restoreHistory"),
     deleteHistoryForever: () => ipcRenderer.invoke("scan:deleteHistoryForever"),
     clearedHistoryCount: () => ipcRenderer.invoke("scan:clearedHistoryCount"),
+  },
+  rename: {
+    gather: (sources: string[]) => ipcRenderer.invoke("rename:gather", sources),
+    isDriveRoot: (p: string) => ipcRenderer.invoke("rename:isDriveRoot", p),
+    listBatches: () => ipcRenderer.invoke("rename:listBatches"),
+    getBatch: (id: number) => ipcRenderer.invoke("rename:getBatch", id),
+    batchSample: (id: number) => ipcRenderer.invoke("rename:batchSample", id),
+    revertMapping: (id: number) => ipcRenderer.invoke("rename:revertMapping", id),
+    start: (payload: unknown) => ipcRenderer.invoke("rename:start", payload),
+    abort: (id: number) => ipcRenderer.invoke("rename:abort", id),
+    startRevert: (payload: unknown) => ipcRenderer.invoke("rename:startRevert", payload),
+    listPresets: () => ipcRenderer.invoke("rename:listPresets"),
+    savePreset: (name: string, settings: unknown) => ipcRenderer.invoke("rename:savePreset", name, settings),
+    deletePreset: (id: number) => ipcRenderer.invoke("rename:deletePreset", id),
+    pickFolder: (title?: string) => ipcRenderer.invoke("rename:pickFolder", title),
+    openFolder: (p: string) => ipcRenderer.invoke("rename:openFolder", p),
   },
   updater: {
     download: () => ipcRenderer.invoke("updater:download"),

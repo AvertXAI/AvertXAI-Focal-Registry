@@ -92,22 +92,29 @@ function splitSections(md: string): { heading: string | null; body: string }[] {
 const vaultPointers = (md: string): string[] =>
   Array.from(new Set(Array.from(md.matchAll(/\bvault:\s*([\w./-]+)/g), (m) => m[1])));
 
+// Persist the last DEFAULT-view list across Secure Note unmount/remount so re-entering the module shows
+// the directory INSTANTLY (stale-while-revalidate) — no null→skeleton→list reload flash on every switch.
+let listCache: { rows: RunbookRow[]; quar: RunbookRow[]; ok: number; clients: string[] } | null = null;
+
 export default function RunbookShredderModule({ settings, onChange }: Props) {
   const [chipIdx, setChipIdx] = useState(0);
   const [client, setClient] = useState("");
-  const [clients, setClients] = useState<string[]>([]);
+  const [clients, setClients] = useState<string[]>(() => listCache?.clients ?? []);
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
-  const [rows, setRows] = useState<RunbookRow[] | null>(null); // null = loading
-  const [quarantined, setQuarantined] = useState<RunbookRow[]>([]);
-  const [okCount, setOkCount] = useState(0); // from the last unfiltered load (initial load qualifies)
+  const [rows, setRows] = useState<RunbookRow[] | null>(() => listCache?.rows ?? null); // null = loading
+  const [quarantined, setQuarantined] = useState<RunbookRow[]>(() => listCache?.quar ?? []);
+  const [okCount, setOkCount] = useState(() => listCache?.ok ?? 0); // from the last unfiltered load (initial load qualifies)
   const [selected, setSelected] = useState<RunbookRow | null>(null);
   const [showQuar, setShowQuar] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [scanning, setScanning] = useState(false);
-  const [quarCount, setQuarCount] = useState(0); // chip count — rescan return is authoritative
-  const [ingest, setIngest] = useState<ShredderProgress | null>(null); // live folder-ingest ticker
+  const [quarCount, setQuarCount] = useState(() => listCache?.quar.length ?? 0); // chip count — rescan return is authoritative
+  const [ingest, setIngest] = useState<ShredderProgress | null>(null); // latest {done,total} for the overlay %
+  const [ingesting, setIngesting] = useState(false); // the loading overlay is up from module-open until 100%
+  const revealAfterLoad = useRef(false); // when true, drop the overlay only after the next list load renders
+  const firstLoad = useRef(true); // the initial mount load must NOT blank cached rows (stale-while-revalidate)
   // Collapsed-strip search modal — module-scoped overlay; queries the SAME FTS prefix engine.
   const [searchOpen, setSearchOpen] = useState(false);
   const [modalQuery, setModalQuery] = useState("");
@@ -134,10 +141,32 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   // Live ingest ticker — a large watch folder streams done/total over shredder:progress so the strip
   // shows a percentage instead of appearing frozen. The final tick (done === total) clears it.
   useEffect(() => {
-    const onIngest = (p: ShredderProgress): void => setIngest(p.total > 0 && p.done < p.total ? p : null);
+    const onIngest = (p: ShredderProgress): void => {
+      setIngest(p);
+      if (p.total > 0 && p.done < p.total) {
+        setIngesting(true); // keep the overlay up for the whole load
+      } else {
+        // Ingest finished — DON'T drop the overlay yet. Reload the list and keep the overlay up until
+        // those fresh rows are actually rendered, so there is no ~0.5-1s blank gap between the spinner
+        // leaving and the directory appearing.
+        revealAfterLoad.current = true;
+        setReloadKey((k) => k + 1);
+      }
+    };
     api.on<ShredderProgress>("shredder:progress", onIngest);
     return () => api.off<ShredderProgress>("shredder:progress", onIngest);
   }, []);
+
+  // Lazy engine start on module open. If this open actually kicks off an ingest, raise the overlay
+  // IMMEDIATELY (before the first progress tick) so the whole load — walk + parse — is covered, and no
+  // half-loaded list or skeleton shimmer shows through. Same on a fresh app start into Secure Note.
+  useEffect(() => {
+    void api.shredder.ensure().then((r) => { if (r.ingesting) setIngesting(true); }).catch(() => {});
+  }, []);
+
+  // ponytail: the loading overlay is content-area only (absolute inset:0 below the topbar) — the native
+  // window buttons sit ABOVE it and are never covered, so we do NOT dim them. Dimming blends the strip
+  // toward the dark modal scrim, which in light theme paints a dark block over the buttons (the bug).
   const changeFontSize = (v: string) => {
     const n = Number(v) || 13;
     setFontSize(n);
@@ -195,7 +224,8 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   useEffect(() => {
     let alive = true;
     setError(null);
-    setRows(null);
+    if (!firstLoad.current) setRows(null); // blank → skeleton on a filter/search change; NOT on a remount with cached rows
+    firstLoad.current = false;
     void (async () => {
       try {
         const listP = query
@@ -208,9 +238,14 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
         const [list, quar] = await Promise.all([listP, api.shredder.listQuarantined()]);
         if (!alive) return;
         setRows(list);
+        if (revealAfterLoad.current) { revealAfterLoad.current = false; setIngesting(false); } // fresh rows are in → drop the overlay
         setQuarantined(quar);
         setQuarCount(quar.length);
-        if (!query && chipIdx === 0 && !client) setOkCount(list.length);
+        if (!query && chipIdx === 0 && !client) {
+          setOkCount(list.length);
+          const cl = Array.from(new Set(list.map((r) => r.client).filter(Boolean) as string[])).sort();
+          listCache = { rows: list, quar, ok: list.length, clients: cl }; // warm the cache for an instant re-entry
+        }
         setClients((prev) => {
           const s = new Set(prev);
           for (const r of list) if (r.client) s.add(r.client);
@@ -322,12 +357,6 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
           <span className="rbs-dot err" />
           {quarCount} quarantined
         </button>
-        {ingest && (
-          <span className="rbs-chip rbs-loading" title={`Reading ${ingest.done.toLocaleString()} of ${ingest.total.toLocaleString()} files`}>
-            <span className="rbs-spin" />
-            loading {Math.round((ingest.done / ingest.total) * 100)}%
-          </span>
-        )}
         <div className="rbs-sp">
           <button
             className={"rbs-tgl" + (watchEnabled ? " on" : "") + (live ? "" : " nb")}
@@ -437,6 +466,12 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
 
           {!railCollapsed && (
           <div className="rbs-rows">
+            {/* When the directory itself is (re)loading and the big ingest overlay is NOT up — e.g. a
+                switch back into the module before the cache is warm — show a small pill so it never
+                looks like a silent hang. The rows live in the DB, so this is only the query round-trip. */}
+            {listRows === null && !ingesting && !error && (
+              <div className="rbs-loadpill"><span className="rbs-spin" /> Loading directory…</div>
+            )}
             {listRows === null &&
               !error &&
               [0, 1, 2, 3, 4].map((i) => (
@@ -652,6 +687,24 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
                   </span>
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ingest overlay — the ONE loading indicator. The engine is lazy (starts on module open), so on
+          the first open / a fresh app start it parses the watch folder now. This opaque overlay covers
+          the WHOLE module from the instant you enter until the load hits 100%, then reveals the finished
+          list — no half-loaded list, no skeleton shimmer, no separate strip pill. */}
+      {ingesting && (
+        <div className="rbs-loadmodal">
+          <div className="rbs-loadmodal-card">
+            <span className="rbs-loadspin" />
+            <div className="rbs-loadmodal-title">Loading your notes…</div>
+            <div className="rbs-loadmodal-sub">
+              {ingest && ingest.total > 0
+                ? `Reading ${ingest.done.toLocaleString()} of ${ingest.total.toLocaleString()} files · ${Math.round((ingest.done / ingest.total) * 100)}%`
+                : "Starting…"}
             </div>
           </div>
         </div>

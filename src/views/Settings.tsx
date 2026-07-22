@@ -13,11 +13,17 @@ interface Props {
   onThemeChange: (mode: ThemeMode) => void;
 }
 
+// Module-level cache of the toggle values — survives Settings unmount/remount within a session. On a
+// repeat visit the toggles initialize from here, so they render in the CORRECT position on the very
+// first paint (no async default→loaded jump, which was what "moved" when switching to Settings).
+const toggleCache: { skipBoot?: boolean; trayOn?: boolean; launchStartup?: boolean } = {};
+
 export default function Settings({ themeMode, onThemeChange }: Props) {
   bumpRender("settings"); // DIAG-2
-  const [skipBoot, setSkipBoot] = useState(false);
-  const [trayOn, setTrayOn] = useState(true); // tray-on-close — default ON (§3.11)
-  const [launchStartup, setLaunchStartup] = useState(false); // open at Windows login — default OFF
+  const [skipBoot, setSkipBoot] = useState(() => toggleCache.skipBoot ?? false);
+  const [trayOn, setTrayOn] = useState(() => toggleCache.trayOn ?? true); // tray-on-close — default ON (§3.11)
+  const [launchStartup, setLaunchStartup] = useState(() => toggleCache.launchStartup ?? false); // open at Windows login — default OFF
+  const [animReady, setAnimReady] = useState(() => toggleCache.skipBoot !== undefined); // cache warm → correct from first paint, no gate
   const [activeSection, setActiveSection] = useState("General");
   const [appVersion, setAppVersion] = useState("");
   const [checking, setChecking] = useState(false);
@@ -31,9 +37,20 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const [pendingRoot, setPendingRoot] = useState<string | null>(null);
 
   useEffect(() => {
-    void window.api.settings.get("skip_fast_boot").then((v) => setSkipBoot(v === "1"));
-    void window.api.settings.get("tray_enabled").then((v) => setTrayOn(v !== "0")); // default ON
-    void window.api.settings.get("launch_at_startup").then((v) => setLaunchStartup(v === "1")); // default OFF
+    // Load all toggle values together, apply them, THEN (after the next paint) enable the knob
+    // transition — so the toggles render static in their real state and never slide on entry.
+    void Promise.all([
+      window.api.settings.get("skip_fast_boot"),
+      window.api.settings.get("tray_enabled"),
+      window.api.settings.get("launch_at_startup"),
+    ]).then(([sb, tr, ls]) => {
+      const s = sb === "1", t = tr !== "0", l = ls === "1";
+      setSkipBoot(s);
+      setTrayOn(t);
+      setLaunchStartup(l);
+      toggleCache.skipBoot = s; toggleCache.trayOn = t; toggleCache.launchStartup = l; // warm the cache for next visit
+      requestAnimationFrame(() => setAnimReady(true));
+    });
     void window.api.updater.version().then(setAppVersion).catch(() => {}); // never hardcoded
   }, []);
 
@@ -96,16 +113,19 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const toggleSkipBoot = () => {
     const next = !skipBoot;
     setSkipBoot(next);
+    toggleCache.skipBoot = next;
     void window.api.settings.set("skip_fast_boot", next ? "1" : "0");
   };
   const toggleTray = () => {
     const next = !trayOn;
     setTrayOn(next);
+    toggleCache.trayOn = next;
     void window.api.tray.setEnabled(next); // persists to app_settings AND rewires the ✕ behaviour live
   };
   const toggleLaunchStartup = () => {
     const next = !launchStartup;
     setLaunchStartup(next);
+    toggleCache.launchStartup = next;
     void window.api.startup.setEnabled(next); // persists AND writes/clears the OS login item
   };
 
@@ -173,7 +193,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                       id="skipboot"
                       role="switch"
                       aria-checked={skipBoot}
-                      className={`switch${skipBoot ? " on" : ""}`}
+                      className={`switch${skipBoot ? " on" : ""}${animReady ? "" : " no-anim"}`}
                       onClick={toggleSkipBoot}
                     />
                   </div>
@@ -188,7 +208,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                       id="trayclose"
                       role="switch"
                       aria-checked={trayOn}
-                      className={`switch${trayOn ? " on" : ""}`}
+                      className={`switch${trayOn ? " on" : ""}${animReady ? "" : " no-anim"}`}
                       onClick={toggleTray}
                     />
                   </div>
@@ -204,7 +224,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                       id="launchstartup"
                       role="switch"
                       aria-checked={launchStartup}
-                      className={`switch${launchStartup ? " on" : ""}`}
+                      className={`switch${launchStartup ? " on" : ""}${animReady ? "" : " no-anim"}`}
                       onClick={toggleLaunchStartup}
                     />
                   </div>

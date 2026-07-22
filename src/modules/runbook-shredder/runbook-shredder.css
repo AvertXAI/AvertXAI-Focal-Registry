@@ -1,7 +1,7 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
 /* Runbook Shredder module styles. Shell tokens ONLY (--mc-*, RULES-27; the module defines none of its own) — zero hardcoded colors; tints via color-mix. */
 
-.rbs-shell{position:relative;display:flex;flex-direction:column;height:calc(100vh - 58px);overflow:hidden;background:var(--mc-base);color:var(--mc-text)}
+.rbs-shell{position:relative;display:flex;flex-direction:column;height:calc(100vh - 58px - var(--mc-footer-height));overflow:hidden;background:var(--mc-base);color:var(--mc-text)}
 /* module-owned highlighter tokens (module prefix + spelled-out roles, RULES-29) — full-bright solid
    yellow chip, tightened (no padding); opacity routes rejected — alpha over dark surfaces reads olive. */
 .rbs-shell{--shredder-highlighter-background:#ffe14d;--shredder-highlighter-foreground:#1a1500}
@@ -22,6 +22,15 @@
 .rbs-spin{width:10px;height:10px;border-radius:50%;border:2px solid var(--mc-accent-primary);border-top-color:transparent;box-sizing:border-box;animation:rbs-spin .7s linear infinite}
 @keyframes rbs-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.rbs-spin{animation:none}}
+/* initial-ingest overlay — opaque backdrop over the whole module while the first ingest runs */
+.rbs-loadmodal{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:var(--mc-base)}
+.rbs-loadmodal-card{display:flex;flex-direction:column;align-items:center;gap:16px;padding:28px 44px}
+.rbs-loadmodal-title{font-size:15px;font-weight:600;color:var(--mc-text)}
+.rbs-loadmodal-sub{font-size:12px;color:var(--mc-muted);font-family:var(--mc-mono)}
+.rbs-loadspin{width:36px;height:36px;border-radius:50%;border:3px solid var(--mc-border);border-top-color:var(--mc-accent-primary);box-sizing:border-box;animation:rbs-spin .8s linear infinite}
+@media (prefers-reduced-motion:reduce){.rbs-loadspin{animation:none}}
+/* small pill above the directory when the list is (re)loading without the big overlay */
+.rbs-loadpill{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;margin:2px 0 10px;padding:6px 12px;border-radius:20px;border:1px solid var(--mc-border);background:var(--mc-panels);color:var(--mc-muted);font-size:11.5px;font-family:var(--mc-mono)}
 .rbs-sp{margin-left:auto;display:flex;align-items:center;gap:10px}
 .rbs-tgl{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:var(--mc-muted)}
 .rbs-sw{width:30px;height:17px;border-radius:20px;background:var(--mc-border);position:relative;display:inline-block}

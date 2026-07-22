@@ -8,7 +8,7 @@ import { migrateOrgDbSlugs } from "./core/services/db/migrate";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
 import { getSetting, setSetting } from "./core/services/settings";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/crypto";
-import { ensureShredder, registerIpcHandlers } from "./core/ipc";
+import { registerIpcHandlers } from "./core/ipc";
 import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overlayFor, setBooting, setMainWindow, showMain } from "./core/windows";
 import { initUpdater, notifyUpdaterBootDone } from "./core/updater";
 import { initDiag } from "./diag";
@@ -33,6 +33,10 @@ if (mcGpu === "off") {
 // (constructor backgroundColor + native overlay) is already the persisted theme. No org / read
 // failure -> "system" (Hybrid). The renderer receives it via the loadFile query param.
 let bootThemeMode = "system";
+// Skip-Fast-Boot, read at boot and handed to the renderer via ?skipBoot= so it can decide BEFORE the
+// first paint not to render the JARVIS terminal — otherwise the dark terminal flashes for a frame
+// before the async setting read bypasses it.
+let bootSkip = false;
 function readBootTheme(): string {
   try {
     const row = getDb().prepare("SELECT value FROM app_settings WHERE key = 'theme_mode'").get() as
@@ -100,12 +104,14 @@ function createWindow(): BrowserWindow {
     // (baseFor/overlayFor "boot" = #0b0e16) in ALL themes, never baseFor(theme). The BootTerminal
     // is dark in every theme; theming the frame to the user's mode here causes a light-frame-on-
     // dark-terminal bleed. Real theme applies only on boot:done. See Config-As-Data-SOP-electron.md §2.
-    backgroundColor: baseFor("boot"),
+    // SKIP EXCEPTION: when Skip-Fast-Boot is on there is NO terminal to bleed against, so the frame is
+    // the real theme from birth — otherwise the boot-dark window flashes before boot:done.
+    backgroundColor: baseFor(bootSkip ? bootThemeMode : "boot"),
     title: "AvertXAI Focal Registry",
     icon: APP_ICON,
     show: false,
     titleBarStyle: "hidden",
-    titleBarOverlay: overlayFor("boot"),
+    titleBarOverlay: overlayFor(bootSkip ? bootThemeMode : "boot"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -138,7 +144,7 @@ function createWindow(): BrowserWindow {
 
   // Query param hands the boot theme to the renderer so src/main.tsx can set data-theme BEFORE
   // the first React paint (recon 3b) — no preload/IPC roundtrip on the critical path.
-  void win.loadFile(path.join(__dirname, "../dist/index.html"), { query: { theme: bootThemeMode } });
+  void win.loadFile(path.join(__dirname, "../dist/index.html"), { query: { theme: bootThemeMode, skipBoot: bootSkip ? "1" : "0" } });
   return win;
 }
 
@@ -212,16 +218,20 @@ app.whenReady().then(async () => {
     // Vault lockdown: safeStorage-wrapped secret → Argon2id → SQLCipher key.
     const vaultKey = await deriveVaultKey(getOrCreateVaultSecret(org.org_id));
     openDb(path.join(userData, `vault_${org.org_id}.locked.db`), "vault", vaultKey);
-    // Runbook Shredder — start the fs.watch ingest engine alongside the org DBs. A module
-    // failure must never kill the shell boot.
-    try {
-      ensureShredder();
-    } catch (e) {
-      console.error("[runbook-shredder] engine start failed:", e);
-    }
+    // Runbook Shredder engine is now LAZY — it starts on the first Secure Note IPC (module open), not
+    // at boot. Its initial ingest walks + parses the whole watch folder + writes a DB row per file; on
+    // a dev-sized folder that is seconds of work and made the app unresponsive for ~4-5s at startup.
+    // Deferring it keeps boot instant; the module shows a loading overlay while that first ingest runs.
   }
   // Resolve the persisted theme AFTER the org DB opened, BEFORE the window exists (recon 3a).
-  if (org) bootThemeMode = readBootTheme();
+  if (org) {
+    bootThemeMode = readBootTheme();
+    try {
+      bootSkip = getSetting("skip_fast_boot") === "1";
+    } catch {
+      /* setting unreadable — default to showing the terminal */
+    }
+  }
   // Boot edges from the renderer (window.runbooks bridge — deliberately NOT in core/ipc.ts, which
   // carries un-gated work). Re-entrant: Safe-Mode Retry re-enters boot via boot:start.
   ipcMain.on("boot:done", () => {
@@ -233,6 +243,7 @@ app.whenReady().then(async () => {
   const win = createWindow();
   setMainWindow(win);
   applyThemeOverlay(bootThemeMode); // seed the funnel's theme; boot flag keeps the frame boot-dark
+  if (bootSkip) setBooting(false); // Skip Fast Boot: no terminal → clear the boot flag so the frame paints theme now (no boot-dark flash). The renderer's boot:done re-asserts idempotently.
   // Tray defaults ON (§3.11). Read the persisted setting once the org DB is open; "0" = user turned
   // it off, so ✕ quits and no tray icon is created. First-run (no org) stays on the default.
   let trayPref = true;

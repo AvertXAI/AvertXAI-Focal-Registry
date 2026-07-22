@@ -6,7 +6,7 @@
    own and hardcodes NO color that competes with one. Classes carry the scv- prefix so nothing
    collides with shell classes (.view/.modal/.card/.nav/.item all exist in globals.css). */
 
-.scv-shell{position:relative;display:flex;flex-direction:column;height:calc(100vh - 58px);overflow:hidden;background:var(--mc-base);color:var(--mc-text)}
+.scv-shell{position:relative;display:flex;flex-direction:column;height:calc(100vh - 58px - var(--mc-footer-height));overflow:hidden;background:var(--mc-base);color:var(--mc-text)}
 
 /* ---------- browser chrome (back/fwd/reload · URL bar · Go) ---------- */
 .scv-chrome{display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid var(--mc-border);background:var(--mc-topbar)}

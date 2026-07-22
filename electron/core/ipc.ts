@@ -22,6 +22,9 @@ import { ingestAll, startShredder, type IngestProgress, type ShredderHandle } fr
 import * as scout from "./services/scout-viewer";
 import * as scoutTargets from "./services/scout-viewer/targets";
 import * as scan from "./services/scan";
+import * as rename from "./services/rename";
+import { ensureRenameSchema } from "./services/rename/db";
+import type { RenameSettings } from "../../src/shared/renamePreview";
 import * as scanDrives from "./services/scan/drives";
 import * as scanReport from "./services/scan/report";
 import * as scanExport from "./services/scan/export";
@@ -61,7 +64,7 @@ function sendShredderProgress(p: IngestProgress): void {
   getMainWindow()?.webContents.send("shredder:progress", p);
 }
 
-export function ensureShredder(): ShredderHandle {
+export function ensureShredder(skipIngest = false): ShredderHandle {
   if (shredderHandle) return shredderHandle;
   const org = getActiveOrg();
   if (!org) throw new Error("Runbook Shredder: no active org");
@@ -70,6 +73,7 @@ export function ensureShredder(): ShredderHandle {
     baseDir: app.getPath("userData"),
     settings: readShredderSettings(),
     onProgress: sendShredderProgress,
+    skipIngest,
   });
   return shredderHandle;
 }
@@ -77,11 +81,11 @@ export function ensureShredder(): ShredderHandle {
 // B4 — re-point the engine when watch_path / watch_enabled changes: stop the old watcher, then
 // rebuild from the freshly-persisted settings (openShredderDb is cached, so the same DB carries
 // over; startShredder re-ingests + re-watches). Empty watch_path → engine stays idle.
-export function restartShredder(): void {
+export function restartShredder(skipIngest = false): void {
   if (!getActiveOrg()) return;
   shredderHandle?.stop();
   shredderHandle = null;
-  ensureShredder();
+  ensureShredder(skipIngest);
 }
 
 // Full re-ingest of the current watch folder on demand; returns live ok/error counts for the UI.
@@ -150,6 +154,29 @@ app.on("before-quit", () => {
   stopDriveWatcher = null;
 });
 
+// --- Rename host — lazy schema + crash-recovery, mirroring the Scan host. Rename copies from chosen
+// source folders (independent of Scan) and its long jobs stream over rename:progress.
+let renameInit = false;
+function renameCtx(): { db: ReturnType<typeof getDb>; orgId: string } {
+  const org = getActiveOrg();
+  if (!org) throw new Error("Rename: no active org");
+  const db = getDb();
+  if (!renameInit) {
+    ensureRenameSchema(db);
+    rename.markInterruptedRenames(db); // any batch left 'running' by a crash → 'crashed'
+    renameInit = true;
+  }
+  return { db, orgId: org.org_id };
+}
+const RENAME_PROGRESS_THROTTLE_MS = 300;
+let lastRenameProgressAt = 0;
+const sendRenameProgress = (p: rename.RenameProgress): void => {
+  const now = Date.now();
+  if (p.status === "running" && now - lastRenameProgressAt < RENAME_PROGRESS_THROTTLE_MS) return; // terminals always flush
+  lastRenameProgressAt = now;
+  getMainWindow()?.webContents.send("rename:progress", p);
+};
+
 // --- handlers ---
 
 // Resilient registration: one channel failing to register must NEVER silently kill the rest
@@ -205,8 +232,11 @@ export function registerIpcHandlers(): void {
   safeHandle("settings:get", (_e, key: unknown) => settings.getSetting(key));
   safeHandle("settings:set", (_e, key: unknown, value: unknown) => {
     settings.setSetting(key, value);
-    // B4: persisting a shredder watch setting re-points the fs.watch engine at the new folder.
-    if (key === "runbook-shredder.watch_path" || key === "runbook-shredder.watch_enabled") restartShredder();
+    // B4: persisting a shredder watch setting re-points the fs.watch engine. A new watch_path means a
+    // different folder → full re-ingest. Toggling watch_enabled only starts/stops the live watcher; the
+    // files are already in the DB, so skipIngest=true avoids a needless re-read (no loading overlay).
+    if (key === "runbook-shredder.watch_path") restartShredder();
+    else if (key === "runbook-shredder.watch_enabled") restartShredder(true);
   });
 
   // Native window-control overlay tint. The window is born in the JARVIS boot navy; the renderer
@@ -219,6 +249,19 @@ export function registerIpcHandlers(): void {
   // runbook-shredder module (shredder:*).
   // Read-only queries; the service whitelists filter keys and escapes the FTS input, so the raw
   // renderer args can't reach SQL/FTS syntax.
+  // Lazy engine start on module open. Returns whether THIS call actually kicks off an ingest (a fresh
+  // engine start with a real watch folder) so the module can show its loading overlay from the instant
+  // it opens — before the first progress tick — and only when there is genuinely a load to cover.
+  safeHandle("shredder:ensure", () => {
+    const fresh = shredderHandle === null;
+    try {
+      ensureShredder();
+    } catch {
+      return { ingesting: false };
+    }
+    const wp = readShredderSettings()["runbook-shredder.watch_path"];
+    return { ingesting: fresh && !!wp && fs.existsSync(wp) };
+  });
   safeHandle("shredder:list", (_e, filter: unknown) =>
     shredderApi.listRunbooks(
       ensureShredder().db,
@@ -502,6 +545,99 @@ export function registerIpcHandlers(): void {
   safeHandle("scan:listErrors", (_e, runId: unknown) => {
     const { db } = scanCtx();
     return scan.listErrors(db, Number(runId));
+  });
+
+  // --- Rename — copies only; never renames/moves/deletes an original. Long jobs stream over
+  // rename:progress; the batch survives navigation and the renderer rejoins a 'running' batch. ---
+  try {
+    renameCtx();
+  } catch {
+    /* no active org yet — lazy init covers post-wizard */
+  }
+  // Read-only gather for the live preview: walk the chosen source folders and return the media files.
+  safeHandle("rename:gather", (_e, sources: unknown) =>
+    rename.gatherSources(Array.isArray(sources) ? sources.map((s) => String(s)) : [])
+  );
+  safeHandle("rename:isDriveRoot", (_e, p: unknown) => rename.isDriveRoot(String(p ?? "")));
+  safeHandle("rename:listBatches", () => {
+    const { db, orgId } = renameCtx();
+    return rename.listBatches(db, orgId);
+  });
+  safeHandle("rename:getBatch", (_e, id: unknown) => {
+    const { db, orgId } = renameCtx();
+    return rename.getBatch(db, orgId, Number(id));
+  });
+  safeHandle("rename:batchSample", (_e, id: unknown) => {
+    const { db, orgId } = renameCtx();
+    return rename.batchSample(db, orgId, Number(id));
+  });
+  safeHandle("rename:revertMapping", (_e, id: unknown) => {
+    const { db, orgId } = renameCtx();
+    return rename.revertMapping(db, orgId, Number(id));
+  });
+  // Fire-and-forget copy job. Validates the drive-root guard synchronously for an immediate answer;
+  // the engine re-guards as a backstop. Progress + the batchId flow over rename:progress.
+  safeHandle("rename:start", (_e, payload: unknown) => {
+    const { db, orgId } = renameCtx();
+    const a = (payload ?? {}) as { sources?: unknown; destination?: unknown; settings?: RenameSettings };
+    const sources = Array.isArray(a.sources) ? a.sources.map((s) => String(s)).filter(Boolean) : [];
+    const destination = String(a.destination ?? "");
+    const settings = a.settings as RenameSettings;
+    if (sources.length === 0) return { ok: false, error: "Add at least one source folder." };
+    if (!destination) return { ok: false, error: "Choose a destination folder." };
+    for (const s of sources) if (rename.isDriveRoot(s)) return { ok: false, error: `"${s}" is a drive root — choose a folder inside the drive.` };
+    if (rename.isDriveRoot(destination)) return { ok: false, error: `The destination "${destination}" is a drive root.` };
+    rename.saveLastUsed(db, orgId, settings);
+    void rename.startRename(db, orgId, { sources, destination, settings, onProgress: sendRenameProgress }).catch((e) => {
+      getMainWindow()?.webContents.send("rename:progress", {
+        batchId: -1, status: "error", currentFile: null, total: 0, copied: 0, skipped: 0, errored: 0,
+        error: e instanceof Error ? e.message : String(e),
+      } satisfies rename.RenameProgress);
+    });
+    return { ok: true };
+  });
+  safeHandle("rename:abort", (_e, batchId: unknown) => ({ ok: rename.requestAbort(Number(batchId)) }));
+  // Fire-and-forget revert — restores originals to a NEW destination (third file set).
+  safeHandle("rename:startRevert", (_e, payload: unknown) => {
+    const { db, orgId } = renameCtx();
+    const a = (payload ?? {}) as { batchId?: unknown; copiesFolder?: unknown; destination?: unknown };
+    const copiesFolder = String(a.copiesFolder ?? "");
+    const destination = String(a.destination ?? "");
+    if (!copiesFolder || !destination) return { ok: false, error: "Choose the copies folder and a destination." };
+    if (rename.isDriveRoot(destination)) return { ok: false, error: `The destination "${destination}" is a drive root.` };
+    void rename.startRevert(db, orgId, { batchId: Number(a.batchId), copiesFolder, destination, onProgress: sendRenameProgress }).catch((e) => {
+      getMainWindow()?.webContents.send("rename:progress", {
+        batchId: -1, status: "error", currentFile: null, total: 0, copied: 0, skipped: 0, errored: 0,
+        error: e instanceof Error ? e.message : String(e),
+      } satisfies rename.RenameProgress);
+    });
+    return { ok: true };
+  });
+  safeHandle("rename:listPresets", () => {
+    const { db, orgId } = renameCtx();
+    return rename.listPresets(db, orgId);
+  });
+  safeHandle("rename:savePreset", (_e, name: unknown, settings: unknown) => {
+    const { db, orgId } = renameCtx();
+    rename.savePreset(db, orgId, String(name ?? ""), settings as RenameSettings);
+    return { ok: true };
+  });
+  safeHandle("rename:deletePreset", (_e, id: unknown) => {
+    const { db, orgId } = renameCtx();
+    rename.deletePreset(db, orgId, Number(id));
+    return { ok: true };
+  });
+  // Native folder picker + reveal — same guarded pattern as Scan/Storage.
+  safeHandle("rename:pickFolder", async (_e, title: unknown) => {
+    const win = getMainWindow();
+    const opts = { properties: ["openDirectory" as const], title: typeof title === "string" ? title : "Choose a folder" };
+    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
+  });
+  safeHandle("rename:openFolder", (_e, p: unknown) => {
+    const dir = String(p ?? "");
+    if (dir) void shell.openPath(dir);
+    return { ok: true };
   });
 
   // scout-viewer module — Fortified Browser engine (services/scout-viewer). Sender-verified: only

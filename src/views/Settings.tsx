@@ -18,6 +18,22 @@ interface Props {
 // first paint (no async default→loaded jump, which was what "moved" when switching to Settings).
 const toggleCache: { skipBoot?: boolean; trayOn?: boolean; launchStartup?: boolean } = {};
 
+// Warm the toggle cache from app_settings. Called at APP BOOT (App.tsx) — not just on Settings
+// mount — because a renderer reload (Ctrl+R) wipes this module-level cache, and warming it only on
+// mount meant the first Settings visit after a reload painted defaults and then visibly flipped.
+// By first navigation the cache is warm, so the toggles render in their real state on frame one.
+export function warmToggleCache(): Promise<void> {
+  return Promise.all([
+    window.api.settings.get("skip_fast_boot"),
+    window.api.settings.get("tray_enabled"),
+    window.api.settings.get("launch_at_startup"),
+  ]).then(([sb, tr, ls]) => {
+    toggleCache.skipBoot = sb === "1";
+    toggleCache.trayOn = tr !== "0";
+    toggleCache.launchStartup = ls === "1";
+  });
+}
+
 export default function Settings({ themeMode, onThemeChange }: Props) {
   bumpRender("settings"); // DIAG-2
   const [skipBoot, setSkipBoot] = useState(() => toggleCache.skipBoot ?? false);
@@ -37,18 +53,13 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const [pendingRoot, setPendingRoot] = useState<string | null>(null);
 
   useEffect(() => {
-    // Load all toggle values together, apply them, THEN (after the next paint) enable the knob
-    // transition — so the toggles render static in their real state and never slide on entry.
-    void Promise.all([
-      window.api.settings.get("skip_fast_boot"),
-      window.api.settings.get("tray_enabled"),
-      window.api.settings.get("launch_at_startup"),
-    ]).then(([sb, tr, ls]) => {
-      const s = sb === "1", t = tr !== "0", l = ls === "1";
-      setSkipBoot(s);
-      setTrayOn(t);
-      setLaunchStartup(l);
-      toggleCache.skipBoot = s; toggleCache.trayOn = t; toggleCache.launchStartup = l; // warm the cache for next visit
+    // Re-read all toggle values together, apply them, THEN (after the next paint) enable the knob
+    // transition — so a cold-cache mount still renders static and never slides on entry. Normally
+    // the boot-time warmToggleCache() already made the lazy initializers correct on frame one.
+    void warmToggleCache().then(() => {
+      setSkipBoot(toggleCache.skipBoot === true);
+      setTrayOn(toggleCache.trayOn !== false);
+      setLaunchStartup(toggleCache.launchStartup === true);
       requestAnimationFrame(() => setAnimReady(true));
     });
     void window.api.updater.version().then(setAppVersion).catch(() => {}); // never hardcoded
@@ -178,7 +189,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                 <div className="field">
                   <label htmlFor="orgname">Workspace name</label>
                   <div className="fieldrow">
-                    <input className="input" id="orgname" defaultValue="AvertXAI Focal Registry" />
+                    <input className="input" id="orgname" defaultValue="Focal Registry" />
                     <button className="btn nb">Rename</button>
                   </div>
                   <p className="hint">

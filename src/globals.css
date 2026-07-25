@@ -159,6 +159,9 @@ body.rail-collapsed{padding-left:58px} /* content area expands when the rail col
   color:var(--mc-text);font-size:14px;font-weight:700;text-align:left;cursor:pointer}
 .navsection-head:hover{background:var(--mc-nested)}
 .navsection .navitem{font-size:13px} /* items sit one step below the header + Home/Settings (14px) */
+/* indent module rows under their group header so they read as children of "Applications" —
+   expanded rail only: the 58px collapsed strip needs icons centered, not shifted */
+.flyout:not(.collapsed) .navsection .navitem{padding-left:34px}
 .navsection-chev{color:var(--mc-muted);transition:transform .15s ease}
 .navsection-chev.collapsed{transform:rotate(-90deg)} /* down → right when the section is collapsed */
 @media (prefers-reduced-motion:reduce){.navsection-chev{transition:none}}

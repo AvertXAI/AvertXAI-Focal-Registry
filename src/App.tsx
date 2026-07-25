@@ -12,7 +12,7 @@ import ScanModule from "./modules/scan/ScanModule";
 import RenameModule from "./modules/rename/RenameModule";
 import type { ModuleRow, UpdateAvailableInfo, UpdateProgressInfo } from "./shared/types";
 import Home from "./views/Home";
-import Settings from "./views/Settings";
+import Settings, { warmToggleCache } from "./views/Settings";
 import { Spark } from "./icons";
 import DataViewerModule from "./modules/data-viewer/DataViewerModule";
 import VaultModule from "./modules/vault/VaultModule";
@@ -223,6 +223,10 @@ export default function App() {
   // bootError resets first so a retry gets a clean read instead of replaying the stale failure.
   const fetchModules = async () => {
     setBootError(null);
+    // Warm the Settings toggle cache at boot (fire-and-forget) — a renderer reload (Ctrl+R) wipes
+    // the module-level cache, and warming it only on Settings mount meant the first visit after a
+    // reload painted default knobs before flipping. Warm here = correct on frame one by nav time.
+    void warmToggleCache().catch(() => {});
     try {
       const [rows, skip, themeM, org, railC, lastMod, fw, nss] = await Promise.all([
         window.api.getModules(),
@@ -327,8 +331,8 @@ export default function App() {
   // terminal complete/fail, AND Safe-Mode Retry re-entering boot. Optional-chained: harmless if the
   // bridge is absent (e.g. web preview).
   useEffect(() => {
-    if (isBooting) window.runbooks?.bootStart?.();
-    else window.runbooks?.bootDone?.();
+    if (isBooting) window.shell?.bootStart?.();
+    else window.shell?.bootDone?.();
   }, [isBooting]);
 
   // Theme toggle — set + persist through the settings IPC bridge (DB app_settings, never localStorage).

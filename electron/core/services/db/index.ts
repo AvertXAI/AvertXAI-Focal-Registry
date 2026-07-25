@@ -67,8 +67,6 @@ export function initDb(dbPath: string): void {
     db.exec("ALTER TABLE modules ADD COLUMN nav_group TEXT;");
   }
   db.exec("UPDATE modules SET nav_group = 'Applications' WHERE nav_group IS NULL;");
-  // (The legacy pre-rename `runbooks`/`runbook_steps` creations are gone — nothing ever read them.
-  // Existing dev DBs keep the empty tables untouched: additive-only law, no DROP ever.)
   // Additive migration: Scout Viewer browse targets (user-editable CRUD; replaces the module's
   // hardcoded client list). client_id keys the persist:client_<id> session partition — minted at
   // create, immutable after; two targets MAY share one client_id (= one login session).
@@ -110,13 +108,6 @@ export function initDb(dbPath: string): void {
        VALUES (?, ?, ?, ?, ?, ?, 0, 1)`
     ).run(generateUUIDv7(), tenant, name, slug, type, order);
   };
-  // Module rename (Secure Note / runbook-shredder → MindMerge) — GUARDED, idempotent, re-runnable
-  // UPDATEs, data-only, never a DROP. MUST run BEFORE the seeds: seedModule guards by slug, so a
-  // pre-rename dev DB is renamed in place here rather than double-seeded under the new slug.
-  db.exec("UPDATE modules SET slug = 'mindmerge', name = 'MindMerge', type = 'notes' WHERE slug = 'runbook-shredder';");
-  db.exec(
-    "UPDATE app_settings SET key = REPLACE(key, 'runbook-shredder.', 'mindmerge.') WHERE key LIKE 'runbook-shredder.%';"
-  );
   seedModule("Scan", "scan", "tool", 1);
   seedModule("Rename", "rename", "tool", 2);
   seedModule("MindMerge", "mindmerge", "notes", 3);

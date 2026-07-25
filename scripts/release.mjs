@@ -12,7 +12,7 @@ const { version } = createRequire(import.meta.url)("../package.json");
 // .exe, electron-builder always writes builder-debug.yml, and release/ is not cleaned between builds
 // (stale 0.1.x artifacts linger). Pin the CURRENT version's Setup installer, its blockmap, and the
 // real channel manifest; assert each exists before any upload.
-const exe = `AvertXAI-Focal-Registry-Setup-${version}.exe`;
+const exe = `Focal-Registry-Setup-${version}.exe`;
 const map = `${exe}.blockmap`;
 const yml = "prerelease.yml";
 

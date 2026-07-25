@@ -5,7 +5,7 @@
 // Description: Scout Viewer per-client tab state — plain SQLite (scout_tab_state in the shared org
 //              DB), one row per client session, indexed SELECT by client_id. Restores where each
 //              isolated session was (URL + scroll) across client switches and app restarts.
-//              FTS5 is deliberately NOT used here — it stays reserved for runbook content (canon).
+//              FTS5 is deliberately NOT used here — it stays reserved for MindMerge note content (canon).
 //              Table is ensured lazily from THIS lane (additive; db/index.ts untouched).
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/scout-viewer/tab-state.ts

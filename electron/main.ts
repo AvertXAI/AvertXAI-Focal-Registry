@@ -1,5 +1,5 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-// RunBooks — the ONE Electron main process. Hosts the platform shell window and the
+// Focal Registry — the ONE Electron main process. Hosts the platform shell window and the
 // shared spine: the local SQLite org DB (focalregistry_{org_id}.db) and the Data Viewer IPC channels.
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import path from "node:path";
@@ -106,7 +106,7 @@ function createWindow(): BrowserWindow {
     // SKIP EXCEPTION: when Skip-Fast-Boot is on there is NO terminal to bleed against, so the frame is
     // the real theme from birth — otherwise the boot-dark window flashes before boot:done.
     backgroundColor: baseFor(bootSkip ? bootThemeMode : "boot"),
-    title: "AvertXAI Focal Registry",
+    title: "Focal Registry",
     icon: APP_ICON,
     show: false,
     titleBarStyle: "hidden",
@@ -151,7 +151,7 @@ function createWindow(): BrowserWindow {
 // isQuitting, so before-quit (Scout's scroll checkpoint) still fires on a real quit.
 function createTray(): void {
   tray = new Tray(TRAY_ICON);
-  tray.setToolTip("AvertXAI Focal Registry");
+  tray.setToolTip("Focal Registry\nPhotography Archive Tools");
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Open", click: () => showMain() },
@@ -222,7 +222,7 @@ app.whenReady().then(async () => {
       /* setting unreadable — default to showing the terminal */
     }
   }
-  // Boot edges from the renderer (window.runbooks bridge — deliberately NOT in core/ipc.ts, which
+  // Boot edges from the renderer (window.shell bridge — deliberately NOT in core/ipc.ts, which
   // carries un-gated work). Re-entrant: Safe-Mode Retry re-enters boot via boot:start.
   ipcMain.on("boot:done", () => {
     setBooting(false);

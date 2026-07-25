@@ -1,9 +1,9 @@
 {
   "name": "avertxai-focal-registry",
-  "productName": "AvertXAI Focal Registry",
+  "productName": "Focal Registry",
   "version": "0.2.1",
   "private": true,
-  "description": "AvertXAI Focal Registry — Photographer Archive Tools",
+  "description": "Photography Archive Tools",
   "author": "AvertXAI",
   "license": "UNLICENSED",
   "main": "dist-electron/main.cjs",
@@ -23,7 +23,7 @@
   },
   "build": {
     "appId": "com.avertxai.focalregistry",
-    "artifactName": "AvertXAI-Focal-Registry-Setup-${version}.${ext}",
+    "artifactName": "Focal-Registry-Setup-${version}.${ext}",
     "publish": [
       {
         "provider": "generic",
@@ -65,7 +65,7 @@
       "shortcutName": "AvertXAI Focal Registry"
     },
     "portable": {
-      "artifactName": "AvertXAI-Focal-Registry-Portable-${version}.${ext}"
+      "artifactName": "Focal-Registry-Portable-${version}.${ext}"
     }
   },
   "devDependencies": {

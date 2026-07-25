@@ -228,7 +228,7 @@ This application **is** the Mission Control shell, rebranded. Do not restructure
 
 **Token namespace:**
 - Shell-level tokens stay `--mc-*` (Mission Control). Do not rename them.
-- Module-level tokens use `<module-slug>-*` — e.g. `--rename-*`, `--scan-*`, `--shredder-*`, `--vault-*`
+- Module-level tokens use `<module-slug>-*` — e.g. `--rename-*`, `--scan-*`, `--mindmerge-*`, `--vault-*`
 - Role names are **spelled out in full**: `background`, `foreground`, `base`, `border`. Never `bg`, never `fg`, never abbreviations
 - One source of truth per `globals.css`. No hardcoded color anywhere a token exists. No bare unprefixed token shared across scopes
 
@@ -261,7 +261,7 @@ Three themes via a `data-theme` attribute on `<html>`. Set pre-root from a `?the
 **Single-value tokens** (declared once at `:root`, inherited unchanged into dark and light by design):
 `--mc-flyout-width: 300px` · `--mc-boot-bg: #0b0e16` · `--mc-underline: var(--mc-accent-primary)` · `--mc-green: #16a34a` · `--mc-radius: 6px` · `--mc-font` · `--mc-mono`
 
-**Module-scoped tokens.** Every module owns a distinct full-word prefix. Shredder's live on `.rbs-shell`, not `:root` — `--shredder-highlighter-background: #ffe14d`, `--shredder-highlighter-foreground: #1a1500`. Rename, Scan, and Vault declare their own as needed.
+**Module-scoped tokens.** Every module owns a distinct full-word prefix. MindMerge's live on `.rbs-shell`, not `:root` — `--mindmerge-highlighter-background: #ffe14d`, `--mindmerge-highlighter-foreground: #1a1500`. Rename, Scan, and Vault declare their own as needed.
 
 **Paint-surface law:** the active theme background must be set on **`html`, `body`, AND `#root`.** An unpainted ancestor rasterizes white on resize.
 
@@ -275,7 +275,7 @@ Three themes via a `data-theme` attribute on `<html>`. Set pre-root from a `?the
 - Display profile: 1920 by 1080 at 100 percent scale, device pixel ratio 1. Half-screen is therefore 960 CSS pixels.
 - **Topbar is ONE row at every width** — never two stacked bars. It is a container-query container (`container-type: inline-size`). Header height is a constant of roughly 58 pixels; do not reintroduce a variable-height header. Below the **single** `@container (min-width: 900px)` threshold, the breadcrumb prefix (`{org} · {workspace} /`) hides — leaving `{module} 🔒` — and the search field collapses to the magnifier icon. **Both flip at the same threshold.** *(Verified Data — canon DECISIONS-42.)*
 - **Nav rail:** expanded is `--mc-flyout-width: 300px` (runtime-draggable, clamped to 300 maximum); collapsed is **58 pixels** (`body.rail-collapsed { padding-left: 58px }` and `.flyout.collapsed { width: 58px }`). Body offset is `padding-left: var(--mc-flyout-width, 300px)`. Collapse state persists to `app_settings`, key `rail_collapsed`. *(Verified Data — recon 2026-07-18.)*
-- **Topbar height is 58 pixels but is NOT a constant.** It exists as three duplicated `calc(100vh - 58px)` literals across `globals.css`, `runbook-shredder.css`, and `scout-viewer.css`. This drift has already caused a problem once. **Sanctioned improvement for this repo:** promote it to a single `--mc-topbar-height` token during the gut and consume it everywhere.
+- **Topbar height is 58 pixels but is NOT a constant.** It exists as three duplicated `calc(100vh - 58px)` literals across `globals.css`, `mindmerge.css`, and `scout-viewer.css`. This drift has already caused a problem once. **Sanctioned improvement for this repo:** promote it to a single `--mc-topbar-height` token during the gut and consume it everywhere.
 - Native controls strip height is 36 pixels (`OVERLAY_HEIGHT` in `windows.ts`).
 - **Frameless window with `titleBarOverlay`.** Reserve the native-controls zone: topbar `padding-right` of roughly 150 pixels plus `-webkit-app-region: drag`. Content **tucks under** the native buttons at minimum width — it never collides. The topbar background runs full width beneath the overlay
 - The native buttons are drawn by the operating system, above all web content. **You cannot z-index an HTML modal over them.** To make them recede, *dim* them: recolor the overlay to match the modal backdrop, restore to the **active** theme on close
@@ -307,7 +307,7 @@ At boot the shell reads the **`modules` table**; the **`MODULE_COMPONENTS`** slu
 |---|---|---|
 | 1 | **Scan** | BUILT — user interface, report writer, exports, second metadata engine |
 | 2 | **Rename** | Not built — coming-soon page; port of the Python rename logic |
-| 3 | **Secure Note** | Carried over from RUNBOOKS, built. Display name only — slug stays `runbook-shredder`; the slug rename is a separate gated task. Rebuild approved (mockup `MOCKUP-secure-note-additions.html`), not started |
+| 3 | **MindMerge** | Carried over from RUNBOOKS, built. Renamed from Secure Note — slug `mindmerge` (gated rename executed 2026-07-24). Rebuild approved (mockup `MOCKUP-secure-note-additions.html`), not started |
 | 4 | **Scout Viewer** | Built — kept deliberately; loads untrusted remote content, partition-isolated, no preload |
 | 5 | **Secure Vault** | Seeded, not built |
 

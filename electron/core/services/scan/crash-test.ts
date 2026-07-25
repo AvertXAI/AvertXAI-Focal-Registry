@@ -2,7 +2,7 @@
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
 // Project: AvertXAI Focal Registry
-// Description: Scan crash/resume proof harness (mirrors runbook-shredder/smoke.ts). Headless —
+// Description: Scan crash/resume proof harness (mirrors mindmerge/smoke.ts). Headless —
 //              bundle with esbuild, run under ELECTRON_RUN_AS_NODE (native module ABI). Builds a
 //              throwaway synthetic tree in a TEMP directory (never a real archive), scans it,
 //              SIGKILLs itself mid-run, then proves: run → crashed, cursor = last committed

@@ -49,12 +49,12 @@ export interface ModuleRow {
   updated_at: string | null;
 }
 
-// ---- Runbook Shredder module (renderer-safe copies of the service shapes at
-// electron/core/services/runbook-shredder/api.ts — the renderer imports from HERE, never from services/) ----
-export interface RunbookRow {
+// ---- MindMerge module (renderer-safe copies of the service shapes at
+// electron/core/services/mindmerge/api.ts — the renderer imports from HERE, never from services/) ----
+export interface NoteRow {
   id: number;
   uuid: string;
-  runbook_id: string | null;
+  note_id: string | null;
   title: string | null;
   type: string | null;
   status: string | null;
@@ -75,7 +75,7 @@ export interface RunbookRow {
   updated_at: string | null;
 }
 /** Equality filters the service accepts; keys outside this set are ignored main-side. */
-export type RunbookFilter = Partial<
+export type NoteFilter = Partial<
   Record<"status" | "type" | "severity" | "parse_status" | "client" | "owner" | "service", string>
 >;
 
@@ -111,7 +111,7 @@ export interface ScoutDomCard {
 }
 
 /** Main → renderer push channels the preload bridge whitelists. */
-export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded" | "scan:progress" | "scan:drives" | "shredder:progress" | "rename:progress";
+export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded" | "scan:progress" | "scan:drives" | "mindmerge:progress" | "rename:progress";
 
 // ---- Rename module (renderer-safe copies of the service shapes) ----
 export interface RenameProgress {
@@ -173,8 +173,8 @@ export interface RenameBatchSample {
   copy_filename: string | null;
   status: string;
 }
-/** shredder:progress push — folder ingest ticker (done/total) so a large Secure Note folder reads as loading. */
-export interface ShredderProgress {
+/** mindmerge:progress push — folder ingest ticker (done/total) so a large MindMerge folder reads as loading. */
+export interface MindMergeProgress {
   done: number;
   total: number;
 }
@@ -387,13 +387,13 @@ export interface Api {
       remove: (id: number) => Promise<void>;
     };
   };
-  /** Runbook Shredder module — read-only queries + watch-folder plumbing. */
-  shredder: {
+  /** MindMerge module — read-only queries + watch-folder plumbing. */
+  mindmerge: {
     ensure: () => Promise<{ ingesting: boolean }>;
-    list: (filter?: RunbookFilter) => Promise<RunbookRow[]>;
-    get: (id: string) => Promise<RunbookRow | undefined>;
-    search: (q: string) => Promise<RunbookRow[]>;
-    listQuarantined: () => Promise<RunbookRow[]>;
+    list: (filter?: NoteFilter) => Promise<NoteRow[]>;
+    get: (id: string) => Promise<NoteRow | undefined>;
+    search: (q: string) => Promise<NoteRow[]>;
+    listQuarantined: () => Promise<NoteRow[]>;
     /** Native folder dialog → chosen dir, or null on cancel. */
     pickWatchFolder: () => Promise<string | null>;
     /** Re-ingest the current watch folder now → live ok/error counts. */
@@ -423,7 +423,7 @@ export interface Api {
     /** Reveal the report file / open the reports folder in the OS. */
     openReport: (runId: number) => Promise<{ ok: boolean; error?: string }>;
     openReportsFolder: (runId: number) => Promise<{ ok: boolean; error?: string }>;
-    /** Read the report markdown for the in-app modal (Secure Note ingestion is the later path). */
+    /** Read the report markdown for the in-app modal (MindMerge ingestion is the later path). */
     readReport: (runId: number) => Promise<{ ok: boolean; path?: string; content?: string; error?: string }>;
     /** scan_errors rows for the Logged-Issues modal. */
     listErrors: (runId: number) => Promise<ScanErrorList>;

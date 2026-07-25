@@ -2,18 +2,18 @@
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
 // Project: AvertXAI Focal Registry
-// Description: Runbook Shredder read API — the query surface the UI wires to later. Read-only by
+// Description: MindMerge read API — the query surface the UI wires to later. Read-only by
 //              construction (SELECT only). Filter keys are whitelisted and the FTS query is escaped
 //              so renderer-supplied input can't break out into SQL / FTS operators.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
-// File: electron/core/services/runbook-shredder/api.ts
+// File: electron/core/services/mindmerge/api.ts
 //------------------------------------------------------------
 import type { Db } from "./db";
 
-export interface RunbookRow {
+export interface NoteRow {
   id: number;
   uuid: string;
-  runbook_id: string | null;
+  note_id: string | null;
   title: string | null;
   type: string | null;
   status: string | null;
@@ -36,9 +36,9 @@ export interface RunbookRow {
 
 // Equality filters the UI can pass; anything outside this set is ignored (no arbitrary columns).
 const FILTERABLE = ["status", "type", "severity", "parse_status", "client", "owner", "service"] as const;
-export type RunbookFilter = Partial<Record<(typeof FILTERABLE)[number], string>>;
+export type NoteFilter = Partial<Record<(typeof FILTERABLE)[number], string>>;
 
-export function listRunbooks(db: Db, filter: RunbookFilter = {}): RunbookRow[] {
+export function listNotes(db: Db, filter: NoteFilter = {}): NoteRow[] {
   const clauses: string[] = [];
   const params: string[] = [];
   for (const key of FILTERABLE) {
@@ -50,16 +50,16 @@ export function listRunbooks(db: Db, filter: RunbookFilter = {}): RunbookRow[] {
   }
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   return db
-    .prepare(`SELECT * FROM runbooks ${where} ORDER BY updated_at DESC, id DESC`)
-    .all(...params) as RunbookRow[];
+    .prepare(`SELECT * FROM mindmerge_notes ${where} ORDER BY updated_at DESC, id DESC`)
+    .all(...params) as NoteRow[];
 }
 
-export function getRunbook(db: Db, runbookId: string): RunbookRow | undefined {
-  return db.prepare("SELECT * FROM runbooks WHERE runbook_id = ?").get(runbookId) as RunbookRow | undefined;
+export function getNote(db: Db, noteId: string): NoteRow | undefined {
+  return db.prepare("SELECT * FROM mindmerge_notes WHERE note_id = ?").get(noteId) as NoteRow | undefined;
 }
 
 // Turn a free-text query into a safe FTS5 PREFIX match: quote/operator chars (" * ( ) : ^ -) act
-// as whitespace — mirroring how the tokenizer splits them, so "runbook-shredder" still finds both
+// as whitespace — mirroring how the tokenizer splits them, so "mindmerge" still finds both
 // tokens — then each remaining term becomes a quoted prefix ("term"*), AND-combined by space.
 // "happy" therefore matches "happysmiles"; a lone quote/operator sanitizes to no terms (no MATCH ran).
 function ftsQuery(query: string): string {
@@ -72,21 +72,21 @@ function ftsQuery(query: string): string {
     .join(" ");
 }
 
-export function search(db: Db, query: string): RunbookRow[] {
+export function search(db: Db, query: string): NoteRow[] {
   const match = ftsQuery(query);
   if (!match) return [];
   return db
     .prepare(
-      `SELECT r.* FROM runbooks_fts f
-       JOIN runbooks r ON r.id = f.rowid
-       WHERE runbooks_fts MATCH ?
+      `SELECT r.* FROM mindmerge_fts f
+       JOIN mindmerge_notes r ON r.id = f.rowid
+       WHERE mindmerge_fts MATCH ?
        ORDER BY rank`
     )
-    .all(match) as RunbookRow[];
+    .all(match) as NoteRow[];
 }
 
-export function listQuarantined(db: Db): RunbookRow[] {
+export function listQuarantined(db: Db): NoteRow[] {
   return db
-    .prepare("SELECT * FROM runbooks WHERE parse_status = 'error' ORDER BY updated_at DESC, id DESC")
-    .all() as RunbookRow[];
+    .prepare("SELECT * FROM mindmerge_notes WHERE parse_status = 'error' ORDER BY updated_at DESC, id DESC")
+    .all() as NoteRow[];
 }

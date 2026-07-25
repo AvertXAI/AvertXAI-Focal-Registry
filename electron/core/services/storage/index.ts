@@ -65,7 +65,7 @@ const DO_NOT_DELETE = `FOCAL REGISTRY — PLEASE DO NOT DELETE THIS FOLDER
 
 WHAT THIS IS
   This folder holds the Markdown records the Focal Registry desktop app keeps for you —
-  scan reports, and (as those modules arrive) Secure Notes, Scout Viewer captures, and
+  scan reports, and (as those modules arrive) MindMerge notes, Scout Viewer captures, and
   Rename logs. It lives under MissionControl\\ so one index can cover every AvertXAI
   product that shares this computer.
 

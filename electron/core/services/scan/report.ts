@@ -5,8 +5,8 @@
 // Description: Scan report writer — THE ONLY write this product ever makes to a user drive, into
 //              [drive]:\_FocalRegistry-Reports\ so the report travels with a shelved archive.
 //              NEVER overwrites, NEVER appends to an existing file: name collisions get -02, -03.
-//              YAML frontmatter (gray-matter/Secure Note ingestible) + numbers-and-lists body.
-//              A copy lands in Secure Note's watch folder when one is configured. A write failure
+//              YAML frontmatter (gray-matter/MindMerge ingestible) + numbers-and-lists body.
+//              A copy lands in MindMerge's watch folder when one is configured. A write failure
 //              is reported and the run STAYS completed — the data is already committed.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/scan/report.ts
@@ -259,13 +259,13 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
       localResult = { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
 
-    // ---- Secure Note handoff: a COPY into the watch folder when configured. Best-effort, isolated —
+    // ---- MindMerge handoff: a COPY into the watch folder when configured. Best-effort, isolated —
     //      a handoff failure never turns a written report into a failure result. Copies from whichever
     //      of the two reports actually landed. ----
     let secureNoteCopy: string | null = null;
     const anyPath = driveResult.path ?? localResult.path;
     try {
-      const watch = (db.prepare("SELECT value FROM app_settings WHERE key = 'runbook-shredder.watch_path'").get() as
+      const watch = (db.prepare("SELECT value FROM app_settings WHERE key = 'mindmerge.watch_path'").get() as
         | { value: string }
         | undefined)?.value;
       if (anyPath && watch && fs.existsSync(watch)) {

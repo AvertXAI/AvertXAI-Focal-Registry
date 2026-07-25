@@ -148,7 +148,7 @@ function moduleIcon(slug: string) {
       return <SearchIcon />;
     case "vault":
       return <LockIcon />;
-    case "runbook-shredder":
+    case "mindmerge":
     default:
       return <DocIcon />;
   }
@@ -174,7 +174,7 @@ function RenameIcon() {
   );
 }
 
-// runbook-shredder — document outline
+// mindmerge — document outline
 function DocIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">

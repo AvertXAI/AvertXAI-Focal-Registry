@@ -11,14 +11,14 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
-import { defaultSettings, type ShredderSettings } from "../../src/modules/runbook-shredder/config.manifest";
+import { defaultSettings, type MindMergeSettings } from "../../src/modules/mindmerge/config.manifest";
 import { getDb } from "./services/db";
 import { getActiveOrg } from "./services/db/registry";
 import * as dataviewer from "./services/dataviewer";
 import * as firstrun from "./services/firstrun";
 import * as modules from "./services/modules";
-import * as shredderApi from "./services/runbook-shredder/api";
-import { ingestAll, startShredder, type IngestProgress, type ShredderHandle } from "./services/runbook-shredder/shredder";
+import * as mindmergeApi from "./services/mindmerge/api";
+import { ingestAll, startMindMerge, type IngestProgress, type MindMergeHandle } from "./services/mindmerge/engine";
 import * as scout from "./services/scout-viewer";
 import * as scoutTargets from "./services/scout-viewer/targets";
 import * as scan from "./services/scan";
@@ -34,68 +34,68 @@ import { generateUUIDv7 } from "./services/utils/uuidv7";
 import * as settings from "./services/settings";
 import { applyThemeOverlay, getMainWindow, setOverlayDim } from "./windows";
 
-// --- Runbook Shredder host — root-side glue ONLY. The service stays electron-free: orgId, baseDir
+// --- MindMerge host — root-side glue ONLY. The service stays electron-free: orgId, baseDir
 // (userData, where the module's own .db lives) and settings are injected from here. Lazy so it
 // works both at normal boot and in the session right after the First-Run wizard mints the org.
-let shredderHandle: ShredderHandle | null = null;
+let mindmergeHandle: MindMergeHandle | null = null;
 
 // Manifest defaults overlaid with persisted app_settings rows — root owns persistence
 // ("Expose, Don't Connect"); the module never reads app_settings itself.
-function readShredderSettings(): ShredderSettings {
+function readMindMergeSettings(): MindMergeSettings {
   const s = defaultSettings();
   const rows = getDb()
-    .prepare("SELECT key, value FROM app_settings WHERE key LIKE 'runbook-shredder.%'")
+    .prepare("SELECT key, value FROM app_settings WHERE key LIKE 'mindmerge.%'")
     .all() as { key: string; value: string }[];
   for (const { key, value } of rows) {
-    if (key === "runbook-shredder.watch_path") s[key] = value;
-    else if (key === "runbook-shredder.watch_enabled" || key === "runbook-shredder.auto_reparse")
+    if (key === "mindmerge.watch_path") s[key] = value;
+    else if (key === "mindmerge.watch_enabled" || key === "mindmerge.auto_reparse")
       s[key] = value === "1";
   }
   return s;
 }
 
-// Throttled ingest-progress push — the Secure Note strip shows a live % so a large-folder ingest
+// Throttled ingest-progress push — the MindMerge strip shows a live % so a large-folder ingest
 // reads as "loading", not hung. Always sends the final tick (done === total) so the ticker clears.
-let shredderProgressAt = 0;
-function sendShredderProgress(p: IngestProgress): void {
+let mindmergeProgressAt = 0;
+function sendMindMergeProgress(p: IngestProgress): void {
   const now = Date.now();
-  if (p.done < p.total && now - shredderProgressAt < 150) return;
-  shredderProgressAt = now;
-  getMainWindow()?.webContents.send("shredder:progress", p);
+  if (p.done < p.total && now - mindmergeProgressAt < 150) return;
+  mindmergeProgressAt = now;
+  getMainWindow()?.webContents.send("mindmerge:progress", p);
 }
 
-export function ensureShredder(skipIngest = false): ShredderHandle {
-  if (shredderHandle) return shredderHandle;
+export function ensureMindMerge(skipIngest = false): MindMergeHandle {
+  if (mindmergeHandle) return mindmergeHandle;
   const org = getActiveOrg();
-  if (!org) throw new Error("Runbook Shredder: no active org");
-  shredderHandle = startShredder({
+  if (!org) throw new Error("MindMerge: no active org");
+  mindmergeHandle = startMindMerge({
     orgId: org.org_id,
     baseDir: app.getPath("userData"),
-    settings: readShredderSettings(),
-    onProgress: sendShredderProgress,
+    settings: readMindMergeSettings(),
+    onProgress: sendMindMergeProgress,
     skipIngest,
   });
-  return shredderHandle;
+  return mindmergeHandle;
 }
 
 // B4 — re-point the engine when watch_path / watch_enabled changes: stop the old watcher, then
-// rebuild from the freshly-persisted settings (openShredderDb is cached, so the same DB carries
-// over; startShredder re-ingests + re-watches). Empty watch_path → engine stays idle.
-export function restartShredder(skipIngest = false): void {
+// rebuild from the freshly-persisted settings (openMindMergeDb is cached, so the same DB carries
+// over; startMindMerge re-ingests + re-watches). Empty watch_path → engine stays idle.
+export function restartMindMerge(skipIngest = false): void {
   if (!getActiveOrg()) return;
-  shredderHandle?.stop();
-  shredderHandle = null;
-  ensureShredder(skipIngest);
+  mindmergeHandle?.stop();
+  mindmergeHandle = null;
+  ensureMindMerge(skipIngest);
 }
 
 // Full re-ingest of the current watch folder on demand; returns live ok/error counts for the UI.
 // Async + progress-streaming so a large folder neither freezes the app nor looks hung.
-async function rescanShredder(): Promise<{ ingested: number; quarantined: number }> {
-  const h = ensureShredder();
-  const watchPath = readShredderSettings()["runbook-shredder.watch_path"];
-  if (watchPath && fs.existsSync(watchPath)) return ingestAll(h.db, watchPath, sendShredderProgress);
+async function rescanMindMerge(): Promise<{ ingested: number; quarantined: number }> {
+  const h = ensureMindMerge();
+  const watchPath = readMindMergeSettings()["mindmerge.watch_path"];
+  if (watchPath && fs.existsSync(watchPath)) return ingestAll(h.db, watchPath, sendMindMergeProgress);
   const count = (status: string): number =>
-    (h.db.prepare("SELECT COUNT(*) AS n FROM runbooks WHERE parse_status = ?").get(status) as { n: number }).n;
+    (h.db.prepare("SELECT COUNT(*) AS n FROM mindmerge_notes WHERE parse_status = ?").get(status) as { n: number }).n;
   return { ingested: count("ok"), quarantined: count("error") };
 }
 
@@ -232,11 +232,11 @@ export function registerIpcHandlers(): void {
   safeHandle("settings:get", (_e, key: unknown) => settings.getSetting(key));
   safeHandle("settings:set", (_e, key: unknown, value: unknown) => {
     settings.setSetting(key, value);
-    // B4: persisting a shredder watch setting re-points the fs.watch engine. A new watch_path means a
+    // B4: persisting a mindmerge watch setting re-points the fs.watch engine. A new watch_path means a
     // different folder → full re-ingest. Toggling watch_enabled only starts/stops the live watcher; the
     // files are already in the DB, so skipIngest=true avoids a needless re-read (no loading overlay).
-    if (key === "runbook-shredder.watch_path") restartShredder();
-    else if (key === "runbook-shredder.watch_enabled") restartShredder(true);
+    if (key === "mindmerge.watch_path") restartMindMerge();
+    else if (key === "mindmerge.watch_enabled") restartMindMerge(true);
   });
 
   // Native window-control overlay tint. The window is born in the JARVIS boot navy; the renderer
@@ -246,44 +246,44 @@ export function registerIpcHandlers(): void {
     applyThemeOverlay(typeof mode === "string" ? mode : null)
   );
 
-  // runbook-shredder module (shredder:*).
+  // mindmerge module (mindmerge:*).
   // Read-only queries; the service whitelists filter keys and escapes the FTS input, so the raw
   // renderer args can't reach SQL/FTS syntax.
   // Lazy engine start on module open. Returns whether THIS call actually kicks off an ingest (a fresh
   // engine start with a real watch folder) so the module can show its loading overlay from the instant
   // it opens — before the first progress tick — and only when there is genuinely a load to cover.
-  safeHandle("shredder:ensure", () => {
-    const fresh = shredderHandle === null;
+  safeHandle("mindmerge:ensure", () => {
+    const fresh = mindmergeHandle === null;
     try {
-      ensureShredder();
+      ensureMindMerge();
     } catch {
       return { ingesting: false };
     }
-    const wp = readShredderSettings()["runbook-shredder.watch_path"];
+    const wp = readMindMergeSettings()["mindmerge.watch_path"];
     return { ingesting: fresh && !!wp && fs.existsSync(wp) };
   });
-  safeHandle("shredder:list", (_e, filter: unknown) =>
-    shredderApi.listRunbooks(
-      ensureShredder().db,
-      (typeof filter === "object" && filter !== null ? filter : {}) as shredderApi.RunbookFilter
+  safeHandle("mindmerge:list", (_e, filter: unknown) =>
+    mindmergeApi.listNotes(
+      ensureMindMerge().db,
+      (typeof filter === "object" && filter !== null ? filter : {}) as mindmergeApi.NoteFilter
     )
   );
-  safeHandle("shredder:get", (_e, id: unknown) => shredderApi.getRunbook(ensureShredder().db, String(id)));
-  safeHandle("shredder:search", (_e, q: unknown) =>
-    shredderApi.search(ensureShredder().db, typeof q === "string" ? q : "")
+  safeHandle("mindmerge:get", (_e, id: unknown) => mindmergeApi.getNote(ensureMindMerge().db, String(id)));
+  safeHandle("mindmerge:search", (_e, q: unknown) =>
+    mindmergeApi.search(ensureMindMerge().db, typeof q === "string" ? q : "")
   );
-  safeHandle("shredder:listQuarantined", () => shredderApi.listQuarantined(ensureShredder().db));
+  safeHandle("mindmerge:listQuarantined", () => mindmergeApi.listQuarantined(ensureMindMerge().db));
 
   // native folder picker → the chosen dir (or null on cancel); the renderer persists it via
   // settings:set, which re-points the engine (B4). rescan re-ingests the current folder on demand.
-  safeHandle("shredder:pickWatchFolder", async () => {
+  safeHandle("mindmerge:pickWatchFolder", async () => {
     const win = getMainWindow();
     const res = win
       ? await dialog.showOpenDialog(win, { properties: ["openDirectory"] })
       : await dialog.showOpenDialog({ properties: ["openDirectory"] });
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
   });
-  safeHandle("shredder:rescan", () => rescanShredder());
+  safeHandle("mindmerge:rescan", () => rescanMindMerge());
 
   // --- storage (Phase 2): the app-managed Markdown root + the Documents export folder ---
   // locations ENSURES the tree exists (first look creates it, no prompt beyond the root choice).
@@ -523,7 +523,7 @@ export function registerIpcHandlers(): void {
     void shell.openPath(dir);
     return { ok: true };
   });
-  // Read the report markdown back for the in-app modal (until Secure Note ingestion lands). Bounded
+  // Read the report markdown back for the in-app modal (until MindMerge ingestion lands). Bounded
   // read; never throws. Returns { ok, content } or { ok:false, error }.
   safeHandle("scan:readReport", (_e, runId: unknown) => {
     const { db } = scanCtx();

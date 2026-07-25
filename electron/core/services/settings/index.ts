@@ -21,12 +21,12 @@ const RENDERER_KEYS = new Set([
   "theme_mode", // 3-state theme toggle (system/light/dark) — persisted, never localStorage
   "org_name", // active org display name — read-only in the renderer (TopBar brand); written by first-run/setup
   "markdown_root", // user-chosen ROOT for the app-managed Markdown tree (<root>\MissionControl\…); app owns everything below it
-  // Runbook Shredder namespaced settings — the module persists these through this sanctioned path,
+  // MindMerge namespaced settings — the module persists these through this sanctioned path,
   // never a direct app_settings write ("Expose, Don't Connect"). auto_reparse stays main-only.
-  "runbook-shredder.watch_path",
-  "runbook-shredder.watch_enabled",
-  "runbook-shredder.rail_collapsed", // module list-rail « collapse — UI-only, never restarts the engine
-  "runbook-shredder.font_size", // detail-pane px size — UI-only, never restarts the engine
+  "mindmerge.watch_path",
+  "mindmerge.watch_enabled",
+  "mindmerge.rail_collapsed", // module list-rail « collapse — UI-only, never restarts the engine
+  "mindmerge.font_size", // detail-pane px size — UI-only, never restarts the engine
 ]);
 
 function safeKey(key: unknown): string {

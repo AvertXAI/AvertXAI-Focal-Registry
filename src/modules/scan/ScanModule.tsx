@@ -373,7 +373,7 @@ export default function ScanModule() {
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
 
-  // View report → read the markdown and show it in a modal (Secure Note ingestion is the later path).
+  // View report → read the markdown and show it in a modal (MindMerge ingestion is the later path).
   const viewReport = async (runId: number): Promise<void> => {
     const r = await window.api.scan.readReport(runId);
     if (r.ok && typeof r.content === "string") { setExportMsg(null); setReportModal({ runId, path: r.path ?? "", content: r.content }); }

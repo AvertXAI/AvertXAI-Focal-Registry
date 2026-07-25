@@ -8,7 +8,7 @@
 // File: electron/core/preload.ts
 //------------------------------------------------------------
 import { contextBridge, ipcRenderer } from "electron";
-import type { Api, PushChannel, RunbookFilter, ScoutBounds } from "../../src/shared/types";
+import type { Api, PushChannel, NoteFilter, ScoutBounds } from "../../src/shared/types";
 
 // Engine → module subscriptions strip the IpcRendererEvent and return an unsubscribe, so the React
 // module can re-mount without stacking listeners (the standalone prototype never unmounted).
@@ -22,7 +22,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 // Main → renderer push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of
 // the page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
-const PUSH_CHANNELS: readonly string[] = ["updater:available", "updater:progress", "updater:downloaded", "scan:progress", "scan:drives", "shredder:progress", "rename:progress"];
+const PUSH_CHANNELS: readonly string[] = ["updater:available", "updater:progress", "updater:downloaded", "scan:progress", "scan:drives", "mindmerge:progress", "rename:progress"];
 const wrapped = new Map<(payload: never) => void, (e: Electron.IpcRendererEvent, payload: unknown) => void>();
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);
@@ -80,14 +80,14 @@ const api: Api = {
       remove: (id: number) => ipcRenderer.invoke("scout:targets:delete", id),
     },
   },
-  shredder: {
-    ensure: () => ipcRenderer.invoke("shredder:ensure"),
-    list: (filter?: RunbookFilter) => ipcRenderer.invoke("shredder:list", filter),
-    get: (id: string) => ipcRenderer.invoke("shredder:get", id),
-    search: (q: string) => ipcRenderer.invoke("shredder:search", q),
-    listQuarantined: () => ipcRenderer.invoke("shredder:listQuarantined"),
-    pickWatchFolder: () => ipcRenderer.invoke("shredder:pickWatchFolder"),
-    rescan: () => ipcRenderer.invoke("shredder:rescan"),
+  mindmerge: {
+    ensure: () => ipcRenderer.invoke("mindmerge:ensure"),
+    list: (filter?: NoteFilter) => ipcRenderer.invoke("mindmerge:list", filter),
+    get: (id: string) => ipcRenderer.invoke("mindmerge:get", id),
+    search: (q: string) => ipcRenderer.invoke("mindmerge:search", q),
+    listQuarantined: () => ipcRenderer.invoke("mindmerge:listQuarantined"),
+    pickWatchFolder: () => ipcRenderer.invoke("mindmerge:pickWatchFolder"),
+    rescan: () => ipcRenderer.invoke("mindmerge:rescan"),
   },
   scan: {
     listDrives: () => ipcRenderer.invoke("scan:listDrives"),

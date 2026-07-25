@@ -4,7 +4,6 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import path from "node:path";
 import { getDb, initDb, openDb } from "./core/services/db";
-import { migrateOrgDbSlugs } from "./core/services/db/migrate";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
 import { getSetting, setSetting } from "./core/services/settings";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/crypto";
@@ -198,15 +197,6 @@ app.whenReady().then(async () => {
   // (single-instance lock + userData) with other AvertXAI builds.
   if (process.platform === "win32") app.setAppUserModelId("com.avertxai.focalregistry");
 
-  // Org-DB slug migration (runbooks_ → focalregistry_) — MUST run before initRegistry()/getDb()
-  // hands any module a connection. Idempotent every boot; a failure rolls back and the app boots
-  // on the old file as if nothing happened (the migration logs, the user never sees it).
-  try {
-    migrateOrgDbSlugs(app.getPath("userData"));
-  } catch (e) {
-    console.error("[db-migrate] unexpected failure — booting unmigrated:", e);
-  }
-
   // --- Config-as-Data gatekeeper: the platform registry routes boot to the active org's DBs.
   // No active org yet → skip the org DBs entirely; the renderer boots into the First-Run
   // wizard, whose firstRun:complete mints the org, activates it, and opens its DBs.
@@ -218,7 +208,7 @@ app.whenReady().then(async () => {
     // Vault lockdown: safeStorage-wrapped secret → Argon2id → SQLCipher key.
     const vaultKey = await deriveVaultKey(getOrCreateVaultSecret(org.org_id));
     openDb(path.join(userData, `vault_${org.org_id}.locked.db`), "vault", vaultKey);
-    // Runbook Shredder engine is now LAZY — it starts on the first Secure Note IPC (module open), not
+    // MindMerge engine is LAZY — it starts on the first MindMerge IPC (module open), not
     // at boot. Its initial ingest walks + parses the whole watch folder + writes a DB row per file; on
     // a dev-sized folder that is seconds of work and made the app unresponsive for ~4-5s at startup.
     // Deferring it keeps boot instant; the module shows a loading overlay while that first ingest runs.

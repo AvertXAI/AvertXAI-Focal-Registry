@@ -11,7 +11,7 @@ import { bumpRender } from "../diag";
 const CARD_COPY: Record<string, string> = {
   scan: "Backup drive scanner — gives you a blueprint of what's inside your folders.",
   rename: "A tool that adds a custom filename on top of your existing filenames, per file.",
-  "runbook-shredder": "Keep your notes locally, encrypted.",
+  "mindmerge": "Keep your notes locally, encrypted.",
   "scout-viewer": "An encrypted web-based browser with custom tools, meant for data extraction and AI automations.",
   vault: "AES-256 encrypted vault that holds secrets, passwords and private notes. Includes a custom password generator, easy for the user.",
 };

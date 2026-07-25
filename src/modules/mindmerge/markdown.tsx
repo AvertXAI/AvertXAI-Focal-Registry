@@ -2,14 +2,14 @@
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
 // Project: AvertXAI Focal Registry
-// Description: Hand-rolled markdown-subset renderer for runbook bodies — emits React ELEMENTS
+// Description: Hand-rolled markdown-subset renderer for note bodies — emits React ELEMENTS
 //              (never an HTML string, no dangerouslySetInnerHTML, so no sanitizer needed; canon
 //              LEAN rule: no renderer dep). Subset: headings, bold, italic, inline code, code
 //              fences, ul/ol lists, http(s) links. Anything outside the subset degrades to plain
 //              text — never throws. Optional query highlighting wraps matches in <mark> at the
 //              text-node level; markRef fires per <mark> so callers can capture the first match.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
-// File: src/modules/runbook-shredder/markdown.tsx
+// File: src/modules/mindmerge/markdown.tsx
 //------------------------------------------------------------
 import { createElement, Fragment, type ReactNode } from "react";
 

@@ -2,19 +2,19 @@
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
 // Project: AvertXAI Focal Registry
-// Description: Runbook Shredder renderer UI — status strip + filter chips + list/detail split pane,
-//              layout per docs/Runbook-Shedder/runbook-shredder-mockup.html. Reads EXCLUSIVELY via
-//              api.shredder.* (never services/ nor the native driver — main-process only).
+// Description: MindMerge renderer UI — status strip + filter chips + list/detail split pane,
+//              layout per docs/MindMerge/mindmerge-mockup.html. Reads EXCLUSIVELY via
+//              api.mindmerge.* (never services/ nor the native driver — main-process only).
 //              Types come from src/shared/types.ts; styling uses shell tokens only (zero hex).
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
-// File: src/modules/runbook-shredder/RunbookShredderModule.tsx
+// File: src/modules/mindmerge/MindMergeModule.tsx
 //------------------------------------------------------------
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import type { RunbookFilter, RunbookRow, ShredderProgress } from "../../shared/types";
-import { defaultSettings, type ShredderSettings } from "./config.manifest";
+import type { NoteFilter, NoteRow, MindMergeProgress } from "../../shared/types";
+import { defaultSettings, type MindMergeSettings } from "./config.manifest";
 import { formatStamp } from "../../shared/datetime";
 import { highlightText, renderMarkdown } from "./markdown";
-import "./runbook-shredder.css";
+import "./mindmerge.css";
 
 // Injected by root ("Expose, Don't Connect", DECISIONS-37): the module renders its own controls but
 // never owns persistence — settings arrive as props, writes go back through onChange. BOTH props are
@@ -22,16 +22,16 @@ import "./runbook-shredder.css";
 // the HONESTY GATE keeps write controls .nb (orange, inert) unless a real onChange is present —
 // a control is live iff its action can be made real. Never localStorage, never app_settings direct.
 interface Props {
-  settings?: ShredderSettings;
-  onChange?: (patch: Partial<ShredderSettings>) => void;
+  settings?: MindMergeSettings;
+  onChange?: (patch: Partial<MindMergeSettings>) => void;
 }
 
 // window.api is bridged by the root preload; src/global.d.ts types it globally.
 // this module's own tsconfig — which doesn't include src ambient decls — checks clean standalone.
 const api = window.api;
 
-// Filter chips → equality filters the service whitelists (RunbookFilter keys only).
-const CHIPS: { label: string; filter: RunbookFilter }[] = [
+// Filter chips → equality filters the service whitelists (NoteFilter keys only).
+const CHIPS: { label: string; filter: NoteFilter }[] = [
   { label: "All", filter: {} },
   { label: "Critical", filter: { severity: "critical" } },
   { label: "Recovery", filter: { type: "recovery" } },
@@ -42,7 +42,7 @@ const fileName = (p: string): string => p.split(/[\\/]/).pop() ?? p;
 
 // Modal result snippet: locate the typed term in the body (fallback: title / body head) and cut a
 // tight window around it; highlightText() then marks it with the SAME highlighter styling.
-function matchSnippet(r: RunbookRow, term: string): string {
+function matchSnippet(r: NoteRow, term: string): string {
   const body = (r.body_md ?? "").replace(/\s+/g, " ");
   const i = term ? body.toLowerCase().indexOf(term.toLowerCase()) : -1;
   if (i < 0) return r.title ?? body.slice(0, 90);
@@ -50,7 +50,7 @@ function matchSnippet(r: RunbookRow, term: string): string {
   return (start > 0 ? "…" : "") + body.slice(start, i + term.length + 56) + "…";
 }
 
-const rowTags = (r: RunbookRow): string[] =>
+const rowTags = (r: NoteRow): string[] =>
   (r.tags_flat ?? "").split(/[\s,]+/).filter(Boolean).slice(0, 4);
 
 // crit/high/med/low dot buckets; unknown severities fall to "low" (muted dot), never crash.
@@ -87,61 +87,61 @@ function splitSections(md: string): { heading: string | null; body: string }[] {
 }
 
 // Vault POINTERS mentioned in the body (locators like "vault: hetzner/host/ssh") — never values.
-// ponytail: structured refs live in runbook_secret_refs, which no shredder.* read exposes yet;
+// ponytail: structured refs live in mindmerge_secret_refs, which no mindmerge.* read exposes yet;
 // upgrade to a real getSecretRefs channel when root ships one.
 const vaultPointers = (md: string): string[] =>
   Array.from(new Set(Array.from(md.matchAll(/\bvault:\s*([\w./-]+)/g), (m) => m[1])));
 
-// Persist the last DEFAULT-view list across Secure Note unmount/remount so re-entering the module shows
+// Persist the last DEFAULT-view list across MindMerge unmount/remount so re-entering the module shows
 // the directory INSTANTLY (stale-while-revalidate) — no null→skeleton→list reload flash on every switch.
-let listCache: { rows: RunbookRow[]; quar: RunbookRow[]; ok: number; clients: string[] } | null = null;
+let listCache: { rows: NoteRow[]; quar: NoteRow[]; ok: number; clients: string[] } | null = null;
 
-export default function RunbookShredderModule({ settings, onChange }: Props) {
+export default function MindMergeModule({ settings, onChange }: Props) {
   const [chipIdx, setChipIdx] = useState(0);
   const [client, setClient] = useState("");
   const [clients, setClients] = useState<string[]>(() => listCache?.clients ?? []);
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
-  const [rows, setRows] = useState<RunbookRow[] | null>(() => listCache?.rows ?? null); // null = loading
-  const [quarantined, setQuarantined] = useState<RunbookRow[]>(() => listCache?.quar ?? []);
+  const [rows, setRows] = useState<NoteRow[] | null>(() => listCache?.rows ?? null); // null = loading
+  const [quarantined, setQuarantined] = useState<NoteRow[]>(() => listCache?.quar ?? []);
   const [okCount, setOkCount] = useState(() => listCache?.ok ?? 0); // from the last unfiltered load (initial load qualifies)
-  const [selected, setSelected] = useState<RunbookRow | null>(null);
+  const [selected, setSelected] = useState<NoteRow | null>(null);
   const [showQuar, setShowQuar] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [scanning, setScanning] = useState(false);
   const [quarCount, setQuarCount] = useState(() => listCache?.quar.length ?? 0); // chip count — rescan return is authoritative
-  const [ingest, setIngest] = useState<ShredderProgress | null>(null); // latest {done,total} for the overlay %
+  const [ingest, setIngest] = useState<MindMergeProgress | null>(null); // latest {done,total} for the overlay %
   const [ingesting, setIngesting] = useState(false); // the loading overlay is up from module-open until 100%
   const revealAfterLoad = useRef(false); // when true, drop the overlay only after the next list load renders
   const firstLoad = useRef(true); // the initial mount load must NOT blank cached rows (stale-while-revalidate)
   // Collapsed-strip search modal — module-scoped overlay; queries the SAME FTS prefix engine.
   const [searchOpen, setSearchOpen] = useState(false);
   const [modalQuery, setModalQuery] = useState("");
-  const [modalRows, setModalRows] = useState<RunbookRow[] | null>(null); // null = nothing typed yet
+  const [modalRows, setModalRows] = useState<NoteRow[] | null>(null); // null = nothing typed yet
 
   // Injected watch settings (persisted root-side; changes re-point the fs.watch engine).
   // Standalone dev (no props): display from the manifest mock, write controls stay .nb.
   const s = settings ?? defaultSettings();
-  const watchPath = s["runbook-shredder.watch_path"];
-  const watchEnabled = s["runbook-shredder.watch_enabled"];
-  const railCollapsed = s["runbook-shredder.rail_collapsed"];
+  const watchPath = s["mindmerge.watch_path"];
+  const watchEnabled = s["mindmerge.watch_enabled"];
+  const railCollapsed = s["mindmerge.rail_collapsed"];
   const live = onChange != null; // honesty gate
 
   // Detail-pane font size: local state so the dropdown applies instantly; persisted through
   // onChange when present (root → app_settings, NEVER localStorage). This control is ALWAYS live —
   // unlike the watch controls it genuinely changes the display even without persistence (it just
   // won't survive a restart in standalone dev). Prop sync adopts root's async settings load.
-  const propFontSize = s["runbook-shredder.font_size"];
+  const propFontSize = s["mindmerge.font_size"];
   const [fontSize, setFontSize] = useState<number>(propFontSize || 13);
   useEffect(() => {
     if (propFontSize) setFontSize(propFontSize);
   }, [propFontSize]);
 
-  // Live ingest ticker — a large watch folder streams done/total over shredder:progress so the strip
+  // Live ingest ticker — a large watch folder streams done/total over mindmerge:progress so the strip
   // shows a percentage instead of appearing frozen. The final tick (done === total) clears it.
   useEffect(() => {
-    const onIngest = (p: ShredderProgress): void => {
+    const onIngest = (p: MindMergeProgress): void => {
       setIngest(p);
       if (p.total > 0 && p.done < p.total) {
         setIngesting(true); // keep the overlay up for the whole load
@@ -153,15 +153,15 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
         setReloadKey((k) => k + 1);
       }
     };
-    api.on<ShredderProgress>("shredder:progress", onIngest);
-    return () => api.off<ShredderProgress>("shredder:progress", onIngest);
+    api.on<MindMergeProgress>("mindmerge:progress", onIngest);
+    return () => api.off<MindMergeProgress>("mindmerge:progress", onIngest);
   }, []);
 
   // Lazy engine start on module open. If this open actually kicks off an ingest, raise the overlay
   // IMMEDIATELY (before the first progress tick) so the whole load — walk + parse — is covered, and no
-  // half-loaded list or skeleton shimmer shows through. Same on a fresh app start into Secure Note.
+  // half-loaded list or skeleton shimmer shows through. Same on a fresh app start into MindMerge.
   useEffect(() => {
-    void api.shredder.ensure().then((r) => { if (r.ingesting) setIngesting(true); }).catch(() => {});
+    void api.mindmerge.ensure().then((r) => { if (r.ingesting) setIngesting(true); }).catch(() => {});
   }, []);
 
   // ponytail: the loading overlay is content-area only (absolute inset:0 below the topbar) — the native
@@ -170,7 +170,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   const changeFontSize = (v: string) => {
     const n = Number(v) || 13;
     setFontSize(n);
-    onChange?.({ "runbook-shredder.font_size": n });
+    onChange?.({ "mindmerge.font_size": n });
   };
 
   // The fs.watch ingest is async/debounced, so counts read immediately after a change are stale.
@@ -179,7 +179,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   const rescanAndRefresh = async () => {
     setScanning(true);
     try {
-      const counts = await api.shredder.rescan();
+      const counts = await api.mindmerge.rescan();
       setOkCount(counts.ingested);
       setQuarCount(counts.quarantined);
       setReloadKey((k) => k + 1); // load effect re-pulls list + quarantine rows (and clears error)
@@ -194,23 +194,23 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   // engine), then an immediate rescan so counts/list reflect the new folder — no poll, no stale 0.
   const pickFolder = async () => {
     if (!onChange) return;
-    const dir = await api.shredder.pickWatchFolder();
+    const dir = await api.mindmerge.pickWatchFolder();
     if (!dir) return;
-    onChange({ "runbook-shredder.watch_path": dir });
+    onChange({ "mindmerge.watch_path": dir });
     await rescanAndRefresh();
   };
 
   const toggleWatch = async () => {
     if (!onChange) return;
     const next = !watchEnabled;
-    onChange({ "runbook-shredder.watch_enabled": next });
+    onChange({ "mindmerge.watch_enabled": next });
     if (next) await rescanAndRefresh(); // ON = catch up on anything changed while unwatched
   };
 
   // Rail collapse (1.d.1) — pure UI state, persisted through the same onChange handshake.
   const toggleRail = () => {
     if (!onChange) return;
-    onChange({ "runbook-shredder.rail_collapsed": !railCollapsed });
+    onChange({ "mindmerge.rail_collapsed": !railCollapsed });
   };
 
   // Debounce the search box into the effective query.
@@ -229,13 +229,13 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
     void (async () => {
       try {
         const listP = query
-          ? api.shredder.search(query).then((rs) => rs.filter((r) => r.parse_status === "ok"))
-          : api.shredder.list({
+          ? api.mindmerge.search(query).then((rs) => rs.filter((r) => r.parse_status === "ok"))
+          : api.mindmerge.list({
               ...CHIPS[chipIdx].filter,
               ...(client ? { client } : {}),
               parse_status: "ok",
             });
-        const [list, quar] = await Promise.all([listP, api.shredder.listQuarantined()]);
+        const [list, quar] = await Promise.all([listP, api.mindmerge.listQuarantined()]);
         if (!alive) return;
         setRows(list);
         if (revealAfterLoad.current) { revealAfterLoad.current = false; setIngesting(false); } // fresh rows are in → drop the overlay
@@ -260,7 +260,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
     };
   }, [chipIdx, client, query, reloadKey]);
 
-  // Modal search — debounced against the SAME shredder:search prefix engine as the rail box.
+  // Modal search — debounced against the SAME mindmerge:search prefix engine as the rail box.
   useEffect(() => {
     if (!searchOpen) return;
     const q = modalQuery.trim();
@@ -270,7 +270,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
     }
     let alive = true;
     const t = window.setTimeout(() => {
-      void api.shredder.search(q).then(
+      void api.mindmerge.search(q).then(
         (rs) => {
           if (alive) setModalRows(rs.filter((r) => r.parse_status === "ok"));
         },
@@ -286,10 +286,10 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   }, [searchOpen, modalQuery]);
 
   // Row click: show what we have instantly, then refresh from the authoritative get() read.
-  const openRow = (r: RunbookRow) => {
+  const openRow = (r: NoteRow) => {
     setSelected(r);
-    if (r.runbook_id && r.parse_status === "ok") {
-      void api.shredder.get(r.runbook_id).then((fresh) => {
+    if (r.note_id && r.parse_status === "ok") {
+      void api.mindmerge.get(r.note_id).then((fresh) => {
         if (fresh) setSelected((cur) => (cur?.uuid === r.uuid ? fresh : cur));
       });
     }
@@ -298,9 +298,9 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
   // Modal click-through: close → expand the rail (persisted) → seed the rail search box with the
   // typed term (its debounce re-lights the list + highlighter) → open the row; the jump-to-match
   // effect then scrolls the detail pane to the first <mark>.
-  const pickResult = (r: RunbookRow) => {
+  const pickResult = (r: NoteRow) => {
     setSearchOpen(false);
-    onChange?.({ "runbook-shredder.rail_collapsed": false });
+    onChange?.({ "mindmerge.rail_collapsed": false });
     setShowQuar(false);
     setQueryInput(modalQuery.trim());
     openRow(r);
@@ -339,7 +339,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
         <button
           className={"rbs-path" + (live ? "" : " nb")}
           onClick={live ? pickFolder : undefined}
-          title={live ? "Choose the folder of .md runbooks to watch" : undefined}
+          title={live ? "Choose the folder of .md notes to watch" : undefined}
         >
           watching <b>{watchPath || "No folder set"}</b>
         </button>
@@ -377,7 +377,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
 
       {error && (
         <div className="rbs-error" role="alert">
-          <span>Runbook Shredder read failed: {error}</span>
+          <span>MindMerge read failed: {error}</span>
           <button className="rbs-btn" onClick={() => setReloadKey((k) => k + 1)}>
             Retry
           </button>
@@ -393,8 +393,8 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
               className={"rbs-railtgl" + (live ? "" : " nb")}
               onClick={live ? toggleRail : undefined}
               aria-expanded={!railCollapsed}
-              aria-label={railCollapsed ? "Expand the runbook list" : "Collapse the runbook list"}
-              title={railCollapsed ? "Expand the runbook list" : "Collapse the runbook list"}
+              aria-label={railCollapsed ? "Expand the note list" : "Collapse the note list"}
+              title={railCollapsed ? "Expand the note list" : "Collapse the note list"}
             >
               {railCollapsed ? "»" : "«"}
             </button>
@@ -409,8 +409,8 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
                     setModalRows(null);
                     setSearchOpen(true);
                   }}
-                  aria-label="Search runbooks"
-                  title="Search runbooks"
+                  aria-label="Search notes"
+                  title="Search notes"
                 >
                   <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <circle cx="7" cy="7" r="4.3" />
@@ -424,10 +424,10 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
             <input
               className="rbs-search"
               type="search"
-              placeholder="Search runbooks&hellip;"
+              placeholder="Search notes&hellip;"
               value={queryInput}
               onChange={(e) => setQueryInput(e.target.value)}
-              aria-label="Search runbooks"
+              aria-label="Search notes"
             />
             <div className="rbs-lfilter">
               {CHIPS.map((c, i) => (
@@ -484,10 +484,10 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
             {listRows !== null && listRows.length === 0 && (
               <div className="rbs-empty">
                 {isEmptyInstall
-                  ? "No runbooks yet — point the watch folder at your runbooks."
+                  ? "No notes yet — point the watch folder at your notes."
                   : showQuar
                     ? "Nothing quarantined. All files parsed clean."
-                    : "No runbooks match this filter."}
+                    : "No notes match this filter."}
               </div>
             )}
 
@@ -514,7 +514,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
                   <div className="rbs-r1">
                     <span className={"rbs-sev " + sevClass(r.severity)} />
                     <span className="rbs-title">
-                      {highlightText(r.title ?? r.runbook_id ?? fileName(r.file_path), hl)}
+                      {highlightText(r.title ?? r.note_id ?? fileName(r.file_path), hl)}
                     </span>
                     {r.type && <span className="rbs-tybadge">{r.type}</span>}
                   </div>
@@ -553,7 +553,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
           </div>
           {!selected && (
             <div className="rbs-placeholder">
-              {showQuar ? "Select a quarantined file to see its parse error." : "Select a runbook."}
+              {showQuar ? "Select a quarantined file to see its parse error." : "Select a note."}
             </div>
           )}
 
@@ -579,7 +579,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
             <>
               <div className="rbs-dhead">
                 <span className={"rbs-sev rbs-dsev " + sevClass(selected.severity)} />
-                <h1>{selected.title ?? selected.runbook_id ?? fileName(selected.file_path)}</h1>
+                <h1>{selected.title ?? selected.note_id ?? fileName(selected.file_path)}</h1>
               </div>
               <div className="rbs-dmeta">
                 {selected.severity && (
@@ -607,9 +607,9 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
                     verified <b>{formatStamp(selected.updated ?? selected.updated_at, "eventTime")}</b>
                   </span>
                 )}
-                {selected.runbook_id && (
+                {selected.note_id && (
                   <span className="rbs-mchip">
-                    id <b>{selected.runbook_id}</b>
+                    id <b>{selected.note_id}</b>
                   </span>
                 )}
               </div>
@@ -624,7 +624,7 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
               )}
 
               {/* Preconditions / Steps / "In the event of…" / Refs arrive as body_md headings —
-                  rendered generically so any runbook section shows without a per-name whitelist.
+                  rendered generically so any note section shows without a per-name whitelist.
                   Bodies render through the hand-rolled markdown subset (React elements, no
                   innerHTML) with the active search term wrapped in <mark> at text-node level. */}
               {sections.map((s, i) => (
@@ -660,24 +660,24 @@ export default function RunbookShredderModule({ settings, onChange }: Props) {
             if (e.key === "Escape") setSearchOpen(false);
           }}
         >
-          <div className="rbs-modal" role="dialog" aria-label="Search runbooks" onClick={(e) => e.stopPropagation()}>
+          <div className="rbs-modal" role="dialog" aria-label="Search notes" onClick={(e) => e.stopPropagation()}>
             <input
               className="rbs-search"
               type="search"
-              placeholder="Search runbooks&hellip;"
+              placeholder="Search notes&hellip;"
               autoFocus
               value={modalQuery}
               onChange={(e) => setModalQuery(e.target.value)}
-              aria-label="Search runbooks"
+              aria-label="Search notes"
             />
             <div className="rbs-mcount">
               {modalRows === null
-                ? "Type to search all runbooks"
+                ? "Type to search all notes"
                 : `${modalRows.length} match${modalRows.length === 1 ? "" : "es"}`}
             </div>
             <div className="rbs-mresults">
               {modalRows !== null && modalRows.length === 0 && (
-                <div className="rbs-empty">No runbooks match.</div>
+                <div className="rbs-empty">No notes match.</div>
               )}
               {modalRows?.map((r) => (
                 <button key={r.uuid} className="rbs-mrow" onClick={() => pickResult(r)}>

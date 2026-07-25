@@ -2,24 +2,24 @@
 // Author: Jason Cruz
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
 // Project: AvertXAI Focal Registry
-// Description: Runbook Shredder ingestion engine — the "shredder" core. Watches a folder of .md
-//              runbooks (fs.watch recursive + 500ms debounce, stdlib — no chokidar, matching the
+// Description: MindMerge ingestion engine — the "mindmerge" core. Watches a folder of .md
+//              notes (fs.watch recursive + 500ms debounce, stdlib — no chokidar, matching the
 //              Canon Distributor pattern), parses frontmatter with gray-matter, and upserts by
 //              file_path into the module DB. Parse failure = QUARANTINE (row kept with
 //              parse_status='error'), never a silent drop. Secret refs store POINTERS only.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
-// File: electron/core/services/runbook-shredder/shredder.ts
+// File: electron/core/services/mindmerge/engine.ts
 //------------------------------------------------------------
 import fs from "node:fs";
 import path from "node:path";
 import matter from "gray-matter";
-import { openShredderDb, generateUUIDv7, type Db } from "./db";
-import type { ShredderSettings } from "../../../../src/modules/runbook-shredder/config.manifest";
+import { openMindMergeDb, generateUUIDv7, type Db } from "./db";
+import type { MindMergeSettings } from "../../../../src/modules/mindmerge/config.manifest";
 
-// Columns written on ingest (std id/uuid/created_at/updated_at are handled separately). runbook_id
+// Columns written on ingest (std id/uuid/created_at/updated_at are handled separately). note_id
 // maps from frontmatter `id`; the rest map by same name. Order-independent — used for named params.
 const COLS = [
-  "runbook_id", "title", "type", "status", "severity", "owner", "client", "description",
+  "note_id", "title", "type", "status", "severity", "owner", "client", "description",
   "service", "trigger", "version", "updated", "body_md", "tags_flat", "file_path",
   "parse_status", "parse_error",
 ] as const;
@@ -42,12 +42,12 @@ function blankValues(filePath: string): RowValues {
 
 // INSERT if the file_path is new, else UPDATE in place (keeps id/uuid/created_at). Returns rowid.
 function upsertRow(db: Db, filePath: string, values: RowValues): number {
-  const existing = db.prepare("SELECT id FROM runbooks WHERE file_path = ?").get(filePath) as
+  const existing = db.prepare("SELECT id FROM mindmerge_notes WHERE file_path = ?").get(filePath) as
     | { id: number }
     | undefined;
   if (existing) {
     const sets = COLS.map((c) => `"${c}" = @${c}`).join(", ");
-    db.prepare(`UPDATE runbooks SET ${sets}, updated_at = CURRENT_TIMESTAMP WHERE id = @id`).run({
+    db.prepare(`UPDATE mindmerge_notes SET ${sets}, updated_at = CURRENT_TIMESTAMP WHERE id = @id`).run({
       ...values,
       id: existing.id,
     });
@@ -56,17 +56,17 @@ function upsertRow(db: Db, filePath: string, values: RowValues): number {
   const cols = ["uuid", ...COLS].map((c) => `"${c}"`).join(", ");
   const params = ["@uuid", ...COLS.map((c) => `@${c}`)].join(", ");
   const info = db
-    .prepare(`INSERT INTO runbooks (${cols}) VALUES (${params})`)
+    .prepare(`INSERT INTO mindmerge_notes (${cols}) VALUES (${params})`)
     .run({ uuid: generateUUIDv7(), ...values });
   return Number(info.lastInsertRowid);
 }
 
-// Replace this runbook's tags: clear the junction, dedupe tag names, re-link.
+// Replace this note's tags: clear the junction, dedupe tag names, re-link.
 function syncTags(db: Db, rowId: number, tags: string[]): void {
-  db.prepare("DELETE FROM runbook_tags WHERE runbook_id = ?").run(rowId);
+  db.prepare("DELETE FROM mindmerge_note_tags WHERE note_id = ?").run(rowId);
   const insTag = db.prepare("INSERT OR IGNORE INTO tags (uuid, name) VALUES (?, ?)");
   const getTag = db.prepare("SELECT id FROM tags WHERE name = ?");
-  const insJunc = db.prepare("INSERT OR IGNORE INTO runbook_tags (uuid, runbook_id, tag_id) VALUES (?, ?, ?)");
+  const insJunc = db.prepare("INSERT OR IGNORE INTO mindmerge_note_tags (uuid, note_id, tag_id) VALUES (?, ?, ?)");
   for (const t of tags) {
     const name = t.trim();
     if (!name) continue;
@@ -76,12 +76,12 @@ function syncTags(db: Db, rowId: number, tags: string[]): void {
   }
 }
 
-// Replace this runbook's secret refs. vault_pointer is copied verbatim — it's a POINTER, so there is
+// Replace this note's secret refs. vault_pointer is copied verbatim — it's a POINTER, so there is
 // no value here to leak; we never read or resolve it.
 function syncSecretRefs(db: Db, rowId: number, refs: Record<string, unknown>): void {
-  db.prepare("DELETE FROM runbook_secret_refs WHERE runbook_id = ?").run(rowId);
+  db.prepare("DELETE FROM mindmerge_secret_refs WHERE note_id = ?").run(rowId);
   const ins = db.prepare(
-    "INSERT INTO runbook_secret_refs (uuid, runbook_id, ref_key, vault_pointer) VALUES (?, ?, ?, ?)"
+    "INSERT INTO mindmerge_secret_refs (uuid, note_id, ref_key, vault_pointer) VALUES (?, ?, ?, ?)"
   );
   for (const [key, pointer] of Object.entries(refs)) {
     const ptr = str(pointer);
@@ -100,7 +100,7 @@ export function ingestFile(db: Db, filePath: string): void {
   try {
     const parsed = matter(raw); // throws on malformed YAML frontmatter
     const fm = (parsed.data ?? {}) as Record<string, unknown>;
-    values.runbook_id = str(fm.id);
+    values.note_id = str(fm.id);
     values.title = str(fm.title);
     values.type = str(fm.type);
     values.status = str(fm.status);
@@ -136,12 +136,12 @@ export function ingestFile(db: Db, filePath: string): void {
 }
 
 // File delete / rename-away — drop the row. FK ON DELETE CASCADE clears tags + secret refs; the
-// runbooks_ad trigger clears FTS. One statement cleans everything.
+// mindmerge_ad trigger clears FTS. One statement cleans everything.
 export function removeFile(db: Db, filePath: string): void {
-  db.prepare("DELETE FROM runbooks WHERE file_path = ?").run(filePath);
+  db.prepare("DELETE FROM mindmerge_notes WHERE file_path = ?").run(filePath);
 }
 
-// Dependency/build/system directories never hold user runbooks but can hold tens of thousands of .md
+// Dependency/build/system directories never hold user notes but can hold tens of thousands of .md
 // (node_modules alone) — descending them made the initial ingest walk froze the app. Skipped at any
 // depth, mirroring the Scan module's dir-exclusion rule.
 const EXCLUDED_DIRS = new Set([
@@ -193,7 +193,7 @@ export async function ingestAll(
     }
   }
   const count = (status: string): number =>
-    (db.prepare("SELECT COUNT(*) AS n FROM runbooks WHERE parse_status = ?").get(status) as { n: number }).n;
+    (db.prepare("SELECT COUNT(*) AS n FROM mindmerge_notes WHERE parse_status = ?").get(status) as { n: number }).n;
   return { ingested: count("ok"), quarantined: count("error") };
 }
 
@@ -211,7 +211,7 @@ export function watch(db: Db, dir: string, autoReparse: boolean): fs.FSWatcher {
       if (!full.toLowerCase().endsWith(".md")) continue;
       try {
         if (fs.existsSync(full)) {
-          const known = db.prepare("SELECT 1 FROM runbooks WHERE file_path = ?").get(full);
+          const known = db.prepare("SELECT 1 FROM mindmerge_notes WHERE file_path = ?").get(full);
           if (known && !autoReparse) continue;
           ingestFile(db, full);
         } else {
@@ -232,30 +232,30 @@ export function watch(db: Db, dir: string, autoReparse: boolean): fs.FSWatcher {
   });
 }
 
-export interface ShredderHandle {
+export interface MindMergeHandle {
   db: Db;
   stop(): void;
 }
 
 // Public entry — ties DB + initial scan + watcher together, consuming injected settings (no root
 // app_settings read). Returns a handle whose stop() closes the watcher (used by tests / teardown).
-export function startShredder(opts: {
+export function startMindMerge(opts: {
   orgId: string;
   baseDir: string;
-  settings: ShredderSettings;
+  settings: MindMergeSettings;
   onProgress?: (p: IngestProgress) => void;
   skipIngest?: boolean; // watch_enabled toggle only re-wires the watcher — files already in DB
-}): ShredderHandle {
+}): MindMergeHandle {
   const { orgId, baseDir, settings, onProgress, skipIngest } = opts;
-  const db = openShredderDb(orgId, baseDir);
-  const watchPath = settings["runbook-shredder.watch_path"];
+  const db = openMindMergeDb(orgId, baseDir);
+  const watchPath = settings["mindmerge.watch_path"];
   let watcher: fs.FSWatcher | null = null;
 
   if (watchPath && fs.existsSync(watchPath)) {
     // Fire-and-forget: the initial ingest runs async so boot is never blocked by a large folder.
     if (!skipIngest) void ingestAll(db, watchPath, onProgress);
-    if (settings["runbook-shredder.watch_enabled"]) {
-      watcher = watch(db, watchPath, settings["runbook-shredder.auto_reparse"]);
+    if (settings["mindmerge.watch_enabled"]) {
+      watcher = watch(db, watchPath, settings["mindmerge.auto_reparse"]);
     }
   }
 

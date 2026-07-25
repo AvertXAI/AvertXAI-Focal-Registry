@@ -16,9 +16,9 @@ import Settings from "./views/Settings";
 import { Spark } from "./icons";
 import DataViewerModule from "./modules/data-viewer/DataViewerModule";
 import VaultModule from "./modules/vault/VaultModule";
-import RunbookShredderModule from "./modules/runbook-shredder/RunbookShredderModule";
+import MindMergeModule from "./modules/mindmerge/MindMergeModule";
 import ScoutViewerModule from "./modules/scout-viewer/ScoutViewerModule";
-import { defaultSettings, type ShredderSettings } from "./modules/runbook-shredder/config.manifest";
+import { defaultSettings, type MindMergeSettings } from "./modules/mindmerge/config.manifest";
 import { startDiagReporter, bumpRender } from "./diag";
 
 // Core shell surfaces stay literal; module views are DB rows, so any slug is a valid View.
@@ -42,49 +42,49 @@ const LEAF: Record<string, string> = {
   "data-viewer": "Data Viewer",
 };
 
-// Root-side settings injection for the Runbook Shredder ("Expose, Don't Connect", DECISIONS-37):
+// Root-side settings injection for the MindMerge ("Expose, Don't Connect", DECISIONS-37):
 // root owns persistence, so it loads the module's namespaced app_settings and hands the module its
 // settings + an onChange that writes back through the sanctioned settings path (which re-points the
-// engine). Targeted to the shredder for now; a generic manifest-driven injector is a later refinement.
+// engine). Targeted to the mindmerge for now; a generic manifest-driven injector is a later refinement.
 // Module-level so a re-entry mount renders the real watch path on the FIRST paint instead of
 // flashing "No folder set" while the async settings.get round-trips. Warmed by the first load below.
-let shredderSettingsCache: ShredderSettings | null = null;
+let mindmergeSettingsCache: MindMergeSettings | null = null;
 
-function RunbookShredderMount() {
-  const [settings, setSettings] = useState<ShredderSettings>(() => shredderSettingsCache ?? defaultSettings());
+function MindMergeMount() {
+  const [settings, setSettings] = useState<MindMergeSettings>(() => mindmergeSettingsCache ?? defaultSettings());
   useEffect(() => {
     void Promise.all([
-      window.api.settings.get("runbook-shredder.watch_path"),
-      window.api.settings.get("runbook-shredder.watch_enabled"),
-      window.api.settings.get("runbook-shredder.rail_collapsed"),
-      window.api.settings.get("runbook-shredder.font_size"),
+      window.api.settings.get("mindmerge.watch_path"),
+      window.api.settings.get("mindmerge.watch_enabled"),
+      window.api.settings.get("mindmerge.rail_collapsed"),
+      window.api.settings.get("mindmerge.font_size"),
     ]).then(([wp, we, rc, fs]) =>
       setSettings((s) => {
         const n = Number(fs);
         const next = {
           ...s,
-          "runbook-shredder.watch_path": wp ?? s["runbook-shredder.watch_path"],
-          "runbook-shredder.watch_enabled": we === null ? s["runbook-shredder.watch_enabled"] : we === "1",
-          "runbook-shredder.rail_collapsed": rc === null ? s["runbook-shredder.rail_collapsed"] : rc === "1",
+          "mindmerge.watch_path": wp ?? s["mindmerge.watch_path"],
+          "mindmerge.watch_enabled": we === null ? s["mindmerge.watch_enabled"] : we === "1",
+          "mindmerge.rail_collapsed": rc === null ? s["mindmerge.rail_collapsed"] : rc === "1",
           // Number()-parse the persisted px; fall back to the default (13) on null/undefined/NaN.
-          "runbook-shredder.font_size": fs == null || Number.isNaN(n) ? s["runbook-shredder.font_size"] : n,
+          "mindmerge.font_size": fs == null || Number.isNaN(n) ? s["mindmerge.font_size"] : n,
         };
-        shredderSettingsCache = next;
+        mindmergeSettingsCache = next;
         return next;
       })
     );
   }, []);
-  const onChange = (patch: Partial<ShredderSettings>) => {
+  const onChange = (patch: Partial<MindMergeSettings>) => {
     setSettings((s) => {
       const next = { ...s, ...patch };
-      shredderSettingsCache = next;
+      mindmergeSettingsCache = next;
       return next;
     });
     for (const [k, v] of Object.entries(patch)) {
       void window.api.settings.set(k, typeof v === "boolean" ? (v ? "1" : "0") : String(v));
     }
   };
-  return <RunbookShredderModule settings={settings} onChange={onChange} />;
+  return <MindMergeModule settings={settings} onChange={onChange} />;
 }
 
 // slug → renderer component. A DB row makes a module NAVIGABLE; an entry here makes it REAL.
@@ -93,7 +93,7 @@ const MODULE_COMPONENTS: Record<string, ComponentType> = {
   scan: ScanModule,
   rename: RenameModule,
   vault: VaultModule,
-  "runbook-shredder": RunbookShredderMount,
+  "mindmerge": MindMergeMount,
   "scout-viewer": ScoutViewerModule,
 };
 

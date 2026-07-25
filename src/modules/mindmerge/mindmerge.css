@@ -1,10 +1,10 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-/* Runbook Shredder module styles. Shell tokens ONLY (--mc-*, RULES-27; the module defines none of its own) — zero hardcoded colors; tints via color-mix. */
+/* MindMerge module styles. Shell tokens ONLY (--mc-*, RULES-27; the module defines none of its own) — zero hardcoded colors; tints via color-mix. */
 
 .rbs-shell{position:relative;display:flex;flex-direction:column;height:calc(100vh - 58px - var(--mc-footer-height));overflow:hidden;background:var(--mc-base);color:var(--mc-text)}
 /* module-owned highlighter tokens (module prefix + spelled-out roles, RULES-29) — full-bright solid
    yellow chip, tightened (no padding); opacity routes rejected — alpha over dark surfaces reads olive. */
-.rbs-shell{--shredder-highlighter-background:#ffe14d;--shredder-highlighter-foreground:#1a1500}
+.rbs-shell{--mindmerge-highlighter-background:#ffe14d;--mindmerge-highlighter-foreground:#1a1500}
 
 /* ---------- status strip ---------- */
 .rbs-strip{display:flex;align-items:center;gap:16px;padding:10px 20px;border-bottom:1px solid var(--mc-border);background:var(--mc-panels);font-size:12px}
@@ -141,7 +141,7 @@ select.rbs-f{font:inherit;font-size:11px;background:var(--mc-panels);color:var(-
 .rbs-md strong{font-weight:700;color:var(--mc-text)}
 .rbs-md em{font-style:italic}
 .rbs-md a{color:var(--mc-accent-primary)}
-.rbs-md mark,.rbs-title mark,.rbs-msnip mark{background:var(--shredder-highlighter-background);color:var(--shredder-highlighter-foreground);border-radius:2px;padding:0}
+.rbs-md mark,.rbs-title mark,.rbs-msnip mark{background:var(--mindmerge-highlighter-background);color:var(--mindmerge-highlighter-foreground);border-radius:2px;padding:0}
 /* bold hits only: thick 700-weight strokes + AA eat the chip's yellow (reads olive) — a 2px pure-yellow
    margin restores the perceived brightness; regular-weight chips stay tight */
 .rbs-md strong mark{padding:0 2px}

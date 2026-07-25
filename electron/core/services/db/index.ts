@@ -67,16 +67,8 @@ export function initDb(dbPath: string): void {
     db.exec("ALTER TABLE modules ADD COLUMN nav_group TEXT;");
   }
   db.exec("UPDATE modules SET nav_group = 'Applications' WHERE nav_group IS NULL;");
-  // Additive migration: Runbooks module core schema.
-  createTable(db, "runbooks", [
-    "title TEXT NOT NULL",
-    "description TEXT",
-  ]);
-  createTable(db, "runbook_steps", [
-    "runbook_id INTEGER NOT NULL REFERENCES runbooks(id) ON DELETE CASCADE",
-    "step_order INTEGER NOT NULL DEFAULT 0",
-    "prompt_template TEXT",
-  ]);
+  // (The legacy pre-rename `runbooks`/`runbook_steps` creations are gone — nothing ever read them.
+  // Existing dev DBs keep the empty tables untouched: additive-only law, no DROP ever.)
   // Additive migration: Scout Viewer browse targets (user-editable CRUD; replaces the module's
   // hardcoded client list). client_id keys the persist:client_<id> session partition — minted at
   // create, immutable after; two targets MAY share one client_id (= one login session).
@@ -118,18 +110,22 @@ export function initDb(dbPath: string): void {
        VALUES (?, ?, ?, ?, ?, ?, 0, 1)`
     ).run(generateUUIDv7(), tenant, name, slug, type, order);
   };
+  // Module rename (Secure Note / runbook-shredder → MindMerge) — GUARDED, idempotent, re-runnable
+  // UPDATEs, data-only, never a DROP. MUST run BEFORE the seeds: seedModule guards by slug, so a
+  // pre-rename dev DB is renamed in place here rather than double-seeded under the new slug.
+  db.exec("UPDATE modules SET slug = 'mindmerge', name = 'MindMerge', type = 'notes' WHERE slug = 'runbook-shredder';");
+  db.exec(
+    "UPDATE app_settings SET key = REPLACE(key, 'runbook-shredder.', 'mindmerge.') WHERE key LIKE 'runbook-shredder.%';"
+  );
   seedModule("Scan", "scan", "tool", 1);
   seedModule("Rename", "rename", "tool", 2);
-  seedModule("Secure Note", "runbook-shredder", "runbook", 3);
+  seedModule("MindMerge", "mindmerge", "notes", 3);
   seedModule("Scout Viewer", "scout-viewer", "browser", 4);
-  // Display-label rename (product decision: Shredder → Secure Note). Data-only, idempotent;
-  // slug/folders/tables/settings keys are deliberately unchanged — that is a separately gated task.
-  db.exec("UPDATE modules SET name = 'Secure Note' WHERE slug = 'runbook-shredder' AND name <> 'Secure Note';");
   // Row cleanup for gutted modules — idempotent, data-only (no schema change). Existing dev DBs
   // seeded these rows; without this they'd keep rendering in the nav after the module code is gone.
   db.exec("DELETE FROM modules WHERE slug IN ('getscriptclips', 'canon-distributor');");
   // Display-order normalization for pre-gut DBs (vault was seeded at 2; final order puts it at 5,
-  // after Scan 1 / Rename 2 / Shredder 3 / Scout 4). Idempotent, data-only.
+  // after Scan 1 / Rename 2 / MindMerge 3 / Scout 4). Idempotent, data-only.
   db.exec("UPDATE modules SET display_order = 5 WHERE slug = 'vault' AND display_order <> 5;");
 }
 

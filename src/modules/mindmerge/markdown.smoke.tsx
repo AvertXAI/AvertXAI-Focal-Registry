@@ -8,7 +8,7 @@
 //              case-insensitive text-node <mark>s. Run: npx esbuild + node (see smoke command in
 //              the ui build notes) — imported by nothing, never ships in the renderer bundle.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
-// File: src/modules/runbook-shredder/markdown.smoke.tsx
+// File: src/modules/mindmerge/markdown.smoke.tsx
 //------------------------------------------------------------
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";

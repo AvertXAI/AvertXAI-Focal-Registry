@@ -49,7 +49,7 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
     );
     mod.run(generateUUIDv7(), orgId, "Scan", "scan", "tool", 1, 0);
     mod.run(generateUUIDv7(), orgId, "Rename", "rename", "tool", 2, 0);
-    mod.run(generateUUIDv7(), orgId, "Secure Note", "runbook-shredder", "runbook", 3, 0);
+    mod.run(generateUUIDv7(), orgId, "MindMerge", "mindmerge", "notes", 3, 0);
     mod.run(generateUUIDv7(), orgId, "Scout Viewer", "scout-viewer", "browser", 4, 0);
     mod.run(generateUUIDv7(), orgId, "Secure Vault", "vault", "secrets", 5, 1);
   })();

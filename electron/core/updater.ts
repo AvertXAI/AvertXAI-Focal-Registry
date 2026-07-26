@@ -6,21 +6,32 @@
 //              Automatic checks are fire-and-forget, armed only by boot:done, hard-capped at
 //              10 seconds, and silent on failure — offline is a normal condition, not an error.
 //              Manual checks (Settings button) always answer, including the failure case.
-//              autoDownload OFF (consent-first): an automatic check that finds an update raises a
-//              "Version X available" toast with a Download button — the user consents before any
-//              download. Unsigned alpha builds mean the feed supplies its own SHA512, so consent is
+//              autoDownload OFF (consent-first): an available update opens the dedicated Software
+//              Update window (update-window.ts) — the user consents there before any download.
+//              Unsigned alpha builds mean the feed supplies its own SHA512, so consent is
 //              the last human gate against a hostile feed. Install happens on quit.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/updater.ts
 //------------------------------------------------------------
-import { app, BrowserWindow, ipcMain, net } from "electron";
+import { app, ipcMain, net } from "electron";
 import { autoUpdater, type UpdateInfo } from "electron-updater";
+import {
+  forwardToUpdateWindow,
+  maybeOpenDevUpdateWindow,
+  openUpdateWindow,
+  registerUpdateWindowIpc,
+  resolveUpdateMode,
+  skippedVersion,
+} from "./update-window";
 
 const POST_BOOT_DELAY_MS = 30_000; // grace period after boot:done before the first automatic check
 const RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // then every 6 hours
 const CHECK_TIMEOUT_MS = 10_000; // hard cap on any check — on timeout: log, give up, next interval
 
 let scheduled = false;
+// True while a Settings-button check is in flight — the persistent update-available handler uses it
+// to override "Skip this version" (a manual check is an explicit ask; automatic checks honor skips).
+let manualInFlight = false;
 
 type CheckOutcome = { status: "available" | "none" | "error"; version?: string };
 
@@ -30,8 +41,10 @@ type CheckOutcome = { status: "available" | "none" | "error"; version?: string }
 function manualCheck(): Promise<CheckOutcome> {
   if (!app.isPackaged) return Promise.resolve({ status: "none", version: app.getVersion() }); // dev build IS current
   if (!net.isOnline()) return Promise.resolve({ status: "error" }); // reachability guard — fail fast, no socket
+  manualInFlight = true;
   return new Promise((resolve) => {
     const done = (r: CheckOutcome): void => {
+      manualInFlight = false;
       clearTimeout(timer);
       autoUpdater.off("update-available", onAvailable);
       autoUpdater.off("update-not-available", onNone);
@@ -64,15 +77,14 @@ function autoCheck(): void {
   });
 }
 
-export function initUpdater(win: BrowserWindow): void {
-  // The IPC surface registers in every build so the Settings button always answers; dev gets
-  // canned results (manualCheck short-circuits) instead of "no handler" rejections.
+export function initUpdater(): void {
+  // The IPC surfaces register in every build so the Settings button always answers; dev gets
+  // canned results (manualCheck short-circuits) instead of "no handler" rejections. Download/install
+  // live on the Software Update window's own updwin:* surface (update-window.ts), not here.
   ipcMain.handle("updater:version", () => app.getVersion());
   ipcMain.handle("updater:check", () => manualCheck());
-  ipcMain.handle("updater:download", async () => {
-    await autoUpdater.downloadUpdate();
-  });
-  ipcMain.handle("updater:install", () => autoUpdater.quitAndInstall());
+  registerUpdateWindowIpc();
+  maybeOpenDevUpdateWindow(); // no-op unless dev AND UPDATE_WINDOW_DEV is set
 
   if (!app.isPackaged) return; // no app-update.yml in dev — event wiring and the auto cycle are packaged-only
 
@@ -84,18 +96,30 @@ export function initUpdater(win: BrowserWindow): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
-  const send = (channel: string, payload: unknown): void => {
-    if (!win.isDestroyed()) win.webContents.send(channel, payload);
-  };
-
-  autoUpdater.on("update-available", (info) =>
-    send("updater:available", {
-      version: info.version,
+  // An available update opens the dedicated Software Update window (a SEPARATE BrowserWindow — the
+  // app hides to tray, where an in-app toast/modal would never be seen). Mode policy + skip logic:
+  // - required (feed major > running major) and unmaintained (2+ minors behind) ALWAYS show;
+  // - a version the user chose "Skip this version" on stays silent for AUTOMATIC checks only —
+  //   a manual Settings check is an explicit ask and re-offers it.
+  autoUpdater.on("update-available", (info) => {
+    const current = app.getVersion();
+    const mode = resolveUpdateMode(current, info.version);
+    if (mode === "normal" && !manualInFlight && skippedVersion() === info.version) return;
+    openUpdateWindow({
+      current,
+      incoming: info.version,
       notes: typeof info.releaseNotes === "string" ? info.releaseNotes : "",
+      mode,
+    });
+  });
+  autoUpdater.on("download-progress", (p) =>
+    forwardToUpdateWindow("updwin:progress", {
+      percent: Math.round(p.percent),
+      transferred: p.transferred,
+      total: p.total,
     })
   );
-  autoUpdater.on("download-progress", (p) => send("updater:progress", { percent: Math.round(p.percent) }));
-  autoUpdater.on("update-downloaded", () => send("updater:downloaded", {}));
+  autoUpdater.on("update-downloaded", () => forwardToUpdateWindow("updwin:downloaded"));
   // Single log line, no stack, nothing sent — the user must never learn the network was down from us.
   autoUpdater.on("error", (e) => console.log("[updater]", e instanceof Error ? e.message : String(e)));
 }

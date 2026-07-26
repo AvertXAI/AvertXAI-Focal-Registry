@@ -62,6 +62,12 @@ let isQuitting = false;
 app.on("before-quit", () => {
   isQuitting = true;
 });
+// The Software Update window's Quit (required mode) must beat hide-to-tray exactly like the tray's
+// own Exit does — set the real-quit flag in THIS scope first; update-window.ts's handler on the same
+// channel then destroys its window and calls app.quit(). (Second listener, no import cycle.)
+ipcMain.on("updwin:quit", () => {
+  isQuitting = true;
+});
 // Held so the OS doesn't garbage-collect the tray; process exit clears it (no destroy needed).
 let tray: Tray | null = null;
 // Tray-on-close is a USER SETTING (§3.11), DEFAULT ON. ON → ✕ hides to tray, process stays alive.
@@ -268,7 +274,7 @@ app.whenReady().then(async () => {
     applyLaunchAtStartup(on);
     return { ok: true };
   });
-  initUpdater(win); // §3.12 — no-op in dev (packaged builds only)
+  initUpdater(); // §3.12 — auto cycle is packaged-only; the updwin IPC + dev preview register everywhere
   initDiag(); // DIAG-1: dev-gated runtime collector — no-op unless env DIAG=1
 
   app.on("activate", () => {

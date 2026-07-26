@@ -111,7 +111,7 @@ export interface ScoutDomCard {
 }
 
 /** Main → renderer push channels the preload bridge whitelists. */
-export type PushChannel = "updater:available" | "updater:progress" | "updater:downloaded" | "scan:progress" | "scan:drives" | "mindmerge:progress" | "rename:progress";
+export type PushChannel = "scan:progress" | "scan:drives" | "mindmerge:progress" | "rename:progress";
 
 // ---- Rename module (renderer-safe copies of the service shapes) ----
 export interface RenameProgress {
@@ -310,14 +310,8 @@ export interface ScanReportResult {
   error?: string;
 }
 
-// ---- Auto-updater pushes (electron-updater, §3.12) ----
-export interface UpdateAvailableInfo {
-  version: string;
-  notes: string; // release notes when the feed provides them as a plain string, else ""
-}
-export interface UpdateProgressInfo {
-  percent: number; // 0–100, rounded
-}
+// ---- Auto-updater (§3.12) — available/progress/downloaded now live on the Software Update
+// window's own updwin:* surface (electron/core/update-window.ts), not on window.api. ----
 /** Outcome of a manual "Check for updates" — never rejects; failure is a status, not an exception. */
 export interface UpdateCheckOutcome {
   status: "available" | "none" | "error";
@@ -444,11 +438,9 @@ export interface Api {
     /** Count of soft-cleared runs — gates the Settings Restore / delete-forever controls. */
     clearedHistoryCount: () => Promise<number>;
   };
-  /** Auto-updater (§3.12) — user-consented download, install on quit. Auto cycle is packaged-only;
-   *  check/version answer in every build so the Settings button is never dead. */
+  /** Auto-updater (§3.12) — check/version answer in every build so the Settings button is never
+   *  dead. Download/install belong to the Software Update window's own bridge, not window.api. */
   updater: {
-    download: () => Promise<void>;
-    install: () => Promise<void>;
     check: () => Promise<UpdateCheckOutcome>;
     version: () => Promise<string>;
   };
@@ -477,8 +469,7 @@ export interface Api {
     openFolder: (p: string) => Promise<{ ok: boolean }>;
   };
   /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the
-   *  channel: updater:available → UpdateAvailableInfo, updater:progress → UpdateProgressInfo,
-   *  updater:downloaded → empty object. */
+   *  channel (progress tickers for scan / mindmerge / rename, live drive lists for scan). */
   on: <T>(channel: PushChannel, cb: (payload: T) => void) => void;
   off: <T>(channel: PushChannel, cb: (payload: T) => void) => void;
   /** DIAG-1 dev-gated diagnostics channel (meaningful only when env DIAG=1). */

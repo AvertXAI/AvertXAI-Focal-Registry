@@ -103,8 +103,9 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
     finally { setConfirmStep(0); loadCleared(); }
   };
 
-  // Manual check — unlike the silent automatic cycle, the user asked, so every outcome toasts:
-  // checking → latest-version / available (pushed from main) / couldn't-check.
+  // Manual check — unlike the silent automatic cycle, the user asked, so every outcome answers:
+  // checking → latest-version / couldn't-check toast; an AVAILABLE update opens the dedicated
+  // Software Update window from the main process, so this side shows nothing extra for it.
   const checkForUpdates = async () => {
     setChecking(true);
     signalUpdateToast({ stage: "checking" });
@@ -112,9 +113,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
       const r = await window.api.updater.check();
       if (r.status === "none") signalUpdateToast({ stage: "none", version: r.version ?? appVersion });
       else if (r.status === "error") signalUpdateToast({ stage: "error" });
-      else if (r.status === "available") signalUpdateToast({ stage: "available", version: r.version ?? "" });
-      // available → the toast shows a Download button (consent-first; autoDownload is OFF). Download →
-      // progress → the "ready to restart" toast fires from updater:downloaded when it completes.
+      else signalUpdateToast(null); // "available" → the Software Update window takes over; drop "Checking…"
     } catch {
       signalUpdateToast({ stage: "error" });
     }

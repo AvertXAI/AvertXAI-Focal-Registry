@@ -6,21 +6,21 @@ injects the current version's Summary into the update feed, and publishes this f
 
 ## 0.2.4 — July 26, 2026
 
-**Summary:** Placeholder — replace before releasing 0.2.4.
+**Summary:** Updates now open in a dedicated Software Update window instead of a corner notification — release notes shown in-app, with a link to the full changelog. Major-version updates are marked required, and versions that are no longer maintained show a notice.
 
 ### Details
 
 #### Added
 
-- Placeholder.
+- A dedicated Software Update window: version-to-version pills, in-app release notes with a "Show full details" panel, download progress with percent and megabytes, and Skip this version / Remind me later / Install update actions.
+- Release notes travel with every update — the update feed now carries each version's summary, and the full changelog is one click away at focalregistry.com/releases.
+- Required-update handling: a new major version must be installed to continue — the window offers only Install now or Quit.
+- An unmaintained-version notice when the installed version has fallen well behind the current release.
 
 #### Changed
 
-- Placeholder.
-
-#### Fixed
-
-- Placeholder.
+- The old corner update notification is retired; the small toast now only answers the Settings "Check for updates" button (checking, up to date, or connection trouble).
+- Updates remain consent-first: nothing downloads until Install is clicked, and installation happens on restart.
 
 ## 0.2.3 — July 25, 2026
 

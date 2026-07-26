@@ -134,6 +134,12 @@ export function ensureScanSchema(db: Db): void {
     if (!runCols.includes("total_folders_expected")) db.exec("ALTER TABLE scan_runs ADD COLUMN total_folders_expected INTEGER;");
     if (!runCols.includes("cleared_at")) db.exec("ALTER TABLE scan_runs ADD COLUMN cleared_at DATETIME;");
     if (!runCols.includes("report_local_path")) db.exec("ALTER TABLE scan_runs ADD COLUMN report_local_path TEXT;");
+    // Selective-scan columns (wizard, Phase B): the run's chosen extension set (JSON string[],
+    // lowercase, no dots) and its walk options (JSON {followSubfolders, includeHidden, folderNames}).
+    // NULL = "everything" — exactly how every pre-existing run reads, so old History/Reports rows
+    // display unchanged, labelled as covering everything.
+    if (!runCols.includes("selected_extensions")) db.exec("ALTER TABLE scan_runs ADD COLUMN selected_extensions TEXT;");
+    if (!runCols.includes("run_options")) db.exec("ALTER TABLE scan_runs ADD COLUMN run_options TEXT;");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_run_folder ON scan_files (run_id, folder_id);");
   // folder_id ALONE — folderCameras and any per-folder lookup query by folder_id without run_id;

@@ -29,6 +29,8 @@ const RENDERER_KEYS = new Set([
   "mindmerge.rail_collapsed", // module list-rail « collapse — UI-only, never restarts the engine
   "mindmerge.font_size", // detail-pane px size — UI-only, never restarts the engine
   "migrate.tabs", // Migrate scan tabs (JSON) — renderer tab state persisted so tabs survive navigation
+  "tips.enabled", // helpful-tips master switch — ONE global toggle (Jason ruled: no per-tip settings), default on
+  "scan.tabs", // Scan wizard/job tabs (JSON) — renderer tab state persisted so a half-built scan survives navigation
 ]);
 
 function safeKey(key: unknown): string {

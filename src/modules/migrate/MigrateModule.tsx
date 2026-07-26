@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   MigrateClassDef, MigrateCreateJob, MigrateDrive, MigrateItemRow, MigrateJobSummary, MigrateProgress,
 } from "../../shared/types";
+import Tip from "../../components/Tip";
 import "./migrate.css";
 
 type TabView = "wizard" | "results" | "bundle";
@@ -313,12 +314,7 @@ export default function MigrateModule() {
                       onBlur={addCustomExt} aria-label="Add extension" />
                   </span>
                 </div>
-                {active.exts.includes("psp") && (
-                  <div className="mig-callout">
-                    <div className="mig-callh">Why settings files matter <span className="mig-badge">Read this</span></div>
-                    <p>Brushes and actions that were simply loaded into Photoshop are often not saved as files at all — they live inside <span className="mig-mono">Brushes.psp</span> and <span className="mig-mono">Actions Palette.psp</span>. Leave this type unticked and a machine with hundreds of brushes can come back empty.</p>
-                  </div>
-                )}
+                {active.exts.includes("psp") && <Tip id="TIP-MIG-001" />}
               </div>
             </div>
 
@@ -505,12 +501,7 @@ function ResultsView({ jobId, onBundle, registry }: { jobId: number; onBundle: (
           ))}
         </div>
         <div className="mig-rcol">
-          {activeGroup?.warn && (
-            <div className="mig-callout" style={{ marginTop: 0, marginBottom: 16 }}>
-              <div className="mig-callh">Settings files captured <span className="mig-badge">Important</span></div>
-              <p>Photoshop keeps unsaved brushes and actions inside these rather than as separate files. They are copied whole and never opened — Adobe's own guidance is to move them intact.</p>
-            </div>
-          )}
+          {activeGroup?.warn && <Tip id="TIP-MIG-001" />}
           {activeGroup && (
             <h3 className="mig-sech" style={{ marginTop: 0 }}>
               {activeGroup.label} · {activeGroup.count.toLocaleString()} found · {activeGroup.selected.toLocaleString()} selected
@@ -548,7 +539,7 @@ function ResultsView({ jobId, onBundle, registry }: { jobId: number; onBundle: (
             </table>
           )}
           {items !== null && items.length === 0 && <p className="mig-hint" style={{ marginTop: 10 }}>Nothing in this group.</p>}
-          <p className="mig-hint" style={{ marginTop: 11 }}>Files that shipped with Photoshop are found but left unticked — the new install already has them.</p>
+          <Tip id="TIP-MIG-002" />
         </div>
       </div>
       <div className="mig-actionbar" style={{ margin: "18px -28px -30px", position: "sticky", bottom: 0 }}>

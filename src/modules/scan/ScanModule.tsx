@@ -11,14 +11,52 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: src/modules/scan/ScanModule.tsx
 //------------------------------------------------------------
-import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { ScanCameraCount, ScanErrorList, ScanFolderSummary, ScanProgress, ScanRunRow, ScannedDrive, ScanVolume } from "../../shared/types";
-import { formatRange, formatStamp } from "../../shared/datetime";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import type { ScanCategoryDef, ScanErrorList, ScanProgress, ScanRunExtension, ScanRunRow, ScanVolume } from "../../shared/types";
+import { formatStamp } from "../../shared/datetime";
 import { PRINT_STYLESHEET, renderReportPrintHtml } from "./reportPrint";
+import Tip from "../../components/Tip";
 import { bumpRender } from "../../diag";
 import "./scan.css";
 
-type Tab = "new" | "history" | "reports";
+// Wizard/job tabs (Phase B3/B4) — a tab is a wizard until Start binds a runId; the ENGINE stays
+// single-slot and drains a queue (Migrate's pattern), so extra tabs show Queued.
+type MainView = "history" | "reports" | string; // string = a job tab id
+interface ScanJobTab {
+  id: string;
+  label: string;
+  cats: string[]; // selected category keys
+  exts: string[]; // selected extensions (lowercase, no dot)
+  targetKind: "drive" | "folders";
+  driveSerial: string | null;
+  folders: string[];
+  optFolderNames: boolean;
+  optSubfolders: boolean;
+  optHidden: boolean;
+  runId: number | null;
+  runStatus: string | null;
+  decision?: { kind: "already-scanned" | "offer-resume"; runId: number } | null; // double-scan guard, in-tab
+  seeded?: boolean; // defaults applied (Photos+Video+Audio all-on, Documents off) — once, never re-forced
+  filterCats?: string[] | null; // results-view DISPLAY filter — never touches stored rows
+  filterFmts?: string[] | null; // "catKey:formatLabel" entries; null = all
+}
+const newScanTab = (): ScanJobTab => ({
+  id: `s${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`,
+  label: "New scan",
+  cats: [], exts: [], targetKind: "drive", driveSerial: null, folders: [],
+  optFolderNames: true, optSubfolders: true, optHidden: false,
+  runId: null, runStatus: null, decision: null,
+  seeded: false, filterCats: null, filterFmts: null,
+});
+// The DEFAULT selection — Photos+Video+Audio with EVERY format (equivalent to the pre-wizard
+// always-everything media behaviour, so default reports stay comparable); Documents opt-in
+// (thousands of .xmp sidecars are row bloat a media-drive scan doesn't want).
+const defaultCats = ["photos", "video", "audio"];
+const defaultExts = (registry: ScanCategoryDef[]): string[] =>
+  registry.filter((c) => defaultCats.includes(c.key)).flatMap((c) => c.formats.flatMap((x) => x.extensions));
+// Module-level caches — instant re-entry; tabs ALSO persist to app_settings ("scan.tabs"), never localStorage.
+let scanTabsCache: ScanJobTab[] | null = null;
+let scanRegistryCache: ScanCategoryDef[] | null = null;
 type LogLine =
   | { kind: "folder"; at: string; path: string; files: number; bytes: number }
   | { kind: "warn"; at: string; count: number }
@@ -151,18 +189,15 @@ function renderReport(content: string): ReactNode[] {
 
 export default function ScanModule() {
   bumpRender("scan"); // DIAG-2
-  const [tab, setTab] = useState<Tab>("new");
+  const [tabs, setTabs] = useState<ScanJobTab[]>(() => scanTabsCache ?? [newScanTab()]);
+  const [view, setView] = useState<MainView>(() => (scanTabsCache ?? [])[0]?.id ?? tabs[0].id);
+  const [registry, setRegistry] = useState<ScanCategoryDef[]>(() => scanRegistryCache ?? []);
   const [drives, setDrives] = useState<ScanVolume[]>([]);
-  const [scannedDrives, setScannedDrives] = useState<ScannedDrive[]>([]); // completed-scan drives (may be unplugged)
-  const [selected, setSelected] = useState<ScanVolume | null>(null);
   const [refreshing, setRefreshing] = useState(false); // manual drive re-enumeration in flight (spinner)
   const [runs, setRuns] = useState<ScanRunRow[]>([]);
-  const [lastRun, setLastRun] = useState<ScanRunRow | null>(null); // last run for the selected drive
-  const [folders, setFolders] = useState<ScanFolderSummary[]>([]);
-  const [probeRunId, setProbeRunId] = useState<number | null>(null); // the run we counted/are scanning
   const [progress, setProgress] = useState<ScanProgress | null>(null);
+  const [runExts, setRunExts] = useState<Record<number, ScanRunExtension[]>>({}); // results-filter source (read-only)
   const [activeRunId, setActiveRunId] = useState<number | null>(null);
-  const [scanningSerial, setScanningSerial] = useState<string | null>(null); // volume serial of the in-flight run
   const [log, setLog] = useState<LogLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -170,13 +205,79 @@ export default function ScanModule() {
   const [reportView, setReportView] = useState<"read" | "source">("read");
   const [exportMsg, setExportMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [exporting, setExporting] = useState<"pdf" | "csv" | null>(null);
-  const [reloadTick, setReloadTick] = useState(0); // bump to re-pull the selected drive's card after a nuke
   const [errorsModal, setErrorsModal] = useState<ScanErrorList | null>(null);
   const startedAt = useRef<number | null>(null);
   const rateWindow = useRef<Array<{ t: number; files: number }>>([]); // trailing window for ETA
   const prevErrors = useRef(0); // last errorsLogged seen — to emit a warn line on increase
   const prevCheckpoint = useRef(0); // last checkpoint bucket emitted
   const [, forceTick] = useState(0);
+
+  // ---- tab model (Phase B4) — persisted via the sanctioned settings path ("scan.tabs") ----
+  const tabsLoaded = useRef(false);
+  const mutateTabs = useCallback((fn: (prev: ScanJobTab[]) => ScanJobTab[]): void => {
+    setTabs((prev) => {
+      const next = fn(prev);
+      scanTabsCache = next;
+      void window.api.settings.set("scan.tabs", JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+  const patchTab = useCallback((id: string, patch: Partial<ScanJobTab>): void => {
+    mutateTabs((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  }, [mutateTabs]);
+  useEffect(() => {
+    void window.api.scan.registry().then((r) => { scanRegistryCache = r; setRegistry(r); }).catch(() => {});
+    if (!tabsLoaded.current && scanTabsCache === null) {
+      tabsLoaded.current = true;
+      void window.api.settings.get("scan.tabs").then((raw) => {
+        if (!raw) return;
+        try {
+          const saved = JSON.parse(raw) as ScanJobTab[];
+          if (Array.isArray(saved) && saved.length > 0) {
+            scanTabsCache = saved;
+            setTabs(saved);
+            setView(saved[0].id);
+          }
+        } catch { /* corrupt tab state — the fresh tab stands */ }
+      }).catch(() => {});
+    }
+  }, []);
+
+  // Seed defaults into pristine wizard tabs the moment the registry is known (once per tab).
+  useEffect(() => {
+    if (registry.length === 0) return;
+    const needs = (t: ScanJobTab): boolean => !t.seeded && t.runId === null && t.cats.length === 0 && t.exts.length === 0;
+    if (!tabs.some(needs)) return;
+    mutateTabs((prev) => prev.map((t) => (needs(t) ? { ...t, seeded: true, cats: [...defaultCats], exts: defaultExts(registry) } : t)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registry, tabs]);
+
+  // Results-filter source: per-extension counts for the ACTIVE completed run — queried once, cached.
+  useEffect(() => {
+    const rid = tabs.find((t) => t.id === view)?.runId;
+    const status = tabs.find((t) => t.id === view)?.runStatus;
+    if (rid == null || status !== "completed" || runExts[rid]) return;
+    void window.api.scan.runExtensions(rid).then((rows) => setRunExts((m) => ({ ...m, [rid]: rows }))).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, tabs]);
+
+  const addTab = useCallback((): void => {
+    const t = newScanTab();
+    if ((scanRegistryCache ?? []).length > 0) {
+      t.seeded = true;
+      t.cats = [...defaultCats];
+      t.exts = defaultExts(scanRegistryCache!);
+    }
+    mutateTabs((prev) => [...prev, t]);
+    setView(t.id);
+  }, [mutateTabs]);
+  const closeTab = useCallback((id: string): void => {
+    mutateTabs((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      return next.length > 0 ? next : [newScanTab()];
+    });
+    setView((v) => (v === id ? (scanTabsCache?.[0]?.id ?? "history") : v));
+  }, [mutateTabs]);
 
   // Elapsed ticker while a run is live.
   useEffect(() => {
@@ -189,9 +290,7 @@ export default function ScanModule() {
     try {
       // A completed run changes both the run list AND the scanned-drive set (a freshly scanned drive
       // becomes reviewable-while-unplugged), so refresh both together.
-      const [rs, sd] = await Promise.all([window.api.scan.listRuns(), window.api.scan.listScannedDrives()]);
-      setRuns(rs);
-      setScannedDrives(sd);
+      setRuns(await window.api.scan.listRuns());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -202,9 +301,7 @@ export default function ScanModule() {
   const refreshDrives = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [dv, sd] = await Promise.all([window.api.scan.listDrives(), window.api.scan.listScannedDrives()]);
-      setDrives(dv);
-      setScannedDrives(sd);
+      setDrives(await window.api.scan.listDrives());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -218,28 +315,35 @@ export default function ScanModule() {
     let alive = true;
     void (async () => {
       try {
-        const [dv, rs, sd] = await Promise.all([
+        const [dv, rs] = await Promise.all([
           window.api.scan.listDrives(),
           window.api.scan.listRuns(),
-          window.api.scan.listScannedDrives(),
         ]);
         if (!alive) return;
         setDrives(dv);
         setRuns(rs);
-        setScannedDrives(sd);
-        const live = rs.find((r) => IN_FLIGHT.has(r.status));
+        // Rejoin in-flight AND queued runs (the engine + queue kept going in the main process): a
+        // persisted tab that owns the runId gets its live status; an orphan live run ADOPTS a tab.
+        const liveish = rs.filter((r) => IN_FLIGHT.has(r.status) || r.status === "queued");
+        const live = liveish.find((r) => IN_FLIGHT.has(r.status));
+        if (liveish.length > 0) {
+          mutateTabs((prev) => {
+            let next = prev.map((t) => {
+              const owned = liveish.find((r) => r.id === t.runId);
+              return owned ? { ...t, runStatus: owned.status } : t;
+            });
+            for (const r of liveish) {
+              if (!next.some((t) => t.runId === r.id)) {
+                const d = dv.find((x) => x.serial === r.volume_serial);
+                next = [...next, { ...newScanTab(), label: d?.label || r.root_path, runId: r.id, runStatus: r.status }];
+              }
+            }
+            return next;
+          });
+        }
         if (live) {
-          // Rejoin the in-flight run. The engine kept running in the main process; on remount we lost
-          // the React state, so we must RESTORE it: the running console renders only when the run's
-          // drive is SELECTED (`mine`), so auto-select that drive AND seed progress from the DB row —
-          // otherwise the scan looks like it vanished until the next throttled push. The next real
-          // push refreshes these values seamlessly.
           setActiveRunId(live.id);
-          setProbeRunId(live.id);
-          setScanningSerial(live.volume_serial ?? null);
           startedAt.current = live.started_at ? Date.parse(live.started_at) : Date.now();
-          const liveDrive = dv.find((d) => d.serial === live.volume_serial);
-          if (liveDrive) setSelected(liveDrive);
           setProgress({
             runId: live.id,
             volumeSerial: live.volume_serial ?? null,
@@ -263,8 +367,7 @@ export default function ScanModule() {
     const onProgress = (p: ScanProgress): void => {
       setProgress(p);
       const live = IN_FLIGHT.has(p.status);
-      setActiveRunId(live ? p.runId : null);
-      setScanningSerial(live ? p.volumeSerial : null); // which drive is busy — drives-list indicator
+      setActiveRunId(live ? p.runId : null); // which drive is busy — drives-list indicator
       if (SCANNING.has(p.status)) {
         // Trailing window for a measured throughput ETA (never a fixed assumption).
         const w = rateWindow.current;
@@ -281,6 +384,8 @@ export default function ScanModule() {
         prevErrors.current = p.errorsLogged;
         setLog((prev) => [...prev, ...add].slice(-MAX_LOG_LINES));
       }
+      // Route every push into the tab that owns the runId (queued/counting/running/paused/terminal).
+      mutateTabs((prev) => prev.map((t) => (t.runId === p.runId ? { ...t, runStatus: p.status } : t)));
       if (isTerminal(p.status)) {
         void refreshRuns();
         if (p.reportError) setError(`Report could not be written: ${p.reportError}. The scan is complete and its data is saved.`);
@@ -298,78 +403,50 @@ export default function ScanModule() {
     return () => window.api.off<ScanVolume[]>("scan:drives", onDrives);
   }, []);
 
-  // Keep `selected` pointing at the LIVE volume object as presence changes — a drive plugged back in
-  // refreshes its letter/sizes; a removed drive stays selected but now reads "not connected".
-  useEffect(() => {
-    if (!selected) return;
-    const live = drives.find((d) => d.serial === selected.serial);
-    if (live && live !== selected) setSelected(live);
-  }, [drives, selected]);
-
-  // When a drive is selected, look up its last run (by serial — identity, not letter) + folders.
-  useEffect(() => {
-    if (!selected) { setLastRun(null); setFolders([]); return; }
-    let alive = true;
-    void (async () => {
-      try {
-        const lr = await window.api.scan.lastRunForVolume(selected.serial);
-        if (!alive) return;
-        setLastRun(lr);
-        setFolders(lr && lr.status === "completed" ? await window.api.scan.folders(lr.id) : []);
-      } catch {
-        // The prior-run lookup is a convenience, not load-bearing — its failure must NEVER take
-        // over the page. Degrade to "no prior run" (the drive reads as never-scanned) so a drive
-        // can still be scanned. (A stale dev bundle missing this handler lands here harmlessly.)
-        if (alive) { setLastRun(null); setFolders([]); }
+  // ---- wizard start (Phase B3) — double-scan guard first, then ENQUEUE (the engine drains) ----
+  const startScan = async (t: ScanJobTab): Promise<void> => {
+    setError(null);
+    const drive = t.targetKind === "drive" ? drives.find((d) => d.serial === t.driveSerial) : null;
+    const root = t.targetKind === "drive" ? (drive ? `${drive.letter}\\` : null) : (t.folders[0] ?? null);
+    if (!root || t.exts.length === 0) return;
+    setBusy(true);
+    try {
+      // The double-scan guard still answers first (drive scans) — its decision renders IN the tab.
+      if (t.targetKind === "drive") {
+        const d = await window.api.scan.selectSource(root, "drive");
+        if (d.decision === "already-scanned" && d.completedRun) {
+          patchTab(t.id, { decision: { kind: "already-scanned", runId: d.completedRun.id } });
+          return;
+        }
+        if (d.decision === "offer-resume" && d.crashedRun) {
+          patchTab(t.id, { decision: { kind: "offer-resume", runId: d.crashedRun.id } });
+          return;
+        }
       }
-    })();
-    return () => { alive = false; };
-  }, [selected, reloadTick]);
-
-  const doProbe = async (): Promise<void> => {
-    if (!selected) return;
-    // Resolve the LIVE volume by serial (authoritative letter) — `selected` may be a synthesized
-    // "not connected" entry with no letter. Can't count/scan a drive that isn't attached.
-    const vol = drives.find((d) => d.serial === selected.serial);
-    if (!vol) { setError("That drive isn't connected — reconnect it to scan."); return; }
-    setBusy(true); setError(null); setProgress(null); setLog([]);
-    setScanningSerial(vol.serial); // mark this drive busy immediately (other drives disable)
-    try {
-      // Kicks off the EXACT counting walk; returns immediately. Counts arrive over scan:progress.
-      const r = await window.api.scan.probe(`${vol.letter}\\`, "drive");
-      setProbeRunId(r.runId);
+      await enqueueTab(t, root);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setBusy(false); }
   };
-
-  const startRun = async (): Promise<void> => {
-    if (probeRunId === null) return;
-    setBusy(true); setError(null); setLog([]); rateWindow.current = []; prevErrors.current = 0; prevCheckpoint.current = 0;
-    setActiveRunId(probeRunId);
-    startedAt.current = Date.now();
-    // Optimistically flip to the running console the instant Start is pressed — the real 'running'
-    // pushes replace this. Without it the estimate card lingers until the first throttled push.
-    setProgress((p) => (p ? { ...p, status: "running", currentFolder: null } : p));
-    try {
-      await window.api.scan.start(probeRunId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally { setBusy(false); }
+  const enqueueTab = async (t: ScanJobTab, root: string): Promise<void> => {
+    const r = await window.api.scan.enqueue(root, t.targetKind === "drive" ? "drive" : "folder", t.exts, {
+      followSubfolders: t.optSubfolders, includeHidden: t.optHidden, folderNames: t.optFolderNames,
+    });
+    setLog([]); rateWindow.current = []; prevErrors.current = 0; prevCheckpoint.current = 0;
+    patchTab(t.id, { runId: r.runId, runStatus: "queued", decision: null });
   };
 
-  const abortRun = async (): Promise<void> => {
-    if (activeRunId === null) return;
-    try { await window.api.scan.abort(activeRunId); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  const abortRun = async (runId: number | null): Promise<void> => {
+    if (runId === null) return;
+    try { await window.api.scan.abort(runId); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
-  const pauseRun = async (): Promise<void> => {
-    if (activeRunId === null) return;
-    try { await window.api.scan.pause(activeRunId); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+  const pauseRun = async (runId: number | null): Promise<void> => {
+    if (runId === null) return;
+    try { await window.api.scan.pause(runId); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
-  const resumeRun = async (): Promise<void> => {
-    const id = activeRunId ?? progress?.runId;
-    if (id == null) return;
-    try { await window.api.scan.resume(id); startedAt.current = startedAt.current ?? Date.now(); }
+  const resumeRun = async (runId: number | null): Promise<void> => {
+    if (runId == null) return;
+    try { await window.api.scan.resume(runId); startedAt.current = startedAt.current ?? Date.now(); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
 
@@ -400,7 +477,6 @@ export default function ScanModule() {
     try {
       await window.api.scan.clearHistory();
       await refreshRuns();
-      setReloadTick((n) => n + 1);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
   const openIssues = async (runId: number): Promise<void> => {
@@ -409,26 +485,12 @@ export default function ScanModule() {
   };
 
   const elapsedMs = startedAt.current ? Date.now() - startedAt.current : 0;
-  // A run's UI shows ONLY on the drive it belongs to. `mine` = the current progress is for the
-  // selected drive; clicking a different drive shows THAT drive's own stage, never this run's.
-  const mine = progress != null && selected != null && progress.volumeSerial === selected.serial;
-  const st = mine ? progress!.status : undefined;
-  const counting = st === "counting";
-  const estimating = st === "estimating";
-  const running = mine && SCANNING.has(st ?? "");
-  const otherScanning = scanningSerial != null && scanningSerial !== selected?.serial; // a different drive is busy
-  // Serials with at least one completed run — a persistent green dot on every scanned drive, whether
-  // selected or not, sourced from the runs table (§4.3), not from selection state.
-  const scannedSerials = new Set(runs.filter((r) => r.status === "completed").map((r) => r.volume_serial));
-  // Merge attached drives with scanned-but-UNPLUGGED drives so the latter still appear ("not
-  // connected"). Absent entries are synthesized ScanVolumes with no letter (identity is the serial);
-  // their report/folders/issues all resolve from the DB + local copy, so they stay reviewable.
-  const presentSerials = new Set(drives.map((d) => d.serial));
-  const absentDrives: ScanVolume[] = scannedDrives
-    .filter((s) => !presentSerials.has(s.serial))
-    .map((s) => ({ letter: "", label: s.label ?? "", filesystem: "", totalBytes: s.total_bytes ?? 0, freeBytes: 0, serial: s.serial }));
-  const driveList: ScanVolume[] = [...drives, ...absentDrives];
-  const selectedPresent = selected != null && presentSerials.has(selected.serial); // false = unplugged
+  // The ACTIVE job tab drives the body; its bound run's progress renders when the push matches.
+  const activeTab = tabs.find((t) => t.id === view) ?? null;
+  const tabProgress = activeTab && progress && progress.runId === activeTab.runId ? progress : null;
+  const st = tabProgress?.status ?? activeTab?.runStatus ?? undefined;
+  const counting = st === "counting" || st === "probing";
+  const running = SCANNING.has(st ?? "") && tabProgress != null;
   // REAL arithmetic — denominator is the exact media count; no 99% clamp, reaches 100 at the end.
   const total = progress?.estimatedFiles ?? null;
   const pct = total && total > 0 ? Math.min(100, Math.round((progress!.filesRecorded / total) * 100)) : null;
@@ -450,111 +512,123 @@ export default function ScanModule() {
         <h1 className="pagetitle">Scan</h1>
         <p className="subtitle">Backup drive scanner — a blueprint of what is inside your folders. Read-only; never renames or deletes.</p>
 
-        <div className="scan-tabs">
-          {(["new", "history", "reports"] as Tab[]).map((t) => (
-            <button key={t} className={`scan-tab${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
-              {t === "new" ? "New scan" : t === "history" ? "History" : "Reports"}
-            </button>
+        {/* Job tabs (B4): + New scan FIRST (Jason's Migrate ruling), jobs grow rightward, History/
+            Reports pinned right. Tabs are renderer state; the ENGINE stays single-slot + queued. */}
+        <div className="scan-jtabs">
+          <button className="scan-jtab add" onClick={addTab}>＋ New scan</button>
+          {tabs.map((t) => (
+            <div key={t.id} className={`scan-jtab${t.id === view ? " on" : ""}`} onClick={() => setView(t.id)}>
+              {t.runStatus && <span className={`scan-jpip ${jpip(t.runStatus)}`} />}
+              <span>{t.label}</span>
+              {t.runStatus === "queued" && <span className="scan-jstate">Queued</span>}
+              {t.runStatus === "paused" && <span className="scan-jstate">Paused</span>}
+              <button className="scan-jtabx" aria-label="Close tab" onClick={(e) => { e.stopPropagation(); closeTab(t.id); }}>✕</button>
+            </div>
           ))}
+          <span className="scan-jspacer" />
+          <button className={`scan-jtab pin${view === "history" ? " on" : ""}`} onClick={() => setView("history")}>History</button>
+          <button className={`scan-jtab pin${view === "reports" ? " on" : ""}`} onClick={() => setView("reports")}>Reports</button>
         </div>
 
         {error && <div className="scan-card2 scan-note" style={{ marginBottom: 14 }}>{error}</div>}
 
-        {tab === "new" && (
-          <div className="scan-split">
-            {/* LEFT — drives list (Option B), always visible */}
-            <div className="scan-drives">
-              <div className="scan-drives-head">
-                <span className="scan-mlabel">Drives</span>
-                {/* Manual re-check — the fallback if the live watcher ever misses an event. The dot
-                    spins green while re-enumerating. */}
-                <button className="scan-refresh" onClick={() => void refreshDrives()} disabled={refreshing}
-                  title="Re-check connected drives" aria-label="Refresh drives">
-                  <svg className={`scan-refresh-ico${refreshing ? " spin" : ""}`} viewBox="0 0 24 24" width="15" height="15"
-                    fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <polyline points="23 4 23 10 17 10" />
-                    <polyline points="1 20 1 14 7 14" />
-                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                  </svg>
-                </button>
+        {activeTab && view !== "history" && view !== "reports" && (
+          <div className="scan-stagewrap">
+            {/* WIZARD — three steps (mockup V1 minus the search step, which is Phase C) */}
+            {activeTab.runId === null && !activeTab.decision && (
+              <ScanWizard tab={activeTab} registry={registry} drives={drives} patchTab={patchTab}
+                busy={busy} refreshing={refreshing} onRefreshDrives={() => void refreshDrives()}
+                onStart={() => void startScan(activeTab)} />
+            )}
+
+            {/* Double-scan guard decision, in-tab */}
+            {activeTab.runId === null && activeTab.decision && (
+              <div className="scan-card">
+                <div className="scan-h">{activeTab.decision.kind === "already-scanned" ? "This drive was already scanned" : "A previous scan of this drive crashed"}</div>
+                <p className="scan-sub" style={{ marginBottom: 14 }}>
+                  {activeTab.decision.kind === "already-scanned"
+                    ? "You can open the existing report, or scan it again — a rescan records a brand-new run."
+                    : "You can resume it from where it stopped, or start over with your new selection."}
+                </p>
+                <div className="scan-row">
+                  {activeTab.decision.kind === "already-scanned" && (
+                    <button className="scan-btn" onClick={() => void viewReport(activeTab.decision!.runId)}>Open existing report</button>
+                  )}
+                  {activeTab.decision.kind === "offer-resume" && (
+                    <button className="scan-btn go" onClick={() => {
+                      const rid = activeTab.decision!.runId;
+                      patchTab(activeTab.id, { runId: rid, runStatus: "running", decision: null });
+                      void resumeRun(rid);
+                    }}>Resume previous scan</button>
+                  )}
+                  <button className="scan-btn go" onClick={() => {
+                    const drive = drives.find((d) => d.serial === activeTab.driveSerial);
+                    if (drive) void enqueueTab(activeTab, `${drive.letter}\\`);
+                  }}>{activeTab.decision.kind === "already-scanned" ? "Rescan anyway" : "Start over"}</button>
+                  <button className="scan-btn ghost" onClick={() => patchTab(activeTab.id, { decision: null })}>Back</button>
+                </div>
               </div>
-              {driveList.length === 0 && <div className="scan-sub">No drives detected. Connect a source drive.</div>}
-              {driveList.map((d) => {
-                const isScanning = d.serial === scanningSerial;
-                const present = presentSerials.has(d.serial);
-                const dot = isScanning ? "scanning" : !present ? "notconn" : scannedSerials.has(d.serial) ? "ok" : "off";
-                return (
-                  <button key={d.serial} className={`scan-drv${selected?.serial === d.serial ? " on" : ""}`}
-                    onClick={() => { setSelected(d); if (d.serial !== scanningSerial) { setProbeRunId(null); setProgress(null); } }}>
-                    <span className={`scan-dot ${dot}`} />
-                    <span>
-                      <span style={{ display: "block" }}>{present ? `${d.letter}\\ ` : ""}{d.label || "(no label)"}{isScanning ? " · scanning" : !present ? " · not connected" : ""}</span>
-                      <span className="sub">{d.serial} · {fmtBytes(d.totalBytes)}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            )}
 
-            {/* RIGHT — stage, chosen by run state (a live run wins over any selection) */}
-            <div className="scan-stage">
-              {running && (
-                <RunningConsole progress={progress!} pct={pct} elapsed={fmtElapsed(elapsedMs)} eta={eta} log={log}
-                  onAbort={abortRun} onPause={pauseRun} onResume={resumeRun} onIssues={() => openIssues(progress!.runId)} />
-              )}
+            {activeTab.runId !== null && activeTab.runStatus === "queued" && (
+              <div className="scan-card">
+                <div className="scan-h">Queued</div>
+                <p className="scan-sub" style={{ marginBottom: 14 }}>Another scan is running — this one starts automatically when the engine is free. One scan runs at a time so the drives never fight for the disk.</p>
+                <button className="scan-btn ghost" onClick={() => void abortRun(activeTab.runId)}>Cancel</button>
+              </div>
+            )}
 
-              {!running && counting && (
+            {activeTab.runId !== null && counting && tabProgress && (
+              <div className="scan-card">
+                <div className="scan-mlabel" style={{ marginBottom: 9 }}>Counting</div>
+                <div className="scan-h">Counting…</div>
+                <p className="scan-sub" style={{ marginBottom: 14 }}>
+                  Walking every folder to get an exact count before scanning. This is not a percentage yet.
+                </p>
+                <div className="scan-grid4">
+                  <div className="scan-card2"><div className="scan-mlabel">Folders found</div><div className="scan-stat">{tabProgress.foldersCommitted.toLocaleString()}</div></div>
+                  <div className="scan-card2"><div className="scan-mlabel">Covered files found</div><div className="scan-stat">{(tabProgress.estimatedFiles ?? 0).toLocaleString()}</div></div>
+                </div>
+                <div className="scan-mono scan-sub" style={{ marginTop: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tabProgress.currentFolder ?? ""}</div>
+                <div className="scan-row" style={{ marginTop: 14 }}><button className="scan-btn ghost" onClick={() => void abortRun(activeTab.runId)}>Cancel</button></div>
+              </div>
+            )}
+
+            {running && tabProgress && (
+              <RunningConsole progress={tabProgress} pct={pct} elapsed={fmtElapsed(elapsedMs)} eta={eta} log={log}
+                onAbort={() => void abortRun(activeTab.runId)} onPause={() => void pauseRun(activeTab.runId)}
+                onResume={() => void resumeRun(activeTab.runId)} onIssues={() => openIssues(activeTab.runId!)} />
+            )}
+
+            {activeTab.runId !== null && activeTab.runStatus != null && isTerminal(activeTab.runStatus) && (
+              activeTab.runStatus === "completed" ? (
+                <>
+                  <CompletionCard status="completed"
+                    reportPath={(tabProgress?.reportPath ?? runs.find((r) => r.id === activeTab.runId)?.report_path) ?? null}
+                    onView={() => void viewReport(activeTab.runId!)} onFolder={() => openReportsFolder(activeTab.runId!)}
+                    onRescan={() => patchTab(activeTab.id, { runId: null, runStatus: null, decision: null })} />
+                  <ResultsPanel tab={activeTab} registry={registry} rows={runExts[activeTab.runId!] ?? null} patchTab={patchTab} />
+                </>
+              ) : (
                 <div className="scan-card">
-                  <div className="scan-mlabel" style={{ marginBottom: 9 }}>Step 1 of 2 · Counting</div>
-                  <div className="scan-h">Counting the drive…</div>
+                  <div className="scan-h">Scan {activeTab.runStatus}</div>
                   <p className="scan-sub" style={{ marginBottom: 14 }}>
-                    Walking every folder to get an exact count before scanning. This is not a percentage yet.
+                    {activeTab.runStatus === "crashed" ? "The run stopped unexpectedly — it can resume from the last committed folder." : "The run ended before completing."}
                   </p>
-                  <div className="scan-grid4">
-                    <div className="scan-card2"><div className="scan-mlabel">Folders found</div><div className="scan-stat">{progress!.foldersCommitted.toLocaleString()}</div></div>
-                    <div className="scan-card2"><div className="scan-mlabel">Media files found</div><div className="scan-stat">{(progress!.estimatedFiles ?? 0).toLocaleString()}</div></div>
+                  <div className="scan-row">
+                    {activeTab.runStatus === "crashed" && (
+                      <button className="scan-btn go" onClick={() => { patchTab(activeTab.id, { runStatus: "running" }); void resumeRun(activeTab.runId); }}>Resume</button>
+                    )}
+                    <button className="scan-btn ghost" onClick={() => patchTab(activeTab.id, { runId: null, runStatus: null, decision: null })}>Edit and retry</button>
                   </div>
-                  <div className="scan-mono scan-sub" style={{ marginTop: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{progress!.currentFolder ?? ""}</div>
-                  <div className="scan-row" style={{ marginTop: 14 }}><button className="scan-btn ghost" onClick={abortRun}>Cancel</button></div>
                 </div>
-              )}
-
-              {!running && !counting && estimating && (
-                <EstimateCard drive={selected!} folders={progress!.foldersCommitted} mediaFiles={progress!.estimatedFiles ?? 0}
-                  busy={busy} onStart={startRun} onAbort={() => { setProbeRunId(null); setProgress(null); }} />
-              )}
-
-              {!running && !counting && !estimating && !selected && <div className="scan-card scan-empty">Select a drive to scan or review.</div>}
-
-              {/* Completion card ONLY for the selected drive's own just-finished run (mine). */}
-              {selected && !running && !counting && !estimating && mine && progress && isTerminal(progress.status) && progress.runId === probeRunId && (
-                <CompletionCard status={progress.status} reportPath={progress.reportPath ?? lastRun?.report_path ?? null}
-                  onView={() => viewReport(progress.runId)} onFolder={() => openReportsFolder(progress.runId)}
-                  onRescan={() => { setProbeRunId(null); setProgress(null); void doProbe(); }} />
-              )}
-
-              {selected && !running && !counting && !estimating && !(mine && progress && progress.runId === probeRunId && isTerminal(progress.status)) && lastRun?.status === "completed" && (
-                <PopulatedDashboard drive={selected} run={lastRun} folders={folders} present={selectedPresent}
-                  onView={() => viewReport(lastRun.id)} onFolder={() => openReportsFolder(lastRun.id)}
-                  onIssues={() => openIssues(lastRun.id)} onRescan={doProbe} busy={busy || otherScanning} />
-              )}
-
-              {selected && !running && !counting && !estimating && !(mine && progress && isTerminal(progress.status)) && (!lastRun || lastRun.status !== "completed") && (
-                <div className="scan-card">
-                  <div className="scan-h">{selected.letter}\ {selected.label || "(no label)"}</div>
-                  <p className="scan-sub" style={{ marginBottom: 14 }}>
-                    {lastRun ? `Last run ended '${lastRun.status}'.` : "Never scanned."} Serial {selected.serial} · {fmtBytes(selected.freeBytes)} free of {fmtBytes(selected.totalBytes)}.
-                  </p>
-                  <button className="scan-btn go" onClick={doProbe} disabled={busy || otherScanning}>{busy ? "Counting…" : "Count & estimate"}</button>
-                  {otherScanning && <p className="scan-sub" style={{ marginTop: 8 }}>Another drive is scanning — one scan runs at a time.</p>}
-                </div>
-              )}
-            </div>
+              )
+            )}
           </div>
         )}
 
-        {tab === "history" && <HistoryTable runs={runs} onView={viewReport} onNuke={nukeHistory} />}
-        {tab === "reports" && <ReportsList runs={runs} onView={viewReport} onFolder={openReportsFolder} />}
+        {view === "history" && <HistoryTable runs={runs} onView={viewReport} onNuke={nukeHistory} />}
+        {view === "reports" && <ReportsList runs={runs} onView={viewReport} onFolder={openReportsFolder} />}
       </div>
 
       {reportModal && (
@@ -614,35 +688,6 @@ export default function ScanModule() {
         </div>
       )}
     </main>
-  );
-}
-
-function EstimateCard({ drive, folders, mediaFiles, busy, onStart, onAbort }: {
-  drive: ScanVolume; folders: number; mediaFiles: number;
-  busy: boolean; onStart: () => void; onAbort: () => void;
-}) {
-  return (
-    <>
-      <div className="scan-card">
-        <div className="scan-mlabel" style={{ marginBottom: 9 }}>Step 2 of 2 · Ready</div>
-        <div className="scan-h">Here is exactly what is on the drive.</div>
-        <div className="scan-sub" style={{ marginBottom: 16 }}>
-          Counted every folder on <span className="scan-mono" style={{ color: "var(--mc-text)" }}>{drive.letter}\ {drive.label}</span>. These are exact, not estimates.
-        </div>
-        <div className="scan-grid4" style={{ marginBottom: 16 }}>
-          <div className="scan-card2"><div className="scan-mlabel">Media files</div><div className="scan-stat">{mediaFiles.toLocaleString()}</div></div>
-          <div className="scan-card2"><div className="scan-mlabel">Folders</div><div className="scan-stat">{folders.toLocaleString()}</div></div>
-          <div className="scan-card2"><div className="scan-mlabel">Used space</div><div className="scan-stat">{fmtBytes(drive.totalBytes - drive.freeBytes)}</div></div>
-          <div className="scan-card2"><div className="scan-mlabel">Free space</div><div className="scan-stat">{fmtBytes(drive.freeBytes)}</div></div>
-        </div>
-        <p className="scan-sub" style={{ marginBottom: 18 }}>Leave it running and come back. Progress is written as it goes, so a crash or power cut never loses what was already scanned.</p>
-        <div className="scan-row">
-          <button className="scan-btn go" onClick={onStart} disabled={busy}>Start full scan</button>
-          <button className="scan-btn ghost" onClick={onAbort}>Abort</button>
-          <span className="scan-sub" style={{ marginLeft: 6 }}>Time to finish depends on drive speed — a running estimate appears once the scan starts.</span>
-        </div>
-      </div>
-    </>
   );
 }
 
@@ -730,89 +775,299 @@ function CompletionCard({ status, reportPath, onView, onFolder, onRescan }: {
   );
 }
 
-function PopulatedDashboard({ drive, run, folders, present, onView, onFolder, onRescan, onIssues, busy }: {
-  drive: ScanVolume; run: ScanRunRow; folders: ScanFolderSummary[]; present: boolean;
-  onView: () => void; onFolder: () => void; onRescan: () => void; onIssues: () => void; busy: boolean;
+function jpip(status: string): string {
+  if (status === "completed") return "ok";
+  if (status === "crashed" || status === "error" || status === "aborted") return "bad";
+  if (status === "queued") return "wait";
+  if (status === "paused") return "pause";
+  return "run";
+}
+
+// ---- the wizard, revised (mockup "cards tight" tab B): one pill row + one shared panel ----
+function ScanWizard({ tab, registry, drives, patchTab, busy, refreshing, onRefreshDrives, onStart }: {
+  tab: ScanJobTab; registry: ScanCategoryDef[]; drives: ScanVolume[];
+  patchTab: (id: string, patch: Partial<ScanJobTab>) => void;
+  busy: boolean; refreshing: boolean; onRefreshDrives: () => void; onStart: () => void;
 }) {
-  // Top-camera click-through: fetch the folder's distinct cameras and expand a detail row beneath it.
-  // Toggling the same folder closes it. Inline row = no popover-positioning math (ponytail).
-  const [cams, setCams] = useState<{ id: number; rows: ScanCameraCount[] } | null>(null);
-  const showCameras = async (folderId: number): Promise<void> => {
-    if (cams?.id === folderId) { setCams(null); return; }
-    try { setCams({ id: folderId, rows: await window.api.scan.folderCameras(folderId) }); }
-    catch { setCams({ id: folderId, rows: [] }); }
+  const [panelCat, setPanelCat] = useState<string | null>(null);
+  const selectedCats = registry.filter((c) => tab.cats.includes(c.key));
+  const active = selectedCats.find((c) => c.key === panelCat) ?? selectedCats[0] ?? null;
+
+  const fullySelected = (fmt: { extensions: string[] }): boolean => fmt.extensions.every((e) => tab.exts.includes(e));
+  const catStats = (c: ScanCategoryDef): { total: number; sel: number } => ({
+    total: c.formats.length,
+    sel: c.formats.filter(fullySelected).length,
+  });
+  const label = (cats: string[], serial: string | null, folders: string[]): string => {
+    const cat = registry.find((c) => cats.includes(c.key));
+    const drive = drives.find((d) => d.serial === serial);
+    const target = drive ? (drive.label || drive.letter) : folders.length > 0 ? `${folders.length} folder${folders.length === 1 ? "" : "s"}` : "";
+    return [cat?.label, target].filter(Boolean).join(" — ") || "New scan";
+  };
+  const toggleCat = (key: string): void => {
+    const cat = registry.find((c) => c.key === key)!;
+    const catExts = cat.formats.flatMap((x) => x.extensions);
+    const on = tab.cats.includes(key);
+    const cats = on ? tab.cats.filter((k) => k !== key) : [...tab.cats, key];
+    const exts = on ? tab.exts.filter((e) => !catExts.includes(e)) : [...new Set([...tab.exts, ...catExts])];
+    patchTab(tab.id, { cats, exts, label: label(cats, tab.driveSerial, tab.folders) });
+    if (!on) setPanelCat(key);
+    else if (panelCat === key) setPanelCat(null);
+  };
+  const toggleFormat = (fmt: { extensions: string[] }): void => {
+    const on = fullySelected(fmt);
+    patchTab(tab.id, { exts: on ? tab.exts.filter((e) => !fmt.extensions.includes(e)) : [...new Set([...tab.exts, ...fmt.extensions])] });
+  };
+  const selectAllCat = (c: ScanCategoryDef): void =>
+    patchTab(tab.id, { exts: [...new Set([...tab.exts, ...c.formats.flatMap((x) => x.extensions)])] });
+  const clearCat = (c: ScanCategoryDef): void => {
+    const catExts = c.formats.flatMap((x) => x.extensions);
+    patchTab(tab.id, { exts: tab.exts.filter((e) => !catExts.includes(e)) });
+  };
+
+  const formatCount = selectedCats.reduce((a, c) => a + catStats(c).sel, 0);
+  const canStart = tab.exts.length > 0 && (tab.targetKind === "drive" ? tab.driveSerial !== null : tab.folders.length > 0);
+  const isFlat = (c: ScanCategoryDef): boolean => c.formats.every((x) => x.group === x.label);
+  const groupsOf = (c: ScanCategoryDef): Array<[string, typeof c.formats]> => {
+    const m = new Map<string, typeof c.formats>();
+    for (const x of c.formats) {
+      if (!m.has(x.group)) m.set(x.group, []);
+      m.get(x.group)!.push(x);
+    }
+    return [...m.entries()];
+  };
+  const chip = (fmt: { label: string; extensions: string[] }): ReactNode => {
+    const on = fullySelected(fmt);
+    return (
+      <button key={fmt.label + fmt.extensions[0]} className={`scan-wchip${on ? " on" : ""}`}
+        title={fmt.extensions.map((e) => `.${e}`).join(" ")} onClick={() => toggleFormat(fmt)}>
+        <span className={`scan-wck${on ? " on" : ""}`}>{on ? "✓" : ""}</span>{fmt.label}
+      </button>
+    );
+  };
+
+  return (
+    <div>
+      {/* STEP 1 — one pill row + one shared panel */}
+      <div className="scan-wstep">
+        <div className="scan-wsteph"><span className="scan-wnum">1</span><span className="scan-wt">What are you looking for?</span>
+          <span className="scan-sub">everything is included by default — open a category only if you want to narrow it</span></div>
+        <div className="scan-wpills">
+          {registry.map((c) => {
+            const on = tab.cats.includes(c.key);
+            const { total, sel } = catStats(c);
+            const half = on && sel > 0 && sel < total;
+            const count = !on ? "off" : sel === total ? String(total) : `${sel}/${total}`;
+            return (
+              <button key={c.key} className={`scan-wpill${on ? " on" : ""}`} onClick={() => toggleCat(c.key)}>
+                <span className={`scan-wck${on ? (half ? " half" : " on") : ""}`}>{on && !half ? "✓" : half ? "–" : ""}</span>
+                <span aria-hidden="true">{c.icon}</span> {c.label}
+                <span className="scan-wcount scan-mono">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="scan-wpanel" style={{ marginTop: 11 }}>
+          {selectedCats.length === 0 && <p className="scan-sub" style={{ margin: 0 }}>Tick a category above to scan for it.</p>}
+          {selectedCats.length > 0 && (
+            <>
+              <div className="scan-wptabs">
+                <span className="scan-wphead">Narrow the search — optional</span>
+                {selectedCats.map((c) => {
+                  const { total, sel } = catStats(c);
+                  return (
+                    <button key={c.key} className={`scan-wptab${c.key === active?.key ? " on" : ""}`} onClick={() => setPanelCat(c.key)}>
+                      {c.label} <span className="scan-mono">{sel === total ? total : `${sel}/${total}`}</span>
+                    </button>
+                  );
+                })}
+                <span className="scan-wgact" style={{ marginLeft: "auto" }}>
+                  <button className="scan-link" onClick={() => active && selectAllCat(active)}>Select all</button>
+                  {" · "}
+                  <button className="scan-link" onClick={() => active && clearCat(active)}>Clear</button>
+                </span>
+              </div>
+              {active && (
+                <>
+                  {isFlat(active) ? (
+                    <div className="scan-wchips">{active.formats.map(chip)}</div>
+                  ) : (
+                    <div className="scan-wcols">
+                      {groupsOf(active).map(([g, fmts]) => (
+                        <div className="scan-wcol" key={g}>
+                          <div className="scan-wglabel">{g}</div>
+                          <div className="scan-wchips">{fmts.map(chip)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="scan-sub" style={{ marginTop: 12, marginBottom: 0 }}>Also recorded: {active.records ?? "—"}</p>
+                  <Tip id="TIP-SCN-001" />
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* STEP 2 — where to look (was step 3; renumbered when the separate narrow step was deleted) */}
+      <div className="scan-wstep">
+        <div className="scan-wsteph"><span className="scan-wnum">2</span><span className="scan-wt">Where should we look?</span>
+          <span className="scan-sub">a whole drive, or just the folders you choose</span></div>
+        <div className="scan-wsplit">
+          <div className="scan-wpanel">
+            <div className="scan-wghead"><span>Whole drive</span>
+              <span className="scan-wgact"><button className="scan-link" onClick={onRefreshDrives} disabled={refreshing}>{refreshing ? "Checking…" : "Re-check drives"}</button></span></div>
+            {drives.map((d) => {
+              const on = tab.targetKind === "drive" && tab.driveSerial === d.serial;
+              return (
+                <div key={d.serial} className={`scan-wdrive${on ? " on" : ""}`}
+                  onClick={() => patchTab(tab.id, { targetKind: "drive", driveSerial: d.serial, label: label(tab.cats, d.serial, tab.folders) })}>
+                  <span className="scan-wico" aria-hidden="true">{d.removable ? "🔌" : "💽"}</span>
+                  <span>
+                    <span style={{ display: "block" }}>{d.label || "Local Disk"} ({d.letter}){d.removable && <span className="scan-wremov">Removable</span>}</span>
+                    <span className="sub">{d.filesystem} · serial {d.serial} · {fmtBytes(d.freeBytes)} free</span>
+                  </span>
+                  <span className="scan-wsize scan-mono">{fmtBytes(d.totalBytes)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="scan-wpanel">
+            <div className="scan-wghead"><span>Specific folders</span>
+              <span className="scan-wgact"><button className="scan-link" onClick={() => {
+                void window.api.scan.pickFolders().then((paths) => {
+                  if (paths.length > 0) patchTab(tab.id, { targetKind: "folders", folders: [...new Set([...tab.folders, ...paths])] });
+                });
+              }}>＋ Add folder</button></span></div>
+            {tab.folders.map((p) => (
+              <div key={p} className={`scan-wdrive${tab.targetKind === "folders" ? " on" : ""}`} onClick={() => patchTab(tab.id, { targetKind: "folders" })}>
+                <span className="scan-wico" aria-hidden="true">🗀</span>
+                <span><span className="scan-mono" style={{ display: "block" }}>{p}</span><span className="sub">including subfolders</span></span>
+                <button className="scan-jtabx" aria-label="Remove folder"
+                  onClick={(e) => { e.stopPropagation(); patchTab(tab.id, { folders: tab.folders.filter((x) => x !== p) }); }}>✕</button>
+              </div>
+            ))}
+            <div className="scan-mlabel" style={{ margin: "14px 0 4px" }}>Options</div>
+            {([
+              ["optFolderNames", "Search folder names as well as file names"],
+              ["optSubfolders", "Follow subfolders"],
+              ["optHidden", "Include hidden and system folders"],
+            ] as const).map(([k, text]) => (
+              <div key={k} className="scan-wopt" onClick={() => patchTab(tab.id, { [k]: !tab[k] } as Partial<ScanJobTab>)}>
+                <span className={`scan-wsw${tab[k] ? " on" : ""}`}><i /></span> {text}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="scan-row" style={{ marginTop: 6 }}>
+        <span className="scan-sub">Metadata and file details are recorded on every run.</span>
+        <span className="scan-sub scan-mono" style={{ marginLeft: "auto" }}>{tab.cats.length} categor{tab.cats.length === 1 ? "y" : "ies"} · {formatCount} formats selected</span>
+        <button className="scan-btn go" disabled={!canStart || busy} onClick={onStart}>Start scan</button>
+      </div>
+    </div>
+  );
+}
+
+// ---- results-view filter (read-only DISPLAY narrowing over recorded rows — never rescans) ----
+function ResultsPanel({ tab, registry, rows, patchTab }: {
+  tab: ScanJobTab; registry: ScanCategoryDef[]; rows: ScanRunExtension[] | null;
+  patchTab: (id: string, patch: Partial<ScanJobTab>) => void;
+}) {
+  if (rows === null) return null;
+  // ext → (category, format) from the SAME shared registry the wizard uses, so labels always agree.
+  const extMap = new Map<string, { catKey: string; catLabel: string; fmtLabel: string }>();
+  for (const c of registry) for (const x of c.formats) for (const e of x.extensions) extMap.set(e, { catKey: c.key, catLabel: c.label, fmtLabel: x.label });
+  interface Agg { catKey: string; catLabel: string; fmtLabel: string; n: number; bytes: number; exts: string[] }
+  const byFormat = new Map<string, Agg>();
+  for (const r of rows) {
+    const e = (r.extension ?? "").toLowerCase();
+    const hit = extMap.get(e) ?? { catKey: "other", catLabel: "Other", fmtLabel: "Other" };
+    const key = `${hit.catKey}:${hit.fmtLabel}`;
+    const agg = byFormat.get(key) ?? { ...hit, n: 0, bytes: 0, exts: [] };
+    agg.n += r.n;
+    agg.bytes += r.bytes;
+    if (e && !agg.exts.includes(e)) agg.exts.push(e);
+    byFormat.set(key, agg);
+  }
+  const formats = [...byFormat.entries()].sort((a, b) => b[1].n - a[1].n);
+  const catsPresent = [...new Map(formats.map(([, a]) => [a.catKey, a.catLabel])).entries()];
+  const catOn = (k: string): boolean => tab.filterCats == null || tab.filterCats.includes(k);
+  const fmtOn = (key: string): boolean => tab.filterFmts == null || tab.filterFmts.includes(key);
+  const shown = formats.filter(([key, a]) => catOn(a.catKey) && fmtOn(key));
+  const totalN = formats.reduce((s, [, a]) => s + a.n, 0);
+  const shownN = shown.reduce((s, [, a]) => s + a.n, 0);
+  const filtered = tab.filterCats != null || tab.filterFmts != null;
+  const toggleCatF = (k: string): void => {
+    const all = catsPresent.map(([c]) => c);
+    const cur = tab.filterCats ?? all;
+    const next = cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k];
+    patchTab(tab.id, { filterCats: next.length === all.length ? null : next });
+  };
+  const toggleFmtF = (key: string): void => {
+    const all = formats.map(([x]) => x);
+    const cur = tab.filterFmts ?? all;
+    const next = cur.includes(key) ? cur.filter((x) => x !== key) : [...cur, key];
+    patchTab(tab.id, { filterFmts: next.length === all.length ? null : next });
   };
   return (
-    <>
-      <div className="scan-card">
-        <div className="scan-row" style={{ marginBottom: 14 }}>
-          <div>
-            <div className="scan-h" style={{ margin: 0 }}>{present ? `${drive.letter}\\ ` : ""}{drive.label || "(no label)"}</div>
-            <div className="scan-sub">Last scanned {formatStamp(run.finished_at, "eventTime") || "—"} · {run.files_recorded.toLocaleString()} files</div>
-          </div>
-          {present
-            ? <span className="scan-pill ok" style={{ marginLeft: "auto" }}>Up to date</span>
-            : <span className="scan-pill notconn" style={{ marginLeft: "auto" }}>Not connected</span>}
-          <button className="scan-btn blue" onClick={onRescan} disabled={busy || !present}
-            title={present ? undefined : "Reconnect the drive to scan"}>Rescan</button>
-        </div>
-        {!present && (
-          <div className="scan-card2 scan-sub" style={{ marginBottom: 14 }}>
-            This drive isn't connected — showing its last scan from your local copy. Reconnect it to rescan or open folders.
-          </div>
-        )}
-        <div className="scan-grid4">
-          <div className="scan-card2"><div className="scan-mlabel">Files</div><div className="scan-stat">{run.files_recorded.toLocaleString()}</div></div>
-          <div className="scan-card2"><div className="scan-mlabel">Folders</div><div className="scan-stat">{run.folders_committed.toLocaleString()}</div></div>
-          <div className="scan-card2"><div className="scan-mlabel">Logged issues</div><div className="scan-stat warn scan-issues-link" onClick={onIssues} title="Show the logged issues">{run.errors_logged.toLocaleString()}</div></div>
-          <div className="scan-card2"><div className="scan-mlabel">Report</div>
-            <div className="scan-row" style={{ marginTop: 6 }}>
-              {run.report_path ? <button className="scan-btn blue" onClick={onView}>View</button> : <span className="scan-sub">none</span>}
-              <button className="scan-btn ghost" onClick={onFolder}>Folder</button>
-            </div>
-          </div>
-        </div>
+    <div className="scan-card" style={{ marginTop: 14 }}>
+      <div className="scan-row" style={{ marginBottom: 10 }}>
+        <div className="scan-h" style={{ margin: 0 }}>Recorded results</div>
+        <span className="scan-sub scan-mono" style={{ marginLeft: "auto" }}>Showing {shownN.toLocaleString()} of {totalN.toLocaleString()} files</span>
+        {filtered && <button className="scan-btn ghost" onClick={() => patchTab(tab.id, { filterCats: null, filterFmts: null })}>Reset</button>}
       </div>
-      <div className="scan-card">
-        <div className="scan-mlabel" style={{ marginBottom: 6 }}>Folders — top level</div>
-        {folders.length === 0 ? <div className="scan-sub">No folder rollups recorded.</div> : (
-          <div className="scan-folders-scroll">
-          <table className="scan-tbl folders">
-            <colgroup><col /><col className="c-files" /><col className="c-date" /><col className="c-cam" /><col className="c-size" /></colgroup>
-            <thead><tr><th>Folder</th><th>Files</th><th>Date range</th><th>Top camera</th><th>Size</th></tr></thead>
-            <tbody>
-              {folders.slice(0, 40).map((f) => (
-                <Fragment key={f.path}>
-                  <tr>
-                    <td className={`w scan-mono${present ? " cell-link" : ""}`}
-                        title={present ? `Open ${f.path}` : "Reconnect the drive to open this folder"}
-                        onClick={present ? () => void window.api.scan.openPath(f.path) : undefined}>{f.path}</td>
-                    <td className="scan-mono">{f.file_count.toLocaleString()}</td>
-                    <td className="scan-mono">{formatRange(f.date_min, f.date_max, "dateOnly")}
-                      {f.date_source && <span className="scan-datesrc"> ({f.date_source === "capture" ? "capture dates" : "file dates"})</span>}
-                    </td>
-                    <td className={f.top_camera ? "cell-link" : undefined} title={f.top_camera ? "Show all cameras in this folder" : undefined}
-                        onClick={f.top_camera ? () => void showCameras(f.id) : undefined}>{f.top_camera ?? "—"}</td>
-                    <td className="scan-mono">{fmtBytes(f.total_bytes)}</td>
-                  </tr>
-                  {cams?.id === f.id && (
-                    <tr className="scan-cam-row"><td colSpan={5}>
-                      {cams.rows.length === 0
-                        ? <span className="scan-sub">No camera metadata recorded for this folder.</span>
-                        : <div className="scan-cam-list">{cams.rows.map((c) => (
-                            <span className="scan-cam-chip" key={c.camera}>{c.camera} <b>{c.count.toLocaleString()}</b></span>
-                          ))}</div>}
-                    </td></tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        )}
+      <div className="scan-wchips" style={{ marginBottom: 8 }}>
+        {catsPresent.map(([k, lbl]) => (
+          <button key={k} className={`scan-wchip${catOn(k) ? " on" : ""}`} onClick={() => toggleCatF(k)}>
+            <span className={`scan-wck${catOn(k) ? " on" : ""}`}>{catOn(k) ? "✓" : ""}</span>{lbl}
+          </button>
+        ))}
       </div>
-    </>
+      <div className="scan-wchips" style={{ marginBottom: 12 }}>
+        {formats.filter(([, a]) => catOn(a.catKey)).map(([key, a]) => (
+          <button key={key} className={`scan-wchip${fmtOn(key) ? " on" : ""}`} title={a.exts.map((e) => `.${e}`).join(" ")} onClick={() => toggleFmtF(key)}>
+            <span className={`scan-wck${fmtOn(key) ? " on" : ""}`}>{fmtOn(key) ? "✓" : ""}</span>{a.fmtLabel} <span className="scan-mono">{a.n.toLocaleString()}</span>
+          </button>
+        ))}
+      </div>
+      <table className="scan-tbl">
+        <thead><tr><th>Format</th><th>Category</th><th>Files</th><th>Size</th></tr></thead>
+        <tbody>
+          {shown.map(([key, a]) => (
+            <tr key={key}>
+              <td title={a.exts.map((e) => `.${e}`).join(" ")}>{a.fmtLabel}</td>
+              <td className="scan-sub">{a.catLabel}</td>
+              <td className="scan-mono">{a.n.toLocaleString()}</td>
+              <td className="scan-mono">{fmtBytes(a.bytes)}</td>
+            </tr>
+          ))}
+          {shown.length === 0 && <tr><td colSpan={4} className="scan-sub">Nothing matches this filter.</td></tr>}
+        </tbody>
+      </table>
+    </div>
   );
+}
+
+// Coverage labels (wizard, Phase B): a pre-wizard run has NO selected set — it covered everything
+// Scan understood, and must say so rather than error.
+function coverageLabel(r: ScanRunRow): string {
+  if (!r.selected_extensions) return "All formats";
+  try {
+    return `${(JSON.parse(r.selected_extensions) as string[]).length} formats`;
+  } catch {
+    return "All formats";
+  }
+}
+function coverageTitle(r: ScanRunRow): string {
+  if (!r.selected_extensions) return "This run covered every format Scan understood at the time.";
+  try {
+    return (JSON.parse(r.selected_extensions) as string[]).map((e) => `.${e}`).join(" ");
+  } catch {
+    return "";
+  }
 }
 
 function HistoryTable({ runs, onView, onNuke }: { runs: ScanRunRow[]; onView: (id: number) => void; onNuke: () => void }) {
@@ -827,13 +1082,14 @@ function HistoryTable({ runs, onView, onNuke }: { runs: ScanRunRow[]; onView: (i
       </div>
       {runs.length === 0 ? <div className="scan-empty">No scans in the viewer.</div> : (
       <table className="scan-tbl">
-        <thead><tr><th>Run</th><th>Root</th><th>Status</th><th>Files</th><th>Folders</th><th>Finished</th><th>Report</th></tr></thead>
+        <thead><tr><th>Run</th><th>Root</th><th>Status</th><th>Coverage</th><th>Files</th><th>Folders</th><th>Finished</th><th>Report</th></tr></thead>
         <tbody>
           {runs.map((r) => (
             <tr key={r.id}>
               <td className="w scan-mono">#{r.id}</td>
               <td className="scan-mono" style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.root_path}</td>
               <td>{r.status}</td>
+              <td title={coverageTitle(r)}>{coverageLabel(r)}</td>
               <td className="scan-mono">{r.files_recorded.toLocaleString()}</td>
               <td className="scan-mono">{r.folders_committed.toLocaleString()}</td>
               <td className="scan-mono">{formatStamp(r.finished_at, "eventTime") || "—"}</td>

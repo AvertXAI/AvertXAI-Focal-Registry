@@ -6,7 +6,8 @@ import { useEffect, useState } from "react";
 import { DoorTheme, Gear, Mail, Vault, Webhook } from "../icons";
 import { bumpRender } from "../diag";
 import { signalUpdateToast, type ThemeMode } from "../App";
-import type { StorageLocations } from "../shared/types";
+import { setTipsEnabled } from "../components/Tip";
+import type { DeviceIdentityInfo, StorageLocations } from "../shared/types";
 
 interface Props {
   themeMode: ThemeMode;
@@ -16,7 +17,7 @@ interface Props {
 // Module-level cache of the toggle values — survives Settings unmount/remount within a session. On a
 // repeat visit the toggles initialize from here, so they render in the CORRECT position on the very
 // first paint (no async default→loaded jump, which was what "moved" when switching to Settings).
-const toggleCache: { skipBoot?: boolean; trayOn?: boolean; launchStartup?: boolean } = {};
+const toggleCache: { skipBoot?: boolean; trayOn?: boolean; launchStartup?: boolean; tipsOn?: boolean } = {};
 
 // Warm the toggle cache from app_settings. Called at APP BOOT (App.tsx) — not just on Settings
 // mount — because a renderer reload (Ctrl+R) wipes this module-level cache, and warming it only on
@@ -27,10 +28,13 @@ export function warmToggleCache(): Promise<void> {
     window.api.settings.get("skip_fast_boot"),
     window.api.settings.get("tray_enabled"),
     window.api.settings.get("launch_at_startup"),
-  ]).then(([sb, tr, ls]) => {
+    window.api.settings.get("tips.enabled"),
+  ]).then(([sb, tr, ls, tp]) => {
     toggleCache.skipBoot = sb === "1";
     toggleCache.trayOn = tr !== "0";
     toggleCache.launchStartup = ls === "1";
+    toggleCache.tipsOn = tp !== "0"; // default ON — absent key means tips show
+    setTipsEnabled(toggleCache.tipsOn); // warm the live <Tip> store in the same pass
   });
 }
 
@@ -39,6 +43,8 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const [skipBoot, setSkipBoot] = useState(() => toggleCache.skipBoot ?? false);
   const [trayOn, setTrayOn] = useState(() => toggleCache.trayOn ?? true); // tray-on-close — default ON (§3.11)
   const [launchStartup, setLaunchStartup] = useState(() => toggleCache.launchStartup ?? false); // open at Windows login — default OFF
+  const [tipsOn, setTipsOn] = useState(() => toggleCache.tipsOn ?? true); // helpful tips — ONE global switch, default ON
+  const [device, setDevice] = useState<DeviceIdentityInfo | null>(null); // "This device" — read-only, local-only
   const [animReady, setAnimReady] = useState(() => toggleCache.skipBoot !== undefined); // cache warm → correct from first paint, no gate
   const [activeSection, setActiveSection] = useState("General");
   const [appVersion, setAppVersion] = useState("");
@@ -63,6 +69,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
       requestAnimationFrame(() => setAnimReady(true));
     });
     void window.api.updater.version().then(setAppVersion).catch(() => {}); // never hardcoded
+    void window.api.identity.get().then(setDevice).catch(() => {}); // read-only; local-only display
   }, []);
 
   const loadCleared = () => void window.api.scan.clearedHistoryCount().then(setClearedCount).catch(() => {});
@@ -137,6 +144,13 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
     setLaunchStartup(next);
     toggleCache.launchStartup = next;
     void window.api.startup.setEnabled(next); // persists AND writes/clears the OS login item
+  };
+  const toggleTips = () => {
+    const next = !tipsOn;
+    setTipsOn(next);
+    toggleCache.tipsOn = next;
+    setTipsEnabled(next); // every mounted <Tip> flips live
+    void window.api.settings.set("tips.enabled", next ? "1" : "0");
   };
 
   // Left-nav class — active drives the right pane. Only real sections switch; .nb items are not-built
@@ -246,6 +260,32 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                     Launch the app automatically when you sign in to Windows. Takes effect on your next
                     restart. (Applies to the installed app, not the development build.)
                   </p>
+                </div>
+                <div className="field" style={{ marginTop: 26 }}>
+                  <div className="setrow">
+                    <label htmlFor="showtips">Show helpful tips</label>
+                    <button
+                      id="showtips"
+                      role="switch"
+                      aria-checked={tipsOn}
+                      className={`switch${tipsOn ? " on" : ""}${animReady ? "" : " no-anim"}`}
+                      onClick={toggleTips}
+                    />
+                  </div>
+                  <p className="hint">
+                    Short in-context explanations across the modules — one switch turns them all on or off.
+                  </p>
+                </div>
+                <div className="field" style={{ marginTop: 26 }}>
+                  <label>This device</label>
+                  <p className="hint" style={{ marginTop: 6, lineHeight: 1.8 }}>
+                    Machine name: <span style={{ fontFamily: "var(--mc-mono)" }}>{device?.machine_name ?? "—"}</span>
+                    <br />
+                    Windows installation ID: <span style={{ fontFamily: "var(--mc-mono)" }}>{device?.machine_guid ?? "unavailable"}</span>
+                    <br />
+                    Hardware ID: <span style={{ fontFamily: "var(--mc-mono)" }}>{device?.hardware_uuid ?? "unavailable"}</span>
+                  </p>
+                  <p className="hint">Local only — recorded when this workspace was created and never transmitted anywhere.</p>
                 </div>
                 <div className="field" style={{ marginTop: 26 }}>
                   <div className="setrow">

@@ -378,6 +378,14 @@ tbody tr:hover{background:var(--mc-nested)}
    still animates. */
 .switch.no-anim::after{transition:none}
 
+/* <Tip> — the registered hint surface (src/components/Tip.tsx). Orange-accent aside; the tint is
+   --mc-orange at 6% (the callout convention), correct in all three themes via tokens. */
+.tip{border-left:3px solid var(--mc-orange);background:color-mix(in srgb,var(--mc-orange) 6%,transparent);
+  padding:13px 16px;border-radius:0 var(--mc-radius) var(--mc-radius) 0;margin:12px 0}
+.tip-head{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--mc-orange);font-weight:700;
+  margin-bottom:7px;display:flex;gap:10px;align-items:center}
+.tip-body{font-size:12.5px;color:var(--mc-text);line-height:1.62;margin:0}
+
 /* Safe Mode banner — persistent (not dismissible) strip under the top bar */
 .safemode{display:flex;align-items:center;justify-content:center;gap:14px;padding:8px 16px;
   background:#33230a;color:var(--mc-orange);border-bottom:1px solid #7a4d08;font-size:13px}

@@ -41,7 +41,7 @@ export default function BootTerminal({ modules, orgName, error, onComplete, onFa
             // fallback can only render if the gate below is ever bypassed — belt and suspenders.
             { text: `> Initializing ${orgName ?? "AvertXAI"} Shell...` },
             { text: "> Loading platform configurations..." },
-            { text: "[Config-as-Data] Connecting to local sqlite... OK", tone: "dim" },
+            { text: "Connecting to local sqlite... OK", tone: "dim" },
             { text: "> Parsing 'modules' table..." },
             ...(modules ?? []).map((m): Line => ({ text: `   - Mod: ${m.name} loaded.`, tone: "dim" })),
             { text: "> Rendering Interface..." },

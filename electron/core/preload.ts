@@ -22,7 +22,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 // Main → renderer push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of
 // the page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
-const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "mindmerge:progress", "rename:progress"];
+const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "mindmerge:progress", "rename:progress", "migrate:progress"];
 const wrapped = new Map<(payload: never) => void, (e: Electron.IpcRendererEvent, payload: unknown) => void>();
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);
@@ -116,6 +116,21 @@ const api: Api = {
     restoreHistory: () => ipcRenderer.invoke("scan:restoreHistory"),
     deleteHistoryForever: () => ipcRenderer.invoke("scan:deleteHistoryForever"),
     clearedHistoryCount: () => ipcRenderer.invoke("scan:clearedHistoryCount"),
+  },
+  migrate: {
+    registry: () => ipcRenderer.invoke("migrate:registry"),
+    drives: () => ipcRenderer.invoke("migrate:drives"),
+    pickFolders: () => ipcRenderer.invoke("migrate:pickFolders"),
+    createJob: (opts: unknown) => ipcRenderer.invoke("migrate:createJob", opts),
+    listJobs: () => ipcRenderer.invoke("migrate:listJobs"),
+    jobSummary: (jobId: number) => ipcRenderer.invoke("migrate:jobSummary", jobId),
+    jobItems: (jobId: number, extension: string | null) => ipcRenderer.invoke("migrate:jobItems", jobId, extension),
+    setSelected: (payload: unknown) => ipcRenderer.invoke("migrate:setSelected", payload),
+    abortJob: (jobId: number) => ipcRenderer.invoke("migrate:abortJob", jobId),
+    bundlePreflight: (jobId: number, destRoot: string) => ipcRenderer.invoke("migrate:bundlePreflight", jobId, destRoot),
+    startBundle: (jobId: number, destRoot: string) => ipcRenderer.invoke("migrate:startBundle", jobId, destRoot),
+    listBundles: (jobId: number) => ipcRenderer.invoke("migrate:listBundles", jobId),
+    openFolder: (p: string) => ipcRenderer.invoke("migrate:openFolder", p),
   },
   rename: {
     gather: (sources: string[]) => ipcRenderer.invoke("rename:gather", sources),

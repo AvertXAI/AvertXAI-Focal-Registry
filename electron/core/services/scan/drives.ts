@@ -21,6 +21,8 @@ export interface ScanVolume {
   totalBytes: number;
   freeBytes: number;
   serial: string; // hex volume serial — the identity key
+  driveType: number; // Win32_LogicalDisk DriveType: 2 removable, 3 fixed, 4 network, 5 optical
+  removable: boolean; // driveType === 2 — Migrate identifies USB/removable targets by this
 }
 
 export interface ScanDriveRow {
@@ -84,7 +86,7 @@ export function listVolumes(): ScanVolume[] {
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, VolumeName, FileSystem, Size, FreeSpace, VolumeSerialNumber | ConvertTo-Json -Compress",
+      "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, VolumeName, FileSystem, Size, FreeSpace, VolumeSerialNumber, DriveType | ConvertTo-Json -Compress",
     ],
     { encoding: "utf8", windowsHide: true, timeout: 15_000 }
   );
@@ -93,14 +95,19 @@ export function listVolumes(): ScanVolume[] {
   const rows = (Array.isArray(parsed) ? parsed : [parsed]) as Array<Record<string, unknown>>;
   return rows
     .filter((d) => typeof d.DeviceID === "string" && typeof d.VolumeSerialNumber === "string")
-    .map((d) => ({
-      letter: d.DeviceID as string,
-      label: (d.VolumeName as string) ?? "",
-      filesystem: (d.FileSystem as string) ?? "",
-      totalBytes: Number(d.Size) || 0,
-      freeBytes: Number(d.FreeSpace) || 0,
-      serial: d.VolumeSerialNumber as string,
-    }));
+    .map((d) => {
+      const driveType = Number(d.DriveType) || 0;
+      return {
+        letter: d.DeviceID as string,
+        label: (d.VolumeName as string) ?? "",
+        filesystem: (d.FileSystem as string) ?? "",
+        totalBytes: Number(d.Size) || 0,
+        freeBytes: Number(d.FreeSpace) || 0,
+        serial: d.VolumeSerialNumber as string,
+        driveType,
+        removable: driveType === 2,
+      };
+    });
 }
 
 /** Event-driven volume watcher — a long-lived PowerShell subscribed to Win32_VolumeChangeEvent, the

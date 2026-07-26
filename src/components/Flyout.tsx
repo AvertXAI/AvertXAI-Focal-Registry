@@ -144,6 +144,8 @@ function moduleIcon(slug: string) {
       return <ScanIcon />;
     case "rename":
       return <RenameIcon />;
+    case "migrate":
+      return <MigrateIcon />;
     case "scout-viewer":
       return <SearchIcon />;
     case "vault":
@@ -170,6 +172,16 @@ function RenameIcon() {
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
       <path d="m9.6 3.4 3 3L6 13l-3.4.4L3 10l6.6-6.6Z" />
       <path d="m8.4 4.6 3 3M9 14h5" />
+    </svg>
+  );
+}
+
+// migrate — box-with-outbound-arrow outline (assets leaving for a new machine)
+function MigrateIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.5 6.5v6.3a.7.7 0 0 0 .7.7h6.3M2.5 6.5h7M2.5 6.5 4 3.6a.7.7 0 0 1 .6-.4h4.8" />
+      <path d="M10.5 10.5 14 7m0 0h-3m3 0v3" />
     </svg>
   );
 }

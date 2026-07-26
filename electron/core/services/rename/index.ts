@@ -23,6 +23,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { generateUUIDv7 } from "../utils/uuidv7";
 import { isExcludedDir, mediaClass } from "../scan/media";
+import { copyVerified } from "../shared/copyVerified";
 import { buildPreview, type RenameSettings, type RenameSourceFile } from "../../../../src/shared/renamePreview";
 import type { Db } from "./db";
 
@@ -211,27 +212,18 @@ export async function startRename(db: Db, orgId: string, opts: StartRenameOpts):
       copy_path: null, copy_filename: row.copyFilename, media_class: row.mediaClass,
       sequence_number: row.sequenceNumber, bytes: row.bytes, status: "error", error_text: null,
     };
-    try {
-      // COPYFILE_EXCL: fails with EEXIST if the destination already exists → SKIP, never overwrite (3.6).
-      fs.copyFileSync(row.path, dest, fs.constants.COPYFILE_EXCL);
-      // Verify the byte count matches — the copy must be identical in size (3.5).
-      const destSize = fs.statSync(dest).size;
-      if (destSize !== row.bytes) {
-        errored++;
-        pending.push({ ...base, status: "error", error_text: `size mismatch: source ${row.bytes}, copy ${destSize}` });
-      } else {
-        copied++;
-        pending.push({ ...base, copy_path: dest, status: "copied" });
-      }
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException)?.code;
-      if (code === "EEXIST") {
-        skipped++;
-        pending.push({ ...base, status: "skipped", error_text: "destination already exists — skipped, not overwritten" });
-      } else {
-        errored++;
-        pending.push({ ...base, status: "error", error_text: e instanceof Error ? e.message : String(e) });
-      }
+    // Shared copy core (shared/copyVerified.ts): COPYFILE_EXCL + byte-count verify against the
+    // previewed size (3.5/3.6). hash stays OFF here — Rename is byte-count-only, the proof's law.
+    const r = copyVerified(row.path, dest, { expectedBytes: row.bytes });
+    if (r.ok) {
+      copied++;
+      pending.push({ ...base, copy_path: dest, status: "copied" });
+    } else if (r.skipped) {
+      skipped++;
+      pending.push({ ...base, status: "skipped", error_text: "destination already exists — skipped, not overwritten" });
+    } else {
+      errored++;
+      pending.push({ ...base, status: "error", error_text: r.error ?? "copy failed" });
     }
 
     if (pending.length >= RENAME_COMMIT_BATCH) flush();
@@ -455,19 +447,18 @@ export async function startRevert(db: Db, orgId: string, opts: StartRevertOpts):
       missing++;
       pending.push({ ...base, status: "error", error_text: "copy missing on disk — not reverted" });
     } else {
-      try {
-        fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL);
+      // Shared copy core, verify:false — the revert path has NEVER size-verified (a user-edited copy
+      // must still revert under its original name); tightening that here would change shipped behavior.
+      const r = copyVerified(src, dest, { verify: false });
+      if (r.ok) {
         restored++;
         pending.push({ ...base, copy_path: dest, status: "copied" });
-      } catch (e) {
-        const code = (e as NodeJS.ErrnoException)?.code;
-        if (code === "EEXIST") {
-          skipped++;
-          pending.push({ ...base, status: "skipped", error_text: "destination already exists — skipped, not overwritten" });
-        } else {
-          missing++;
-          pending.push({ ...base, status: "error", error_text: e instanceof Error ? e.message : String(e) });
-        }
+      } else if (r.skipped) {
+        skipped++;
+        pending.push({ ...base, status: "skipped", error_text: "destination already exists — skipped, not overwritten" });
+      } else {
+        missing++;
+        pending.push({ ...base, status: "error", error_text: r.error ?? "copy failed" });
       }
     }
     if (pending.length >= RENAME_COMMIT_BATCH) flush();

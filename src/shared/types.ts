@@ -111,7 +111,51 @@ export interface ScoutDomCard {
 }
 
 /** Main → renderer push channels the preload bridge whitelists. */
-export type PushChannel = "scan:progress" | "scan:drives" | "mindmerge:progress" | "rename:progress";
+export type PushChannel = "scan:progress" | "scan:drives" | "mindmerge:progress" | "rename:progress" | "migrate:progress";
+
+// ---- Migrate module (renderer-safe copies of the service shapes at electron/core/services/migrate) ----
+export interface MigrateExtDef { ext: string; label: string; group: string }
+export interface MigrateClassDef {
+  key: string; label: string; icon: string; desc: string;
+  extensions: MigrateExtDef[]; folderNames: string[]; destHint: string;
+}
+export interface MigrateDrive {
+  letter: string; label: string; filesystem: string; totalBytes: number; freeBytes: number;
+  serial: string; driveType: number; removable: boolean;
+}
+export interface MigrateCreateJob {
+  label: string; targetKind: "drive" | "folders"; driveId: number | null; rootPaths: string[];
+  classes: string[]; extensions: string[]; optFolderNames: boolean; optSubfolders: boolean; optHidden: boolean;
+}
+export interface MigrateJobRow {
+  id: number; label: string | null; target_kind: string; drive_id: number | null; root_paths: string;
+  classes: string; extensions: string; status: string; folders_walked: number; files_seen: number;
+  files_found: number; errors_logged: number; total_folders_expected: number | null;
+  started_at: string | null; finished_at: string | null;
+}
+export interface MigrateItemRow {
+  id: number; job_id: number; asset_class: string; extension: string | null; source_path: string;
+  filename: string; size_bytes: number | null; mtime: string | null; selected: number; is_shipped_default: number;
+}
+export interface MigrateGroupSummary { extension: string | null; count: number; bytes: number; selected: number }
+export interface MigrateJobSummary {
+  groups: MigrateGroupSummary[]; total: number; bytes: number; selected: number; selectedBytes: number;
+}
+export interface MigrateBundleRow {
+  id: number; job_id: number; destination_root: string; status: string; item_count: number;
+  bytes_total: number; items_copied: number; items_failed: number; started_at: string | null; finished_at: string | null;
+}
+export interface MigratePreflight {
+  ok: boolean; neededBytes: number; freeBytes: number | null; bundleDir: string; error?: string;
+}
+/** migrate:progress push — discovery counters and bundle-copy counters share one channel, split by kind. */
+export interface MigrateProgress {
+  kind: "discover" | "bundle";
+  jobId: number; bundleId?: number; status: string; currentPath: string | null;
+  foldersWalked: number; foldersTotal: number | null; filesFound: number;
+  copied?: number; failed?: number; totalItems?: number; bytesDone?: number; bytesTotal?: number;
+  error?: string;
+}
 
 // ---- Rename module (renderer-safe copies of the service shapes) ----
 export interface RenameProgress {
@@ -451,6 +495,22 @@ export interface Api {
   startup: {
     /** Persist the open-at-login choice and write/clear the OS login item (Windows Run key). */
     setEnabled: (enabled: boolean) => Promise<{ ok: boolean }>;
+  };
+  /** Migrate module — discovery is read-only; bundle export writes only the chosen destination. */
+  migrate: {
+    registry: () => Promise<MigrateClassDef[]>;
+    drives: () => Promise<MigrateDrive[]>;
+    pickFolders: () => Promise<string[]>;
+    createJob: (opts: MigrateCreateJob) => Promise<number>;
+    listJobs: () => Promise<MigrateJobRow[]>;
+    jobSummary: (jobId: number) => Promise<MigrateJobSummary>;
+    jobItems: (jobId: number, extension: string | null) => Promise<MigrateItemRow[]>;
+    setSelected: (payload: { jobId: number; ids?: number[]; extension?: string | null; selected: boolean }) => Promise<{ ok: boolean }>;
+    abortJob: (jobId: number) => Promise<boolean>;
+    bundlePreflight: (jobId: number, destRoot: string) => Promise<MigratePreflight>;
+    startBundle: (jobId: number, destRoot: string) => Promise<{ ok: boolean }>;
+    listBundles: (jobId: number) => Promise<MigrateBundleRow[]>;
+    openFolder: (p: string) => Promise<{ ok: boolean; error?: string }>;
   };
   rename: {
     gather: (sources: string[]) => Promise<RenameSourceFile[]>;

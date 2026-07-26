@@ -28,6 +28,7 @@ const RENDERER_KEYS = new Set([
   "mindmerge.watch_enabled",
   "mindmerge.rail_collapsed", // module list-rail « collapse — UI-only, never restarts the engine
   "mindmerge.font_size", // detail-pane px size — UI-only, never restarts the engine
+  "migrate.tabs", // Migrate scan tabs (JSON) — renderer tab state persisted so tabs survive navigation
 ]);
 
 function safeKey(key: unknown): string {

@@ -108,16 +108,22 @@ export function initDb(dbPath: string): void {
        VALUES (?, ?, ?, ?, ?, ?, 0, 1)`
     ).run(generateUUIDv7(), tenant, name, slug, type, order);
   };
+  // Migrate insertion (Phase 1) — nav order becomes Scan 1 / Rename 2 / MIGRATE 3 / MindMerge 4 /
+  // Scout 5 / Vault 6. Guarded idempotent UPDATEs shift pre-existing rows BEFORE the seed so a dev
+  // DB re-orders in place; fresh installs seed straight into the final order.
+  db.exec("UPDATE modules SET display_order = 4 WHERE slug = 'mindmerge' AND display_order <> 4;");
+  db.exec("UPDATE modules SET display_order = 5 WHERE slug = 'scout-viewer' AND display_order <> 5;");
   seedModule("Scan", "scan", "tool", 1);
   seedModule("Rename", "rename", "tool", 2);
-  seedModule("MindMerge", "mindmerge", "notes", 3);
-  seedModule("Scout Viewer", "scout-viewer", "browser", 4);
+  seedModule("Migrate", "migrate", "tool", 3);
+  seedModule("MindMerge", "mindmerge", "notes", 4);
+  seedModule("Scout Viewer", "scout-viewer", "browser", 5);
   // Row cleanup for gutted modules — idempotent, data-only (no schema change). Existing dev DBs
   // seeded these rows; without this they'd keep rendering in the nav after the module code is gone.
   db.exec("DELETE FROM modules WHERE slug IN ('getscriptclips', 'canon-distributor');");
-  // Display-order normalization for pre-gut DBs (vault was seeded at 2; final order puts it at 5,
-  // after Scan 1 / Rename 2 / MindMerge 3 / Scout 4). Idempotent, data-only.
-  db.exec("UPDATE modules SET display_order = 5 WHERE slug = 'vault' AND display_order <> 5;");
+  // Display-order normalization (vault last — after Scan 1 / Rename 2 / Migrate 3 / MindMerge 4 /
+  // Scout 5). Idempotent, data-only.
+  db.exec("UPDATE modules SET display_order = 6 WHERE slug = 'vault' AND display_order <> 6;");
 }
 
 export function getDb(): Database.Database {

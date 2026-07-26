@@ -21,9 +21,10 @@ import { spawnSync } from "node:child_process";
 import { getSetting, setSetting } from "../settings";
 
 export const MARKDOWN_ROOT_KEY = "markdown_root";
-// The app owns these module folders under Focal-Registry\. SecureNote/ScoutViewer/Rename are seeded
-// now so a future module writes into an existing home.
-const MODULE_DIRS = ["Scan", "SecureNote", "ScoutViewer", "Rename"] as const;
+// The app owns these module folders under Focal-Registry\. Seeded up front so a future module
+// writes into an existing home. "MindMerge" replaced the stale "SecureNote" name (Jason ruled
+// 2026-07-26); ensureManagedTree moves a populated legacy SecureNote\ folder rather than orphaning it.
+const MODULE_DIRS = ["Scan", "MindMerge", "ScoutViewer", "Rename", "Migrate"] as const;
 
 export function defaultMarkdownRoot(): string {
   // home\AvertXAI — NOT Documents. app.getPath("documents") resolves inside OneDrive on this machine,
@@ -98,6 +99,20 @@ function writeDoNotDelete(fr: string): void {
     contents. Throws if the root is unreachable — the caller reports it; nothing is written elsewhere. */
 export function ensureManagedTree(root: string): void {
   const fr = focalRegistryDir(root);
+  // Legacy SecureNote\ → MindMerge\ (module renamed 2026-07-24; folder ruling 2026-07-26): a
+  // populated legacy folder is MOVED so its contents are never orphaned. If both exist somehow,
+  // both are left in place (never merge-overwrite) — the stray SecureNote\ shows up in Explorer
+  // and is the user's call. An empty legacy folder is simply removed.
+  const legacy = path.join(fr, "SecureNote");
+  const mindmerge = path.join(fr, "MindMerge");
+  try {
+    if (fs.existsSync(legacy) && !fs.existsSync(mindmerge)) {
+      if (fs.readdirSync(legacy).length > 0) fs.renameSync(legacy, mindmerge);
+      else fs.rmdirSync(legacy); // empty shell — no content to preserve
+    }
+  } catch {
+    /* best-effort — a locked legacy folder never blocks the tree */
+  }
   for (const m of MODULE_DIRS) fs.mkdirSync(path.join(fr, m), { recursive: true });
   // The _source hidden-wrapper is gone (1.3); hide the AvertXAI folder itself instead — only when the
   // root's own name is "AvertXAI" (the default), never a user's custom-named folder (1.6).

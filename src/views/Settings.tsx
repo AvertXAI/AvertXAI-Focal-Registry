@@ -170,6 +170,10 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
               <Vault />
               Vault
             </button>
+            <button className="navitem nb">
+              <Gear />
+              Migrate
+            </button>
             <div className="setsec">Integrations</div>
             <button className="navitem nb">
               <Webhook />

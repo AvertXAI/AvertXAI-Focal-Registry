@@ -18,6 +18,9 @@ import * as dataviewer from "./services/dataviewer";
 import * as firstrun from "./services/firstrun";
 import * as modules from "./services/modules";
 import * as mindmergeApi from "./services/mindmerge/api";
+import * as migrateEngine from "./services/migrate/engine";
+import { ensureMigrateSchema } from "./services/migrate/db";
+import { ASSET_CLASSES } from "./services/migrate/registry";
 import { ingestAll, startMindMerge, type IngestProgress, type MindMergeHandle } from "./services/mindmerge/engine";
 import * as scout from "./services/scout-viewer";
 import * as scoutTargets from "./services/scout-viewer/targets";
@@ -297,6 +300,86 @@ export function registerIpcHandlers(): void {
   });
   // Copies the existing tree to the new root, then re-points — never moves/deletes the old (2.6).
   safeHandle("storage:changeRoot", (_e, newRoot: unknown) => storage.changeMarkdownRoot(String(newRoot ?? "")));
+  // migrate module — discovery is READ-ONLY against sources; bundle export writes ONLY into the
+  // user-chosen destination via the shared copyVerified core (hash ON — removable media). Jobs drain
+  // a single-slot queue (Jason's ruling); long-running work is fire-and-forget over migrate:progress.
+  let migrateInit = false;
+  const migrateCtx = (): { db: ReturnType<typeof getDb>; orgId: string } => {
+    const org = getActiveOrg();
+    if (!org) throw new Error("Migrate: no active org");
+    const db = getDb();
+    if (!migrateInit) {
+      ensureMigrateSchema(db);
+      migrateEngine.markInterruptedMigrate(db); // runs left 'running' by a crash become 'crashed'
+      migrateInit = true;
+    }
+    return { db, orgId: org.org_id };
+  };
+  const sendMigrateProgress = (p: migrateEngine.MigrateProgress): void => {
+    getMainWindow()?.webContents.send("migrate:progress", p);
+  };
+  safeHandle("migrate:registry", () => ASSET_CLASSES);
+  safeHandle("migrate:drives", () => scanDrives.listVolumes());
+  safeHandle("migrate:pickFolders", async () => {
+    const win = getMainWindow() ?? undefined;
+    const opts = { properties: ["openDirectory", "multiSelections"] as Array<"openDirectory" | "multiSelections">, title: "Choose folders to search" };
+    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
+    return res.canceled ? [] : res.filePaths;
+  });
+  safeHandle("migrate:createJob", (_e, opts: unknown) => {
+    const { db, orgId } = migrateCtx();
+    const jobId = migrateEngine.createJob(db, orgId, opts as migrateEngine.CreateJobOpts);
+    void migrateEngine.pumpQueue(db, orgId, sendMigrateProgress); // fire-and-forget drain
+    return jobId;
+  });
+  safeHandle("migrate:listJobs", () => {
+    const { db, orgId } = migrateCtx();
+    return migrateEngine.listJobs(db, orgId);
+  });
+  safeHandle("migrate:jobSummary", (_e, jobId: unknown) => {
+    const { db } = migrateCtx();
+    return migrateEngine.jobSummary(db, Number(jobId));
+  });
+  safeHandle("migrate:jobItems", (_e, jobId: unknown, extension: unknown) => {
+    const { db } = migrateCtx();
+    return migrateEngine.jobItems(db, Number(jobId), extension == null ? null : String(extension));
+  });
+  safeHandle("migrate:setSelected", (_e, payload: unknown) => {
+    const { db } = migrateCtx();
+    const p = payload as { jobId: number; ids?: number[]; extension?: string | null; selected: boolean };
+    if (Array.isArray(p.ids)) migrateEngine.setItemsSelected(db, p.jobId, p.ids, p.selected);
+    else migrateEngine.setScopeSelected(db, p.jobId, p.extension ?? null, p.selected);
+    return { ok: true };
+  });
+  safeHandle("migrate:abortJob", (_e, jobId: unknown) => migrateEngine.requestAbortJob(Number(jobId)));
+  safeHandle("migrate:bundlePreflight", (_e, jobId: unknown, destRoot: unknown) => {
+    const { db } = migrateCtx();
+    return migrateEngine.bundlePreflight(db, Number(jobId), String(destRoot));
+  });
+  safeHandle("migrate:startBundle", (_e, jobId: unknown, destRoot: unknown) => {
+    const { db, orgId } = migrateCtx();
+    // Fire-and-forget: progress + terminal states flow over migrate:progress; a preflight rejection
+    // surfaces as a failed push so the renderer can show the exact message.
+    void migrateEngine.startBundle(db, orgId, Number(jobId), String(destRoot), sendMigrateProgress).catch((e) => {
+      sendMigrateProgress({
+        kind: "bundle", jobId: Number(jobId), status: "failed", currentPath: null,
+        foldersWalked: 0, foldersTotal: null, filesFound: 0,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    });
+    return { ok: true };
+  });
+  safeHandle("migrate:listBundles", (_e, jobId: unknown) => {
+    const { db } = migrateCtx();
+    return migrateEngine.listBundles(db, Number(jobId));
+  });
+  safeHandle("migrate:openFolder", (_e, target: unknown) => {
+    const p = String(target ?? "");
+    if (p === "" || !fs.existsSync(p)) return { ok: false, error: "Folder not found." };
+    void shell.openPath(p);
+    return { ok: true };
+  });
+
   // Open one of the shown storage folders in the OS file manager (Settings transparency, 2.5).
   safeHandle("storage:openFolder", (_e, target: unknown) => {
     const p = String(target ?? "");

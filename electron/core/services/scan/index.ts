@@ -16,7 +16,6 @@ import exifr from "exifr";
 import { parseFile } from "music-metadata";
 import { readIsoBmffGeometry } from "./isobmff-reader";
 import { canExifr, canIsoBmff, canMusicMetadata, isExcludedDir, isMpegTransportStream, mediaClass, needsContentSniff } from "./media";
-import { scanKindForExtension } from "../shared/assetRegistry";
 import { generateUUIDv7 } from "../utils/uuidv7";
 import type { Db } from "./db";
 import type { ScanRunRow } from "./drives";
@@ -131,63 +130,20 @@ export function driveSerial(db: Db, driveId: number | null): string | null {
   return r?.volume_serial ?? null;
 }
 
-export interface RunOptions {
-  followSubfolders: boolean;
-  includeHidden: boolean;
-  folderNames: boolean; // stored for the search phase (Phase C) — no walk effect yet
-}
-
 export function createRun(
   db: Db,
   orgId: string,
   driveId: number,
   rootPath: string,
-  scanUnit: "drive" | "folder",
-  coverage?: { selectedExtensions?: string[] | null; options?: RunOptions | null; status?: "probing" | "queued" }
+  scanUnit: "drive" | "folder"
 ): ScanRunRow {
   const info = db
     .prepare(
-      `INSERT INTO scan_runs (uuid, org_id, drive_id, root_path, status, scan_unit, selected_extensions, run_options)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO scan_runs (uuid, org_id, drive_id, root_path, status, scan_unit)
+       VALUES (?, ?, ?, ?, 'probing', ?)`
     )
-    .run(
-      generateUUIDv7(), orgId, driveId, path.resolve(rootPath), coverage?.status ?? "probing", scanUnit,
-      coverage?.selectedExtensions && coverage.selectedExtensions.length > 0 ? JSON.stringify(coverage.selectedExtensions.map((e) => e.toLowerCase())) : null,
-      coverage?.options ? JSON.stringify(coverage.options) : null
-    );
+    .run(generateUUIDv7(), orgId, driveId, path.resolve(rootPath), scanUnit);
   return getRun(db, Number(info.lastInsertRowid));
-}
-
-// ---- selective-run coverage (wizard, Phase B) ------------------------------------------------
-// A run with selected_extensions NULL covers "everything" = mediaClass exactly as before — every
-// pre-wizard run keeps byte-identical behavior. A SELECTIVE run classifies by the wizard registry
-// (scanKindForExtension): its chips are the selectable truth (e.g. .aif is a chip though not in
-// AUDIO_EXTS), documents get kind 'document', and .xmp keeps its ruled kind 'sidecar'.
-export interface RunCoverage {
-  classify: (ext: string) => string | null; // run kind, or null = not covered (counted, no row)
-  followSubfolders: boolean;
-  rules: SkipRules;
-}
-export function runCoverage(run: ScanRunRow, baseRules: SkipRules): RunCoverage {
-  let selected: Set<string> | null = null;
-  try {
-    selected = run.selected_extensions ? new Set((JSON.parse(run.selected_extensions) as string[]).map((e) => e.toLowerCase())) : null;
-  } catch {
-    selected = null; // unreadable JSON — behave as "everything", never crash a run
-  }
-  let opts: Partial<RunOptions> = {};
-  try {
-    opts = run.run_options ? (JSON.parse(run.run_options) as RunOptions) : {};
-  } catch {
-    opts = {};
-  }
-  const classify = selected
-    ? (ext: string): string | null => (selected.has(ext.toLowerCase()) ? scanKindForExtension(ext) : null)
-    : (ext: string): string | null => mediaClass(ext);
-  // includeHidden maps onto the existing dot-prefix proxy; the system EXCLUDED_DIR_NAMES stay
-  // excluded regardless (descending C:\Windows\WinSxS froze the counting walk — never re-open that).
-  const rules: SkipRules = opts.includeHidden === true ? { ...baseRules, skipDotPrefixedDirs: false } : baseRules;
-  return { classify, followSubfolders: opts.followSubfolders !== false, rules };
 }
 
 /** Service start: anything still in-flight when the process died is a crash. Idempotent. */
@@ -228,8 +184,8 @@ export async function countRun(
   db: Db, _orgId: string, runId: number,
   opts: { onProgress?: (p: ScanProgress) => void; rules?: SkipRules } = {}
 ): Promise<CountResult> {
+  const rules = opts.rules ?? DEFAULT_SKIP_RULES;
   const run = getRun(db, runId);
-  const coverage = runCoverage(run, opts.rules ?? DEFAULT_SKIP_RULES); // selective set or legacy everything
   const volumeSerial = driveSerial(db, run.drive_id);
   db.prepare(
     "UPDATE scan_runs SET status = 'counting', started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -259,17 +215,16 @@ export async function countRun(
     folders += 1;
     for (const name of listing.files) {
       totalFiles += 1;
-      if (fileSkipRule(name, coverage.rules)) continue;
+      if (fileSkipRule(name, rules)) continue;
       const ext = path.extname(name).replace(/^\./, "");
-      if (coverage.classify(ext) === null) continue; // run-aware: selective set, or legacy mediaClass
+      if (mediaClass(ext) === null) continue;
       // Same content-sniff as the scan walk so the count denominator matches what actually gets rowed.
       if (needsContentSniff(ext) && !isRealTransportStream(path.join(dir, name))) continue;
       mediaFiles += 1;
     }
-    if (coverage.followSubfolders)
     for (const d of listing.dirs) {
       const full = path.join(dir, d);
-      if (!dirSkipRule(d, coverage.rules) && !isReparseDir(full)) stack.push(full);
+      if (!dirSkipRule(d, rules) && !isReparseDir(full)) stack.push(full);
     }
     const now = Date.now();
     if (now - lastEmit >= PROGRESS_EMIT_INTERVAL_MS) {
@@ -527,7 +482,7 @@ export function requestAbort(db: Db, runId: number): boolean {
   // Not in flight (paused / crashed / estimating) — abort is a plain status write.
   const r = db
     .prepare(
-      "UPDATE scan_runs SET status = 'aborted', finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('queued', 'probing', 'counting', 'estimating', 'paused', 'crashed')"
+      "UPDATE scan_runs SET status = 'aborted', finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status IN ('probing', 'counting', 'estimating', 'paused', 'crashed')"
     )
     .run(runId);
   return r.changes > 0;
@@ -547,10 +502,9 @@ export async function startRun(
   opts: { resume?: boolean; onProgress?: (p: ScanProgress) => void; rules?: SkipRules; rawMode?: boolean } = {}
 ): Promise<ScanRunRow> {
   if (active?.running) throw new Error("a scan is already running — one at a time");
+  const rules = opts.rules ?? DEFAULT_SKIP_RULES;
   const raw = opts.rawMode ?? RAW_MODE; // per-call override for the benchmark harness; const is the default
   const run = getRun(db, runId);
-  const coverage = runCoverage(run, opts.rules ?? DEFAULT_SKIP_RULES); // selective set or legacy everything
-  const rules = coverage.rules;
   const startable = opts.resume ? ["crashed", "paused"] : ["probing", "estimating"];
   if (!startable.includes(run.status)) {
     throw new Error(`run ${runId} is '${run.status}' — ${opts.resume ? "resume" : "start"} needs ${startable.join("/")}`);
@@ -616,14 +570,13 @@ export async function startRun(
   const commitBatch = db.transaction((batch: Committable[]) => {
     let mediaTotal = 0, errorTotal = 0, cursor = "";
     for (const { dir, depth, parent, files, totalFilesSeen } of batch) {
-      const counts = { image: 0, video: 0, audio: 0, other: 0, unreadable: 0 };
+      const counts = { image: 0, video: 0, audio: 0, unreadable: 0 };
       let bytes = 0, dateMin: string | null = null, dateMax: string | null = null;
       const cameraFreq = new Map<string, number>(), lensFreq = new Map<string, number>();
       for (const f of files) {
         if (f.kind === "image") counts.image++;
         else if (f.kind === "video") counts.video++;
         else if (f.kind === "audio") counts.audio++;
-        else if (f.kind === "document" || f.kind === "sidecar") counts.other++; // selective-run rows — recorded, no parser
         else counts.unreadable++;
         bytes += f.sizeBytes ?? 0;
         if (f.capturedAt) {
@@ -637,7 +590,7 @@ export async function startRun(
         m.size === 0 ? null : [...m.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
       const folderInfo = insFolder.run(
         generateUUIDv7(), orgId, runId, run.drive_id, dir, depth, parent, files.length,
-        counts.image, counts.video, counts.audio, counts.other, counts.unreadable, bytes,
+        counts.image, counts.video, counts.audio, 0, counts.unreadable, bytes,
         totalFilesSeen, files.length, dateMin, dateMax, top(cameraFreq), top(lensFreq)
       );
       const folderId = Number(folderInfo.lastInsertRowid);
@@ -716,7 +669,6 @@ export async function startRun(
       // Reparse points and rule-skipped dirs: never followed. DELIBERATE SKIPS ARE NOT ERROR ROWS
       // (Phase 3.5) — they are simply not descended. isReparseDir/dirSkipRule govern; nothing logged.
       const subdirs: string[] = [];
-      if (coverage.followSubfolders)
       for (const d of listing.dirs) {
         const full = path.join(node.dir, d);
         if (!dirSkipRule(d, rules) && !isReparseDir(full)) subdirs.push(d);
@@ -731,8 +683,8 @@ export async function startRun(
           totalFilesSeen += 1;
           if (fileSkipRule(name, rules)) continue; // deliberate skip — counted, no row, no error
           const ext = path.extname(name).replace(/^\./, "");
-          const cls = coverage.classify(ext); // run-aware: selective set (incl. document/sidecar) or legacy media
-          if (cls === null) continue; // NOT COVERED — counted in totalFilesSeen, no row, no parser, no error
+          const cls = mediaClass(ext);
+          if (cls === null) continue; // NON-MEDIA — counted in totalFilesSeen, no row, no parser, no error
           const full = path.join(node.dir, name);
           // Ambiguous-by-name (.mts): only a real MPEG transport stream is media. A TypeScript .mts is
           // skipped here — counted in totalFilesSeen, no row, no parser, no error (same as non-media).

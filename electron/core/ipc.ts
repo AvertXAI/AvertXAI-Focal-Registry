@@ -19,10 +19,9 @@ import * as firstrun from "./services/firstrun";
 import * as modules from "./services/modules";
 import * as mindmergeApi from "./services/mindmerge/api";
 import * as migrateEngine from "./services/migrate/engine";
-import { readDeviceIdentity } from "./services/identity";
 import { ensureMigrateSchema } from "./services/migrate/db";
 import { ASSET_CLASSES } from "./services/migrate/registry";
-import { SCAN_CATEGORIES } from "./services/shared/assetRegistry";
+import { readDeviceIdentity } from "./services/identity";
 import { ingestAll, startMindMerge, type IngestProgress, type MindMergeHandle } from "./services/mindmerge/engine";
 import * as scout from "./services/scout-viewer";
 import * as scoutTargets from "./services/scout-viewer/targets";
@@ -442,68 +441,6 @@ export function registerIpcHandlers(): void {
     });
     return { runId: run.id };
   });
-  // ---- scan job queue (wizard, Phase B4) — REUSES Migrate's single-slot drain pattern: runs are
-  // enqueued as rows (status 'queued', persistent — leftovers drain next boot), ONE pump launches
-  // the oldest when the engine slot frees, and each terminal state re-pumps. Never a second engine.
-  const pumpScanQueue = (): void => {
-    try {
-      const { db, orgId } = scanCtx();
-      if (scan.isRunning()) return;
-      const next = db
-        .prepare("SELECT id FROM scan_runs WHERE org_id = ? AND status = 'queued' ORDER BY id LIMIT 1")
-        .get(orgId) as { id: number } | undefined;
-      if (!next) return;
-      db.prepare("UPDATE scan_runs SET status = 'probing', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(next.id);
-      void scan
-        .countRun(db, orgId, next.id, { onProgress: sendScanProgress })
-        .then((c) => {
-          // Aborted during counting → the run is terminal; move on. Otherwise auto-start the walk.
-          const status = scan.getRun(db, next.id).status;
-          if (status === "estimating") launchRun(next.id, false);
-          else pumpScanQueue();
-          return c;
-        })
-        .catch((e) => {
-          console.error("[scan] queued count failed:", e);
-          db.prepare("UPDATE scan_runs SET status = 'error', finished_at = CURRENT_TIMESTAMP WHERE id = ?").run(next.id);
-          pumpScanQueue();
-        });
-    } catch {
-      /* no org yet — nothing to drain */
-    }
-  };
-  safeHandle("scan:registry", () => SCAN_CATEGORIES);
-  // Results-view filter source — per-extension counts over rows ALREADY recorded. Read-only: it
-  // never rescans and never alters stored data; the renderer narrows what is DISPLAYED.
-  safeHandle("scan:runExtensions", (_e, runId: unknown) => {
-    const { db } = scanCtx();
-    return db
-      .prepare("SELECT extension, COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS bytes FROM scan_files WHERE run_id = ? GROUP BY extension ORDER BY n DESC")
-      .all(Number(runId));
-  });
-  safeHandle("scan:pickFolders", async () => {
-    const win = getMainWindow() ?? undefined;
-    const opts = { properties: ["openDirectory", "multiSelections"] as Array<"openDirectory" | "multiSelections">, title: "Choose folders to scan" };
-    const res = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
-    return res.canceled ? [] : res.filePaths;
-  });
-  safeHandle("scan:enqueue", (_e, rootPath: unknown, scanUnit: unknown, selectedExtensions: unknown, options: unknown) => {
-    const { db, orgId } = scanCtx();
-    if (typeof rootPath !== "string" || rootPath.trim() === "") throw new Error("enqueue: rootPath required");
-    const drive = scanDrives.resolveDrive(db, orgId, scanDrives.volumeForPath(rootPath), generateUUIDv7);
-    const run = scan.createRun(db, orgId, drive.id, rootPath, scanUnit === "drive" ? "drive" : "folder", {
-      selectedExtensions: Array.isArray(selectedExtensions) ? (selectedExtensions as string[]) : null,
-      options: options && typeof options === "object" ? (options as scan.RunOptions) : null,
-      status: "queued",
-    });
-    sendScanProgress({
-      runId: run.id, volumeSerial: scan.driveSerial(db, drive.id), status: "queued", currentFolder: null,
-      foldersCommitted: 0, filesRecorded: 0, errorsLogged: 0, estimatedFiles: null,
-    });
-    setTimeout(pumpScanQueue, 0); // drain after the invoke returns
-    return { runId: run.id };
-  });
-
   const launchRun = (runId: number, resume: boolean): { ok: true; runId: number } => {
     const { db, orgId } = scanCtx();
     const serial = scan.driveSerial(db, scan.getRun(db, runId).drive_id);
@@ -513,7 +450,7 @@ export function registerIpcHandlers(): void {
         // On a clean completion write the report NOW — in the main process, so a run that finished
         // while the user was on another module still gets its report. A write failure is surfaced
         // as a terminal note; the run STAYS completed (the data is already committed).
-        if (finished.status !== "completed") { pumpScanQueue(); return; } // paused/aborted → next queued run
+        if (finished.status !== "completed") return;
         const result = scanReport.writeScanReport(db, runId);
         sendScanProgress({
           runId, volumeSerial: serial, status: "completed", currentFolder: null,
@@ -522,10 +459,8 @@ export function registerIpcHandlers(): void {
           reportPath: result.ok ? (result.path ?? null) : null,
           reportError: result.ok ? null : (result.error ?? "report write failed"),
         });
-        pumpScanQueue(); // slot freed — drain the next queued run
       })
       .catch((e) => {
-        pumpScanQueue(); // even a failed run frees the slot
         console.error("[scan] run failed:", e);
         sendScanProgress({
           runId, volumeSerial: serial, status: "error", currentFolder: null, foldersCommitted: 0, filesRecorded: 0,
@@ -535,8 +470,6 @@ export function registerIpcHandlers(): void {
     return { ok: true, runId };
   };
   safeHandle("scan:start", (_e, runId: unknown) => launchRun(Number(runId), false));
-  // Drain queued leftovers from a previous session shortly after boot (queue rows are persistent).
-  setTimeout(pumpScanQueue, 1500);
   safeHandle("scan:resume", (_e, runId: unknown) => launchRun(Number(runId), true));
   safeHandle("scan:pause", (_e, runId: unknown) => scan.requestPause(Number(runId)));
   safeHandle("scan:abort", (_e, runId: unknown) => {

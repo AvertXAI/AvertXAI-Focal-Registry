@@ -12,13 +12,6 @@ export interface TipDef {
 
 export const TIPS: TipDef[] = [
   {
-    id: "TIP-SCN-001",
-    module: "scan",
-    title: "Your report records what you chose",
-    body:
-      "A scan reports only the formats ticked here, and the report states which they were — so two reports of one drive may not be comparable.",
-  },
-  {
     id: "TIP-MIG-001",
     module: "migrate",
     title: "Why settings files matter",

@@ -61,8 +61,6 @@ export interface ScanRunRow {
   report_local_path: string | null; // the copy in the app-managed Markdown tree — always local, drive or not
   total_files_expected: number | null;
   total_folders_expected: number | null;
-  selected_extensions: string | null; // JSON string[] — NULL = everything (pre-wizard runs)
-  run_options: string | null; // JSON {followSubfolders, includeHidden, folderNames} — NULL = defaults
 }
 
 /** The double-scan guard's answer — data only, the UI owns the choice. */

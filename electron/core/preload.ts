@@ -90,11 +90,6 @@ const api: Api = {
     rescan: () => ipcRenderer.invoke("mindmerge:rescan"),
   },
   scan: {
-    registry: () => ipcRenderer.invoke("scan:registry"),
-    runExtensions: (runId: number) => ipcRenderer.invoke("scan:runExtensions", runId),
-    pickFolders: () => ipcRenderer.invoke("scan:pickFolders"),
-    enqueue: (rootPath: string, scanUnit: "drive" | "folder", selectedExtensions: string[], options: unknown) =>
-      ipcRenderer.invoke("scan:enqueue", rootPath, scanUnit, selectedExtensions, options),
     listDrives: () => ipcRenderer.invoke("scan:listDrives"),
     listScannedDrives: () => ipcRenderer.invoke("scan:listScannedDrives"),
     selectSource: (rootPath: string, scanUnit: "drive" | "folder") =>

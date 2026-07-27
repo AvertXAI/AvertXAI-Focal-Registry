@@ -16,7 +16,6 @@ import path from "node:path";
 import type { Db } from "./db";
 import type { ScanDriveRow, ScanRunRow } from "./drives";
 import { formatStamp } from "../../../../src/shared/datetime";
-import { defaultMediaExtensions } from "../shared/assetRegistry";
 import * as storage from "../storage";
 
 export const REPORTS_FOLDER_NAME = "_FocalRegistry-Reports";
@@ -98,31 +97,6 @@ export function reportStem(db: Db, runId: number): { dir: string; base: string }
 function yamlList(pairs: Array<{ key: string; n: number }>): string {
   if (pairs.length === 0) return "{}";
   return `{ ${pairs.map((p) => `"${p.key}": ${p.n}`).join(", ")} }`;
-}
-
-// ---- coverage wording (wizard, Phase B) -------------------------------------------------------
-/** True when a run's selected set EQUALS the full default media set (Photos+Video+Audio, every
- *  format) — such a run is equivalent to the pre-wizard always-everything behaviour. */
-function isDefaultMediaSet(selectedJson: string | null): boolean {
-  if (!selectedJson) return false;
-  try {
-    const sel = new Set((JSON.parse(selectedJson) as string[]).map((e) => e.toLowerCase()));
-    const def = defaultMediaExtensions();
-    return sel.size === def.length && def.every((e) => sel.has(e));
-  } catch {
-    return false;
-  }
-}
-export function coverageKind(selectedJson: string | null): "everything" | "all-media" | "selected" {
-  if (!selectedJson) return "everything";
-  return isDefaultMediaSet(selectedJson) ? "all-media" : "selected";
-}
-function coverageLine(selectedJson: string | null): string {
-  const kind = coverageKind(selectedJson);
-  if (kind === "everything") return "_This run covered every format Scan understood at the time it ran._";
-  if (kind === "all-media") return "_This run covered all media formats._";
-  const sel = JSON.parse(selectedJson as string) as string[];
-  return `_This run reported ONLY the formats selected when it was started (${sel.length} formats: ${sel.map((e) => `.${e}`).join(" ")}). Files outside that selection were not recorded — two reports of the same drive may differ if their selections differed._`;
 }
 
 // Body capture ranges are human display → LOCAL date-only through the shared formatter (frontmatter
@@ -230,8 +204,6 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
       `unknown: ${unknown}`,
       `oldest_capture: "${formatStamp(oldest, "iso")}"`,
       `newest_capture: "${formatStamp(newest, "iso")}"`,
-      `coverage: ${coverageKind(run.selected_extensions)}`,
-      `formats_selected: [${run.selected_extensions ? (JSON.parse(run.selected_extensions) as string[]).map((e) => `"${e}"`).join(", ") : ""}]`,
       `formats_stills: ${yamlList(formatsFor("image"))}`,
       `formats_video: ${yamlList(formatsFor("video"))}`,
       `formats_audio: ${yamlList(formatsFor("audio"))}`,
@@ -262,12 +234,6 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
       `| Other / unreadable | ${unknown.toLocaleString()} |`,
       `| Capture range | ${fmtDate(oldest)} → ${fmtDate(newest)} |`,
       `| Errors logged | ${run.errors_logged.toLocaleString()} |`,
-      "",
-      // Coverage statement (wizard, Phase B): a report only speaks for what the run was ASKED to
-      // cover. A DEFAULT run (the full media set — Photos+Video+Audio, every format) carries NO
-      // caveat: its set equals the pre-wizard always-everything behaviour, so default reports stay
-      // comparable. Only a genuinely narrowed run gets the "reported ONLY" wording.
-      coverageLine(run.selected_extensions),
       "",
       `_Showing the top ${Math.min(TOP_FOLDERS, topFolders.length)} folders by media file count. Full per-folder detail for all ${folders.toLocaleString()} folders is queryable in the Focal Registry database (\`scan_folders\` / \`scan_files\` for run ${runId})._`,
       "",

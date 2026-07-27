@@ -113,17 +113,6 @@ export interface ScoutDomCard {
 /** Main → renderer push channels the preload bridge whitelists. */
 export type PushChannel = "scan:progress" | "scan:drives" | "mindmerge:progress" | "rename:progress" | "migrate:progress";
 
-// ---- Scan wizard (Phase B) — renderer-safe copies of the shared asset-registry shapes ----
-export interface ScanFormatDef { label: string; extensions: string[]; group: string }
-export interface ScanCategoryDef {
-  key: string; label: string; icon: string; desc: string;
-  formats: ScanFormatDef[]; folderNames: string[]; destHint: string;
-  records?: string; // the "Also recorded:" metadata line for the wizard panel
-}
-/** Results-view filter source — per-extension row counts for a completed run (read-only query). */
-export interface ScanRunExtension { extension: string | null; n: number; bytes: number }
-export interface ScanRunOptions { followSubfolders: boolean; includeHidden: boolean; folderNames: boolean }
-
 /** LOCAL-ONLY device identity — shown read-only in Settings; never transmitted, never in exports. */
 export interface DeviceIdentityInfo {
   machine_guid: string | null;
@@ -251,8 +240,6 @@ export interface ScanVolume {
   totalBytes: number;
   freeBytes: number;
   serial: string; // hex volume serial — the drive's identity, never the letter
-  driveType?: number; // Win32 DriveType: 2 removable, 3 fixed, 4 network, 5 optical
-  removable?: boolean; // driveType === 2 — the wizard's Removable badge
 }
 export interface ScanDriveRow {
   id: number;
@@ -300,10 +287,6 @@ export interface ScanRunRow {
   /** EXACT media-file denominator from the counting walk (Phase 4) — real %, no clamp. */
   total_files_expected: number | null;
   total_folders_expected: number | null;
-  /** Selective-scan coverage (wizard, Phase B): JSON string[] of extensions — NULL = everything
-   *  (every pre-wizard run), which is exactly how old History/Reports rows must read. */
-  selected_extensions?: string | null;
-  run_options?: string | null;
   /** Joined from scan_drives on listRuns — the run's volume serial, for the per-drive scanned dot. */
   volume_serial?: string | null;
   /** Soft-clear timestamp (History Nuke); null/absent = visible. Purged 30 days after being set. */
@@ -465,10 +448,6 @@ export interface Api {
   /** Scan module — READ-ONLY against sources. start/resume return immediately; progress arrives
    *  over the scan:progress push. The double-scan guard's decision is data; the UI owns the choice. */
   scan: {
-    registry: () => Promise<ScanCategoryDef[]>;
-    runExtensions: (runId: number) => Promise<ScanRunExtension[]>;
-    pickFolders: () => Promise<string[]>;
-    enqueue: (rootPath: string, scanUnit: "drive" | "folder", selectedExtensions: string[], options: ScanRunOptions) => Promise<{ runId: number }>;
     listDrives: () => Promise<ScanVolume[]>;
     listScannedDrives: () => Promise<ScannedDrive[]>;
     selectSource: (rootPath: string, scanUnit: "drive" | "folder") => Promise<ScanSourceDecision>;
@@ -525,11 +504,11 @@ export interface Api {
     /** Persist the open-at-login choice and write/clear the OS login item (Windows Run key). */
     setEnabled: (enabled: boolean) => Promise<{ ok: boolean }>;
   };
+  /** Migrate module — discovery is read-only; bundle export writes only the chosen destination. */
   /** LOCAL device identity (Settings "This device") — read-only; never transmitted anywhere. */
   identity: {
     get: () => Promise<DeviceIdentityInfo>;
   };
-  /** Migrate module — discovery is read-only; bundle export writes only the chosen destination. */
   migrate: {
     registry: () => Promise<MigrateClassDef[]>;
     drives: () => Promise<MigrateDrive[]>;

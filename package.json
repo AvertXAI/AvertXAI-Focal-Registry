@@ -1,7 +1,7 @@
 {
   "name": "avertxai-focal-registry",
   "productName": "Focal Registry",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "description": "Photography Archive Tools",
   "author": "AvertXAI",

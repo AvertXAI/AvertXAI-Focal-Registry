@@ -4,6 +4,23 @@ Newest first. The **Summary** block (400 characters max) is what the in-app Soft
 shows; the **Details** sections are for the website changelog. `scripts/release.mjs` parses this file,
 injects the current version's Summary into the update feed, and publishes this file to the feed root.
 
+## 0.2.5 — July 26, 2026
+
+**Summary:** New Migrate module — find brushes, presets, plugins, scripts and fonts scattered across a drive and copy them onto another, verified file by file. Helpful tips can now be switched off in Settings, and Settings shows this computer's identifiers.
+
+### Details
+
+#### Added
+
+- Migrate: choose what to look for, scan a whole drive or specific folders, review what was found grouped by type, and copy a selection into a dated bundle on another drive — every file checksum-verified, originals never moved or changed.
+- Migrate identifies removable drives and shows free space before copying, refusing to start if there is not enough room or if the destination sits inside the source.
+- Settings: a single switch turns helpful tips on or off across the whole application.
+- Settings: "This device" shows the machine name and its identifiers, recorded locally and never transmitted.
+
+#### Changed
+
+- Nothing changes in Scan, Rename, MindMerge or Scout Viewer.
+
 ## 0.2.4 — July 26, 2026
 
 **Summary:** Updates now open in a dedicated Software Update window instead of a corner notification — release notes shown in-app, with a link to the full changelog. Major-version updates are marked required, and versions that are no longer maintained show a notice.

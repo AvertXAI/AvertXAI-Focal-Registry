@@ -40,6 +40,7 @@
       "dist-electron/preload.cjs",
       "dist-electron/update-preload.cjs",
       "build/icon.ico",
+      "assets/sounds/**",
       "package.json"
     ],
     "asar": true,

@@ -371,7 +371,10 @@ export function registerTimeTrackerIpc(): void {
     timerChanged();
   });
 
-  // value ledger
+  // value ledger — APPEND-ONLY surface (Jason's ruling 07-31-2026): the nukeLedgerEntry /
+  // nukeLedgerAll channels from the 1:1 port are DEREGISTERED. The service functions remain in
+  // ledger.ts for a future deliberate, confirm-gated maintenance path — but no renderer can
+  // reach them, so their absence here is the append-only rule made structural.
   safeHandle("timetracker:listLedger", (_e, projectId: unknown) => {
     const { db } = ttCtx();
     return ledger.list(db, vId(projectId, "project id"));
@@ -379,14 +382,6 @@ export function registerTimeTrackerIpc(): void {
   safeHandle("timetracker:addLedger", (_e, projectId: unknown, amount: unknown, note: unknown) => {
     const { db, orgId } = ttCtx();
     return ledger.add(db, orgId, vId(projectId, "project id"), vAmount(amount), vNullableString(note, "ledger note", 2000));
-  });
-  safeHandle("timetracker:nukeLedgerEntry", (_e, id: unknown) => {
-    const { db } = ttCtx();
-    ledger.nukeEntry(db, vId(id, "ledger entry id"));
-  });
-  safeHandle("timetracker:nukeLedgerAll", (_e, projectId: unknown) => {
-    const { db } = ttCtx();
-    ledger.nukeAll(db, vId(projectId, "project id"));
   });
 
   // break-alert sounds — bundled + user-uploaded; selection persisted main-side

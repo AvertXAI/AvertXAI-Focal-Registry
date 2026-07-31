@@ -926,10 +926,9 @@ export interface Api {
       discard: (sessionId: number) => Promise<void>;
     };
     ledger: {
+      /** Append-only surface — the nuke channels were deregistered by ruling (07-31-2026). */
       list: (projectId: number) => Promise<TimeTrackerLedgerEntry[]>;
       add: (projectId: number, amount: number, note: string | null) => Promise<TimeTrackerLedgerEntry>;
-      nukeEntry: (id: number) => Promise<void>;
-      nukeAll: (projectId: number) => Promise<void>;
     };
     sounds: {
       list: () => Promise<TimeTrackerAlertSound[]>;

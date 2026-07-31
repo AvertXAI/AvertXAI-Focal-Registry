@@ -228,11 +228,10 @@ const api: Api = {
       discard: (sessionId: number) => ipcRenderer.invoke("timetracker:recoverDiscard", sessionId),
     },
     ledger: {
+      // Append-only: the nuke channels are deregistered (Jason 07-31-2026) — list + add only.
       list: (projectId: number) => ipcRenderer.invoke("timetracker:listLedger", projectId),
       add: (projectId: number, amount: number, note: string | null) =>
         ipcRenderer.invoke("timetracker:addLedger", projectId, amount, note),
-      nukeEntry: (id: number) => ipcRenderer.invoke("timetracker:nukeLedgerEntry", id),
-      nukeAll: (projectId: number) => ipcRenderer.invoke("timetracker:nukeLedgerAll", projectId),
     },
     sounds: {
       list: () => ipcRenderer.invoke("timetracker:listSounds"),

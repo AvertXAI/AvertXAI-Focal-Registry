@@ -128,6 +128,9 @@ export function initDb(dbPath: string): void {
   seedModule("Migrate", "migrate", "tool", 3);
   seedModule("MindMerge", "mindmerge", "notes", 4);
   seedModule("Scout Viewer", "scout-viewer", "browser", 5);
+  // TimeTracker appends at 7, BELOW Vault (normalized to 6 below) — a straight append, so unlike
+  // Migrate's mid-list insert it needs no display_order shift on existing rows.
+  seedModule("TimeTracker", "timetracker", "tool", 7);
   // Row cleanup for gutted modules — idempotent, data-only (no schema change). Existing dev DBs
   // seeded these rows; without this they'd keep rendering in the nav after the module code is gone.
   db.exec("DELETE FROM modules WHERE slug IN ('getscriptclips', 'canon-distributor');");

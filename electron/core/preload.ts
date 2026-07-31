@@ -22,7 +22,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 // Main → renderer push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of
 // the page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
-const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "mindmerge:progress", "rename:progress", "migrate:progress"];
+const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "mindmerge:progress", "rename:progress", "migrate:progress", "timetracker:tick", "timetracker:changed"];
 const wrapped = new Map<(payload: never) => void, (e: Electron.IpcRendererEvent, payload: unknown) => void>();
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);
@@ -150,6 +150,104 @@ const api: Api = {
     deletePreset: (id: number) => ipcRenderer.invoke("rename:deletePreset", id),
     pickFolder: (title?: string) => ipcRenderer.invoke("rename:pickFolder", title),
     openFolder: (p: string) => ipcRenderer.invoke("rename:openFolder", p),
+  },
+  timetracker: {
+    projects: {
+      list: () => ipcRenderer.invoke("timetracker:listProjects"),
+      create: (input: unknown) => ipcRenderer.invoke("timetracker:createProject", input),
+      update: (input: unknown) => ipcRenderer.invoke("timetracker:updateProject", input),
+      setColor: (id: number, color: string) => ipcRenderer.invoke("timetracker:setProjectColor", id, color),
+      setGroup: (id: number, groupId: number | null) => ipcRenderer.invoke("timetracker:setProjectGroup", id, groupId),
+      setTimeMode: (id: number, mode: string) => ipcRenderer.invoke("timetracker:setProjectTimeMode", id, mode),
+      rename: (id: number, name: string) => ipcRenderer.invoke("timetracker:renameProject", id, name),
+      reorder: (id: number, beforeProjectId: number | null) => ipcRenderer.invoke("timetracker:reorderProject", id, beforeProjectId),
+      remove: (id: number) => ipcRenderer.invoke("timetracker:deleteProject", id),
+      archive: (id: number, reason: string) => ipcRenderer.invoke("timetracker:archiveProject", id, reason),
+      restore: (id: number) => ipcRenderer.invoke("timetracker:restoreProject", id),
+      listArchived: () => ipcRenderer.invoke("timetracker:listArchivedProjects"),
+      purge: (id: number, reason: string) => ipcRenderer.invoke("timetracker:purgeProject", id, reason),
+      detail: (id: number) => ipcRenderer.invoke("timetracker:projectDetail", id),
+      grandTotals: () => ipcRenderer.invoke("timetracker:grandTotals"),
+      groupTotals: () => ipcRenderer.invoke("timetracker:groupTotals"),
+    },
+    groups: {
+      list: () => ipcRenderer.invoke("timetracker:listGroups"),
+      create: (name: string, color: string) => ipcRenderer.invoke("timetracker:createGroup", name, color),
+      rename: (id: number, name: string) => ipcRenderer.invoke("timetracker:renameGroup", id, name),
+      remove: (id: number) => ipcRenderer.invoke("timetracker:deleteGroup", id),
+      reorder: (id: number, beforeGroupId: number | null) => ipcRenderer.invoke("timetracker:reorderGroup", id, beforeGroupId),
+    },
+    sidebar: {
+      getSort: () => ipcRenderer.invoke("timetracker:getSidebarSort"),
+      sort: (dir: "asc" | "desc") => ipcRenderer.invoke("timetracker:sortSidebar", dir),
+    },
+    costs: {
+      list: (projectId: number) => ipcRenderer.invoke("timetracker:listCosts", projectId),
+      add: (projectId: number, input: unknown) => ipcRenderer.invoke("timetracker:addCost", projectId, input),
+      update: (id: number, input: unknown) => ipcRenderer.invoke("timetracker:updateCost", id, input),
+      remove: (id: number) => ipcRenderer.invoke("timetracker:removeCost", id),
+      openUrl: (id: number) => ipcRenderer.invoke("timetracker:openCostUrl", id),
+    },
+    settings: {
+      get: () => ipcRenderer.invoke("timetracker:getSettings"),
+      save: (settings: unknown) => ipcRenderer.invoke("timetracker:saveSettings", settings),
+    },
+    adjustments: {
+      list: (projectId: number) => ipcRenderer.invoke("timetracker:listAdjustments", projectId),
+      listAll: () => ipcRenderer.invoke("timetracker:listAllAdjustments"),
+      create: (projectId: number, deltaMinutes: number, note: string) =>
+        ipcRenderer.invoke("timetracker:createAdjustment", projectId, deltaMinutes, note),
+      update: (uuid: string, deltaMinutes: number, note: string) =>
+        ipcRenderer.invoke("timetracker:updateAdjustment", uuid, deltaMinutes, note),
+      softDelete: (uuid: string) => ipcRenderer.invoke("timetracker:softDeleteAdjustment", uuid),
+    },
+    activity: {
+      list: (opts?: { limit?: number; projectId?: number }) => ipcRenderer.invoke("timetracker:listActivity", opts ?? {}),
+    },
+    reports: {
+      get: (range: string, granularity: string) => ipcRenderer.invoke("timetracker:getReport", range, granularity),
+    },
+    notes: {
+      get: (projectId: number) => ipcRenderer.invoke("timetracker:getNote", projectId),
+      save: (projectId: number, body: string) => ipcRenderer.invoke("timetracker:saveNote", projectId, body),
+    },
+    timer: {
+      start: (projectId: number, note?: string | null) => ipcRenderer.invoke("timetracker:startTimer", projectId, note ?? null),
+      pause: (sessionId: number) => ipcRenderer.invoke("timetracker:pauseTimer", sessionId),
+      resume: (sessionId: number) => ipcRenderer.invoke("timetracker:resumeTimer", sessionId),
+      stop: (sessionId: number, note: string | null) => ipcRenderer.invoke("timetracker:stopTimer", sessionId, note),
+      stopAll: () => ipcRenderer.invoke("timetracker:stopAllTimers"),
+      focus: (sessionId: number) => ipcRenderer.invoke("timetracker:focusTimer", sessionId),
+      status: () => ipcRenderer.invoke("timetracker:timerStatus"),
+      discardIdle: (sessionId: number, seconds: number) => ipcRenderer.invoke("timetracker:discardIdle", sessionId, seconds),
+    },
+    recovery: {
+      list: () => ipcRenderer.invoke("timetracker:listInterrupted"),
+      resume: (sessionId: number) => ipcRenderer.invoke("timetracker:recoverResume", sessionId),
+      keep: (sessionId: number) => ipcRenderer.invoke("timetracker:recoverKeep", sessionId),
+      discard: (sessionId: number) => ipcRenderer.invoke("timetracker:recoverDiscard", sessionId),
+    },
+    ledger: {
+      list: (projectId: number) => ipcRenderer.invoke("timetracker:listLedger", projectId),
+      add: (projectId: number, amount: number, note: string | null) =>
+        ipcRenderer.invoke("timetracker:addLedger", projectId, amount, note),
+      nukeEntry: (id: number) => ipcRenderer.invoke("timetracker:nukeLedgerEntry", id),
+      nukeAll: (projectId: number) => ipcRenderer.invoke("timetracker:nukeLedgerAll", projectId),
+    },
+    sounds: {
+      list: () => ipcRenderer.invoke("timetracker:listSounds"),
+      read: (id: string) => ipcRenderer.invoke("timetracker:readSound", id),
+      readSelected: () => ipcRenderer.invoke("timetracker:readSelectedSound"),
+      upload: () => ipcRenderer.invoke("timetracker:uploadSound"),
+      rename: (id: string, displayName: string) => ipcRenderer.invoke("timetracker:renameSound", id, displayName),
+      remove: (id: string) => ipcRenderer.invoke("timetracker:deleteSound", id),
+      getSelected: () => ipcRenderer.invoke("timetracker:getSelectedSound"),
+      select: (id: string) => ipcRenderer.invoke("timetracker:selectSound", id),
+    },
+    files: {
+      pickContract: () => ipcRenderer.invoke("timetracker:pickContract"),
+      openContract: (projectId: number) => ipcRenderer.invoke("timetracker:openContract", projectId),
+    },
   },
   updater: {
     check: () => ipcRenderer.invoke("updater:check"),

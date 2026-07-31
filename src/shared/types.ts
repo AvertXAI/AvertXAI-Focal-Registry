@@ -111,7 +111,14 @@ export interface ScoutDomCard {
 }
 
 /** Main → renderer push channels the preload bridge whitelists. */
-export type PushChannel = "scan:progress" | "scan:drives" | "mindmerge:progress" | "rename:progress" | "migrate:progress";
+export type PushChannel =
+  | "scan:progress"
+  | "scan:drives"
+  | "mindmerge:progress"
+  | "rename:progress"
+  | "migrate:progress"
+  | "timetracker:tick"
+  | "timetracker:changed";
 
 /** LOCAL-ONLY device identity — shown read-only in Settings; never transmitted, never in exports. */
 export interface DeviceIdentityInfo {
@@ -374,6 +381,303 @@ export interface UpdateCheckOutcome {
 }
 
 /** The IPC surface the preload bridge exposes to the renderer as window.api. */
+// ---- TimeTracker module (renderer-safe copies of the service shapes at
+// electron/core/services/timetracker/types.ts — the renderer imports from HERE, never services/) ----
+export type TimeTrackerRateType = "hourly" | "contract";
+export type TimeTrackerProjectStatus = "active" | "parked" | "done";
+export type TimeTrackerContractKind = "paid" | "donated";
+export type TimeTrackerTimeDisplayMode = "elapsed" | "remaining";
+export type TimeTrackerCostRecurrence = "once" | "monthly" | "yearly";
+export type TimeTrackerSessionState = "running" | "paused";
+export type TimeTrackerSidebarSortDir = "asc" | "desc" | "none";
+export type TimeTrackerReportRange = "all" | "7d" | "30d" | "90d";
+export type TimeTrackerReportGranularity = "day" | "week" | "month";
+export type TimeTrackerEventType = "started" | "paused" | "resumed" | "stopped" | "crashed" | "recovered" | "ignored";
+
+export interface TimeTrackerSettings {
+  breakEnabled: boolean;
+  breakIntervalMin: number;
+  breakLengthMin: number;
+  breakAutopause: boolean;
+  breakSoundEnabled: boolean;
+  idleThresholdMin: number;
+}
+
+export interface TimeTrackerGroup {
+  id: number;
+  uuid: string;
+  name: string;
+  color: string;
+  sort_order: number;
+  created_at: string;
+}
+
+/** Committed time per group (group_id null = Ungrouped) — live sessions excluded. */
+export interface TimeTrackerGroupTotalRow {
+  group_id: number | null;
+  total_seconds: number;
+}
+
+export interface TimeTrackerProject {
+  id: number;
+  uuid: string;
+  client_id: number;
+  name: string;
+  color: string;
+  status: TimeTrackerProjectStatus;
+  rate_type: TimeTrackerRateType;
+  hourly_rate: number | null;
+  priority_order: number;
+  created_at: string;
+  group_id: number | null;
+  contract_amount: number | null;
+  contract_description: string | null;
+  contract_file_path: string | null;
+  contract_kind: TimeTrackerContractKind | null;
+  target_hours: number | null;
+  time_display_mode: TimeTrackerTimeDisplayMode | null;
+  archived_at: string | null;
+  archive_reason: string | null;
+}
+
+/** Project row joined with client + group info and computed totals for list/detail views. */
+export interface TimeTrackerProjectListItem extends TimeTrackerProject {
+  client_name: string;
+  contact_phone: string | null;
+  email: string | null;
+  group_name: string | null;
+  group_color: string | null;
+  note_body: string | null;
+  total_seconds: number;
+  /** Hourly: hours x rate. Contract paid: contract_amount. Contract donated: 0 (shown as "Donated"). */
+  total_value: number;
+  total_costs: number;
+  last_worked: string | null;
+}
+
+export interface TimeTrackerCost {
+  id: number;
+  uuid: string;
+  project_id: number;
+  label: string;
+  category: string;
+  amount: number;
+  recurrence: TimeTrackerCostRecurrence;
+  url: string | null;
+  created_at: string;
+}
+
+export interface TimeTrackerCostInput {
+  label: string;
+  category: string;
+  amount: number;
+  recurrence: TimeTrackerCostRecurrence;
+  url: string;
+}
+
+export interface TimeTrackerTimeEntry {
+  id: number;
+  uuid: string;
+  project_id: number;
+  started_at: string;
+  ended_at: string;
+  duration_seconds: number;
+  note: string | null;
+  created_at: string;
+}
+
+export interface TimeTrackerLedgerEntry {
+  id: number;
+  uuid: string;
+  project_id: number;
+  amount: number;
+  previous_amount: number | null;
+  action: "set" | "update";
+  note: string | null;
+  created_at: string;
+}
+
+/** One append-only entry in an adjustment's audit_log. */
+export interface TimeTrackerAuditEntry {
+  action: "created" | "edited" | "deleted";
+  at: string;
+  delta_minutes?: number;
+  note?: string;
+  from?: { delta_minutes: number; note: string };
+  to?: { delta_minutes: number; note: string };
+}
+
+export interface TimeTrackerAdjustment {
+  /** The std uuid column IS the adjustment's public id. */
+  uuid: string;
+  project_id: number;
+  delta_minutes: number;
+  note: string;
+  created_at: string;
+  updated_at: string | null;
+  deleted_at: string | null;
+  audit_log: TimeTrackerAuditEntry[];
+}
+
+export interface TimeTrackerAdjustmentListItem extends TimeTrackerAdjustment {
+  project_name: string;
+  project_color: string;
+}
+
+export interface TimeTrackerProjectDetail {
+  project: TimeTrackerProjectListItem;
+  entries: TimeTrackerTimeEntry[];
+  ledger: TimeTrackerLedgerEntry[];
+  costs: TimeTrackerCost[];
+  adjustments: TimeTrackerAdjustment[];
+  note: string;
+}
+
+export interface TimeTrackerGrandTotals {
+  total_seconds: number;
+  total_value: number;
+  total_costs: number;
+  project_count: number;
+}
+
+export interface TimeTrackerReportTotals {
+  total_seconds: number;
+  total_value: number;
+  total_costs: number;
+  total_invested: number;
+  donated_seconds: number;
+  project_count: number;
+  group_count: number;
+}
+
+export interface TimeTrackerTimeSeriesPoint {
+  bucket: string;
+  hours: number;
+  value: number;
+  costs: number;
+}
+
+export interface TimeTrackerWastedMetric {
+  forProfitMinutes: number;
+  nonProfitMinutes: number;
+  allTrackedMinutes: number;
+  forProfitTrackedMinutes: number;
+  nonProfitTrackedMinutes: number;
+}
+
+/** Everything the Reports view needs in one read-only round-trip. */
+export interface TimeTrackerReportData {
+  totals: TimeTrackerReportTotals;
+  timeSeries: TimeTrackerTimeSeriesPoint[];
+  hoursByProject: Array<{ name: string; hours: number }>;
+  costsByCategory: Array<{ category: string; amount: number }>;
+  wasted: TimeTrackerWastedMetric;
+}
+
+/** One active session with joined project context. */
+export interface TimeTrackerActiveSessionInfo {
+  id: number;
+  projectId: number;
+  projectName: string;
+  clientName: string;
+  contactPhone: string | null;
+  hourlyRate: number | null;
+  rateType: TimeTrackerRateType;
+  state: TimeTrackerSessionState;
+  startedAt: string;
+  wallStartedAt: string;
+  accumulatedSeconds: number;
+  lastPausedAt: string | null;
+  lastResumedAt: string | null;
+  note: string | null;
+}
+
+export interface TimeTrackerMultiTimerStatus {
+  sessions: TimeTrackerActiveSessionInfo[];
+  focusedId: number | null;
+}
+
+/** timetracker:tick push — one batched payload per ticker beat; every surface is a dumb read. */
+export interface TimeTrackerTickSession {
+  id: number;
+  projectId: number;
+  name: string;
+  elapsedMs: number;
+  earned: number | null;
+  state: TimeTrackerSessionState;
+}
+
+export interface TimeTrackerTickPayload {
+  sessions: TimeTrackerTickSession[];
+  focusedId: number | null;
+}
+
+/** A session found at launch whose heartbeat went stale — the crash-recovery unit. */
+export interface TimeTrackerInterruptedSession {
+  id: number;
+  projectId: number;
+  projectName: string;
+  clientName: string;
+  startedAt: string;
+  elapsedSeconds: number;
+  lastHeartbeat: string;
+  state: TimeTrackerSessionState;
+}
+
+/** One append-only row in the activity log. project_id is a soft ref so the log survives purge. */
+export interface TimeTrackerEventLogRow {
+  id: number;
+  uuid: string;
+  ts: string;
+  event_type: TimeTrackerEventType;
+  project_id: number | null;
+  project_name: string;
+  detail: string | null;
+}
+
+export interface TimeTrackerAlertSound {
+  id: string;
+  displayName: string;
+  isBundled: boolean;
+}
+
+export interface TimeTrackerSoundData {
+  mime: string;
+  base64: string;
+}
+
+export interface TimeTrackerDeletionTombstone {
+  uuid: string;
+  project_name: string;
+  project_type: "hourly" | "contract-paid" | "contract-donated" | "contract-unpaid";
+  total_minutes: number;
+  purged_at: string;
+  purge_reason: string;
+}
+
+export interface TimeTrackerNewProjectInput {
+  name: string;
+  clientName: string;
+  contactPhone: string;
+  email: string;
+  rateType: TimeTrackerRateType;
+  hourlyRate: number | null;
+  color: string;
+  status: TimeTrackerProjectStatus;
+  groupId: number | null;
+  newGroupName: string | null;
+  newGroupColor: string | null;
+  contractAmount: number | null;
+  contractDescription: string;
+  contractSourcePath: string | null;
+  contractKind: TimeTrackerContractKind | null;
+  targetHours: number | null;
+}
+
+export interface TimeTrackerUpdateProjectInput extends TimeTrackerNewProjectInput {
+  id: number;
+}
+
 export interface Api {
   /** Read-only SQLite browser (Data Viewer module) — introspection only, never writes. */
   db: {
@@ -542,6 +846,105 @@ export interface Api {
     deletePreset: (id: number) => Promise<{ ok: boolean }>;
     pickFolder: (title?: string) => Promise<string | null>;
     openFolder: (p: string) => Promise<{ ok: boolean }>;
+  };
+  /** TimeTracker module — thin typed surface over timetracker:* IPC; services validate everything. */
+  timetracker: {
+    projects: {
+      list: () => Promise<TimeTrackerProjectListItem[]>;
+      create: (input: TimeTrackerNewProjectInput) => Promise<TimeTrackerProjectListItem>;
+      update: (input: TimeTrackerUpdateProjectInput) => Promise<TimeTrackerProjectListItem>;
+      setColor: (id: number, color: string) => Promise<void>;
+      setGroup: (id: number, groupId: number | null) => Promise<void>;
+      setTimeMode: (id: number, mode: TimeTrackerTimeDisplayMode) => Promise<void>;
+      rename: (id: number, name: string) => Promise<void>;
+      reorder: (id: number, beforeProjectId: number | null) => Promise<void>;
+      /** The ONE allowed destructive path — typed-confirmation UI; cascades the project's own rows. */
+      remove: (id: number) => Promise<void>;
+      archive: (id: number, reason: string) => Promise<void>;
+      restore: (id: number) => Promise<void>;
+      listArchived: () => Promise<TimeTrackerProjectListItem[]>;
+      purge: (id: number, reason: string) => Promise<TimeTrackerDeletionTombstone>;
+      detail: (id: number) => Promise<TimeTrackerProjectDetail>;
+      grandTotals: () => Promise<TimeTrackerGrandTotals>;
+      groupTotals: () => Promise<TimeTrackerGroupTotalRow[]>;
+    };
+    groups: {
+      list: () => Promise<TimeTrackerGroup[]>;
+      create: (name: string, color: string) => Promise<TimeTrackerGroup>;
+      rename: (id: number, name: string) => Promise<void>;
+      remove: (id: number) => Promise<void>;
+      reorder: (id: number, beforeGroupId: number | null) => Promise<void>;
+    };
+    sidebar: {
+      getSort: () => Promise<TimeTrackerSidebarSortDir>;
+      sort: (dir: "asc" | "desc") => Promise<void>;
+    };
+    costs: {
+      list: (projectId: number) => Promise<TimeTrackerCost[]>;
+      add: (projectId: number, input: TimeTrackerCostInput) => Promise<TimeTrackerCost>;
+      update: (id: number, input: TimeTrackerCostInput) => Promise<TimeTrackerCost>;
+      remove: (id: number) => Promise<void>;
+      openUrl: (id: number) => Promise<void>;
+    };
+    settings: {
+      get: () => Promise<TimeTrackerSettings>;
+      save: (settings: TimeTrackerSettings) => Promise<TimeTrackerSettings>;
+    };
+    adjustments: {
+      list: (projectId: number) => Promise<TimeTrackerAdjustmentListItem[]>;
+      listAll: () => Promise<TimeTrackerAdjustmentListItem[]>;
+      create: (projectId: number, deltaMinutes: number, note: string) => Promise<TimeTrackerAdjustmentListItem>;
+      update: (uuid: string, deltaMinutes: number, note: string) => Promise<TimeTrackerAdjustmentListItem>;
+      softDelete: (uuid: string) => Promise<void>;
+    };
+    activity: {
+      list: (opts?: { limit?: number; projectId?: number }) => Promise<TimeTrackerEventLogRow[]>;
+    };
+    reports: {
+      get: (range: TimeTrackerReportRange, granularity: TimeTrackerReportGranularity) => Promise<TimeTrackerReportData>;
+    };
+    notes: {
+      get: (projectId: number) => Promise<string>;
+      save: (projectId: number, body: string) => Promise<void>;
+    };
+    timer: {
+      /** Starts a session — or, if one is already running on the project, just focuses it. */
+      start: (projectId: number, note?: string | null) => Promise<TimeTrackerMultiTimerStatus>;
+      pause: (sessionId: number) => Promise<TimeTrackerMultiTimerStatus>;
+      resume: (sessionId: number) => Promise<TimeTrackerMultiTimerStatus>;
+      /** Commits exactly ONE time-entry row for that session. */
+      stop: (sessionId: number, note: string | null) => Promise<TimeTrackerMultiTimerStatus>;
+      stopAll: () => Promise<number>;
+      focus: (sessionId: number) => Promise<TimeTrackerMultiTimerStatus>;
+      status: () => Promise<TimeTrackerMultiTimerStatus>;
+      discardIdle: (sessionId: number, seconds: number) => Promise<TimeTrackerMultiTimerStatus>;
+    };
+    recovery: {
+      list: () => Promise<TimeTrackerInterruptedSession[]>;
+      resume: (sessionId: number) => Promise<TimeTrackerMultiTimerStatus>;
+      keep: (sessionId: number) => Promise<void>;
+      discard: (sessionId: number) => Promise<void>;
+    };
+    ledger: {
+      list: (projectId: number) => Promise<TimeTrackerLedgerEntry[]>;
+      add: (projectId: number, amount: number, note: string | null) => Promise<TimeTrackerLedgerEntry>;
+      nukeEntry: (id: number) => Promise<void>;
+      nukeAll: (projectId: number) => Promise<void>;
+    };
+    sounds: {
+      list: () => Promise<TimeTrackerAlertSound[]>;
+      read: (id: string) => Promise<TimeTrackerSoundData>;
+      readSelected: () => Promise<TimeTrackerSoundData | null>;
+      upload: () => Promise<TimeTrackerAlertSound | null>;
+      rename: (id: string, displayName: string) => Promise<void>;
+      remove: (id: string) => Promise<void>;
+      getSelected: () => Promise<string>;
+      select: (id: string) => Promise<void>;
+    };
+    files: {
+      pickContract: () => Promise<{ path: string; name: string } | null>;
+      openContract: (projectId: number) => Promise<void>;
+    };
   };
   /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the
    *  channel (progress tickers for scan / mindmerge / rename, live drive lists for scan). */

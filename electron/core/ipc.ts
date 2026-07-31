@@ -20,6 +20,7 @@ import * as modules from "./services/modules";
 import * as mindmergeApi from "./services/mindmerge/api";
 import * as migrateEngine from "./services/migrate/engine";
 import { ensureMigrateSchema } from "./services/migrate/db";
+import { registerTimeTrackerIpc } from "./services/timetracker/ipc";
 import { ASSET_CLASSES } from "./services/migrate/registry";
 import { readDeviceIdentity } from "./services/identity";
 import { ingestAll, startMindMerge, type IngestProgress, type MindMergeHandle } from "./services/mindmerge/engine";
@@ -208,6 +209,9 @@ export function registerIpcHandlers(): void {
   } catch {
     /* no active org yet */
   }
+  // TimeTracker module (timetracker:*) — registration + service start live in the module's own
+  // ipc file (crash-recovery capture MUST precede the ticker's first heartbeat; see that file).
+  registerTimeTrackerIpc();
   // Live drive detection — starts once, independent of any org (enumeration is org-agnostic). A new
   // drive now pushes scan:drives to the renderer immediately; no Ctrl+R.
   startDriveWatcher();

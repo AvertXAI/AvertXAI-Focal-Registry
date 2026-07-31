@@ -70,6 +70,7 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
     mod.run(generateUUIDv7(), orgId, "MindMerge", "mindmerge", "notes", 4, 0);
     mod.run(generateUUIDv7(), orgId, "Scout Viewer", "scout-viewer", "browser", 5, 0);
     mod.run(generateUUIDv7(), orgId, "Secure Vault", "vault", "secrets", 6, 1);
+    mod.run(generateUUIDv7(), orgId, "TimeTracker", "timetracker", "tool", 7, 0);
   })();
 
   addOrg(orgId, "focalregistry", name);

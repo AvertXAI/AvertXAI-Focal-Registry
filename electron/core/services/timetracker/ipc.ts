@@ -12,7 +12,7 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/timetracker/ipc.ts
 //------------------------------------------------------------
-import { dialog, ipcMain, shell } from "electron";
+import { app, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import { getDb } from "../db";
 import { getActiveOrg } from "../db/registry";
@@ -29,7 +29,7 @@ import * as eventLog from "./eventLog";
 import * as reports from "./reports";
 import * as sounds from "./sounds";
 import * as settings from "./settings";
-import { setTimeTrackerStorageRoot } from "./paths";
+import { setBundledSoundsDir, setTimeTrackerStorageRoot } from "./paths";
 import {
   REPORT_GRANULARITIES,
   REPORT_RANGES,
@@ -79,6 +79,9 @@ function ttCtx(): { db: Db; orgId: string } {
     } catch (e) {
       console.error("[timetracker] storage root unresolved — contract/sound file features disabled:", e);
     }
+    // Bundled alert sounds ship inside the package (build.files "assets/sounds/**") — asar-safe:
+    // app.getAppPath() resolves into the asar and Electron's patched fs lists/reads inside it.
+    setBundledSoundsDir(path.join(app.getAppPath(), "assets", "sounds"));
     timer.captureInterrupted(db); // BEFORE the first heartbeat — see block comment above
     startTicker(db);
   }

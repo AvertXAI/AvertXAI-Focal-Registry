@@ -11,6 +11,7 @@ import AppFooter from "./components/AppFooter";
 import ScanModule from "./modules/scan/ScanModule";
 import RenameModule from "./modules/rename/RenameModule";
 import MigrateModule from "./modules/migrate/MigrateModule";
+import TimeTrackerModule from "./modules/timetracker/TimeTrackerModule";
 import type { ModuleRow } from "./shared/types";
 import Home from "./views/Home";
 import Settings, { warmToggleCache } from "./views/Settings";
@@ -94,6 +95,7 @@ const MODULE_COMPONENTS: Record<string, ComponentType> = {
   scan: ScanModule,
   rename: RenameModule,
   migrate: MigrateModule,
+  timetracker: TimeTrackerModule,
   vault: VaultModule,
   "mindmerge": MindMergeMount,
   "scout-viewer": ScoutViewerModule,

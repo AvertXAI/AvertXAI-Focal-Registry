@@ -25,6 +25,27 @@ export const TIPS: TipDef[] = [
     body:
       "Assets found inside a Program Files Adobe install are left unticked because the new machine already has them.",
   },
+  {
+    id: "TIP-TT-001",
+    module: "timetracker",
+    title: "Timers keep running in the background",
+    body:
+      "A running timer lives in the app itself, not this screen — navigate to any other module, or minimize the window, and the clock keeps counting until you stop it.",
+  },
+  {
+    id: "TIP-TT-002",
+    module: "timetracker",
+    title: "Adjustments never touch your sessions",
+    body:
+      "An adjustment is its own auditable record — the tracked sessions underneath are never modified. Deleting one is a soft delete: it stops counting, but the row and its full history stay visible, struck through.",
+  },
+  {
+    id: "TIP-TT-003",
+    module: "timetracker",
+    title: "The value ledger never forgets",
+    body:
+      "Setting a new amount appends a row that carries the previous value with it — nothing is edited, nothing is deleted. That running history is the point: you can watch what a project was worth grow over time.",
+  },
 ];
 
 export const tipById = (id: string): TipDef | undefined => TIPS.find((t) => t.id === id);

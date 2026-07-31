@@ -146,6 +146,8 @@ function moduleIcon(slug: string) {
       return <RenameIcon />;
     case "migrate":
       return <MigrateIcon />;
+    case "timetracker":
+      return <ClockIcon />;
     case "scout-viewer":
       return <SearchIcon />;
     case "vault":
@@ -182,6 +184,16 @@ function MigrateIcon() {
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
       <path d="M2.5 6.5v6.3a.7.7 0 0 0 .7.7h6.3M2.5 6.5h7M2.5 6.5 4 3.6a.7.7 0 0 1 .6-.4h4.8" />
       <path d="M10.5 10.5 14 7m0 0h-3m3 0v3" />
+    </svg>
+  );
+}
+
+// timetracker — clock outline (hands at ten past ten)
+function ClockIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M8 4.6V8l2.4 1.6" />
     </svg>
   );
 }

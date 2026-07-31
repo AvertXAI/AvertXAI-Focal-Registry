@@ -4,6 +4,7 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import path from "node:path";
 import { getDb, initDb, openDb } from "./core/services/db";
+import { ensureTimeTrackerSchema } from "./core/services/timetracker/db";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
 import { getSetting, setSetting } from "./core/services/settings";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/crypto";
@@ -211,6 +212,10 @@ app.whenReady().then(async () => {
   if (org) {
     const userData = app.getPath("userData");
     initDb(path.join(userData, `${org.app_slug}_${org.org_id}.db`));
+    // TimeTracker schema at BOOT (not lazily on first IPC like Scan/Migrate): the timer engine's
+    // crash-recovery capture must run before any heartbeat write, and running timers outlive module
+    // navigation — so the tables must exist from second zero. Idempotent, guard-only, rerunnable.
+    ensureTimeTrackerSchema(getDb());
     // Vault lockdown: safeStorage-wrapped secret → Argon2id → SQLCipher key.
     const vaultKey = await deriveVaultKey(getOrCreateVaultSecret(org.org_id));
     openDb(path.join(userData, `vault_${org.org_id}.locked.db`), "vault", vaultKey);

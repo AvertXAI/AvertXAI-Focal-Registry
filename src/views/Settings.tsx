@@ -18,6 +18,11 @@ interface Props {
 // repeat visit the toggles initialize from here, so they render in the CORRECT position on the very
 // first paint (no async default→loaded jump, which was what "moved" when switching to Settings).
 const toggleCache: { skipBoot?: boolean; trayOn?: boolean; launchStartup?: boolean; tipsOn?: boolean } = {};
+// "This device" is IMMUTABLE for the session — cache it at module scope so re-entering Settings
+// paints it on the first frame instead of flashing empty while identity.get() round-trips (the same
+// class of bug as the toggle warm-cache). A renderer reload (Ctrl+R) wipes this; the first mount
+// after that re-fetches once.
+let deviceCache: DeviceIdentityInfo | null = null;
 
 // Warm the toggle cache from app_settings. Called at APP BOOT (App.tsx) — not just on Settings
 // mount — because a renderer reload (Ctrl+R) wipes this module-level cache, and warming it only on
@@ -44,7 +49,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const [trayOn, setTrayOn] = useState(() => toggleCache.trayOn ?? true); // tray-on-close — default ON (§3.11)
   const [launchStartup, setLaunchStartup] = useState(() => toggleCache.launchStartup ?? false); // open at Windows login — default OFF
   const [tipsOn, setTipsOn] = useState(() => toggleCache.tipsOn ?? true); // helpful tips — ONE global switch, default ON
-  const [device, setDevice] = useState<DeviceIdentityInfo | null>(null); // "This device" — read-only, local-only
+  const [device, setDevice] = useState<DeviceIdentityInfo | null>(() => deviceCache); // "This device" — read-only, cached (immutable for the session)
   const [animReady, setAnimReady] = useState(() => toggleCache.skipBoot !== undefined); // cache warm → correct from first paint, no gate
   const [activeSection, setActiveSection] = useState("General");
   const [appVersion, setAppVersion] = useState("");
@@ -69,7 +74,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
       requestAnimationFrame(() => setAnimReady(true));
     });
     void window.api.updater.version().then(setAppVersion).catch(() => {}); // never hardcoded
-    void window.api.identity.get().then(setDevice).catch(() => {}); // read-only; local-only display
+    if (!deviceCache) void window.api.identity.get().then((d) => { deviceCache = d; setDevice(d); }).catch(() => {}); // read-only; local-only; fetched once per session
   }, []);
 
   const loadCleared = () => void window.api.scan.clearedHistoryCount().then(setClearedCount).catch(() => {});
@@ -204,17 +209,6 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
               <>
                 <h2>General</h2>
                 <div className="field">
-                  <label htmlFor="orgname">Workspace name</label>
-                  <div className="fieldrow">
-                    <input className="input" id="orgname" defaultValue="Focal Registry" />
-                    <button className="btn nb">Rename</button>
-                  </div>
-                  <p className="hint">
-                    White-label: rename to a client&apos;s brand (e.g. &quot;Acme ABC&quot;). Every module label follows
-                    this.
-                  </p>
-                </div>
-                <div className="field" style={{ marginTop: 26 }}>
                   <div className="setrow">
                     <label htmlFor="skipboot">Skip Fast Boot</label>
                     <button

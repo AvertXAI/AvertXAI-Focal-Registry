@@ -323,11 +323,14 @@ export interface ScanErrorRow {
   extension: string | null;
   stage: string | null;
   error_text: string | null;
+  code: string | null; // errno token (EACCES, EIO, …) when the source was an fs call; null for parse errors
   occurred_at: string | null;
 }
-/** Logged-Issues payload — the true total plus a bounded page of rows (the modal never renders more). */
+/** Logged-Issues payload — the true total plus a bounded page of rows (the modal never renders more).
+    diskReadCount is the whole-run count of EIO/ENXIO/ENODEV — the failing-drive alarm, uncapped. */
 export interface ScanErrorList {
   total: number;
+  diskReadCount: number;
   rows: ScanErrorRow[];
 }
 /** The two storage locations shown in Settings — the app-managed Markdown tree and the Documents exports. */

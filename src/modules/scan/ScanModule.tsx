@@ -12,7 +12,8 @@
 // File: src/modules/scan/ScanModule.tsx
 //------------------------------------------------------------
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { ScanCameraCount, ScanErrorList, ScanFolderSummary, ScanProgress, ScanRunRow, ScannedDrive, ScanVolume } from "../../shared/types";
+import type { ScanCameraCount, ScanErrorList, ScanErrorRow, ScanFolderSummary, ScanProgress, ScanRunRow, ScannedDrive, ScanVolume } from "../../shared/types";
+import { explainScanError, CATEGORY_META, type ScanErrorCategory } from "../../shared/scanErrors";
 import { formatRange, formatStamp } from "../../shared/datetime";
 import { PRINT_STYLESHEET, renderReportPrintHtml } from "./reportPrint";
 import { bumpRender } from "../../diag";
@@ -514,7 +515,7 @@ export default function ScanModule() {
                     <div className="scan-card2"><div className="scan-mlabel">Folders found</div><div className="scan-stat">{progress!.foldersCommitted.toLocaleString()}</div></div>
                     <div className="scan-card2"><div className="scan-mlabel">Media files found</div><div className="scan-stat">{(progress!.estimatedFiles ?? 0).toLocaleString()}</div></div>
                   </div>
-                  <div className="scan-mono scan-sub" style={{ marginTop: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{progress!.currentFolder ?? ""}</div>
+                  <div className="scan-mono scan-sub" style={{ marginTop: 12, overflowWrap: "anywhere", wordBreak: "break-word" }}>{progress!.currentFolder ?? ""}</div>
                   <div className="scan-row" style={{ marginTop: 14 }}><button className="scan-btn ghost" onClick={abortRun}>Cancel</button></div>
                 </div>
               )}
@@ -586,7 +587,22 @@ export default function ScanModule() {
         </div>
       )}
 
-      {errorsModal && (
+      {errorsModal && (() => {
+        // Group the shown page by classified category. disk-read floats to the top (the only alarming
+        // one); the rest sort by count. Grouping the bounded page is honest for the common case —
+        // ponytail: past the 200-row cap the "showing first N" line already flags truncation, and the
+        // failing-drive total (diskReadCount) is counted over the WHOLE run in SQL, so it never lies.
+        const groups = new Map<ScanErrorCategory, Array<{ r: ScanErrorRow; exp: ReturnType<typeof explainScanError> }>>();
+        for (const r of errorsModal.rows) {
+          const exp = explainScanError(r.stage, r.code, r.error_text);
+          const g = groups.get(exp.category);
+          if (g) g.push({ r, exp }); else groups.set(exp.category, [{ r, exp }]);
+        }
+        const ordered = [...groups.entries()].sort(
+          (a, b) => (b[0] === "disk-read" ? 1 : 0) - (a[0] === "disk-read" ? 1 : 0) || b[1].length - a[1].length
+        );
+        const summary = ordered.map(([cat, rs]) => `${rs.length} × ${CATEGORY_META[cat].label}`).join("  ·  ");
+        return (
         <div className="scan-modal-back" onClick={() => setErrorsModal(null)}>
           <div className="scan-modal" onClick={(e) => e.stopPropagation()}>
             <div className="scan-modal-head">
@@ -595,13 +611,28 @@ export default function ScanModule() {
             </div>
             <div className="scan-modal-body">
               {errorsModal.total === 0 && <div className="scan-sub">No issues logged for this run.</div>}
-              {errorsModal.rows.map((r, i) => (
-                <div key={i} className="scan-err-row">
-                  <span className="stage">{r.stage ?? "—"}</span>
-                  <span>
-                    <span className="epath">{r.path ?? "(no path)"}</span>
-                    <span className="etext" style={{ display: "block" }}>{r.error_text ?? ""}</span>
-                  </span>
+              {errorsModal.diskReadCount > 0 && (
+                <div className="scan-err-alarm">
+                  ⚠ {errorsModal.diskReadCount.toLocaleString()} {errorsModal.diskReadCount === 1 ? "file" : "files"} could not be read from disk — this often indicates physical damage to the drive. Back up anything important now and check the drive's health.
+                </div>
+              )}
+              {summary !== "" && <div className="scan-err-summary">{summary}</div>}
+              {ordered.map(([cat, rs]) => (
+                <div key={cat} className="scan-err-group">
+                  <div className={`scan-err-cat${CATEGORY_META[cat].diskFailure ? " danger" : ""}`}>
+                    {CATEGORY_META[cat].label} <span className="n">· {rs.length}</span>
+                  </div>
+                  {rs.map(({ r, exp }, i) => (
+                    <div key={i} className="scan-err-row">
+                      <span className="stage">{r.stage ?? "—"}</span>
+                      <span>
+                        <span className="eplain">{exp.plain}</span>
+                        <span className="epath">{r.path ?? "(no path)"}</span>
+                        <span className="ehint">{exp.hint}</span>
+                        <span className="etext">{r.error_text ?? ""}{r.code ? `  (${r.code})` : ""}</span>
+                      </span>
+                    </div>
+                  ))}
                 </div>
               ))}
               {errorsModal.total > errorsModal.rows.length && (
@@ -612,7 +643,8 @@ export default function ScanModule() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </main>
   );
 }
@@ -668,7 +700,7 @@ function RunningConsole({ progress, pct, elapsed, eta, log, onAbort, onPause, on
               {/* Always-animating heartbeat — a frozen % (big folder mid-extraction) never reads as hung. */}
               <span className={`scan-live${paused ? " paused" : ""}`}><span className="pip" />{paused ? "paused" : "working"}</span>
             </div>
-            <div className="scan-mono" style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{progress.currentFolder ?? "…"}</div>
+            <div className="scan-mono" style={{ fontSize: 13, overflowWrap: "anywhere", wordBreak: "break-word" }}>{progress.currentFolder ?? "…"}</div>
           </div>
           <div style={{ marginLeft: "auto", textAlign: "right" }}>
             <div className="scan-stat scan-mono" style={{ fontSize: 20 }}>{pct != null ? `${pct}%` : "—"}</div>
@@ -693,7 +725,7 @@ function RunningConsole({ progress, pct, elapsed, eta, log, onAbort, onPause, on
               <div key={i}><span className="ts">{l.at}</span> <span className="warn">warn</span> <span className="w">{l.count} file{l.count === 1 ? "" : "s"} unreadable</span> <span className="t">— logged, continuing</span></div>
             );
             if (l.kind === "check") return (
-              <div key={i}><span className="ts">{l.at}</span> <span className="b">checkpoint</span> <span className="t">— {l.folders.toLocaleString()} folders committed</span></div>
+              <div key={i}><span className="ts">{l.at}</span> <span className="b">saved</span> <span className="t">— {l.folders.toLocaleString()} folders scanned, metadata saved to database</span></div>
             );
             return (
               <div key={i}><span className="ts">{l.at}</span> <span className="w">{l.path}</span> <span className="t">→</span> <span className="ok">{l.files.toLocaleString()} files{l.bytes > 0 ? ` · ${fmtGB(l.bytes)}` : ""} · ok</span></div>

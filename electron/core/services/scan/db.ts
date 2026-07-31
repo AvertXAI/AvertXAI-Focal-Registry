@@ -150,8 +150,15 @@ export function ensureScanSchema(db: Db): void {
     "extension TEXT",
     "stage TEXT", // 'stat' | 'exif' | 'media' | 'write' ('ffprobe' only in rows written before the 2026-07-19 GPLv3 rejection)
     "error_text TEXT",
+    "code TEXT", // Node/libuv errno token (EACCES, ENOENT, EIO, …) when the source is an fs call; NULL for library-parse errors. Drives classification.
     "occurred_at DATETIME",
   ]);
+  // Phase 1 error-clarity guard — added AFTER the createTable above so it never ALTERs a table that
+  // does not yet exist on a fresh DB. Existing databases keep their rows; the new column starts NULL.
+  {
+    const errCols = (db.pragma("table_info(scan_errors)") as { name: string }[]).map((c) => c.name);
+    if (!errCols.includes("code")) db.exec("ALTER TABLE scan_errors ADD COLUMN code TEXT;");
+  }
 
   purgeExpiredHistory(db);
 }

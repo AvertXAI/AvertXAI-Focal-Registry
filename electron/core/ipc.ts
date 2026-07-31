@@ -445,7 +445,14 @@ export function registerIpcHandlers(): void {
     const { db, orgId } = scanCtx();
     const serial = scan.driveSerial(db, scan.getRun(db, runId).drive_id);
     scan
-      .startRun(db, orgId, runId, { resume, onProgress: sendScanProgress })
+      .startRun(db, orgId, runId, {
+        resume,
+        onProgress: sendScanProgress,
+        // Time-based checkpoint: rewrite a clearly-marked PARTIAL report so an interrupted scan still
+        // leaves a readable summary. Best-effort — writeScanReport never throws, and the engine also
+        // guards the call, so a report failure can never disturb the running scan.
+        onCheckpoint: (rid) => { scanReport.writeScanReport(db, rid, { partial: true }); },
+      })
       .then((finished) => {
         // On a clean completion write the report NOW — in the main process, so a run that finished
         // while the user was on another module still gets its report. A write failure is surfaced

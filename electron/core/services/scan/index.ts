@@ -31,6 +31,12 @@ export const RAW_COMMIT_BATCH = 100;
 /** Progress emitted at most this often during long walks (counting + scanning). */
 const PROGRESS_EMIT_INTERVAL_MS = 400;
 
+/** Partial report rewritten at most this often during a run (time-based, NOT per-folder). 60s bounds
+    an interrupted scan's report-staleness to ~1 minute while the aggregate-and-stream cost stays
+    negligible against a multi-hour scan — even a 6-hour run rewrites the same file only ~360 times,
+    and the underlying per-folder DB commit still loses nothing. */
+const PARTIAL_REPORT_INTERVAL_MS = 60_000;
+
 // ---- skip rules — defaults per spec; configurable per run; every skip is LOGGED, never silent ----
 export interface SkipRules {
   dirNames: string[]; // exact folder names, case-insensitive
@@ -155,11 +161,11 @@ export function markInterruptedRuns(db: Db): number {
 
 // Append-only event log; failures and skips both land here (skips prefixed 'skipped:'), and the
 // run's errors_logged counter tracks the row count.
-function logEvent(db: Db, orgId: string, runId: number, p: string | null, stage: string, text: string): void {
+function logEvent(db: Db, orgId: string, runId: number, p: string | null, stage: string, text: string, code: string | null = null): void {
   db.prepare(
-    `INSERT INTO scan_errors (uuid, org_id, run_id, path, extension, stage, error_text, occurred_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-  ).run(generateUUIDv7(), orgId, runId, p, p ? path.extname(p).replace(/^\./, "") : null, stage, text);
+    `INSERT INTO scan_errors (uuid, org_id, run_id, path, extension, stage, error_text, code, occurred_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+  ).run(generateUUIDv7(), orgId, runId, p, p ? path.extname(p).replace(/^\./, "") : null, stage, text, code);
   db.prepare("UPDATE scan_runs SET errors_logged = errors_logged + 1 WHERE id = ?").run(runId);
 }
 
@@ -289,7 +295,14 @@ interface FileRow {
   displayHeight: number | null;
   rotation: number | null;
   bitrateSource: string | null; // 'btrt' | 'esds' | 'computed' — provenance, never conflated
-  errors: Array<{ stage: string; text: string }>; // become scan_errors rows in the same tx
+  errors: Array<{ stage: string; text: string; code?: string | null }>; // become scan_errors rows in the same tx
+}
+
+// errno token (EACCES, EIO, …) off a Node fs error, when present — drives error classification.
+// Library-parse errors carry no code; this returns null for them, and null is stored honestly.
+function errCode(e: unknown): string | null {
+  const c = (e as NodeJS.ErrnoException | undefined)?.code;
+  return typeof c === "string" && c !== "" ? c : null;
 }
 
 // EXIF fields read — header tags only; exifr does chunked header reads and NEVER decodes pixels.
@@ -323,7 +336,14 @@ async function extractMediaMetadata(files: FileRow[]): Promise<void> {
       // failure signal: record it honestly as an error row, never as a silently-blank media row.
       // No `continue`: the isobmff second engine below still gets its chance at the file.
       if (fmt.container === undefined && fmt.codec === undefined && tracks.length === 0 && !(typeof fmt.duration === "number" && fmt.duration > 0)) {
-        f.errors.push({ stage: "media", text: "unrecognized or unreadable media container (no metadata extracted)" });
+        // Distinguish an EMPTY file (0 bytes — nothing to read) from a genuinely unrecognized/corrupt
+        // container, so the logged issue tells the user which it is instead of a vague catch-all.
+        f.errors.push({
+          stage: "media",
+          text: f.sizeBytes === 0
+            ? "file is empty (0 bytes) — no media data to read"
+            : "unrecognized or unreadable media container (file may be corrupt or not real media)",
+        });
       } else {
       // ISO-BMFF quirk (probed 2026-07-19): music-metadata types EVERY MP4/MOV track as audio and
       // wraps raw stsd fourccs in angle brackets — classify video tracks by fourcc, not by t.video
@@ -499,7 +519,7 @@ export async function startRun(
   db: Db,
   orgId: string,
   runId: number,
-  opts: { resume?: boolean; onProgress?: (p: ScanProgress) => void; rules?: SkipRules; rawMode?: boolean } = {}
+  opts: { resume?: boolean; onProgress?: (p: ScanProgress) => void; rules?: SkipRules; rawMode?: boolean; onCheckpoint?: (runId: number) => void } = {}
 ): Promise<ScanRunRow> {
   if (active?.running) throw new Error("a scan is already running — one at a time");
   const rules = opts.rules ?? DEFAULT_SKIP_RULES;
@@ -536,6 +556,14 @@ export async function startRun(
     lastEmit = now;
     emit();
   };
+  let lastCheckpointAt = Date.now(); // partial-report clock; first partial fires one interval in
+  const maybeCheckpoint = (): void => {
+    if (!opts.onCheckpoint) return;
+    const now = Date.now();
+    if (now - lastCheckpointAt < PARTIAL_REPORT_INTERVAL_MS) return;
+    lastCheckpointAt = now;
+    try { opts.onCheckpoint(runId); } catch { /* a partial-report write NEVER disturbs the scan */ }
+  };
   emit(); // immediate 'running' so the UI switches to the console the instant Start is pressed
   lastEmit = Date.now();
 
@@ -558,8 +586,8 @@ export async function startRun(
      errors_logged = errors_logged + ?, resume_cursor = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
   );
   const insError = db.prepare(
-    `INSERT INTO scan_errors (uuid, org_id, run_id, path, extension, stage, error_text, occurred_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+    `INSERT INTO scan_errors (uuid, org_id, run_id, path, extension, stage, error_text, code, occurred_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
   );
 
   interface Committable { dir: string; depth: number; parent: string | null; files: FileRow[]; totalFilesSeen: number }
@@ -602,7 +630,7 @@ export async function startRun(
           f.displayWidth, f.displayHeight, f.rotation, f.bitrateSource
         );
         for (const err of f.errors) {
-          insError.run(generateUUIDv7(), orgId, runId, f.path, f.extension, err.stage, err.text);
+          insError.run(generateUUIDv7(), orgId, runId, f.path, f.extension, err.stage, err.text, err.code ?? null);
           errorTotal += 1;
         }
       }
@@ -662,7 +690,7 @@ export async function startRun(
         }
         // One unreadable folder is a genuine failure (permission denied) — error row, then move on.
         // Distinct from a deliberate skip, which is never logged.
-        logEvent(db, orgId, runId, node.dir, "stat", e instanceof Error ? e.message : String(e));
+        logEvent(db, orgId, runId, node.dir, "stat", e instanceof Error ? e.message : String(e), errCode(e));
         continue;
       }
 
@@ -709,7 +737,7 @@ export async function startRun(
             // A MEDIA file we could not even stat is a genuine failure — error row, kind unreadable.
             fileRows.push({
               path: full, filename: name, extension: ext, sizeBytes: null, kind: "unreadable",
-              mtimeIso: null, errors: [{ stage: "stat", text: e instanceof Error ? e.message : String(e) }], ...blank,
+              mtimeIso: null, errors: [{ stage: "stat", text: e instanceof Error ? e.message : String(e), code: errCode(e) }], ...blank,
             });
           }
         }
@@ -721,6 +749,7 @@ export async function startRun(
         // Commit per folder (default) or every RAW_COMMIT_BATCH folders (RAW_MODE diagnostic).
         if (!raw || pending.length >= RAW_COMMIT_BATCH) { flushPending(); rawLog(); }
         maybeEmit();
+        maybeCheckpoint(); // time-based partial report of everything committed so far
       }
 
       for (let i = subdirs.length - 1; i >= 0; i--) {
@@ -845,19 +874,26 @@ export interface ScanErrorRow {
   extension: string | null;
   stage: string | null;
   error_text: string | null;
+  code: string | null;
   occurred_at: string | null;
 }
-export interface ScanErrorList { total: number; rows: ScanErrorRow[] }
+// diskReadCount = errors whose errno proves a physical read failure (EIO/ENXIO/ENODEV), counted
+// across the WHOLE run (not just the bounded page) so the failing-drive alarm is never truncated.
+export interface ScanErrorList { total: number; diskReadCount: number; rows: ScanErrorRow[] }
 /** scan_errors for the Logged-Issues modal. Returns the TRUE total plus a BOUNDED page of rows —
     an old run can hold tens of thousands of error rows (a pre-media-only scan had 20,173), and
     rendering all of them froze then crashed the renderer. The cap keeps the modal responsive; the
     honest total is shown so the number is never misleading. */
 export function listErrors(db: Db, runId: number, limit = 200): ScanErrorList {
   const total = (db.prepare("SELECT COUNT(*) AS n FROM scan_errors WHERE run_id = ?").get(runId) as { n: number }).n;
+  // Disk-read total over the whole run — keyed on the structured code, so it survives the row cap.
+  const diskReadCount = (db
+    .prepare("SELECT COUNT(*) AS n FROM scan_errors WHERE run_id = ? AND code IN ('EIO','ENXIO','ENODEV')")
+    .get(runId) as { n: number }).n;
   const rows = db
-    .prepare("SELECT path, extension, stage, error_text, occurred_at FROM scan_errors WHERE run_id = ? ORDER BY id DESC LIMIT ?")
+    .prepare("SELECT path, extension, stage, error_text, code, occurred_at FROM scan_errors WHERE run_id = ? ORDER BY id DESC LIMIT ?")
     .all(runId, limit) as ScanErrorRow[];
-  return { total, rows };
+  return { total, diskReadCount, rows };
 }
 
 export interface ScanFolderSummary {

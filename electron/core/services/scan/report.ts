@@ -37,10 +37,11 @@ function streamReportTo(
   targetPath: string,
   header: string,
   topFolders: Array<{ id: number; path: string; media_files: number; total_files: number; image_count: number; video_count: number; audio_count: number; unreadable_count: number; total_bytes: number; date_min: string | null; date_max: string | null; top_camera: string | null }>,
-  formatsByFolder: Map<number, Array<{ key: string; n: number }>>
+  formatsByFolder: Map<number, Array<{ key: string; n: number }>>,
+  overwrite = false // partial reports overwrite the same file each checkpoint; finals never overwrite
 ): { ok: boolean; path?: string; error?: string } {
   try {
-    const fd = fs.openSync(targetPath, "wx");
+    const fd = fs.openSync(targetPath, overwrite ? "w" : "wx");
     try {
       fs.writeSync(fd, header);
       for (const f of topFolders) {
@@ -66,6 +67,31 @@ function streamReportTo(
 function sanitizeLabel(label: string | null, fallback: string): string {
   const cleaned = (label ?? "").replace(/[^A-Za-z0-9 _-]/g, "").trim().replace(/\s+/g, "-");
   return cleaned !== "" ? cleaned : fallback;
+}
+
+// Deterministic partial-report basename — carries the run id so it NEVER collides with a final
+// report or another run's report, and is overwritten in place each checkpoint. Same helper drives
+// the completion-time cleanup that deletes the partials once the final report exists.
+function partialBaseName(label: string, dateStamp: string, runId: number): string {
+  return `SCAN-${label}-${dateStamp}-PARTIAL-run${runId}`;
+}
+
+// Delete this run's partial reports (drive + local) once the final report exists. Matches by the
+// `-PARTIAL-run{id}` suffix rather than an exact name, so a scan that crossed midnight (different
+// date stamp on the partial vs the final) can never orphan its partial. Best-effort: a failure here
+// never fails the completed run. Only ever deletes THIS run's partial — never another run's report.
+function deletePartialReports(run: ScanRunRow, runId: number, reportRootOverride?: string): void {
+  const suffix = `-PARTIAL-run${runId}.md`;
+  const dirs: string[] = [];
+  try { dirs.push(path.join(reportRootOverride ?? path.parse(path.resolve(run.root_path)).root, REPORTS_FOLDER_NAME)); } catch { /* unresolved root */ }
+  try { dirs.push(storage.scanMarkdownDir(storage.resolveMarkdownRoot())); } catch { /* no local tree */ }
+  for (const dir of dirs) {
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        if (name.endsWith(suffix)) { try { fs.unlinkSync(path.join(dir, name)); } catch { /* already gone */ } }
+      }
+    } catch { /* dir missing */ }
+  }
 }
 
 /** First free name in dir: base.md, base-02.md, base-03.md … Never returns an existing path. */
@@ -105,6 +131,27 @@ function fmtDate(value: string | null): string {
   return formatStamp(value, "dateOnly") || "—";
 }
 
+// Elapsed wall-clock between two DB timestamps, spelled out ("3 minutes 41 seconds"). Both stamps are
+// CURRENT_TIMESTAMP (UTC "YYYY-MM-DD HH:MM:SS"); parsed identically so the DIFFERENCE is tz-independent.
+// Returns null when either bound is absent (pre-timing runs) OR the delta is nonsensical — the caller
+// then shows nothing rather than a wrong value.
+function fmtElapsed(startedAt: string | null | undefined, finishedAt: string | null | undefined): string | null {
+  if (!startedAt || !finishedAt) return null;
+  // DB stamps are "YYYY-MM-DD HH:MM:SS" (UTC); a partial run passes a live ISO string. Normalize both.
+  const toEpoch = (s: string): number => Date.parse(s.includes("T") ? s : s.replace(" ", "T") + "Z");
+  const t0 = toEpoch(startedAt);
+  const t1 = toEpoch(finishedAt);
+  if (Number.isNaN(t0) || Number.isNaN(t1) || t1 < t0) return null;
+  let s = Math.round((t1 - t0) / 1000);
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60); s -= m * 60;
+  const parts: string[] = [];
+  if (h > 0) parts.push(`${h} ${h === 1 ? "hour" : "hours"}`);
+  if (m > 0) parts.push(`${m} ${m === 1 ? "minute" : "minutes"}`);
+  if (s > 0 || parts.length === 0) parts.push(`${s} ${s === 1 ? "second" : "seconds"}`);
+  return parts.join(" ");
+}
+
 function fmtBytes(n: number): string {
   if (n >= 1024 ** 4) return `${(n / 1024 ** 4).toFixed(2)} TB`;
   if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(2)} GB`;
@@ -112,12 +159,20 @@ function fmtBytes(n: number): string {
   return `${n} B`;
 }
 
+export interface WriteReportOptions {
+  reportRootOverride?: string; // test injection — proves the writer never touches a real drive root
+  partial?: boolean; // checkpoint write DURING a run: deterministic overwritable name, clearly marked
+}
+
 /**
- * Write the run's report to the scanned drive (or, for tests, to reportRootOverride — an injection
- * point for the harness so proving the writer never touches a real drive root; production callers
- * omit it and the report lands beside the archive it describes).
+ * Write the run's report to the scanned drive AND the local Markdown tree.
+ * `partial` mode (checkpoint during a running scan) writes a clearly-marked, overwrite-in-place
+ * report so an interrupted scan still leaves a readable summary of everything committed so far; it
+ * skips the MindMerge handoff and does NOT touch report_path (those point at the FINAL report).
+ * The final write on completion replaces the partial via deletePartialReports().
  */
-export function writeScanReport(db: Db, runId: number, reportRootOverride?: string): ReportWriteResult {
+export function writeScanReport(db: Db, runId: number, opts: WriteReportOptions = {}): ReportWriteResult {
+  const { reportRootOverride, partial = false } = opts;
   try {
     const run = db.prepare("SELECT * FROM scan_runs WHERE id = ?").get(runId) as ScanRunRow | undefined;
     if (!run) return { ok: false, error: `run ${runId} not found` };
@@ -180,17 +235,30 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
     const label = sanitizeLabel(drive?.volume_label ?? null, drive?.volume_serial ?? `run-${runId}`);
     const scannedAt = run.finished_at ?? run.started_at ?? "";
     const dateStamp = scannedAt ? formatStamp(scannedAt, "fileStamp") : new Date(0).toISOString().slice(0, 10);
+    // Elapsed: final = started→finished; partial = started→now (finished_at is still null mid-run).
+    const elapsed = fmtElapsed(run.started_at, partial ? new Date().toISOString() : run.finished_at);
+    // Percent complete — folders are the honest denominator (files_recorded is media-only). Shown on
+    // partial reports only; null when the counting walk left no denominator.
+    const pct = partial && run.total_folders_expected != null && run.total_folders_expected > 0
+      ? Math.min(100, Math.round((folders / run.total_folders_expected) * 100))
+      : null;
+    const partialTag = partial
+      ? ` (PARTIAL — scan in progress${pct != null ? `, ${pct}% complete` : ""})`
+      : "";
 
     // ---- destination: the SCANNED drive's root, the one sanctioned user-drive write ----
     const driveRoot = reportRootOverride ?? path.parse(path.resolve(run.root_path)).root;
     const reportsDir = path.join(driveRoot, REPORTS_FOLDER_NAME);
     fs.mkdirSync(reportsDir, { recursive: true });
-    const baseName = `SCAN-${label}-${dateStamp}`;
-    const reportPath = collisionFreePath(reportsDir, baseName);
+    // Partial: deterministic name, overwritten each checkpoint. Final: collision-free, never overwrites.
+    const baseName = partial ? partialBaseName(label, dateStamp, runId) : `SCAN-${label}-${dateStamp}`;
+    const reportPath = partial ? path.join(reportsDir, `${baseName}.md`) : collisionFreePath(reportsDir, baseName);
 
     const fm = [
       "---",
-      `title: "Scan report — ${label} — ${dateStamp}"`,
+      `title: "Scan report${partialTag} — ${label} — ${dateStamp}"`,
+      `status: ${partial ? "partial" : "complete"}`,
+      ...(partial && pct != null ? [`percent_complete: ${pct}`] : []),
       "type: scan-report",
       `drive_label: "${(drive?.volume_label ?? "").replace(/"/g, "'")}"`,
       `volume_serial: "${drive?.volume_serial ?? ""}"`,
@@ -220,12 +288,20 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
     const summary = [
       "",
       `# Scan report — ${drive?.volume_label || label}`,
+      ...(partial
+        ? [
+            "",
+            `> ⚠️ **PARTIAL REPORT — this scan is still in progress${pct != null ? ` (${pct}% complete)` : ""}.** It covers only the ${folders.toLocaleString()} folder${folders === 1 ? "" : "s"} committed so far and will be replaced by the final report when the scan finishes. Do not treat it as a complete inventory.`,
+          ]
+        : []),
       "",
       "| | |",
       "|---|---|",
+      `| Status | ${partial ? `**Partial — in progress**${pct != null ? ` (${pct}%)` : ""}` : "Complete"} |`,
       `| Root | \`${run.root_path}\` |`,
       `| Volume serial | ${drive?.volume_serial ?? "—"} |`,
       `| Scanned | ${formatStamp(scannedAt, "eventTime") || "—"} |`,
+      ...(elapsed ? [`| Elapsed | ${elapsed} |`] : []),
       `| Folders | ${folders.toLocaleString()} |`,
       `| Media files | ${files.toLocaleString()} |`,
       `| Stills | ${stills.toLocaleString()} |`,
@@ -247,35 +323,58 @@ export function writeScanReport(db: Db, runId: number, reportRootOverride?: stri
     //      wants the report whether or not that drive is connected.
     // Either write can fail on its own; the other still happens, and neither failure fails the scan
     // (the data is already committed). We record which succeeded.
-    const driveResult = streamReportTo(reportPath, header, topFolders, formatsByFolder);
+    const driveResult = streamReportTo(reportPath, header, topFolders, formatsByFolder, partial);
 
     let localResult: { ok: boolean; path?: string; error?: string };
     try {
       const root = storage.resolveMarkdownRoot();
       storage.ensureManagedTree(root);
-      const localPath = collisionFreePath(storage.scanMarkdownDir(root), baseName);
-      localResult = streamReportTo(localPath, header, topFolders, formatsByFolder);
+      // Partial: deterministic overwritable local name; final: collision-free.
+      const localPath = partial
+        ? path.join(storage.scanMarkdownDir(root), `${baseName}.md`)
+        : collisionFreePath(storage.scanMarkdownDir(root), baseName);
+      localResult = streamReportTo(localPath, header, topFolders, formatsByFolder, partial);
     } catch (e) {
       localResult = { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
 
     // ---- MindMerge handoff: a COPY into the watch folder when configured. Best-effort, isolated —
     //      a handoff failure never turns a written report into a failure result. Copies from whichever
-    //      of the two reports actually landed. ----
+    //      of the two reports actually landed. SKIPPED for partial writes — a still-changing report has
+    //      no business in the ingest folder; only the final report is handed off. ----
     let secureNoteCopy: string | null = null;
     const anyPath = driveResult.path ?? localResult.path;
-    try {
-      const watch = (db.prepare("SELECT value FROM app_settings WHERE key = 'mindmerge.watch_path'").get() as
-        | { value: string }
-        | undefined)?.value;
-      if (anyPath && watch && fs.existsSync(watch)) {
-        const copyTarget = collisionFreePath(watch, path.basename(anyPath, ".md"));
-        fs.copyFileSync(anyPath, copyTarget, fs.constants.COPYFILE_EXCL);
-        secureNoteCopy = copyTarget;
+    if (!partial) {
+      try {
+        const watch = (db.prepare("SELECT value FROM app_settings WHERE key = 'mindmerge.watch_path'").get() as
+          | { value: string }
+          | undefined)?.value;
+        if (anyPath && watch && fs.existsSync(watch)) {
+          const copyTarget = collisionFreePath(watch, path.basename(anyPath, ".md"));
+          fs.copyFileSync(anyPath, copyTarget, fs.constants.COPYFILE_EXCL);
+          secureNoteCopy = copyTarget;
+        }
+      } catch {
+        secureNoteCopy = null;
       }
-    } catch {
-      secureNoteCopy = null;
     }
+
+    if (partial) {
+      // A partial write never claims report_path/last_scanned_at (those describe the FINAL report) —
+      // it only leaves the on-disk files, which the final write cleans up via deletePartialReports().
+      return {
+        ok: driveResult.ok || localResult.ok,
+        path: anyPath,
+        drivePath: driveResult.ok ? reportPath : null,
+        localPath: localResult.ok ? (localResult.path ?? null) : null,
+        driveError: driveResult.ok ? undefined : driveResult.error,
+        localError: localResult.ok ? undefined : localResult.error,
+        secureNoteCopy: null,
+      };
+    }
+
+    // Final report exists now — remove any partial this run left behind so only the final remains.
+    deletePartialReports(run, runId, reportRootOverride);
 
     db.prepare("UPDATE scan_runs SET report_path = ?, report_local_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
       .run(driveResult.ok ? reportPath : null, localResult.ok ? (localResult.path ?? null) : null, runId);

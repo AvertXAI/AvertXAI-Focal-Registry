@@ -12,3 +12,8 @@ release/
 _rnd/
 .DS_Store
 Thumbs.db
+
+# per-machine agent/tool config — .qwen/settings.json carries a LAN address and a
+# local-only credential placeholder; conflicts on any other machine, helps nobody
+.claude/
+.qwen/

@@ -1,0 +1,244 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* TimeTracker module styles — shell tokens (--mc-*) read, never redefined; module tokens
+   --timetracker-* declared on .tt-shell (never :root), role names spelled in full. Layout is
+   mockup option 1 (nested rail, fixed --timetracker-rail-width). Width math is in the Phase 3
+   report: tracker = window − shell rail − 240. No Tailwind, no CSS modules. */
+
+.tt-shell {
+  --timetracker-rail-width: 240px;
+  --timetracker-selection-background: color-mix(in srgb, var(--mc-accent-primary) 12%, var(--mc-panels));
+  --timetracker-running-color: var(--mc-green);
+  --timetracker-positive-color: var(--mc-green);
+  --timetracker-negative-color: #e0574f; /* matches the scan module's negative red */
+  --timetracker-paused-color: #e0a53a; /* amber — pause state; NOT --mc-orange (that is the not-built glow) */
+  display: flex;
+  height: calc(100vh - 58px - var(--mc-footer-height, 0px));
+  background: var(--mc-base);
+  color: var(--mc-text);
+  overflow: hidden;
+}
+/* ⚠ Phase 4 Task A fix — the shell's flex row was LOSING to globals.css `.view.shown{display:block}`
+   (specificity 0,2,0 beats .tt-shell's 0,1,0 on the same element), so the rail stacked ABOVE the
+   tracker as a block. Three classes (0,3,0) reclaim the row. Column-flex module shells (mig/rbs)
+   never showed this only because block flow stacks the same way column flex does. */
+.view.shown.tt-shell { display: flex; }
+
+/* ---------- nested Projects rail (fixed width, always visible) ---------- */
+.tt-rail { width: var(--timetracker-rail-width); flex: none; display: flex; flex-direction: column; background: var(--mc-panels); border-right: 1px solid var(--mc-border); min-height: 0; }
+.tt-railhead { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }
+.tt-railtitle { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mc-muted); }
+.tt-railcount { margin-left: auto; font-size: 11px; font-family: var(--mc-mono); color: var(--mc-dimmer); background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 9px; padding: 1px 7px; }
+.tt-railsearch { padding: 0 12px 8px; }
+.tt-newbtn { margin: 0 12px 8px; padding: 7px 10px; background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 7px; color: var(--mc-accent-primary); font-size: 12.5px; cursor: pointer; }
+.tt-newbtn:hover { border-color: var(--mc-accent-primary); }
+.tt-railhint { padding: 0 14px 8px; font-size: 10.5px; line-height: 1.45; color: var(--mc-dimmer); }
+.tt-sorthead { display: flex; align-items: center; padding: 6px 14px; border-top: 1px solid var(--mc-border); font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mc-muted); }
+.tt-sortacts { margin-left: auto; display: flex; gap: 4px; }
+.tt-sortbtn { background: none; border: 1px solid var(--mc-border); border-radius: 5px; color: var(--mc-muted); font-size: 10px; padding: 2px 7px; cursor: pointer; }
+.tt-sortbtn:hover { color: var(--mc-text); }
+.tt-sortbtn.on { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); background: var(--timetracker-selection-background); }
+.tt-tree { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: 10px; }
+.tt-railempty { padding: 14px; font-size: 12px; color: var(--mc-dimmer); line-height: 1.5; }
+
+.tt-group { display: flex; align-items: center; gap: 6px; padding: 7px 14px 4px; font-size: 11px; color: var(--mc-muted); cursor: pointer; user-select: none; }
+.tt-group:hover { color: var(--mc-text); }
+.tt-group.dragover { background: var(--timetracker-selection-background); outline: 1px dashed var(--mc-accent-primary); outline-offset: -1px; }
+.tt-caret { width: 10px; flex: none; font-size: 9px; }
+.tt-groupname { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-grouptotal { margin-left: auto; font-family: var(--mc-mono); font-size: 10.5px; }
+.tt-groupcount { font-family: var(--mc-mono); font-size: 10px; color: var(--mc-dimmer); background: var(--mc-nested); border-radius: 8px; padding: 0 6px; }
+
+.tt-project { display: flex; align-items: center; gap: 7px; padding: 5px 14px 5px 24px; font-size: 12.5px; cursor: pointer; border-left: 2px solid transparent; }
+.tt-project:hover { background: var(--mc-nested); }
+.tt-project.sel { background: var(--timetracker-selection-background); border-left-color: var(--mc-accent-primary); }
+.tt-project.dragover { outline: 1px dashed var(--mc-accent-primary); outline-offset: -1px; }
+.tt-projname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-projhours { margin-left: auto; flex: none; font-family: var(--mc-mono); font-size: 10.5px; color: var(--mc-muted); }
+
+.tt-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.tt-dot.big { width: 12px; height: 12px; }
+
+/* ---------- main tracker column ---------- */
+.tt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 14px 18px 0; gap: 12px; overflow: hidden; }
+.tt-tabbody { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 14px; }
+.tt-tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--mc-border); flex: none; }
+.tt-tab { background: none; border: none; padding: 4px 2px 8px; font-size: 12.5px; color: var(--mc-muted); cursor: pointer; }
+.tt-tab.on { color: var(--mc-text); font-weight: 600; box-shadow: inset 0 -2px 0 var(--mc-accent-primary); }
+.tt-tab.off { color: var(--mc-dimmer); cursor: default; }
+
+/* timer bar — one row by design: the info block is the only flexible part (min-width 0 +
+   ellipsis), so the row holds down to the fixed parts (clock + button + gaps ≈ 250px). */
+.tt-bar { display: flex; align-items: center; gap: 12px; background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 9px; padding: 10px 14px; flex: none; min-width: 0; }
+.tt-bar.running { border-color: color-mix(in srgb, var(--timetracker-running-color) 45%, var(--mc-border)); }
+.tt-barinfo { flex: 1; min-width: 0; }
+.tt-barline1 { display: flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 600; min-width: 0; }
+.tt-barproject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-barstate { flex: none; font-size: 9.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--timetracker-running-color); border: 1px solid color-mix(in srgb, var(--timetracker-running-color) 55%, transparent); border-radius: 8px; padding: 1px 7px; }
+.tt-barstate.paused { color: var(--mc-muted); border-color: var(--mc-border); }
+.tt-barline2 { display: flex; gap: 6px; font-size: 11.5px; color: var(--mc-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-barsep { color: var(--mc-dimmer); }
+.tt-barnote { overflow: hidden; text-overflow: ellipsis; }
+.tt-barnoteinput { flex: 0 1 220px; min-width: 90px; }
+.tt-clock { flex: none; font-family: var(--mc-mono); font-size: 20px; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+.tt-bar.running .tt-clock { color: var(--timetracker-running-color); }
+
+.tt-btn { flex: none; border-radius: 7px; border: 1px solid var(--mc-border); background: var(--mc-nested); color: var(--mc-text); font-size: 12.5px; padding: 7px 16px; cursor: pointer; }
+.tt-btn:disabled { opacity: .5; cursor: default; }
+.tt-btn.start { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary); color: #07101f; font-weight: 600; }
+.tt-btn.stop { background: color-mix(in srgb, var(--timetracker-running-color) 22%, var(--mc-nested)); border-color: var(--timetracker-running-color); color: var(--mc-text); font-weight: 600; }
+.tt-btn.ghost { background: none; }
+.tt-btn.ghost:hover { border-color: var(--mc-accent-primary); }
+
+/* ---------- detail panel ---------- */
+.tt-detail { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 9px; padding: 16px 18px; }
+.tt-detailempty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.tt-emptytitle { font-size: 15px; font-weight: 600; }
+.tt-emptysub { font-size: 12.5px; color: var(--mc-muted); }
+.tt-detailhead { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tt-detailtitle { min-width: 0; flex: 1; }
+.tt-detailname { font-size: 16px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-detailsub { font-size: 12px; color: var(--mc-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-inforow { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 14px; }
+.tt-info { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+.tt-infolabel { font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--mc-dimmer); }
+.tt-cap { text-transform: capitalize; }
+.tt-colorrow { display: flex; align-items: center; gap: 7px; margin-top: 14px; flex-wrap: wrap; }
+.tt-swatch { width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.tt-swatch.on { border-color: var(--mc-text); box-shadow: 0 0 0 2px var(--mc-panels); }
+.tt-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 16px; }
+.tt-card { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tt-cardlabel { font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--mc-dimmer); }
+.tt-cardvalue { font-size: 16px; font-weight: 600; font-family: var(--mc-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- shared field bits ---------- */
+.tt-input { width: 100%; background: var(--mc-field); border: 1px solid var(--mc-border); border-radius: 7px; color: var(--mc-text); font-size: 12.5px; padding: 7px 10px; outline: none; font-family: var(--mc-font); }
+.tt-input:focus { border-color: var(--mc-accent-primary); }
+.tt-input::placeholder { color: var(--mc-dimmer); }
+.tt-textarea { min-height: 64px; resize: vertical; }
+
+/* ---------- Phase 4.5 timer bar (three states) ----------
+   Fields row: repeat(auto-fit, minmax(150px, 1fr)) — four-across needs 4×150 + 3×10 = 630px of
+   inner width; below that it wraps 2×2 (at the 740 floor's 406px inner width), never clipping.
+   Clock row fixed parts ≈ 360px < 406px floor inner width — one row holds by arithmetic. */
+.tt-bar2 { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 9px; padding: 12px 14px; flex: none; min-width: 0; }
+.tt-bar2.running { border-color: color-mix(in srgb, var(--timetracker-running-color) 45%, var(--mc-border)); }
+.tt-bar2.paused { border-color: color-mix(in srgb, var(--timetracker-paused-color) 55%, var(--mc-border)); }
+.tt-bar2top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.tt-state { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 1.2px; color: var(--mc-muted); }
+.tt-state.rec { color: var(--timetracker-negative-color); }
+.tt-recdot { width: 8px; height: 8px; border-radius: 50%; background: var(--timetracker-negative-color); }
+.tt-livedate { margin-left: auto; font-family: var(--mc-mono); font-size: 11.5px; color: var(--mc-muted); white-space: nowrap; }
+.tt-bar2mid { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.tt-fields { flex: 1 1 320px; min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 10px; }
+.tt-bfield { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.tt-bfield > span:first-child { font-size: 9.5px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--mc-dimmer); }
+.tt-ro { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mc-muted); cursor: default; }
+.tt-clockblock { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: none; }
+.tt-clock2 { font-family: var(--mc-mono); font-size: 34px; letter-spacing: 1px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tt-bar2.running .tt-clock2 { color: var(--timetracker-running-color); }
+.tt-bar2.paused .tt-clock2 { color: var(--timetracker-paused-color); }
+.tt-clocklabel { font-size: 9.5px; font-weight: 700; letter-spacing: 1.4px; color: var(--mc-dimmer); }
+.tt-clocklabel.rec { color: var(--timetracker-negative-color); }
+.tt-dollars { font-family: var(--mc-mono); font-size: 15px; font-weight: 600; color: var(--timetracker-positive-color); font-variant-numeric: tabular-nums; }
+.tt-barbtns { display: flex; gap: 8px; flex: none; align-items: center; }
+.tt-btn.pause { background: color-mix(in srgb, var(--timetracker-paused-color) 20%, var(--mc-nested)); border-color: var(--timetracker-paused-color); color: var(--mc-text); font-weight: 600; }
+.tt-btn.stopsave { background: color-mix(in srgb, var(--timetracker-negative-color) 22%, var(--mc-nested)); border-color: var(--timetracker-negative-color); color: var(--mc-text); font-weight: 600; }
+.tt-startedline { margin-top: 8px; font-family: var(--mc-mono); font-size: 11.5px; color: var(--mc-muted); }
+.tt-startedgap { display: inline-block; width: 22px; }
+.tt-barhint { font-size: 11px; color: var(--mc-dimmer); line-height: 1.5; margin-top: 6px; }
+
+/* project picker with per-option colour dots (native <select> cannot render them) */
+.tt-psel { position: relative; min-width: 0; }
+.tt-pselbtn { display: flex; align-items: center; gap: 7px; text-align: left; cursor: pointer; }
+.tt-pselbtn:disabled { opacity: .7; cursor: default; }
+.tt-pselname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.tt-pselname.dim { color: var(--mc-dimmer); }
+.tt-pselcaret { color: var(--mc-dimmer); font-size: 10px; flex: none; }
+.tt-pselback { position: fixed; inset: 0; z-index: 30; }
+.tt-psellist { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 31; background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 8px; padding: 4px; max-height: 240px; overflow-y: auto; box-shadow: 0 12px 34px color-mix(in srgb, var(--mc-boot-bg) 55%, transparent); }
+.tt-pselopt { display: flex; align-items: center; gap: 7px; width: 100%; background: none; border: none; border-radius: 6px; color: var(--mc-text); font-size: 12.5px; padding: 6px 8px; cursor: pointer; text-align: left; }
+.tt-pselopt:hover { background: var(--mc-nested); }
+.tt-pselopt.on { background: var(--timetracker-selection-background); }
+.tt-pselopt.dim { color: var(--mc-dimmer); cursor: default; }
+
+/* ---------- Phase 4.5 detail additions ---------- */
+.tt-crmseed { font-style: italic; font-size: 11.5px; color: var(--mc-dimmer); margin-top: 8px; }
+.tt-cardsub { font-size: 10.5px; color: var(--mc-dimmer); font-family: var(--mc-mono); }
+.tt-sect { margin-top: 18px; }
+.tt-secthead { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.tt-secttitle { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mc-muted); }
+.tt-secthead .tt-iconbtn { margin-left: auto; }
+.tt-footnote { font-size: 10.5px; color: var(--mc-dimmer); line-height: 1.5; margin-top: 6px; }
+.tt-notes { min-height: 92px; }
+
+/* ---------- grand total bar — pinned above the shell footer ---------- */
+.tt-grandbar { flex: none; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; background: var(--mc-panels); border: 1px solid var(--mc-border); border-bottom: none; border-radius: 9px 9px 0 0; padding: 9px 16px; margin: 0 -18px 0; padding-left: 18px; }
+.tt-grandlabel { font-size: 10px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--mc-muted); }
+.tt-grandvals { font-family: var(--mc-mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.tt-grandcount { font-size: 11px; color: var(--mc-dimmer); }
+
+/* rail archive button */
+.tt-archbtn { margin-left: 4px; background: none; border: 1px solid var(--mc-border); border-radius: 6px; color: var(--mc-muted); padding: 3px 6px; cursor: pointer; display: inline-flex; }
+.tt-archbtn:hover { color: var(--mc-text); border-color: var(--mc-accent-primary); }
+
+/* ---------- Phase 4 tabs (Logbook · Adjustments · Activity · Archive) ---------- */
+.tt-toolrow { display: flex; align-items: center; gap: 10px; flex: none; flex-wrap: wrap; }
+.tt-toolrow .tt-input { width: auto; flex: 0 1 260px; min-width: 120px; }
+.tt-select { width: auto; min-width: 140px; }
+
+.tt-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tt-table th { text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--mc-dimmer); padding: 7px 10px; border-bottom: 1px solid var(--mc-border); }
+.tt-table td { padding: 7px 10px; border-bottom: 1px solid var(--mc-border); vertical-align: top; }
+.tt-table td.mono { font-family: var(--mc-mono); font-size: 11.5px; }
+.tt-table td.dim { color: var(--mc-muted); }
+.tt-grouprow td { background: var(--mc-nested); font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--mc-muted); }
+.tt-namecell { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.tt-badge { font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; border: 1px solid var(--mc-border); border-radius: 8px; padding: 1px 7px; color: var(--mc-muted); white-space: nowrap; }
+.tt-badge.hourly { color: var(--mc-accent-primary); border-color: color-mix(in srgb, var(--mc-accent-primary) 50%, transparent); }
+.tt-badge.donated { color: var(--timetracker-positive-color); border-color: color-mix(in srgb, var(--timetracker-positive-color) 50%, transparent); }
+.tt-panel { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 9px; padding: 12px 14px; }
+.tt-emptyrow { color: var(--mc-dimmer); font-size: 12.5px; padding: 14px 4px; }
+
+/* adjustments */
+.tt-adj { display: grid; grid-template-columns: 96px 1fr auto; gap: 4px 14px; padding: 9px 4px; border-bottom: 1px solid var(--mc-border); align-items: start; }
+.tt-adj.deleted .tt-delta, .tt-adj.deleted .tt-adjreason, .tt-adj.deleted .tt-namecell { text-decoration: line-through; opacity: .55; }
+.tt-delta { font-family: var(--mc-mono); font-size: 14px; font-weight: 600; white-space: nowrap; }
+.tt-delta.pos { color: var(--timetracker-positive-color); }
+.tt-delta.neg { color: var(--timetracker-negative-color); }
+.tt-adjmain { min-width: 0; }
+.tt-adjreason { font-size: 12.5px; margin-top: 2px; overflow-wrap: anywhere; }
+.tt-adjts { font-size: 11px; color: var(--mc-dimmer); font-family: var(--mc-mono); margin-top: 2px; }
+.tt-adjacts { display: flex; gap: 6px; }
+.tt-iconbtn { background: none; border: 1px solid var(--mc-border); border-radius: 6px; color: var(--mc-muted); font-size: 11px; padding: 3px 9px; cursor: pointer; }
+.tt-iconbtn:hover { color: var(--mc-text); border-color: var(--mc-accent-primary); }
+.tt-iconbtn.danger:hover { color: var(--timetracker-negative-color); border-color: var(--timetracker-negative-color); }
+.tt-audit { grid-column: 1 / -1; background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 7px; padding: 8px 11px; font-size: 11.5px; color: var(--mc-muted); }
+.tt-audit div { padding: 2px 0; }
+.tt-audit b { color: var(--mc-text); font-weight: 600; }
+
+/* activity */
+.tt-event { display: grid; grid-template-columns: 150px 92px 1fr; gap: 12px; padding: 6px 4px; border-bottom: 1px solid var(--mc-border); font-size: 12px; align-items: baseline; }
+.tt-eventts { font-family: var(--mc-mono); font-size: 11px; color: var(--mc-dimmer); }
+.tt-eventtype { font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; }
+.tt-eventtype.started, .tt-eventtype.resumed { color: var(--timetracker-positive-color); }
+.tt-eventtype.paused { color: var(--mc-muted); }
+.tt-eventtype.stopped { color: var(--mc-accent-primary); }
+.tt-eventtype.crashed { color: var(--timetracker-negative-color); }
+.tt-eventbody { min-width: 0; overflow-wrap: anywhere; }
+.tt-eventdetail { color: var(--mc-muted); }
+
+/* archive */
+.tt-archrow { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 14px; padding: 9px 4px; border-bottom: 1px solid var(--mc-border); align-items: center; }
+.tt-archreason { grid-column: 1 / -1; font-size: 11.5px; color: var(--mc-muted); overflow-wrap: anywhere; }
+
+/* ---------- new/edit modal — CONTENT-AREA overlay (below the topbar): opaque theme surfaces,
+   and deliberately NO native-overlay dim (§3.4 scope rule — the recurring light-theme defect). */
+.tt-modalback { position: absolute; inset: 0; background: color-mix(in srgb, var(--mc-base) 62%, transparent); display: flex; align-items: flex-start; justify-content: center; padding: 34px 16px; overflow-y: auto; z-index: 20; }
+.tt-shell { position: relative; } /* anchors the modal to the module's content area, not the window */
+.tt-modal { width: 520px; max-width: 100%; background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 11px; padding: 18px 20px 20px; box-shadow: 0 18px 50px color-mix(in srgb, var(--mc-boot-bg) 55%, transparent); }
+.tt-modalhead { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
+.tt-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 11px; color: var(--mc-muted); flex: 1; min-width: 0; }
+.tt-fieldrow { display: flex; gap: 12px; }
+.tt-attach { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-error { background: color-mix(in srgb, var(--mc-orange) 14%, var(--mc-panels)); border: 1px solid var(--mc-orange); border-radius: 7px; color: var(--mc-text); font-size: 12px; padding: 8px 11px; margin-bottom: 10px; }
+.tt-modalacts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }

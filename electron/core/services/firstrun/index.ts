@@ -61,16 +61,21 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
       "INSERT INTO device_provenance (uuid, org_id, machine_guid, hardware_uuid, machine_name) VALUES (?, ?, ?, ?, ?)"
     ).run(generateUUIDv7(), orgId, identity.machine_guid, identity.hardware_uuid, identity.machine_name);
 
+    // Nav restructure shape (must stay in lockstep with db/index.ts's seedModule + normalization):
+    // Archive Media 1-3 · Applications 4 · Tools 5-6 · Secured Vault 7 (standalone) ·
+    // Marketplace 8 (standalone). nav_group/nav_standalone are set HERE so a fresh org's first
+    // boot renders the right sections immediately — no transient-NULL "Applications" window.
     const mod = db.prepare(
-      "INSERT INTO modules (uuid, tenant_id, name, slug, type, display_order, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO modules (uuid, tenant_id, name, slug, type, display_order, is_locked, nav_group, nav_standalone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
-    mod.run(generateUUIDv7(), orgId, "Scan", "scan", "tool", 1, 0);
-    mod.run(generateUUIDv7(), orgId, "Rename", "rename", "tool", 2, 0);
-    mod.run(generateUUIDv7(), orgId, "Migrate", "migrate", "tool", 3, 0);
-    mod.run(generateUUIDv7(), orgId, "MindMerge", "mindmerge", "notes", 4, 0);
-    mod.run(generateUUIDv7(), orgId, "Scout Viewer", "scout-viewer", "browser", 5, 0);
-    mod.run(generateUUIDv7(), orgId, "Secure Vault", "vault", "secrets", 6, 1);
-    mod.run(generateUUIDv7(), orgId, "TimeTracker", "timetracker", "tool", 7, 0);
+    mod.run(generateUUIDv7(), orgId, "Scan", "scan", "tool", 1, 0, "Archive Media", 0);
+    mod.run(generateUUIDv7(), orgId, "Rename", "rename", "tool", 2, 0, "Archive Media", 0);
+    mod.run(generateUUIDv7(), orgId, "Migrate", "migrate", "tool", 3, 0, "Archive Media", 0);
+    mod.run(generateUUIDv7(), orgId, "TimeTracker", "timetracker", "tool", 4, 0, "Applications", 0);
+    mod.run(generateUUIDv7(), orgId, "MindMerge", "mindmerge", "notes", 5, 0, "Tools", 0);
+    mod.run(generateUUIDv7(), orgId, "Scout Viewer", "scout-viewer", "browser", 6, 0, "Tools", 0);
+    mod.run(generateUUIDv7(), orgId, "Secured Vault", "vault", "secrets", 7, 1, "Secured Vault", 1);
+    mod.run(generateUUIDv7(), orgId, "Marketplace", "marketplace", "market", 8, 0, "Marketplace", 1);
   })();
 
   addOrg(orgId, "focalregistry", name);

@@ -165,6 +165,13 @@ body.rail-collapsed{padding-left:58px} /* content area expands when the rail col
 .navsection-chev{color:var(--mc-muted);transition:transform .15s ease}
 .navsection-chev.collapsed{transform:rotate(-90deg)} /* down → right when the section is collapsed */
 @media (prefers-reduced-motion:reduce){.navsection-chev{transition:none}}
+/* standalone top-level links (Secured Vault · Marketplace) — section-header visual tier via
+   .navsection-head, but they NAVIGATE: module icon where the chevron would sit, never a caret,
+   no children, no collapse state. Active treatment mirrors .navitem.active incl. the left bar. */
+.navlink-standalone{margin-top:14px;position:relative}
+.navlink-standalone svg{color:var(--mc-muted)}
+.navlink-standalone.active{background:rgba(99,102,241,.15)}
+.navlink-standalone.active::before{content:"";position:absolute;left:-8px;top:8px;bottom:8px;width:3px;border-radius:2px;background:var(--mc-accent-primary)}
 
 /* ---------- views ---------- */
 .view{display:none}

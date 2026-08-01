@@ -67,6 +67,12 @@ export function initDb(dbPath: string): void {
     db.exec("ALTER TABLE modules ADD COLUMN nav_group TEXT;");
   }
   db.exec("UPDATE modules SET nav_group = 'Applications' WHERE nav_group IS NULL;");
+  // Additive migration: nav_standalone marks a row as a TOP-LEVEL clickable nav entry with no
+  // children (Secured Vault, Marketplace — nav restructure). Guarded ADD COLUMN after createTable,
+  // never before; safe to re-run. 0/absent = ordinary sectioned module row.
+  if (!(db.pragma("table_info(modules)") as { name: string }[]).some((c) => c.name === "nav_standalone")) {
+    db.exec("ALTER TABLE modules ADD COLUMN nav_standalone INTEGER DEFAULT 0;");
+  }
   // Additive migration: LOCAL-ONLY device provenance — which machine this org was created on.
   // The row is written by first-run (atomically with the account); NULL identifier columns are
   // legal (a failed probe never blocks account creation). LOCAL ONLY: never transmitted, never
@@ -110,33 +116,45 @@ export function initDb(dbPath: string): void {
   const tenantId = (): string | undefined =>
     (db.prepare("SELECT value AS v FROM app_settings WHERE key = 'org_id'").get() as { v: string } | undefined)?.v ??
     (db.prepare("SELECT tenant_id AS v FROM modules LIMIT 1").get() as { v: string } | undefined)?.v;
-  const seedModule = (name: string, slug: string, type: string, order: number): void => {
+  const seedModule = (
+    name: string,
+    slug: string,
+    type: string,
+    order: number,
+    group: string,
+    standalone = 0
+  ): void => {
     const tenant = tenantId();
     if (!tenant || db.prepare("SELECT 1 FROM modules WHERE slug = ?").get(slug)) return;
     db.prepare(
-      `INSERT INTO modules (uuid, tenant_id, name, slug, type, display_order, is_locked, is_enabled)
-       VALUES (?, ?, ?, ?, ?, ?, 0, 1)`
-    ).run(generateUUIDv7(), tenant, name, slug, type, order);
+      `INSERT INTO modules (uuid, tenant_id, name, slug, type, display_order, is_locked, is_enabled, nav_group, nav_standalone)
+       VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`
+    ).run(generateUUIDv7(), tenant, name, slug, type, order, group, standalone);
   };
-  // Migrate insertion (Phase 1) — nav order becomes Scan 1 / Rename 2 / MIGRATE 3 / MindMerge 4 /
-  // Scout 5 / Vault 6. Guarded idempotent UPDATEs shift pre-existing rows BEFORE the seed so a dev
-  // DB re-orders in place; fresh installs seed straight into the final order.
-  db.exec("UPDATE modules SET display_order = 4 WHERE slug = 'mindmerge' AND display_order <> 4;");
-  db.exec("UPDATE modules SET display_order = 5 WHERE slug = 'scout-viewer' AND display_order <> 5;");
-  seedModule("Scan", "scan", "tool", 1);
-  seedModule("Rename", "rename", "tool", 2);
-  seedModule("Migrate", "migrate", "tool", 3);
-  seedModule("MindMerge", "mindmerge", "notes", 4);
-  seedModule("Scout Viewer", "scout-viewer", "browser", 5);
-  // TimeTracker appends at 7, BELOW Vault (normalized to 6 below) — a straight append, so unlike
-  // Migrate's mid-list insert it needs no display_order shift on existing rows.
-  seedModule("TimeTracker", "timetracker", "tool", 7);
+  seedModule("Scan", "scan", "tool", 1, "Archive Media");
+  seedModule("Rename", "rename", "tool", 2, "Archive Media");
+  seedModule("Migrate", "migrate", "tool", 3, "Archive Media");
+  seedModule("TimeTracker", "timetracker", "tool", 4, "Applications");
+  seedModule("MindMerge", "mindmerge", "notes", 5, "Tools");
+  seedModule("Scout Viewer", "scout-viewer", "browser", 6, "Tools");
+  seedModule("Marketplace", "marketplace", "market", 8, "Marketplace", 1);
   // Row cleanup for gutted modules — idempotent, data-only (no schema change). Existing dev DBs
   // seeded these rows; without this they'd keep rendering in the nav after the module code is gone.
   db.exec("DELETE FROM modules WHERE slug IN ('getscriptclips', 'canon-distributor');");
-  // Display-order normalization (vault last — after Scan 1 / Rename 2 / Migrate 3 / MindMerge 4 /
-  // Scout 5). Idempotent, data-only.
-  db.exec("UPDATE modules SET display_order = 6 WHERE slug = 'vault' AND display_order <> 6;");
+  // Nav restructure normalization (shell-lane, ruled 2026-07-31) — five top-level entries:
+  //   Archive Media (Scan 1 · Rename 2 · Migrate 3) · Applications (TimeTracker 4) ·
+  //   Tools (MindMerge 5 · Scout Viewer 6) · Secured Vault 7 (standalone) · Marketplace 8 (standalone).
+  // Idempotent per-slug UPDATEs run every boot so existing DBs (Paul's) converge in place with no
+  // rebuild; fresh installs seed straight into this shape (firstrun + seedModule both carry the
+  // columns). "Secured Vault" is a DISPLAY NAME change only — the slug stays 'vault'.
+  db.exec(`
+    UPDATE modules SET nav_group = 'Archive Media' WHERE slug IN ('scan', 'rename', 'migrate');
+    UPDATE modules SET display_order = 4, nav_group = 'Applications' WHERE slug = 'timetracker';
+    UPDATE modules SET display_order = 5, nav_group = 'Tools' WHERE slug = 'mindmerge';
+    UPDATE modules SET display_order = 6, nav_group = 'Tools' WHERE slug = 'scout-viewer';
+    UPDATE modules SET display_order = 7, nav_group = 'Secured Vault', nav_standalone = 1, name = 'Secured Vault' WHERE slug = 'vault';
+    UPDATE modules SET display_order = 8, nav_group = 'Marketplace', nav_standalone = 1 WHERE slug = 'marketplace';
+  `);
 }
 
 export function getDb(): Database.Database {

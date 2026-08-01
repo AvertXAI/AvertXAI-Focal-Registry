@@ -45,6 +45,10 @@ export interface ModuleRow {
   /** Sidebar section label (additive nav_group column). Nullable: a row seeded this same boot may
       be transiently NULL until the next boot's backfill — the renderer defaults it to "Applications". */
   nav_group: string | null;
+  /** Standalone top-level nav entry (additive nav_standalone column): 1 = renders at section-header
+      level, navigates on click, has no children and no collapse state (Secured Vault, Marketplace).
+      Nullable for rows read before the guarded ADD COLUMN ran — renderer treats null as 0. */
+  nav_standalone: number | null;
   created_at: string;
   updated_at: string | null;
 }

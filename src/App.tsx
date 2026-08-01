@@ -21,6 +21,7 @@ import DataViewerModule from "./modules/data-viewer/DataViewerModule";
 import VaultModule from "./modules/vault/VaultModule";
 import MindMergeModule from "./modules/mindmerge/MindMergeModule";
 import ScoutViewerModule from "./modules/scout-viewer/ScoutViewerModule";
+import MarketplaceModule from "./modules/marketplace/MarketplaceModule";
 import { defaultSettings, type MindMergeSettings } from "./modules/mindmerge/config.manifest";
 import { startDiagReporter, bumpRender } from "./diag";
 
@@ -100,6 +101,7 @@ const MODULE_COMPONENTS: Record<string, ComponentType> = {
   vault: VaultModule,
   "mindmerge": MindMergeMount,
   "scout-viewer": ScoutViewerModule,
+  marketplace: MarketplaceModule,
 };
 
 // Manual-check status toast. The update OFFER itself (available → download → install) lives in the

@@ -45,20 +45,45 @@ export default function Flyout({
       <span className="navlbl">{m.name}</span>
     </button>
   );
-  // Group by nav_group (transiently-NULL row → "Applications"). Sections ordered by the MIN
-  // display_order of their members (data-driven, no hardcoded order); within-section order is
-  // display_order, preserved from `enabled`.
-  const groups = new Map<string, ModuleRow[]>();
+  // Nav model: two entry kinds, ONE ordered list. A row with nav_standalone=1 is a TOP-LEVEL
+  // clickable link (Secured Vault, Marketplace) — section-header level, navigates on click, no
+  // children, no caret, and the collapse logic never sees it (it has no open state to persist).
+  // Everything else groups by nav_group (transiently-NULL row → "Applications"). Order is
+  // data-driven throughout: a section sits at the MIN display_order of its members, a standalone
+  // at its own display_order; within-section order is display_order, preserved from `enabled`.
+  type NavEntry =
+    | { kind: "section"; group: string; mods: ModuleRow[]; order: number }
+    | { kind: "standalone"; mod: ModuleRow; order: number };
+  const entries: NavEntry[] = [];
+  const groups = new Map<string, Extract<NavEntry, { kind: "section" }>>();
   for (const m of enabled) {
+    if (m.nav_standalone === 1) {
+      entries.push({ kind: "standalone", mod: m, order: m.display_order });
+      continue;
+    }
     const g = m.nav_group ?? "Applications";
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g)!.push(m);
+    let section = groups.get(g);
+    if (!section) {
+      section = { kind: "section", group: g, mods: [], order: m.display_order };
+      groups.set(g, section);
+      entries.push(section);
+    }
+    section.mods.push(m);
+    section.order = Math.min(section.order, m.display_order);
   }
-  const orderedGroups = [...groups.entries()].sort(
-    (a, b) =>
-      Math.min(...a[1].map((m) => m.display_order)) - Math.min(...b[1].map((m) => m.display_order))
-  );
+  entries.sort((a, b) => a.order - b.order);
   const isExpanded = (g: string): boolean => sections[g] !== "collapsed"; // unknown → expanded
+  // Standalone top-level link — header-tier visuals, module-row behaviour. Never a chevron.
+  const standaloneBtn = (m: ModuleRow) => (
+    <button
+      key={m.slug}
+      className={"navsection-head navlink-standalone" + (view === m.slug ? " active" : "")}
+      onClick={() => onSelect(m.slug)}
+    >
+      {moduleIcon(m.slug)}
+      <span className="navsection-label">{m.name}</span>
+    </button>
+  );
   return (
     <aside className={`flyout${collapsed ? " collapsed" : ""}`} aria-label="Main navigation">
         <div className="flyout-head">
@@ -79,25 +104,31 @@ export default function Flyout({
             <span className="navlbl">Home</span>
           </button>
           <hr className="navdiv" />
-          {/* MIDDLE — grouped collapsible sections when expanded; flat icon list when the whole rail
-              is collapsed (headers skipped at 58px, exactly as the rail rendered before grouping). */}
+          {/* MIDDLE — grouped collapsible sections + standalone top-level links when expanded, in
+              one display_order-driven sequence; flat icon list when the whole rail is collapsed
+              (headers skipped at 58px, exactly as the rail rendered before grouping — standalone
+              rows ride the same flat list, so nothing is unreachable at 58px). */}
           {collapsed
             ? enabled.map(moduleBtn)
-            : orderedGroups.map(([group, mods]) => (
-                <div className="navsection" key={group}>
-                  <button
-                    className="navsection-head"
-                    onClick={() => onToggleSection(group)}
-                    aria-expanded={isExpanded(group)}
-                  >
-                    <ChevronDown
-                      className={"navsection-chev" + (isExpanded(group) ? "" : " collapsed")}
-                    />
-                    <span className="navsection-label">{group}</span>
-                  </button>
-                  {isExpanded(group) && mods.map(moduleBtn)}
-                </div>
-              ))}
+            : entries.map((e) =>
+                e.kind === "standalone" ? (
+                  standaloneBtn(e.mod)
+                ) : (
+                  <div className="navsection" key={e.group}>
+                    <button
+                      className="navsection-head"
+                      onClick={() => onToggleSection(e.group)}
+                      aria-expanded={isExpanded(e.group)}
+                    >
+                      <ChevronDown
+                        className={"navsection-chev" + (isExpanded(e.group) ? "" : " collapsed")}
+                      />
+                      <span className="navsection-label">{e.group}</span>
+                    </button>
+                    {isExpanded(e.group) && e.mods.map(moduleBtn)}
+                  </div>
+                )
+              )}
           <hr className="navdiv" />
           <button className={cls("settings")} onClick={() => onSelect("settings")}>
             <GearIcon />
@@ -152,6 +183,8 @@ function moduleIcon(slug: string) {
       return <SearchIcon />;
     case "vault":
       return <LockIcon />;
+    case "marketplace":
+      return <MarketIcon />;
     case "mindmerge":
     default:
       return <DocIcon />;
@@ -218,7 +251,17 @@ function SearchIcon() {
   );
 }
 
-// vault (Secure Vault) — lock outline
+// marketplace — shopping-bag outline (browse + subscribe to modules)
+function MarketIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4.4 5.2h7.2l.7 8a.7.7 0 0 1-.7.8H4.4a.7.7 0 0 1-.7-.8l.7-8Z" />
+      <path d="M5.8 7V4.6a2.2 2.2 0 0 1 4.4 0V7" />
+    </svg>
+  );
+}
+
+// vault (Secured Vault) — lock outline
 function LockIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">

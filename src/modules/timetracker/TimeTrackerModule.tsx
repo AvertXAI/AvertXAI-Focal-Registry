@@ -62,6 +62,14 @@ export default function TimeTrackerModule() {
   const [railCollapsed, setRailCollapsed] = useState<boolean>(() => railCollapsedCache ?? false);
   const [license, setLicense] = useState<TimeTrackerLicenseState | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [miniOpen, setMiniOpen] = useState(false);
+
+  useEffect(() => {
+    void api.timetracker.mini.state().then((s) => setMiniOpen(s.open)).catch(() => {});
+  }, [api]);
+  const toggleMini = (): void => {
+    void api.timetracker.mini.toggle().then((s) => setMiniOpen(s.open)).catch(() => {});
+  };
 
   // Warm the collapse state from app_settings on every mount (a renderer reload wipes the cache);
   // the cache-seeded initial state means a same-session remount paints correctly on frame one.
@@ -225,6 +233,13 @@ export default function TimeTrackerModule() {
           ] as const).map(([key, label]) => (
             <button key={key} className={"tt-tab" + (tab === key ? " on" : "")} onClick={() => setTab(key)}>{label}</button>
           ))}
+          <button
+            className={"tt-minibtn" + (miniOpen ? " on" : "")}
+            title={miniOpen ? "Close the floating mini timer (timers keep running)" : "Open the floating mini timer"}
+            onClick={toggleMini}
+          >
+            Mini timer
+          </button>
         </div>
         <div className="tt-tabbody">
           {tab === "tracker" && (

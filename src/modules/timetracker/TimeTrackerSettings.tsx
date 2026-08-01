@@ -26,6 +26,10 @@ export default function TimeTrackerSettings() {
   const [sounds, setSounds] = useState<TimeTrackerAlertSound[]>([]);
   const [soundMsg, setSoundMsg] = useState<string | null>(null);
   const [selectedSound, setSelectedSound] = useState<string>("");
+  const [miniOpen, setMiniOpen] = useState(false);
+  const toggleMini = (): void => {
+    void api.timetracker.mini.toggle().then((st) => setMiniOpen(st.open)).catch(() => {});
+  };
   // FIX 3: playback rides WebAudio (decodeAudioData on the in-memory bytes), NOT an <audio>
   // element on a blob: URL — the app's CSP has no media-src directive, so blob media falls back
   // to default-src 'self' and is BLOCKED (the diagnosed cause of the dead ▶ buttons). WebAudio
@@ -50,6 +54,7 @@ export default function TimeTrackerSettings() {
   useEffect(() => {
     void api.timetracker.license.get().then(refreshLicense).catch(() => {});
     void api.timetracker.settings.get().then((v) => { settingsCache = v; setS(v); }).catch(() => {});
+    void api.timetracker.mini.state().then((st) => setMiniOpen(st.open)).catch(() => {});
     reloadSounds();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -136,6 +141,20 @@ export default function TimeTrackerSettings() {
           the licence constants in code. The timetracker.marketplaceId settings key and its service
           path remain untouched, and no purchase-ID or other field replaces this. */}
       <Tip id="TIP-TT-005" />
+
+      {/* ---- Mini timer window (6B) ---- */}
+      <h2 className="mt">Mini timer</h2>
+      <div className="field">
+        <div className="setrow">
+          <label>Floating mini timer window</label>
+          <button className="btn" onClick={toggleMini}>{miniOpen ? "Close" : "Open"}</button>
+        </div>
+        <p className="hint">
+          An always-on-top strip of your running timers — click a row to pause or resume it. Closing
+          the window never stops a timer, and it remembers where you put it.
+        </p>
+      </div>
+      <Tip id="TIP-TT-006" />
 
       {/* ---- Break reminders ---- */}
       <h2 className="mt">Break reminders</h2>

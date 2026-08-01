@@ -31,6 +31,8 @@ import * as reports from "./reports";
 import * as sounds from "./sounds";
 import * as settings from "./settings";
 import * as license from "./license";
+import * as attention from "./attention";
+import { closeMiniTimer, forwardToMini, isMiniOpen, openMiniTimer, resizeMiniFor, wasMiniOpen } from "./mini-window";
 import { setBundledSoundsDir, setTimeTrackerStorageRoot } from "./paths";
 import {
   REPORT_GRANULARITIES,
@@ -88,6 +90,12 @@ function ttCtx(): { db: Db; orgId: string } {
     setBundledSoundsDir(path.join(app.getAppPath(), "assets", "sounds"));
     timer.captureInterrupted(db); // BEFORE the first heartbeat — see block comment above
     startTicker(db);
+    // Attention engine (6B): 15s beat, reads settings LIVE each fire, prompts via the main window.
+    attention.startAttentionEngine(db, org.org_id, (channel, payload) => {
+      getMainWindow()?.webContents.send(channel, payload);
+    });
+    // Mini timer (6B): reopen at service start if it was open when the app last quit.
+    if (wasMiniOpen(db)) openMiniTimer(timer.status(db).sessions.length);
   }
   return { db, orgId: org.org_id };
 }
@@ -102,6 +110,9 @@ function startTicker(db: Db): void {
     tickCount += 1;
     if (tickCount % 5 === 0) timer.heartbeatAll(db);
     getMainWindow()?.webContents.send("timetracker:tick", payload);
+    // Mini window (6B): same beat, and its height follows the session count main-side.
+    forwardToMini("timetracker:tick", payload);
+    resizeMiniFor(payload.sessions.length);
   }, 1000);
 }
 
@@ -109,6 +120,7 @@ function startTicker(db: Db): void {
 // minus its tray update — the shell tray is Open/Exit only, never per-module).
 function timerChanged(): void {
   getMainWindow()?.webContents.send("timetracker:changed");
+  forwardToMini("timetracker:changed");
 }
 
 export function registerTimeTrackerIpc(): void {
@@ -466,6 +478,30 @@ export function registerTimeTrackerIpc(): void {
   safeHandle("timetracker:selectSound", (_e, id: unknown) => {
     const { db } = ttCtx();
     sounds.setSelectedSoundId(db, vString(id, "sound id", 200, true));
+  });
+
+  // mini timer window (6B) — toggles persist main-side; closing NEVER stops a timer
+  safeHandle("timetracker:toggleMiniTimer", () => {
+    const { db } = ttCtx();
+    if (isMiniOpen()) closeMiniTimer();
+    else openMiniTimer(timer.status(db).sessions.length);
+    return { open: isMiniOpen() };
+  });
+  safeHandle("timetracker:miniTimerState", () => ({ open: isMiniOpen() }));
+  safeHandle("timetracker:closeMiniTimer", () => {
+    closeMiniTimer();
+    return { open: false };
+  });
+
+  // attention engine (6B) — snooze re-arms the break; resolveIdle applies the USER'S choice only
+  safeHandle("timetracker:snoozeBreak", () => {
+    const { db } = ttCtx();
+    attention.snoozeBreak(db);
+  });
+  safeHandle("timetracker:resolveIdle", (_e, discard: unknown) => {
+    const { db } = ttCtx();
+    attention.resolveIdle(db, discard === true);
+    timerChanged(); // a discard shifts live clocks — every surface re-reads
   });
 
   // contract files

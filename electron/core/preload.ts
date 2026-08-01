@@ -22,7 +22,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 // Main → renderer push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of
 // the page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
-const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "mindmerge:progress", "rename:progress", "migrate:progress", "timetracker:tick", "timetracker:changed"];
+const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "mindmerge:progress", "rename:progress", "migrate:progress", "timetracker:tick", "timetracker:changed", "timetracker:break", "timetracker:idle"];
 const wrapped = new Map<(payload: never) => void, (e: Electron.IpcRendererEvent, payload: unknown) => void>();
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);
@@ -270,6 +270,14 @@ const api: Api = {
     files: {
       pickContract: () => invoke("timetracker:pickContract"),
       openContract: (projectId: number) => invoke("timetracker:openContract", projectId),
+    },
+    mini: {
+      toggle: () => invoke("timetracker:toggleMiniTimer"),
+      state: () => invoke("timetracker:miniTimerState"),
+    },
+    attention: {
+      snoozeBreak: () => invoke("timetracker:snoozeBreak"),
+      resolveIdle: (discard: boolean) => invoke("timetracker:resolveIdle", discard),
     },
   },
   updater: {

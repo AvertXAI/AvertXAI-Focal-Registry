@@ -118,7 +118,9 @@ export type PushChannel =
   | "rename:progress"
   | "migrate:progress"
   | "timetracker:tick"
-  | "timetracker:changed";
+  | "timetracker:changed"
+  | "timetracker:break"
+  | "timetracker:idle";
 
 /** LOCAL-ONLY device identity — shown read-only in Settings; never transmitted, never in exports. */
 export interface DeviceIdentityInfo {
@@ -689,6 +691,17 @@ export interface TimeTrackerUpdateProjectInput extends TimeTrackerNewProjectInpu
   id: number;
 }
 
+/** timetracker:break push — the attention engine fired a reminder (autopaused says whether it paused). */
+export interface TimeTrackerBreakPayload {
+  workedMin: number;
+  autopaused: boolean;
+}
+
+/** timetracker:idle push — idle crossed the threshold with a timer running; nothing was modified. */
+export interface TimeTrackerIdlePayload {
+  thresholdMin: number;
+}
+
 export interface Api {
   /** Read-only SQLite browser (Data Viewer module) — introspection only, never writes. */
   db: {
@@ -963,6 +976,16 @@ export interface Api {
     files: {
       pickContract: () => Promise<{ path: string; name: string } | null>;
       openContract: (projectId: number) => Promise<void>;
+    };
+    /** Mini timer window (6B) — open/close persists main-side; closing never stops timers. */
+    mini: {
+      toggle: () => Promise<{ open: boolean }>;
+      state: () => Promise<{ open: boolean }>;
+    };
+    /** Attention engine (6B) — snooze the break clock; answer the idle prompt (user consent only). */
+    attention: {
+      snoozeBreak: () => Promise<void>;
+      resolveIdle: (discard: boolean) => Promise<void>;
     };
   };
   /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the

@@ -60,6 +60,13 @@ export const TIPS: TipDef[] = [
     body:
       "Keys are validated inside the app, offline. Entering one unlocks higher caps; without one, the Free tier keeps working.",
   },
+  {
+    id: "TIP-TT-006",
+    module: "timetracker",
+    title: "Closing the mini timer stops nothing",
+    body:
+      "The floating strip is just a window onto your timers — close it, move it, or forget it, and every clock keeps counting in the app. Click a row in it to pause that one timer; click again to resume.",
+  },
 ];
 
 export const tipById = (id: string): TipDef | undefined => TIPS.find((t) => t.id === id);

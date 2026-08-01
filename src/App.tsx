@@ -12,6 +12,7 @@ import ScanModule from "./modules/scan/ScanModule";
 import RenameModule from "./modules/rename/RenameModule";
 import MigrateModule from "./modules/migrate/MigrateModule";
 import TimeTrackerModule from "./modules/timetracker/TimeTrackerModule";
+import AttentionToast from "./modules/timetracker/AttentionToast";
 import type { ModuleRow } from "./shared/types";
 import Home from "./views/Home";
 import Settings, { warmToggleCache } from "./views/Settings";
@@ -386,6 +387,8 @@ export default function App() {
       )}
       <Flyout view={view} modules={activeModules} onSelect={select} collapsed={railCollapsed} onToggle={toggleRail} onResize={onFlyoutResize} onResizeEnd={onFlyoutResizeEnd} sections={navSections} onToggleSection={toggleNavSection} />
       <UpdateToast />
+      {/* Break/idle prompts must outlive the TimeTracker module's mount — App-level, like UpdateToast. */}
+      <AttentionToast />
 
       {view === "home" && <Home onNavigate={select} modules={activeModules} />}
       {view === "settings" && <Settings themeMode={themeMode} onThemeChange={onThemeChange} />}

@@ -1,0 +1,23 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* Mini timer window — shell --mc-* tokens only (globals.css provides all three theme blocks);
+   resets the shell body offsets that don't apply to this tiny window. No top bar (Jason 07-31):
+   the SHELL is the drag region; the row/stop buttons opt out with no-drag. Row height 44px and
+   shell padding 10px 6px — keep in sync with MINI_ROW / MINI_PAD in mini-window.ts (main-side
+   auto-resize). The red stop ✕ uses the module's negative red literal (#e0574f — no shell token
+   exists for it; scan/timetracker precedent). */
+body { padding: 0 !important; overflow: hidden; }
+.mini-shell { display: flex; flex-direction: column; height: 100vh; background: var(--mc-base); color: var(--mc-text); border: 1px solid var(--mc-border); border-radius: 8px; overflow: hidden; font-family: var(--mc-font); padding: 10px 6px; -webkit-app-region: drag; }
+.mini-rows { flex: 1; min-height: 0; overflow-y: auto; }
+.mini-empty { padding: 11px 14px; font-size: 12px; color: var(--mc-dimmer); }
+.mini-row { display: flex; align-items: center; min-height: 44px; border-bottom: 1px solid var(--mc-border); }
+.mini-row:last-child { border-bottom: none; }
+.mini-row.paused { opacity: .65; }
+.mini-rowbody { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: none; border: none; color: var(--mc-text); padding: 8px 4px 8px 14px; cursor: pointer; text-align: left; -webkit-app-region: no-drag; }
+.mini-rowbody:hover { background: var(--mc-nested); }
+.mini-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.mini-name { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-paused { flex: none; font-size: 8px; color: var(--mc-muted); }
+.mini-clock { flex: none; font-family: var(--mc-mono); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--mc-green); }
+.mini-row.paused .mini-clock { color: var(--mc-muted); }
+.mini-stop { flex: none; background: none; border: none; color: #e0574f; font-size: 12px; font-weight: 700; cursor: pointer; padding: 8px 12px 8px 8px; -webkit-app-region: no-drag; }
+.mini-stop:hover { color: #ff7a72; }

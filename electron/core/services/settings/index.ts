@@ -19,6 +19,7 @@ const RENDERER_KEYS = new Set([
   "last_active_module", // boot-to-last-screen routing
   "nav_section_state", // sidebar grouped-section expand/collapse (JSON map) — never localStorage
   "theme_mode", // 3-state theme toggle (system/light/dark) — persisted, never localStorage
+  "settings_active_section", // Settings view's open section — survives navigation + restart (post-6A FIX 1)
   "update.skipped_version", // Software Update window "Skip this version" — written main-side (update-window.ts)
   "org_name", // active org display name — read-only in the renderer (TopBar brand); written by first-run/setup
   "markdown_root", // user-chosen ROOT for the app-managed Markdown tree (<root>\MissionControl\…); app owns everything below it

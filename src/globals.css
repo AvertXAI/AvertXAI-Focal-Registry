@@ -171,6 +171,10 @@ body.rail-collapsed{padding-left:58px} /* content area expands when the rail col
 .view.shown{display:block}
 .wrap{max-width:1280px;margin:0 auto;padding:24px 16px}
 @media (min-width:768px){.wrap{padding:32px 24px}}
+/* Settings uses a wider ceiling (Jason, 07-31-2026): the 1280 cap left a narrow island on large
+   monitors. 1680 keeps form rows readable while using big screens; inner controls carry their own
+   smaller maxes, so inputs never stretch absurdly. */
+.wrap.wrap-wide{max-width:1680px}
 /* Standing AvertXAI shell footer — ONE instance (App.tsx), on every module page. Normal flow below the
    module content, spanning the content column, centered. min-height reserves the 2-line-at-740px
    height so the full-height modules (dv/rbs/scv subtract --mc-footer-height) never scroll or overlap.

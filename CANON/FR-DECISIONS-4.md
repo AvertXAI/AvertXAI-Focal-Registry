@@ -1,7 +1,7 @@
-# FR-DECISIONS-2.md — settled choices for Focal Registry
+# FR-DECISIONS-4.md — settled choices for Focal Registry
 
 Current state, one line each. Do not reopen unless Jason says so.
-*(Derived 2026-07-31 from DECISIONS-49 + repo CLAUDE.md + the TimeTracker port recon. Supersedes FR-DECISIONS-1.)*
+*(Derived 2026-07-31 from DECISIONS-50 + repo CLAUDE.md + the completed TimeTracker port. Supersedes FR-DECISIONS-3 — delete it after upload. Derived from DECISIONS-51.)*
 
 ## Identity and build
 - Product **Focal Registry**, domain focalregistry.com, alpha customer **Paul Cruz**. Built by copy-then-gut of the RunBooks Mission Control shell.
@@ -23,6 +23,8 @@ Current state, one line each. Do not reopen unless Jason says so.
 - **Permissive only** — MIT, BSD, Apache-2.0, ISC. No GPL, AGPL, LGPL, PolyForm, SSPL, BUSL, or source-available dependency, **as code OR as a shipped binary**.
 - Stills metadata: **`exifr`** (MIT). Video and audio: **`music-metadata`** (MIT).
 - **`ffprobe` is REJECTED** — the FFmpeg binary is GPLv3 and ships inside the installer. **Do not reintroduce it.**
+- **The rejection covers binaries the INSTALLER SHIPS.** A system-installed tool invoked by a developer-only harness excluded from the package creates no distribution obligation and is permitted. `scan/verify-isobmff.ts` is KEPT under this rule — recon proved it is imported by nothing, referenced by no script, and outside the `files` whitelist. **Do not re-litigate it.**
+- The **"by full path, fixed arguments"** rule governs PRODUCT code only; it does not extend to developer-only harnesses.
 - If a format cannot be read by a permissively-licensed library, **write the parser.**
 - Markdown editor: **Tiptap** (MIT core) for **authored** notes only. Generated reports stay read-only through the existing renderer.
 
@@ -37,7 +39,14 @@ Current state, one line each. Do not reopen unless Jason says so.
 - Retention: **keep everything.** No automatic rolloff.
 
 ## Navigation and surfaces
-- Applications, in order: **Scan 1 · Rename 2 · Migrate 3 · MindMerge 4 · Scout Viewer 5 · Secure Vault 6 · TimeTracker 7.**
+- Applications, in order **as built today**: Scan 1 · Rename 2 · Migrate 3 · MindMerge 4 · Scout Viewer 5 · Secure Vault 6 · TimeTracker 7.
+- **RESTRUCTURE RULED 2026-07-31, NOT BUILT** — sections are **Archive Media** (Scan · Rename · Migrate) · **Applications** (TimeTracker · Calendar · Employees) · **Tools** (MindMerge · Scout Viewer) · **Secured Vault** standalone · **Marketplace** standalone.
+- **"Archive Media" is the verb** — tools that archive media. NOT "Media Archive". Do not flip it.
+- **"Applications" is a placeholder name**; membership is settled, the word may change.
+- **"Secured Vault"** is a display-name change only; the slug is unchanged. A slug rename is a separate gated task.
+- Secured Vault and Marketplace are **top-level entries that are themselves clickable with no children** — a pattern the shell does not have yet. Build it once, use it for both.
+- The Jarvis boot screen is **entitlement-aware** — it never names a module the user has not unlocked.
+- All of the above is **shell-lane and separately authorised.** Module work may not touch it.
 - **System section renders only when a row exists in it.** An empty header would mean hardcoding a nav entry — banned. Not a defect.
 - Not-built modules open a **plain explanatory page**, not the orange glow. THIS PRODUCT ONLY; `--mc-orange` stays declared.
 - Settings: General · Appearance · Access · Modules · Integrations, plus a **per-module section**. TimeTracker gets its own page, holding all of its settings including break sound.
@@ -84,27 +93,49 @@ Current state, one line each. Do not reopen unless Jason says so.
 - **Phase 2 (import a bundle, install to Adobe and font folders) is NOT started.** Mockup M4 approved, build order written then cancelled. Export alone satisfies the stated need.
 - Framed as **backup-and-restore**; machine-to-machine migration is one restore target.
 
-## TimeTracker
-- **Dock gate OPEN** (2026-07-31). Slug `timetracker`, display name TimeTracker, nav position 7, `type: "tool"`.
-- Lives in the **shared org database**, tables prefixed `timetracker_*`. Not the Vault.
-- **Fresh schema. No data import** from any existing TimeTracker database.
-- Ports 1:1. The project-and-proposal layer is a **separate future Project Management module** that consumes this engine — do not build a second time tracker, and do not reserve columns for the layer.
-- Three tiers, enforced by hardcoded licence key: **Free 3/3/3 · Pro 10/10/10 · Business unlimited**. Unlimited overrides everything.
-- Caps apply to timers, projects, custom sound uploads, groups, and cost line items — **never to adjustments**, which exist to correct history.
-- All 17 bundled alert sounds are available at every tier; the cap is on **custom uploads**.
-- Licence keys are hardcoded and offline, coupon format `XXXX-XXXX-XXXX-XXXX`, 16 alphanumeric. No engine, no server call. Stored as `timetracker.licenseKey` and `timetracker.marketplaceId` in `app_settings`.
-- Marketplace identifiers are three distinct things: **product** (the app sold online), **purchase** (one per transaction), **installation** (one per client).
-- Hitting a cap routes to the marketplace module's pricing page. **Marketplace surfaces are not shown by default.**
-- Own Settings page under Settings, holding all TimeTracker settings including break sound.
-- Mini timer window KEPT as a sanctioned second window, always-on-top, top-right. Clicking a row pauses that session; Stop All available from it.
+## TimeTracker — PORT COMPLETE 2026-07-31
+- Slug `timetracker`, nav position 7, `type: "tool"`. Shared org database, tables prefixed `timetracker_`, fresh schema, no data import.
+- Ports 1:1. The project-and-proposal layer is a **separate future Project Management module** that consumes this engine — do not build a second time tracker, and do not reserve columns for it.
+- Three tiers by hardcoded offline key: **Free 3/3/3 · Pro 10/10/10 · Business unlimited.** Highest entitlement wins across both stored keys; no key resolves to Free, which is a working tier. Key format `XXXX-XXXX-XXXX-XXXX`.
+- **Caps bind main-side in the services**, never only in the UI — `projects.ts`, `timer.ts`, `sounds.ts`. A disabled button is a hint; the service is the limit. The UI also checks on click so a user is never refused after filling a form.
+- Caps cover projects, concurrent timers, and custom sound uploads. **Adjustments are never capped** — they exist to correct history. All 17 bundled sounds are free at every tier.
+- **Restoring an archived project always succeeds**, even over a cap. Data access is never hostage to tier; the next create still refuses.
+- **Ledger nuke channels DEREGISTERED** — removed from IPC, preload, and the type union. The service functions remain for a future confirm-gated maintenance path. Append-only is structural, not a UI convention.
+- **ONE `DEFAULTS` const is the single source of truth for settings, and nothing is ever seeded.** This is the structural fix for the `break_enabled` bug where turning the sound off did not stick.
 - Pause is a **flag** — `state` stays `'paused'` on the open row with `last_paused_at`, never a split entry.
-- Break reminder, idle detection, and alert sounds all KEPT. The seeded-versus-default `break_enabled` contradiction is a bug — **fix it, do not port it**.
-- Charts are **hand-rolled SVG**. No `recharts`, no chart dependency.
-- CSV import and export **deferred**. No `papaparse`.
+- Charts are **hand-rolled SVG**; no chart dependency. CSV import and export **deferred**. Export PDF rides Electron `printToPDF` straight to Downloads, month-first filename, collision-safe.
+- **Mini timer window** — frameless, always-on-top, top-right on first open. Position and open state persist as `timetracker.*` settings. Clicking a row pauses that session; Stop All stops everything; closing it never stops a timer. It displays only and can never bypass the concurrent-timer cap.
+- Attention engine: one 15-second beat, **settings read live on every fire, never cached at start**, idle via `powerMonitor.getSystemIdleTime()`. **No session is modified without the user choosing it.**
+- Own Settings section inside the shared Settings surface — no module gear, no per-module settings modal.
 - Contract attachments live under the user-chosen `markdown_root`.
-- Build proceeds in **six device-gated phases**: schema and services · IPC and registration · core UI · remaining tabs · analytics · licensing and settings.
+- **Encryption of the org database: NOT PROCEEDING.** Time entries, scan reports, and rename history do not justify it.
+
+## Employees — RULED 2026-07-31, NOT BUILT
+- **Employees is its OWN MODULE**, a sibling of TimeTracker under Applications. Calendar likewise. *(Reverses the earlier "inside TimeTracker with a rail toggle" ruling.)* The rail toggle is DEAD; Employees has its own People rail.
+- Employees tabs: Ledger · Tasks · Payroll · Adjustments · Details. TimeTracker keeps its six unchanged.
+- Tables use the **`employee_` prefix** in the shared org database.
+- **Employee cost reaches Analytics.** Hours logged against a project at a rate feed that project's COSTS and every chart.
+- **Pay type lives on the ENTRY, not the person.** Types: hourly · per job · per task · donated. Hours are tracked for every type; effective rate is amount ÷ hours.
+- **`rate_at_entry` is mandatory from the first schema.** A raise must never rewrite a closed period.
+- **Free caps employees at 5.** Adjustments stay uncapped.
+- Adjustments split into **hours** and **amount** — different operations. Project required on hours, optional on amount.
+- Tasks are their own records — assignable with zero hours logged, and flat-per-task pay needs a done state.
+- Payroll is a **payment ledger, not payroll software.** Hours × rate, and a record of what was paid. Never withholds tax, computes net pay, generates an official form, files anything, or moves money.
+- Outstanding balance **carries across periods.** Payments are append-only; a mistake is a reversing row.
+- Tax Summary produces a **data-sheet PDF** for manual transcription, on a **cash basis** — what was paid in the year, not what was earned. The reporting threshold is a **setting**, never a constant.
+- **Taxpayer identifiers go in the Vault**, never the shared database.
+- **Scout Viewer capture-on-confirm** reads a payment reference off a page the user navigated to themselves. **Automating a send is BANNED.**
+
+## Business model — RULED 2026-07-31
+- **Free shell, paid modules**, by subscription through the marketplace. A lapsed subscription locks the module. *(The earlier ~$99 one-time discussion is DEAD.)*
+- **Scan and Rename stay free.** TimeTracker, Migrate, MindMerge, Scout Viewer are the paid layer.
+- **Hardcoded keys are a knowing stopgap** — they get replaced by Keystone entitlements, not extended. A hardcoded key cannot expire, so subscriptions structurally require the server model.
+- **Marketplace is its own module**, own page, coming-soon until built. Cap hits route there. Marketplace surfaces are never shown by default.
 
 ## Errors
 - **Bugsink** (self-hosted, Sentry-SDK compatible) for automatic capture; the app ships only the MIT Sentry SDK.
 - User-initiated **"Report bug"** shows exactly what will be sent, with a notes field. **Paths and filenames only if the user ticks a box, defaulted off** — a photographer's paths carry client names.
 - Delivery by **Resend** email. FreeScout and ntfy deferred until more than one user.
+
+## Device identity
+- The device provenance row stays **LOCAL ONLY, never transmitted.** The shipped copy claiming it is *never transmitted anywhere* has been removed from the device panel. Any future licence binding that transmits a derived identifier needs its own ruling first.

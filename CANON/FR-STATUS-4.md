@@ -1,6 +1,6 @@
-# FR-STATUS-2.md — Focal Registry build state
+# FR-STATUS-4.md — Focal Registry build state
 
-One line each. *(Derived 2026-07-31, verified against HEAD `d10060d`. Supersedes FR-STATUS-1, which was written at `cb5eb9c` and lags ~30 commits.)*
+One line each. *(Derived 2026-07-31, verified against the local branch head. Supersedes FR-STATUS-3 — delete it after upload.)*
 
 ## Shipped
 - **0.2.5 LIVE and verified on the feed** — installer, manifest, and `REVISIONS.md` all return 200. Branch `main`, HEAD `d10060d`, pushed.
@@ -26,12 +26,20 @@ One line each. *(Derived 2026-07-31, verified against HEAD `d10060d`. Supersedes
 - **`migrate.ts` DELETED** — the legacy `runbooks` migration removed after a disk check proved no legacy database existed.
 - **Governance** — `CLAUDE.md` Part 0 bootstrap, licence gate, size gate, `CANON-UPDATES.md`.
 
-## In flight
-- **Scan triage improvements UNCOMMITTED, awaiting Jason's device gate** — grouped issues modal, disk-read banner, elapsed line, partial reports, plus pre-existing display fixes. Ten files: `electron/core/ipc.ts`, `scan/db.ts`, `scan/index.ts`, `scan/report.ts`, `src/modules/scan/ScanModule.tsx`, `scan.css`, `src/shared/types.ts`, `src/shared/scanErrors.ts`, `src/modules/rename/rename.css`, `src/views/Settings.tsx`.
-- **TimeTracker port** — recon COMPLETE at 0.93 confidence, `REPORT-timetracker-port-recon-07-30-2026.md`. All rulings settled. **Phase 1 of 6 not started.**
+## TimeTracker — PORT COMPLETE, all six phases device-gated
+`130a331` schema + services (12 tables, 8 indexes, validators intact) · `3478ba0` 65 IPC handlers, `window.api.timetracker.*`, both push whitelists, both nav seeds at 7 · `60af3ba` 17 bundled sounds + `build.files` · `814fbcd` Tracker tab and nested rail · `e6d3b67` Logbook, Adjustments, Activity, Archive · `12de84d` three-state timer bar with live dollar countup, value ledger, costs, sessions, notes, grand total · `ab0ccaa` ledger nuke deregistered · `7a1c10a` Analytics with four hand-rolled SVG charts and Export PDF · `d8c10f8` licensing, caps, Settings section, rail collapse · `7aa6416` fix pass · `3fb70de` mini timer window and attention engine. **Port fully committed.**
 
-## Not started
-- Migrate Phase 2 (import and install) · MindMerge editor (rebuild approved, no layout chosen) · Rename module UI polish · Bugsink and Resend (need credentials) · folder watcher · Jarvis home dashboard (three concepts mocked, J1 the lean, nothing chosen) · hidden module unlock (Control + Left Shift plus 10 clicks on the version number) · the marketing website (own repo, Next.js on Coolify, no pricing decided).
+**Fixed along the way:** the `.view.shown{display:block}` specificity loss that stacked the rail above the content · the scrollbar gutter sitting inside its parent's padding · the seeded-versus-default `break_enabled` bug that shipped in the standalone · sound playback dead because the CSP has no `media-src`.
+
+## In flight
+- **15 commits unpushed** through `3fb70de`, unless the push task has run. Last known pushed: `d10060d`.
+- `CANON-UPDATES.md` carries Jason's edits, uncommitted.
+
+## Designed, not started
+- **Employees — ITS OWN MODULE**, sibling of TimeTracker under Applications. The PROJECTS/PEOPLE rail toggle is DEAD. Five mockups approved (three nav options, payroll v1/v2/v3, in-shell render, Add Time / Add Task / Adjustments forms). Every ruling settled in FR-DECISIONS. No schema, no code.
+- **Navigation restructure** — Archive Media · Applications · Tools · Secured Vault · Marketplace, plus the entitlement-aware boot screen. Shell-lane.
+- **Calendar — ITS OWN MODULE**, sibling of TimeTracker. Shares the org database. Two calendars: Google beside Focal Registry.
+- **Marketplace module** — own page, coming-soon.
 
 ## Known open
 - **Hybrid-theme left-edge seam** — sidebar `#121a2e` against base `#0d1320`, ΔB+14. Two fix options mocked, decision pending.

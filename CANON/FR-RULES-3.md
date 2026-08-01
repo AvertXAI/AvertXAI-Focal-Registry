@@ -1,9 +1,9 @@
-# FR-RULES-2.md — how work is done in this repo
+# FR-RULES-3.md — how work is done in this repo
 
-One line each. *(Derived 2026-07-31 from RULES-39 + repo CLAUDE.md. Rules for other products, stacks, and business administration were dropped. Supersedes FR-RULES-1.)*
+One line each. *(Derived 2026-07-31 from RULES-39 + repo CLAUDE.md. Rules for other products, stacks, and business administration were dropped. Supersedes FR-RULES-2 — delete it after upload.)*
 
 ## Session bootstrap
-- **Read `FR-CANON-2.md` and its four files BEFORE reading the task.** Not conditional on the prompt mentioning it. A prompt that forgets does not excuse skipping.
+- **List `CANON/`, load the HIGHEST-NUMBERED `FR-CANON-*.md`, then the highest-numbered version of each of the four files it names — BEFORE reading the task.** Never reference a scoped canon file by a literal version number: rotation deletes the old one, so a hardcoded filename is guaranteed to be missing eventually. Files rotate independently; mismatched numbers are normal. A missing lower-numbered file is not an error — only an empty `CANON/` is a blocker. Not conditional on the prompt mentioning it.
 - Then read `CANON-UPDATES.md` — known discrepancies. Know they exist; do not act on them.
 - If these scoped files are missing or their source canon versions have rotated, **regenerate them first and report.** A stale scoped set blocks decision-touching work.
 
@@ -73,3 +73,12 @@ One line each. *(Derived 2026-07-31 from RULES-39 + repo CLAUDE.md. Rules for ot
 - Upload payload before manifest.
 - `REVISIONS.md` is the single source of release notes; `release.mjs` refuses on missing, placeholder, or over-400-character notes.
 - Self-hosted git forges are rejected as update hosts — electron-builder has no provider for any of them.
+
+## Destructive-action block — every IDE prompt opens with this
+- **Copy, never cut. Read, never relocate.**
+- CREATE and EDIT inside the repo only. **Never delete, move, rename, cut, relocate, or overwrite-in-place any existing file, anywhere, for any reason** — including tidying, reorganising, deduplicating, or "cleaning up."
+- **If a file looks wrong, misplaced, or redundant: REPORT IT. Do not act.**
+- Name the closed paths explicitly. `D:\dev\AvertXAI-RunBooks.Systems\` is CLOSED — no read, no write, no list, no grep — unless a task states otherwise with a reason.
+- No `git add -A`, `git add .`, `git commit`, `git push`, `git checkout`, `git reset`, `git clean`, or `git stash`.
+- Never `npm run dev:clean`. Never delete or recreate a `.db` file.
+- No dependency may be installed without the licence gate above.

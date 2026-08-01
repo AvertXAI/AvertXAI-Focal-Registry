@@ -1,13 +1,14 @@
-# FR-FACTS-2.md — Focal Registry verified facts
+# FR-FACTS-3.md — Focal Registry verified facts
 
 One line each: value — source — verified-on. Re-verify if stale.
-*(Derived 2026-07-31. Facts unrelated to this repo were dropped. Supersedes FR-FACTS-1.)*
+*(Derived 2026-07-31. Facts unrelated to this repo were dropped. Supersedes FR-FACTS-2 — delete it after upload.)*
 
 ## This repo
 - Repo: `D:\dev\AvertXAI-Focal-Registry` · remote `git@github.com:AvertXAI/AvertXAI-Focal-Registry.git`
 - Docs: `D:\dev\_source\AvertXAI-Focal-Registry\` · reference scripts in `reference\` · session reports in `reports\`
 - Real canon: `D:\dev\_source\AvertXAI-CANON\CANON PROJECT\` — now five files plus `CANON-2` index
-- **HEAD `d10060d`, branch `main`, pushed** — 2026-07-28
+- **Last PUSHED commit is `d10060d`** (2026-07-28). Branch `main` sits **14 commits ahead, unpushed** — the whole TimeTracker port is local-only
+- Real canon is now `CANON-2` · `DECISIONS-50` · `RULES-39` · `STATUS-36` · `PROJECTS-9` · `FACTS-10`
 - **Version 0.2.5**; `productName` **"Focal Registry"**; npm `name` `avertxai-focal-registry`; `appId` `com.avertxai.focalregistry`; `description` "Photography Archive Tools"
 - `artifactName` **`Focal-Registry-Setup-${version}.${ext}`** — hyphenated on purpose; spaces in artifact filenames break update-feed URLs and shell commands. `scripts/release.mjs:15` pin moves in lockstep
 - **Packaged process is `Focal Registry.exe`** — kill it AND `electron.exe` before any device gate; both share the single-instance lock and a stale window fakes false results
@@ -48,6 +49,9 @@ One line each: value — source — verified-on. Re-verify if stale.
 - Packs with `asar: true` and explicit `files` / `asarUnpack` lists — bundled assets must be listed or read from a path that survives asar
 - `ELECTRON_RUN_AS_NODE=1` is inherited from a VS Code process tree and breaks Electron launch — clear it or launch from a normal terminal
 - **Never `npm run dev:clean`** — it deletes `platform_registry.db`
+- **`index.html` has NO `media-src` in its Content Security Policy** — media falls back to `default-src 'self'`, so blob URLs are blocked and `<audio>` src assignment fails silently into a swallowed promise. Alert sounds decode IPC bytes through WebAudio instead; **do not loosen the CSP to "fix" this**
+- **`.view.shown{display:block}` in `globals.css` (0,2,0) outranks a module shell's `display:flex` (0,1,0)** — a module needing flex must use a three-class rule. This stacked TimeTracker's rail above its content and `tsc` cannot see it
+- The mini timer window is `mini-window.ts` + `mini-preload.cjs` + `dist/mini.html`, built by its own vite entry with a `?theme=` handshake; frame colours are constructor-only via `baseFor()` so `applyOverlayNow()` stays the single runtime writer
 
 ## Adobe assets — for Migrate
 - User presets: `AppData\Roaming\Adobe\Adobe Photoshop <version>\Presets\`. Shipped presets: under `Program Files`. Settings in the `Settings` folder

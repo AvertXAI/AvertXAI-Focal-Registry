@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import type {
   TimeTrackerGrandTotals,
   TimeTrackerGroup,
+  TimeTrackerLicenseState,
   TimeTrackerGroupTotalRow,
   TimeTrackerMultiTimerStatus,
   TimeTrackerProjectListItem,
@@ -22,14 +23,20 @@ import LogbookView from "./LogbookView";
 import AdjustmentsView from "./AdjustmentsView";
 import ActivityView from "./ActivityView";
 import ArchiveView from "./ArchiveView";
+import AnalyticsView from "./AnalyticsView";
 import "./timetracker.css";
 
-type Tab = "tracker" | "logbook" | "adjust" | "activity" | "archive";
+type Tab = "tracker" | "logbook" | "analytics" | "adjust" | "activity" | "archive";
 
 // Module-level caches — instant re-entry paint (the migrate/mindmerge pattern); a running timer's
 // truth lives main-side, so a stale cache can never fake a clock. Never localStorage.
 let projectsCache: TimeTrackerProjectListItem[] | null = null;
 let selectedCache: number | null = null;
+// Rail collapse — THE remount bug's fix has two layers: this cache survives module unmount/remount
+// within a session (component state alone dies with the unmount — that was the days-to-find bug),
+// and app_settings "timetracker.rail_collapsed" (service → IPC → preload, in RENDERER_KEYS)
+// survives restart. Theme changes never unmount the module, so they are covered by both.
+let railCollapsedCache: boolean | null = null;
 
 /** Rail-style compact hours: 36h · 3.5h · 0h. */
 export const fmtHours = (seconds: number): string => {
@@ -52,6 +59,28 @@ export default function TimeTrackerModule() {
   const [grand, setGrand] = useState<TimeTrackerGrandTotals | null>(null);
   // Bumped on every reload — the detail panel re-fetches its one-round-trip projectDetail on it.
   const [refreshKey, setRefreshKey] = useState(0);
+  const [railCollapsed, setRailCollapsed] = useState<boolean>(() => railCollapsedCache ?? false);
+  const [license, setLicense] = useState<TimeTrackerLicenseState | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Warm the collapse state from app_settings on every mount (a renderer reload wipes the cache);
+  // the cache-seeded initial state means a same-session remount paints correctly on frame one.
+  useEffect(() => {
+    void api.settings.get("timetracker.rail_collapsed").then((v) => {
+      if (v !== null) {
+        railCollapsedCache = v === "1";
+        setRailCollapsed(v === "1");
+      }
+    }).catch(() => {});
+  }, [api]);
+  const toggleRail = (): void => {
+    setRailCollapsed((prev) => {
+      const next = !prev;
+      railCollapsedCache = next;
+      void api.settings.set("timetracker.rail_collapsed", next ? "1" : "0").catch(() => {});
+      return next;
+    });
+  };
 
   const select = (id: number | null): void => {
     selectedCache = id;
@@ -70,6 +99,7 @@ export default function TimeTrackerModule() {
     void api.timetracker.sidebar.getSort().then(setSortDir).catch(() => {});
     void api.timetracker.timer.status().then(setStatus).catch(() => {});
     void api.timetracker.projects.grandTotals().then(setGrand).catch(() => {});
+    void api.timetracker.license.get().then(setLicense).catch(() => {});
     setRefreshKey((k) => k + 1);
   }, [api]);
 
@@ -141,6 +171,23 @@ export default function TimeTrackerModule() {
     void api.timetracker.projects.setColor(selected.id, color).then(reload).catch(() => {});
   };
 
+  // FIX 5 (post-6A): the cap fires on the "+ New project" CLICK — at cap the modal never opens and a
+  // toast names the resolved-tier number (never a literal). This is an EARLY HINT ONLY: the real
+  // limit stays main-side (projects.ts createProject → enforceCap), unchanged and unbypassed.
+  const guardedNewProject = (): void => {
+    const cap = license?.caps.projects ?? null;
+    if (cap !== null && projects.length >= cap) {
+      setToast(`Project cap limited (${cap}), upgrade to add more projects`);
+      return;
+    }
+    setModal({ mode: "new" });
+  };
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   // Archive from the detail panel (reason required — the detail's own modal collects it). The
   // project leaves the active list; the selection-heal effect picks the next one.
   const onArchive = (reason: string): void => {
@@ -157,25 +204,27 @@ export default function TimeTrackerModule() {
         sortDir={sortDir}
         selectedId={selectedId}
         onSelect={select}
-        onNew={() => setModal({ mode: "new" })}
+        onNew={guardedNewProject}
         onSort={onSort}
         onReorder={onReorder}
         onRegroup={onRegroup}
         onOpenArchive={() => setTab("archive")}
+        collapsed={railCollapsed}
+        onToggleCollapse={toggleRail}
       />
       <div className="tt-main">
-        {/* Tab strip per the approved mockup — Analytics stays dimmed until Phase 5. */}
+        {/* Tab strip per the approved mockup — Analytics went live in Phase 5. */}
         <div className="tt-tabs">
           {([
             ["tracker", "Tracker"],
             ["logbook", "Logbook"],
+            ["analytics", "Analytics"],
             ["adjust", "Adjustments"],
             ["activity", "Activity"],
             ["archive", "Archive"],
           ] as const).map(([key, label]) => (
             <button key={key} className={"tt-tab" + (tab === key ? " on" : "")} onClick={() => setTab(key)}>{label}</button>
           ))}
-          <button className="tt-tab off" disabled title="Coming in a later phase">Analytics</button>
         </div>
         <div className="tt-tabbody">
           {tab === "tracker" && (
@@ -196,7 +245,7 @@ export default function TimeTrackerModule() {
                 refreshKey={refreshKey}
                 onEdit={() => selected && setModal({ mode: "edit", project: selected })}
                 onColor={onColor}
-                onNew={() => setModal({ mode: "new" })}
+                onNew={guardedNewProject}
                 onArchive={onArchive}
                 archiveBlocked={session !== null}
                 onDataChanged={reload}
@@ -204,6 +253,7 @@ export default function TimeTrackerModule() {
             </>
           )}
           {tab === "logbook" && <LogbookView projects={projects} groups={groups} />}
+          {tab === "analytics" && <AnalyticsView />}
           {tab === "adjust" && <AdjustmentsView projects={projects} onDataChanged={reload} />}
           {tab === "activity" && <ActivityView projects={projects} />}
           {tab === "archive" && <ArchiveView onDataChanged={reload} />}
@@ -225,6 +275,7 @@ export default function TimeTrackerModule() {
           </div>
         )}
       </div>
+      {toast && <div className="tt-toast" role="status">{toast}</div>}
       {modal && (
         <ProjectModal
           state={modal}

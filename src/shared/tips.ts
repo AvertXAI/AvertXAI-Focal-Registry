@@ -46,6 +46,20 @@ export const TIPS: TipDef[] = [
     body:
       "Setting a new amount appends a row that carries the previous value with it — nothing is edited, nothing is deleted. That running history is the point: you can watch what a project was worth grow over time.",
   },
+  {
+    id: "TIP-TT-004",
+    module: "timetracker",
+    title: "Your analytics never leave this machine",
+    body:
+      "Export PDF prints this page straight to your Downloads folder using the app itself — no service, no upload, no account. The numbers in the file are exactly the numbers on this screen.",
+  },
+  {
+    id: "TIP-TT-005",
+    module: "timetracker",
+    title: "Licence keys are checked offline",
+    body:
+      "Keys are validated inside the app, offline. Entering one unlocks higher caps; without one, the Free tier keeps working.",
+  },
 ];
 
 export const tipById = (id: string): TipDef | undefined => TIPS.find((t) => t.id === id);

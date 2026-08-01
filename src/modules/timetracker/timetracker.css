@@ -11,6 +11,15 @@
   --timetracker-positive-color: var(--mc-green);
   --timetracker-negative-color: #e0574f; /* matches the scan module's negative red */
   --timetracker-paused-color: #e0a53a; /* amber — pause state; NOT --mc-orange (that is the not-built glow) */
+  /* FIX 7 (post-6A): ink for ACCENT-FILLED buttons. Hybrid's accent is blue → dark ink reads;
+     light and dark themes use the orange #d97757 accent → dark ink was unreadable, so those
+     themes override to white below. Tokens only — no hex in markup. */
+  --timetracker-on-accent-ink: #07101f;
+  /* chart tokens (Phase 5) — every chart colour routes through these so all three themes work */
+  --timetracker-chart-hours-color: var(--mc-green);
+  --timetracker-chart-value-color: var(--mc-accent-primary);
+  --timetracker-chart-costs-color: var(--timetracker-paused-color);
+  --timetracker-chart-grid-color: var(--mc-border);
   display: flex;
   height: calc(100vh - 58px - var(--mc-footer-height, 0px));
   background: var(--mc-base);
@@ -22,6 +31,10 @@
    tracker as a block. Three classes (0,3,0) reclaim the row. Column-flex module shells (mig/rbs)
    never showed this only because block flow stacks the same way column flex does. */
 .view.shown.tt-shell { display: flex; }
+/* FIX 7: light AND dark themes fill accent buttons with the orange #d97757 accent — white ink there.
+   (Hybrid keeps the dark ink on its blue accent; the override targets only the orange-accent themes.) */
+[data-theme="light"] .tt-shell,
+[data-theme="dark"] .tt-shell { --timetracker-on-accent-ink: #ffffff; }
 
 /* ---------- nested Projects rail (fixed width, always visible) ---------- */
 .tt-rail { width: var(--timetracker-rail-width); flex: none; display: flex; flex-direction: column; background: var(--mc-panels); border-right: 1px solid var(--mc-border); min-height: 0; }
@@ -59,8 +72,15 @@
 .tt-dot.big { width: 12px; height: 12px; }
 
 /* ---------- main tracker column ---------- */
-.tt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 14px 18px 0; gap: 12px; overflow: hidden; }
-.tt-tabbody { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-bottom: 14px; }
+/* Phase 6A Task E — SCROLLBAR GUTTER FIX. The scroll owner (.tt-tabbody) used to sit INSIDE
+   .tt-main's 18px horizontal padding, so its scrollbar rendered 18px in from the module edge,
+   tight against the content cards. Fix: the horizontal padding moves INTO the scroll container
+   (inner padding scrolls with content; the scrollbar hugs the container's right edge, which now
+   IS the module/window edge). The tab strip gets its own indent, and the grand bar drops its
+   old negative-margin compensation. */
+.tt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 14px 0 0; gap: 12px; overflow: hidden; }
+.tt-tabs { padding: 0 18px; }
+.tt-tabbody { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 0 18px 14px; }
 .tt-tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--mc-border); flex: none; }
 .tt-tab { background: none; border: none; padding: 4px 2px 8px; font-size: 12.5px; color: var(--mc-muted); cursor: pointer; }
 .tt-tab.on { color: var(--mc-text); font-weight: 600; box-shadow: inset 0 -2px 0 var(--mc-accent-primary); }
@@ -84,7 +104,7 @@
 
 .tt-btn { flex: none; border-radius: 7px; border: 1px solid var(--mc-border); background: var(--mc-nested); color: var(--mc-text); font-size: 12.5px; padding: 7px 16px; cursor: pointer; }
 .tt-btn:disabled { opacity: .5; cursor: default; }
-.tt-btn.start { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary); color: #07101f; font-weight: 600; }
+.tt-btn.start { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary); color: var(--timetracker-on-accent-ink); font-weight: 600; }
 .tt-btn.stop { background: color-mix(in srgb, var(--timetracker-running-color) 22%, var(--mc-nested)); border-color: var(--timetracker-running-color); color: var(--mc-text); font-weight: 600; }
 .tt-btn.ghost { background: none; }
 .tt-btn.ghost:hover { border-color: var(--mc-accent-primary); }
@@ -172,14 +192,56 @@
 .tt-notes { min-height: 92px; }
 
 /* ---------- grand total bar — pinned above the shell footer ---------- */
-.tt-grandbar { flex: none; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; background: var(--mc-panels); border: 1px solid var(--mc-border); border-bottom: none; border-radius: 9px 9px 0 0; padding: 9px 16px; margin: 0 -18px 0; padding-left: 18px; }
+.tt-grandbar { flex: none; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; background: var(--mc-panels); border: 1px solid var(--mc-border); border-bottom: none; border-radius: 9px 9px 0 0; padding: 9px 16px 9px 18px; }
 .tt-grandlabel { font-size: 10px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--mc-muted); }
 .tt-grandvals { font-family: var(--mc-mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .tt-grandcount { font-size: 11px; color: var(--mc-dimmer); }
 
+/* FIX 5: cap toast — inline transient notice, no modal, no upsell styling */
+.tt-toast { position: absolute; bottom: 52px; right: 22px; z-index: 40; background: var(--mc-panels); border: 1px solid var(--mc-border); border-left: 3px solid var(--mc-accent-primary); border-radius: 9px; padding: 10px 14px; font-size: 12.5px; box-shadow: 0 10px 30px color-mix(in srgb, var(--mc-boot-bg) 50%, transparent); }
+
+/* FIX 4: Alert Sound section header row — "+ Add Alert" right-aligned on the heading.
+   The header is capped to the SAME width as the sound list (.ttset-sounds), so the button's
+   right edge sits directly ON TOP of the ▶ play-button column instead of flying to the far
+   right of the pane, and stays close to the title. */
+.ttset-sectionhead { display: flex; align-items: baseline; gap: 12px; max-width: 460px; }
+.ttset-sectionhead h2 { flex: 1; }
+.ttset-addalert { flex: none; }
+
 /* rail archive button */
 .tt-archbtn { margin-left: 4px; background: none; border: 1px solid var(--mc-border); border-radius: 6px; color: var(--mc-muted); padding: 3px 6px; cursor: pointer; display: inline-flex; }
 .tt-archbtn:hover { color: var(--mc-text); border-color: var(--mc-accent-primary); }
+
+/* ---------- Phase 6A — rail collapse (persisted via timetracker.rail_collapsed) ---------- */
+.tt-railtoggle { margin-left: auto; background: none; border: 1px solid var(--mc-border); border-radius: 6px; color: var(--mc-muted); font-size: 12px; line-height: 1; padding: 3px 7px; cursor: pointer; }
+.tt-railtoggle:hover { color: var(--mc-text); border-color: var(--mc-accent-primary); }
+.tt-railhead .tt-railtoggle { margin-left: auto; }
+.tt-railhead .tt-archbtn { margin-left: 4px; }
+.tt-rail.collapsed { width: 44px; align-items: center; padding-top: 10px; gap: 10px; }
+.tt-rail.collapsed .tt-railtoggle { margin-left: 0; }
+.tt-raildots { display: flex; flex-direction: column; align-items: center; gap: 8px; overflow-y: auto; min-height: 0; padding-bottom: 10px; }
+.tt-raildot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; flex: none; }
+.tt-raildot.on { border-color: var(--mc-text); box-shadow: 0 0 0 2px var(--mc-panels); }
+
+/* ---------- Phase 6A — the TimeTracker section inside the SHARED Settings surface.
+   These classes render OUTSIDE .tt-shell, so they use --mc-* shell tokens only. ---------- */
+/* Section content column cap (Jason, 07-31-2026): the setmain h2 border-bottom rules span their
+   container, and after the wrap-wide change the pane is ~1370px — the lines sailed far past the
+   licence caps sentence ("…at every tier."). 1080 ends the rules and the tip banner near the text. */
+.ttset-wrap { max-width: 1080px; }
+.ttset-keyrow { display: flex; gap: 8px; align-items: center; max-width: 420px; }
+.ttset-input { flex: 1; min-width: 0; background: var(--mc-field); border: 1px solid var(--mc-border); border-radius: 7px; color: var(--mc-text); font-size: 12.5px; padding: 7px 10px; outline: none; font-family: var(--mc-mono); }
+.ttset-input:focus { border-color: var(--mc-accent-primary); }
+.ttset-num { max-width: 90px; flex: none; }
+.ttset-presets { display: flex; gap: 8px; align-items: center; }
+.ttset-preset { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 7px; color: var(--mc-muted); font-size: 12px; padding: 6px 14px; cursor: pointer; }
+.ttset-preset.on { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); font-weight: 600; }
+.ttset-sounds { display: flex; flex-direction: column; gap: 4px; max-width: 460px; }
+.ttset-sound { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 7px; }
+.ttset-sound.on { background: var(--mc-nested); }
+.ttset-soundpick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; background: none; border: none; color: var(--mc-text); font-size: 12.5px; padding: 4px 0; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ttset-radio { color: var(--mc-accent-primary); font-size: 11px; }
+.ttset-customtag { font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; color: var(--mc-dimmer); border: 1px solid var(--mc-border); border-radius: 8px; padding: 1px 6px; }
 
 /* ---------- Phase 4 tabs (Logbook · Adjustments · Activity · Archive) ---------- */
 .tt-toolrow { display: flex; align-items: center; gap: 10px; flex: none; flex-wrap: wrap; }
@@ -230,6 +292,44 @@
 /* archive */
 .tt-archrow { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 14px; padding: 9px 4px; border-bottom: 1px solid var(--mc-border); align-items: center; }
 .tt-archreason { grid-column: 1 / -1; font-size: 11.5px; color: var(--mc-muted); overflow-wrap: anywhere; }
+
+/* ---------- Phase 5 — Analytics ----------
+   .tt-analytics is a container-query container: the charts grid is 2-up by default and stacks to
+   one column below 652px of container width (2×320 minmax + 12 gap) — window ≈ 986px collapsed. */
+.tt-analytics { display: flex; flex-direction: column; gap: 12px; container-type: inline-size; }
+.tt-seg { display: inline-flex; border: 1px solid var(--mc-border); border-radius: 7px; overflow: hidden; }
+.tt-segbtn { background: none; border: none; color: var(--mc-muted); font-size: 11.5px; padding: 6px 12px; cursor: pointer; border-right: 1px solid var(--mc-border); }
+.tt-segbtn:last-child { border-right: none; }
+.tt-segbtn.on { background: var(--timetracker-selection-background); color: var(--mc-accent-primary); font-weight: 600; }
+.tt-exportbtn { margin-left: auto; }
+.tt-exportline { background: color-mix(in srgb, var(--timetracker-positive-color) 12%, var(--mc-panels)); border: 1px solid color-mix(in srgb, var(--timetracker-positive-color) 45%, var(--mc-border)); border-radius: 8px; padding: 8px 12px; font-size: 12px; }
+.tt-exportline.err { background: color-mix(in srgb, var(--timetracker-negative-color) 12%, var(--mc-panels)); border-color: var(--timetracker-negative-color); }
+.tt-pathlink { background: none; border: none; padding: 0; color: var(--mc-accent-primary); font-family: var(--mc-mono); font-size: 11.5px; cursor: pointer; text-decoration: underline; overflow-wrap: anywhere; text-align: left; }
+.tt-cards6 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.tt-wastedrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.tt-chartsgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@container (max-width: 651px) { .tt-chartsgrid { grid-template-columns: 1fr; } }
+.tt-chartcard { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 9px; padding: 12px 14px; min-width: 0; }
+.tt-chartbox { width: 100%; }
+.tt-chartempty { padding: 44px 10px; text-align: center; color: var(--mc-dimmer); font-size: 12px; }
+.tt-chartgrid { stroke: var(--timetracker-chart-grid-color); stroke-width: 1; }
+.tt-chartaxis { fill: var(--mc-dimmer); font-size: 10px; font-family: var(--mc-mono); }
+.tt-chartaxis.strong { fill: var(--mc-muted); }
+.tt-chartline { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.tt-chartline.hours { stroke: var(--timetracker-chart-hours-color); }
+.tt-chartline.value { stroke: var(--timetracker-chart-value-color); }
+.tt-chartline.costs { stroke: var(--timetracker-chart-costs-color); }
+.tt-chartarea.hours { fill: var(--timetracker-chart-hours-color); fill-opacity: .16; stroke: none; }
+.tt-chartdot.hours { fill: var(--timetracker-chart-hours-color); }
+.tt-chartdot.value { fill: var(--timetracker-chart-value-color); }
+.tt-chartdot.costs { fill: var(--timetracker-chart-costs-color); }
+.tt-chartbar { fill: var(--timetracker-chart-value-color); }
+.tt-chartbartrack { fill: var(--mc-nested); }
+.tt-legend { display: flex; gap: 16px; margin-top: 6px; font-size: 11px; color: var(--mc-muted); }
+.tt-legenditem { display: inline-flex; align-items: center; gap: 6px; }
+.tt-legendmark { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.tt-legendmark.costs { background: var(--timetracker-chart-costs-color); }
+.tt-legendmark.value { background: var(--timetracker-chart-value-color); }
 
 /* ---------- new/edit modal — CONTENT-AREA overlay (below the topbar): opaque theme surfaces,
    and deliberately NO native-overlay dim (§3.4 scope rule — the recurring light-theme defect). */

@@ -902,6 +902,10 @@ export interface Api {
     };
     reports: {
       get: (range: TimeTrackerReportRange, granularity: TimeTrackerReportGranularity) => Promise<TimeTrackerReportData>;
+      /** printToPDF of the live Analytics view → Downloads, month-first filename; returns the path. */
+      exportPdf: () => Promise<string>;
+      /** Reveals a path THIS session exported (main-side whitelist) in the OS file manager. */
+      revealExportedPdf: (p: string) => Promise<void>;
     };
     notes: {
       get: (projectId: number) => Promise<string>;

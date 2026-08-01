@@ -13,6 +13,7 @@
 // File: electron/core/services/timetracker/ipc.ts
 //------------------------------------------------------------
 import { app, dialog, ipcMain, shell } from "electron";
+import fs from "node:fs";
 import path from "node:path";
 import { getDb } from "../db";
 import { getActiveOrg } from "../db/registry";
@@ -65,6 +66,8 @@ function safeHandle(channel: string, listener: Parameters<typeof ipcMain.handle>
 let started = false;
 let tickerHandle: ReturnType<typeof setInterval> | null = null;
 let tickCount = 0;
+// PDFs exported THIS session — the only paths timetracker:revealExportedPdf will hand to the OS.
+const exportedPdfPaths = new Set<string>();
 
 function ttCtx(): { db: Db; orgId: string } {
   const org = getActiveOrg();
@@ -289,6 +292,28 @@ export function registerTimeTrackerIpc(): void {
       vEnum(range, REPORT_RANGES, "range"),
       vEnum(granularity, REPORT_GRANULARITIES, "granularity")
     );
+  });
+  // Export PDF (Phase 5) — Electron's built-in printToPDF on the LIVE renderer (rendered SVG charts
+  // included, no DB access, no dependency — the standalone's exact approach). Lands in Downloads
+  // with a MONTH-FIRST filename; collision-free suffix, never overwrites. reveal only serves paths
+  // THIS session exported (the source openablePaths pattern — no arbitrary path reaches the OS).
+  safeHandle("timetracker:exportAnalyticsPdf", async () => {
+    const win = getMainWindow();
+    if (!win) throw new Error("No window to print");
+    const pdf = await win.webContents.printToPDF({ pageSize: "Letter", landscape: true, printBackground: true });
+    const d = new Date();
+    const base = `TimeTracker-Analytics-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}-${d.getFullYear()}`;
+    const dir = app.getPath("downloads");
+    let target = path.join(dir, `${base}.pdf`);
+    for (let i = 2; fs.existsSync(target); i++) target = path.join(dir, `${base}-${String(i).padStart(2, "0")}.pdf`);
+    fs.writeFileSync(target, pdf);
+    exportedPdfPaths.add(target);
+    return target;
+  });
+  safeHandle("timetracker:revealExportedPdf", (_e, p: unknown) => {
+    const target = vString(p, "file path", 1000, true);
+    if (!exportedPdfPaths.has(target)) throw new Error("Path not exported by this app session");
+    shell.showItemInFolder(target);
   });
 
   // notes

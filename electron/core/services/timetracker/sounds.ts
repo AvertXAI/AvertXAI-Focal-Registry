@@ -15,6 +15,7 @@ import path from "node:path";
 import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
 import { customSoundsDir, getBundledSoundsDir } from "./paths";
+import { enforceCap } from "./license";
 import type { AlertSound, SoundData } from "./types";
 
 const BUNDLED_PREFIX = "bundled:";
@@ -81,8 +82,10 @@ export function readSound(db: Db, id: string): SoundData {
   return { mime: MIME[ext] ?? "audio/mpeg", base64: fs.readFileSync(file).toString("base64") };
 }
 
-/** Copy an .mp3/.wav into the storage root's sounds/ and register it. Tier-capped in Phase 6. */
+/** Copy an .mp3/.wav into the storage root's sounds/ and register it. CUSTOM uploads are the
+    tier-capped thing — the 17 bundled sounds are available at every tier, including Free. */
 export function uploadSound(db: Db, orgId: string, sourcePath: string, displayName: string): AlertSound {
+  enforceCap(db, "soundUploads"); // MAIN-SIDE tier cap
   const ext = path.extname(sourcePath).toLowerCase();
   if (!ALLOWED_EXT.has(ext)) throw new Error("Only .mp3 and .wav alert sounds are supported");
   if (!fs.existsSync(sourcePath)) throw new Error("Sound file not found");

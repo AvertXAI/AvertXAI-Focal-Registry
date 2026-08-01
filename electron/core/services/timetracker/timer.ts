@@ -13,6 +13,7 @@
 import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
+import { enforceCap } from "./license";
 import type {
   ActiveSessionInfo,
   EventType,
@@ -150,6 +151,7 @@ export function start(db: Db, orgId: string, projectId: number, note: string | n
     | { id: number }
     | undefined;
   if (existing) return focus(db, existing.id);
+  enforceCap(db, "timers"); // MAIN-SIDE tier cap on NEW concurrent sessions (the focus path above is exempt)
   const now = nowIso();
   const tx = db.transaction(() => {
     db.prepare(`UPDATE timetracker_active_sessions SET is_focused = 0 WHERE is_focused = 1`).run();

@@ -30,6 +30,7 @@ import * as eventLog from "./eventLog";
 import * as reports from "./reports";
 import * as sounds from "./sounds";
 import * as settings from "./settings";
+import * as license from "./license";
 import { setBundledSoundsDir, setTimeTrackerStorageRoot } from "./paths";
 import {
   REPORT_GRANULARITIES,
@@ -240,6 +241,20 @@ export function registerTimeTrackerIpc(): void {
     const url = costs.getUrl(db, vId(id, "cost id"));
     if (!url || !/^https?:\/\//i.test(url)) throw new Error("No URL on this cost line");
     await shell.openExternal(url);
+  });
+
+  // licence (Phase 6A) — hardcoded, offline, validated in the service. No network call exists.
+  safeHandle("timetracker:getLicense", () => {
+    const { db } = ttCtx();
+    return license.getLicenseState(db);
+  });
+  safeHandle("timetracker:setLicenseKey", (_e, raw: unknown) => {
+    const { db } = ttCtx();
+    return license.setLicenseKey(db, vString(raw ?? "", "licence key", 40));
+  });
+  safeHandle("timetracker:setMarketplaceId", (_e, raw: unknown) => {
+    const { db } = ttCtx();
+    return license.setMarketplaceId(db, vString(raw ?? "", "marketplace id", 80));
   });
 
   // settings (typed + clamped through the service — NOT the generic settings channel)

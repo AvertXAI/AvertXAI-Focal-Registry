@@ -7,6 +7,7 @@ import { DoorTheme, Gear, Mail, Vault, Webhook } from "../icons";
 import { bumpRender } from "../diag";
 import { signalUpdateToast, type ThemeMode } from "../App";
 import { setTipsEnabled } from "../components/Tip";
+import TimeTrackerSettings from "../modules/timetracker/TimeTrackerSettings";
 import type { DeviceIdentityInfo, StorageLocations } from "../shared/types";
 
 interface Props {
@@ -23,6 +24,13 @@ const toggleCache: { skipBoot?: boolean; trayOn?: boolean; launchStartup?: boole
 // class of bug as the toggle warm-cache). A renderer reload (Ctrl+R) wipes this; the first mount
 // after that re-fetches once.
 let deviceCache: DeviceIdentityInfo | null = null;
+// FIX 1 (post-6A): the active section was plain component state, and App.tsx renders Settings
+// conditionally — navigation unmounts the view and the remount reset it to "General" (the same
+// class as the TimeTracker rail-collapse bug). Two layers, mirroring that fix: this cache survives
+// same-session remounts; app_settings "settings_active_section" (bare snake_case — shell-level
+// key, in RENDERER_KEYS) survives a restart. Unknown/stale values fall back to General.
+let sectionCache: string | null = null;
+const LIVE_SECTIONS = new Set(["General", "Appearance", "Storage", "Scan", "TimeTracker"]);
 
 // Warm the toggle cache from app_settings. Called at APP BOOT (App.tsx) — not just on Settings
 // mount — because a renderer reload (Ctrl+R) wipes this module-level cache, and warming it only on
@@ -51,7 +59,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const [tipsOn, setTipsOn] = useState(() => toggleCache.tipsOn ?? true); // helpful tips — ONE global switch, default ON
   const [device, setDevice] = useState<DeviceIdentityInfo | null>(() => deviceCache); // "This device" — read-only, cached (immutable for the session)
   const [animReady, setAnimReady] = useState(() => toggleCache.skipBoot !== undefined); // cache warm → correct from first paint, no gate
-  const [activeSection, setActiveSection] = useState("General");
+  const [activeSection, setActiveSection] = useState(() => sectionCache ?? "General");
   const [appVersion, setAppVersion] = useState("");
   const [checking, setChecking] = useState(false);
   // Scan · history retention controls
@@ -75,7 +83,23 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
     });
     void window.api.updater.version().then(setAppVersion).catch(() => {}); // never hardcoded
     if (!deviceCache) void window.api.identity.get().then((d) => { deviceCache = d; setDevice(d); }).catch(() => {}); // read-only; local-only; fetched once per session
+    // FIX 1: re-warm the persisted section after a renderer reload (the cache covers plain remounts).
+    if (sectionCache === null) {
+      void window.api.settings.get("settings_active_section").then((v) => {
+        if (v && LIVE_SECTIONS.has(v)) {
+          sectionCache = v;
+          setActiveSection(v);
+        }
+      }).catch(() => {});
+    }
   }, []);
+
+  // FIX 1: every section switch persists through service → IPC → preload (never localStorage).
+  const openSection = (label: string): void => {
+    sectionCache = label;
+    setActiveSection(label);
+    void window.api.settings.set("settings_active_section", label).catch(() => {});
+  };
 
   const loadCleared = () => void window.api.scan.clearedHistoryCount().then(setClearedCount).catch(() => {});
   // Refresh the cleared-run count whenever the Scan section opens; reset any in-flight confirm/message.
@@ -164,26 +188,30 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
 
   return (
     <main className="view shown">
-      <div className="wrap">
+      <div className="wrap wrap-wide">
         <div className="settingsgrid">
           <nav className="setnav">
-            <button className={nav("General")} onClick={() => setActiveSection("General")}>
+            <button className={nav("General")} onClick={() => openSection("General")}>
               <Gear />
               General
             </button>
-            <button className={nav("Appearance")} onClick={() => setActiveSection("Appearance")}>
+            <button className={nav("Appearance")} onClick={() => openSection("Appearance")}>
               <DoorTheme />
               Appearance
             </button>
-            <button className={nav("Storage")} onClick={() => setActiveSection("Storage")}>
+            <button className={nav("Storage")} onClick={() => openSection("Storage")}>
               <FolderIcon />
               Storage
             </button>
             <div className="setsec">Access</div>
-            <div className="setsec">Modules</div>
-            <button className={nav("Scan")} onClick={() => setActiveSection("Scan")}>
+            <div className="setsec">Applications</div>
+            <button className={nav("Scan")} onClick={() => openSection("Scan")}>
               <ScanIcon />
               Scan
+            </button>
+            <button className={nav("TimeTracker")} onClick={() => openSection("TimeTracker")}>
+              <TTClockIcon />
+              TimeTracker
             </button>
             <button className="navitem nb">
               <Vault />
@@ -279,7 +307,6 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                     <br />
                     Hardware ID: <span style={{ fontFamily: "var(--mc-mono)" }}>{device?.hardware_uuid ?? "unavailable"}</span>
                   </p>
-                  <p className="hint">Local only — recorded when this workspace was created and never transmitted anywhere.</p>
                 </div>
                 <div className="field" style={{ marginTop: 26 }}>
                   <div className="setrow">
@@ -414,6 +441,8 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
               </>
             )}
 
+            {activeSection === "TimeTracker" && <TimeTrackerSettings />}
+
             {activeSection === "Scan" && (
               <>
                 <h2>Scan</h2>
@@ -500,6 +529,15 @@ function ScanIcon() {
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
       <path d="M2 5.2V3.4A1.4 1.4 0 0 1 3.4 2h1.8M10.8 2h1.8A1.4 1.4 0 0 1 14 3.4v1.8M14 10.8v1.8a1.4 1.4 0 0 1-1.4 1.4h-1.8M5.2 14H3.4A1.4 1.4 0 0 1 2 12.6v-1.8" />
       <path d="M2 8h12" />
+    </svg>
+  );
+}
+// timetracker — the same clock outline the nav rail uses
+function TTClockIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M8 4.6V8l2.4 1.6" />
     </svg>
   );
 }

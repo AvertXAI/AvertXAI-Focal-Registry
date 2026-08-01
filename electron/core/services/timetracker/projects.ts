@@ -17,6 +17,7 @@ import { contractsDir, getStorageRoot } from "./paths";
 import { createGroup, getGroup, setSidebarSort } from "./groups";
 import { listActive as listActiveAdjustments } from "./adjustments";
 import { classifyProjectType } from "./derive";
+import { enforceCap } from "./license";
 import type {
   ArchiveAuditEntry,
   Cost,
@@ -184,6 +185,7 @@ export function contractFileAbsolutePath(db: Db, projectId: number): string | nu
 }
 
 export function createProject(db: Db, orgId: string, input: NewProjectInput): ProjectListItem {
+  enforceCap(db, "projects"); // MAIN-SIDE tier cap — the UI's disabled state is only a hint
   const clientId = findOrCreateClient(db, orgId, input.clientName, input.contactPhone, input.email);
   const groupId = resolveGroupId(db, orgId, input);
   const maxOrder = db.prepare(`SELECT COALESCE(MAX(priority_order), 0) AS m FROM timetracker_projects`).get() as {

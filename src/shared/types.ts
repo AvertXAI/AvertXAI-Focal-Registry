@@ -403,6 +403,17 @@ export interface TimeTrackerSettings {
   idleThresholdMin: number;
 }
 
+export type TimeTrackerTier = "free" | "pro" | "business";
+
+/** Licence state — hardcoded offline validation; the HIGHEST entitlement of the two stored values wins. */
+export interface TimeTrackerLicenseState {
+  tier: TimeTrackerTier;
+  caps: { projects: number | null; timers: number | null; soundUploads: number | null };
+  licenseKey: string | null;
+  marketplaceId: string | null;
+  keyTiers: { licenseKey: TimeTrackerTier | null; marketplaceId: TimeTrackerTier | null };
+}
+
 export interface TimeTrackerGroup {
   id: number;
   uuid: string;
@@ -889,6 +900,11 @@ export interface Api {
     settings: {
       get: () => Promise<TimeTrackerSettings>;
       save: (settings: TimeTrackerSettings) => Promise<TimeTrackerSettings>;
+    };
+    license: {
+      get: () => Promise<TimeTrackerLicenseState>;
+      setKey: (raw: string) => Promise<TimeTrackerLicenseState>;
+      setMarketplaceId: (raw: string) => Promise<TimeTrackerLicenseState>;
     };
     adjustments: {
       list: (projectId: number) => Promise<TimeTrackerAdjustmentListItem[]>;

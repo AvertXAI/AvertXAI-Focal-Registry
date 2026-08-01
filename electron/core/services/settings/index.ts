@@ -30,6 +30,10 @@ const RENDERER_KEYS = new Set([
   "mindmerge.font_size", // detail-pane px size — UI-only, never restarts the engine
   "migrate.tabs", // Migrate scan tabs (JSON) — renderer tab state persisted so tabs survive navigation
   "tips.enabled", // helpful-tips master switch — ONE global toggle (Jason ruled: no per-tip settings), default on
+  // TimeTracker UI-only pref (Phase 6A, the ONE sanctioned out-of-module addition) — the module
+  // rail's « collapse, persisted like mindmerge.rail_collapsed. Licence/break keys stay OFF this
+  // list: they write through validated timetracker:* channels only.
+  "timetracker.rail_collapsed",
 ]);
 
 function safeKey(key: unknown): string {

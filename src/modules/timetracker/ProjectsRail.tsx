@@ -19,9 +19,12 @@ interface Props {
   onRegroup: (dragId: number, groupId: number | null) => void;
   /** Opens the Archive tab (the rail's box glyph beside the header). */
   onOpenArchive: () => void;
+  /** Collapse state lives in the MODULE (cache + app_settings) — never here; local state dies on remount. */
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
-export default function ProjectsRail({ projects, groups, totals, sortDir, selectedId, onSelect, onNew, onSort, onReorder, onRegroup, onOpenArchive }: Props) {
+export default function ProjectsRail({ projects, groups, totals, sortDir, selectedId, onSelect, onNew, onSort, onReorder, onRegroup, onOpenArchive, collapsed, onToggleCollapse }: Props) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const filtered = q === ""
@@ -32,11 +35,33 @@ export default function ProjectsRail({ projects, groups, totals, sortDir, select
         (p.note_body ?? "").toLowerCase().includes(q)
       );
 
+  // Collapsed: a narrow strip of project colour dots that still select on click, plus the expander.
+  if (collapsed) {
+    return (
+      <aside className="tt-rail collapsed" aria-label="Projects (collapsed)">
+        <button className="tt-railtoggle" title="Expand the projects rail" aria-label="Expand the projects rail" onClick={onToggleCollapse}>»</button>
+        <div className="tt-raildots">
+          {projects.map((p) => (
+            <button
+              key={p.id}
+              className={"tt-raildot" + (p.id === selectedId ? " on" : "")}
+              style={{ background: p.color }}
+              title={p.name}
+              aria-label={`Select ${p.name}`}
+              onClick={() => onSelect(p.id)}
+            />
+          ))}
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside className="tt-rail" aria-label="Projects">
       <div className="tt-railhead">
         <span className="tt-railtitle">Projects</span>
         <span className="tt-railcount">{projects.length}</span>
+        <button className="tt-railtoggle" title="Collapse the projects rail" aria-label="Collapse the projects rail" onClick={onToggleCollapse}>«</button>
         <button className="tt-archbtn" title="Archived projects" aria-label="Open the archive" onClick={onOpenArchive}>
           <svg width={14} height={14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M2 3h12v3H2zM3 6v6.3a.7.7 0 0 0 .7.7h8.6a.7.7 0 0 0 .7-.7V6M6.5 8.6h3" />

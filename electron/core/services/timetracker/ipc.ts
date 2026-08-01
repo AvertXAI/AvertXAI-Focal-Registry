@@ -480,12 +480,18 @@ export function registerTimeTrackerIpc(): void {
     sounds.setSelectedSoundId(db, vString(id, "sound id", 200, true));
   });
 
-  // mini timer window (6B) — toggles persist main-side; closing NEVER stops a timer
+  // mini timer window (6B) — toggles persist main-side; closing NEVER stops a timer.
+  // Return the INTENDED state, never a re-query: BrowserWindow.close() is async, so isMiniOpen()
+  // still reads true for a beat after closeMiniTimer() — re-querying here fed the Settings button
+  // a stale "open" and stuck its label on Close (Jason 08-01).
   safeHandle("timetracker:toggleMiniTimer", () => {
     const { db } = ttCtx();
-    if (isMiniOpen()) closeMiniTimer();
-    else openMiniTimer(timer.status(db).sessions.length);
-    return { open: isMiniOpen() };
+    if (isMiniOpen()) {
+      closeMiniTimer();
+      return { open: false };
+    }
+    openMiniTimer(timer.status(db).sessions.length);
+    return { open: true };
   });
   safeHandle("timetracker:miniTimerState", () => ({ open: isMiniOpen() }));
   safeHandle("timetracker:closeMiniTimer", () => {

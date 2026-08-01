@@ -146,8 +146,10 @@ export default function TimeTrackerSettings() {
       <h2 className="mt">Mini timer</h2>
       <div className="field">
         <div className="setrow">
-          <label>Floating mini timer window</label>
-          <button className="btn" onClick={toggleMini}>{miniOpen ? "Close" : "Open"}</button>
+          <label htmlFor="ttminitimer">Floating mini timer window</label>
+          <button id="ttminitimer" role="switch" aria-checked={miniOpen}
+            className={`switch${miniOpen ? " on" : ""}`}
+            onClick={toggleMini} />
         </div>
         <p className="hint">
           An always-on-top strip of your running timers — click a row to pause or resume it. Closing

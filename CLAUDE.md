@@ -109,7 +109,7 @@ Not a summary. Not "I updated the file." The actual `git diff` of the touched pa
 
 Agent-done is not done. Before any commit:
 
-1. Kill **every** running `electron.exe` — the single-instance lock will refocus a stale window running an old bundle and hand you a false result
+1. Kill **every** running `electron.exe` **AND** `Focal Registry.exe` — the development process and the packaged process are different image names, and either one holds the single-instance lock, which will refocus a stale window running an old bundle and hand you a false result
 2. `npm run dev` and verify on-device
 3. Verify in **all three theme modes** — a fix that is clean in dark can bleed in hybrid
 4. Jason confirms the gate passed

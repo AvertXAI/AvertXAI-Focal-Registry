@@ -65,7 +65,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AvertXAI Focal Registry"
+      "shortcutName": "Focal Registry"
     },
     "portable": {
       "artifactName": "Focal-Registry-Portable-${version}.${ext}"

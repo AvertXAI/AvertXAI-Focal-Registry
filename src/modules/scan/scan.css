@@ -9,14 +9,58 @@
   --scan-estimate:#d4a843;      /* rough-guide numbers — gold, reads on all themes */
   --scan-warn:#e08a3a;          /* unreadable / error counts (NOT the suppressed --mc-orange glow) */
   --scan-ok:#38d982;            /* up-to-date / connected */
+  /* TERMINAL SURFACE — stays DARK in every theme (Jason 08-02-2026). A log reads as a terminal
+     everywhere a photographer or developer has ever seen one, and canon pins this same near-black as
+     the boot frame across all three themes, which the log inherits deliberately. What light mode
+     needed was not inversion but for the box to stop reading as a hole punched in a white page.
+     The ink is a SEPARATE token from --scan-ok on purpose: --scan-ok also colours chips that sit on
+     the page, so it must go dark in light mode — but text INSIDE the terminal always sits on a dark
+     surface and must stay bright. Sharing one token is what made light mode's log dim. */
+  --scan-terminal-background:var(--mc-boot-bg);
+  --scan-terminal-border:var(--mc-border);
+  --scan-terminal-ink:#38d982;
   container-type:inline-size;   /* the module column is the query container for the 900px split */
 }
-[data-theme="light"] .scan-shell{ --scan-estimate:#b8860b; --scan-ok:#1f9d44; }
+[data-theme="light"] .scan-shell{
+  --scan-estimate:#b8860b; --scan-ok:#1f9d44;
+  /* Lifted off pure black so the slab is a panel, not a void; and its OWN edge, because --mc-border
+     is #E5E5E5 in light and would ring a dark box with a near-white halo. Ink stays bright — the
+     surface under it did not change. */
+  --scan-terminal-background:#161d29;
+  --scan-terminal-border:#2b3547;
+}
 
-.scan-shell .scan-tabs{display:flex;gap:22px;border-bottom:1px solid var(--mc-border);margin-bottom:20px}
-.scan-tab{background:none;border:none;color:var(--mc-muted);font:inherit;font-size:13px;padding:0 0 11px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
-.scan-tab.on{color:var(--mc-text);border-bottom-color:var(--mc-accent-primary)}
+/* FLUSH LEFT, matching Migrate (Jason 08-02-2026). This module renders inside the shared .wrap,
+   which centres itself with `margin: 0 auto` and caps at 1280px — on a wide monitor that left a
+   gutter either side while Migrate (which does not use .wrap) filled the column, so the modules did
+   not read as one product. Overriding the auto margins and the cap HERE keeps .wrap's padding — the
+   left gutter — and is scoped to this module, so the deliberately centred pages (Home, Settings,
+   the not-built pages) are untouched. */
+/* …and FULL HEIGHT with its OWN scroll (Jason 08-02-2026: the page could not be scrolled at all —
+   the only way to read the bottom was to resize the window). Cause: `html,body,#root{height:100%}`
+   (globals.css:49) pins the document to the viewport, so a module that relies on DOCUMENT scroll has
+   its overflow confined — the same "#root:height:100% sticky-confinement" already named further down
+   this file. Scan was the ONLY module still relying on it: .rbs-shell, .scv-shell, .dv-shell and
+   .rename-shell are all viewport-height with internal scrolling. This adopts that house pattern.
+   Scan's body is a single flow rather than split panes, so the shell itself is the scroll container —
+   no markup change, and the nested .scan-folders-scroll keeps its own region. */
+.wrap.scan-shell{
+  margin-left:0; margin-right:0; max-width:none;
+  height:calc(100vh - 58px - var(--mc-footer-height, 0px));
+  overflow-y:auto;
+}
+
+/* Tab strip — THE HOUSE STANDARD (Jason ruled 08-02-2026), identical in every module. The selected
+   tab is a card joined to the body below it: its bottom border is painted with the surface the body
+   renders on, so tab and panel share one plane. The transparent border on EVERY tab is required —
+   without it the strip shifts by two pixels each time the selection moves. margin-bottom:-1px sits
+   the tab ON the strip's border rather than above it, so there is no double line. This shell sets no
+   background of its own, so the body renders on --mc-base and that is the join colour.
+   The 20px gap below the strip is this module's own spacing and is left as it was. */
+.scan-shell .scan-tabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--mc-border);flex:none;margin-bottom:20px}
+.scan-tab{background:none;border:1px solid transparent;border-radius:7px 7px 0 0;padding:7px 14px;font:inherit;font-size:12.5px;color:var(--mc-muted);cursor:pointer;white-space:nowrap;margin-bottom:-1px}
 .scan-tab:hover{color:var(--mc-text)}
+.scan-tab.on{color:var(--mc-text);font-weight:600;border-color:var(--mc-border);border-bottom-color:var(--mc-base);background:var(--mc-base)}
 
 /* two-column split: drives list + stage. Stacks below the one sanctioned threshold. */
 .scan-split{display:flex;flex-direction:column;gap:18px}
@@ -88,7 +132,7 @@
 /* FIXED height + ALWAYS-reserved vertical scrollbar (overflow-y:scroll) so the box never changes
    size and the horizontal scrollbar never toggles — both of which reflow the page and make the view
    jump on every progress tick. Each line is ONE row (nowrap + ellipsis); no horizontal scroll. */
-.scan-term{background:var(--mc-boot-bg);border:1px solid var(--mc-border);border-radius:10px;padding:16px 18px;font-family:var(--mc-mono);font-size:12px;line-height:1.85;color:var(--scan-ok);height:320px;min-height:320px;max-height:320px;overflow-y:scroll;overflow-x:hidden}
+.scan-term{background:var(--scan-terminal-background);border:1px solid var(--scan-terminal-border);border-radius:10px;padding:16px 18px;font-family:var(--mc-mono);font-size:12px;line-height:1.85;color:var(--scan-terminal-ink);height:320px;min-height:320px;max-height:320px;overflow-y:scroll;overflow-x:hidden}
 /* Console log lines WRAP (no truncation) — a deep path is never cut off; break anywhere (paths have
    no spaces) and hang-indent the wrapped remainder so continuation lines sit under their line. */
 .scan-term > div{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;padding-left:1.6em;text-indent:-1.6em}
@@ -97,7 +141,7 @@
 .scan-term .ts{color:#5b8dc9}
 .scan-term .t{color:var(--mc-dimmer)}
 .scan-term .w{color:#e8edf7}
-.scan-term .ok{color:var(--scan-ok)}
+.scan-term .ok{color:var(--scan-terminal-ink)} /* bright: it sits on the dark terminal, not the page */
 .scan-term .b{color:#4f8df0;font-weight:600}
 .scan-term .warn{color:var(--scan-warn);font-weight:600}
 .scan-side{display:flex;flex-direction:column;gap:11px}

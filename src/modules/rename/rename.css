@@ -18,12 +18,22 @@
 }
 .rename-shell>.pagetitle,.rename-shell>.subtitle,.rename-shell>.rn-tabs,.rename-shell>.rn-error{flex-shrink:0}
 
-.rename-shell .rn-tabs{display:flex;gap:22px;border-bottom:1px solid var(--mc-border);margin-bottom:16px}
-.rn-tab{background:none;border:none;color:var(--mc-muted);font:inherit;font-size:13.5px;padding:9px 0 11px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;display:flex;align-items:center;gap:7px}
-.rn-tab.on{color:var(--mc-text);font-weight:600;border-bottom-color:var(--rename-accent)}
-.rn-tab.rev.on{color:var(--rename-accent)}
-.rn-tabdot{width:6px;height:6px;border-radius:50%;background:var(--rename-accent)}
+/* FLUSH LEFT, matching Migrate (Jason 08-02-2026) — same reasoning as scan.css: the shared .wrap
+   centres and caps this module, Migrate does not use .wrap, so the two read differently on a wide
+   monitor. Scoped to this module; the centred .wrap elsewhere is untouched. */
+.wrap.rename-shell{ margin-left:0; margin-right:0; max-width:none; }
+
+/* Tab strip — THE HOUSE STANDARD (Jason ruled 08-02-2026), identical in every module. See the note
+   in scan.css for why the transparent border and margin-bottom:-1px are required. This shell sets no
+   background of its own, so the body renders on --mc-base and that is the join colour.
+   PRESERVED from this module: the flex/gap that lays out the Revert tab's dot, the purple Revert
+   identity, and the 16px gap below the strip. */
+.rename-shell .rn-tabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--mc-border);flex:none;margin-bottom:16px}
+.rn-tab{background:none;border:1px solid transparent;border-radius:7px 7px 0 0;padding:7px 14px;font:inherit;font-size:12.5px;color:var(--mc-muted);cursor:pointer;white-space:nowrap;margin-bottom:-1px;display:flex;align-items:center;gap:7px}
 .rn-tab:hover{color:var(--mc-text)}
+.rn-tab.on{color:var(--mc-text);font-weight:600;border-color:var(--mc-border);border-bottom-color:var(--mc-base);background:var(--mc-base)}
+.rn-tab.rev.on{color:var(--rename-accent)} /* 0,3,0 — keeps Revert's purple over the standard's ink */
+.rn-tabdot{width:6px;height:6px;border-radius:50%;background:var(--rename-accent)}
 
 .rn-error{background:rgba(224,87,79,.12);border:1px solid #e0574f;color:#e0574f;border-radius:8px;padding:10px 13px;font-size:12.5px;margin-bottom:14px;cursor:pointer}
 

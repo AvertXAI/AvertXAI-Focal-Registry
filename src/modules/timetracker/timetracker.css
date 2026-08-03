@@ -81,9 +81,15 @@
 .tt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 14px 0 0; gap: 12px; overflow: hidden; }
 .tt-tabs { padding: 0 18px; }
 .tt-tabbody { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 0 18px 14px; }
-.tt-tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--mc-border); flex: none; }
-.tt-tab { background: none; border: none; padding: 4px 2px 8px; font-size: 12.5px; color: var(--mc-muted); cursor: pointer; }
-.tt-tab.on { color: var(--mc-text); font-weight: 600; box-shadow: inset 0 -2px 0 var(--mc-accent-primary); }
+/* Tab strip — the boxed selected tab from the Employees module (Jason 08-02-2026): the active tab
+   reads as a card joined to the body below it, its bottom border erased by --mc-base so the tab and
+   the panel share one surface. Same idiom as .emp-tab, expressed in this module's own rules. */
+.tt-tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--mc-border); flex: none; }
+.tt-tab { background: none; border: 1px solid transparent; border-radius: 7px 7px 0 0; padding: 7px 14px;
+  font-size: 12.5px; color: var(--mc-muted); cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+.tt-tab:hover { color: var(--mc-text); }
+.tt-tab.on { color: var(--mc-text); font-weight: 600; border-color: var(--mc-border);
+  border-bottom-color: var(--mc-base); background: var(--mc-base); }
 .tt-tab.off { color: var(--mc-dimmer); cursor: default; }
 
 /* timer bar — one row by design: the info block is the only flexible part (min-width 0 +
@@ -178,7 +184,10 @@
 .tt-pselname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .tt-pselname.dim { color: var(--mc-dimmer); }
 .tt-pselcaret { color: var(--mc-dimmer); font-size: 10px; flex: none; }
-.tt-pselback { position: fixed; inset: 0; z-index: 30; }
+/* .tt-pselback (a full-viewport invisible backdrop) was REMOVED 08-01-2026: it swallowed the click
+   that was meant to dismiss the list, so the first press anywhere else did nothing and the app read
+   as frozen. Dismissal is a document pointerdown listener in TimerBar.tsx — no covering element
+   exists at all now, so nothing can intercept a click. Do not reintroduce a backdrop here. */
 .tt-psellist { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 31; background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 8px; padding: 4px; max-height: 240px; overflow-y: auto; box-shadow: 0 12px 34px color-mix(in srgb, var(--mc-boot-bg) 55%, transparent); }
 .tt-pselopt { display: flex; align-items: center; gap: 7px; width: 100%; background: none; border: none; border-radius: 6px; color: var(--mc-text); font-size: 12.5px; padding: 6px 8px; cursor: pointer; text-align: left; }
 .tt-pselopt:hover { background: var(--mc-nested); }
@@ -193,7 +202,58 @@
 .tt-secttitle { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mc-muted); }
 .tt-secthead .tt-iconbtn { margin-left: auto; }
 .tt-footnote { font-size: 10.5px; color: var(--mc-dimmer); line-height: 1.5; margin-top: 6px; }
-.tt-notes { min-height: 92px; }
+/* ---- NOTES editor (mockup v3) ------------------------------------------------------------- */
+/* The pad is the working surface now, not a footnote: 270px matches the mockup's .editor. Both
+   editors wrap and never clip; the line-height gives bulleted lines room to read. */
+.tt-notes { min-height: 270px; line-height: 1.8; overflow-wrap: anywhere; }
+/* Notes | History tabs — the section's two faces. Notes is the working surface, History the record. */
+.tt-notestabs { display: flex; gap: 4px; margin-left: 14px; }
+.tt-notestab { background: none; border: 1px solid transparent; border-radius: 7px; color: var(--mc-muted);
+  font-size: 12px; padding: 4px 12px; cursor: pointer; white-space: nowrap; }
+.tt-notestab:hover { color: var(--mc-text); }
+.tt-notestab.on { background: var(--timetracker-selection-background); border-color: var(--mc-accent-primary);
+  color: var(--mc-text); font-weight: 600; }
+/* HISTORY — read-only blocks. No textarea, no contenteditable: there is nothing here to type into. */
+.tt-history { display: flex; flex-direction: column; gap: 22px; padding: 4px 2px; }
+.tt-histblock { display: flex; flex-direction: column; gap: 6px; }
+.tt-histhead { font-size: 12px; color: var(--mc-accent-primary); letter-spacing: .3px; font-weight: 600; }
+.tt-histbody { display: flex; flex-direction: column; gap: 3px; padding-left: 2px;
+  border-left: 2px solid var(--mc-border); padding-left: 12px; }
+.tt-histline { font-size: 13px; line-height: 1.7; color: var(--mc-text); overflow-wrap: anywhere;
+  white-space: pre-wrap; }
+/* Section-header controls: sort on the left of the autosave caption, both right-aligned. */
+.tt-notesctl { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tt-secthead .tt-notesctl { margin-left: auto; } /* right-aligned, same idiom as .tt-iconbtn above */
+.tt-notesautosave { font-family: var(--mc-mono); font-size: 11px; color: var(--mc-dimmer); }
+.tt-sortctl { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--mc-text);
+  border: 1px solid var(--mc-border); background: var(--mc-nested); border-radius: 7px;
+  padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.tt-sortctl:hover { border-color: var(--mc-accent-primary); }
+.tt-sortctl b { font-family: var(--mc-mono); color: var(--mc-accent-primary); }
+/* "N notes saved" — transient, clears itself 3 seconds after it appears (survives a tab switch). */
+.tt-filed { display: flex; align-items: center; gap: 10px; background: var(--timetracker-selection-background);
+  border: 1px solid var(--mc-accent-primary); border-radius: 8px; padding: 11px 15px; font-size: 13px;
+  margin-bottom: 14px; overflow-wrap: anywhere; }
+.tt-filed > span:first-child { color: var(--mc-accent-primary); flex: none; }
+/* THE DIVIDER — chrome, never text. It sits between the two editors and cannot be typed across. */
+.tt-notesdivider { display: flex; align-items: center; gap: 12px; margin: 22px 0 12px; }
+.tt-notesdivider i { flex: 1; height: 1px; background: var(--mc-border); display: block; }
+.tt-notesdividerlabel { font-size: 11px; letter-spacing: 1.8px; text-transform: uppercase;
+  color: var(--mc-accent-primary); font-weight: 700; white-space: nowrap; }
+.tt-pillbadge { font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--mc-accent-primary); border: 1px solid var(--mc-accent-primary); border-radius: 6px;
+  padding: 3px 9px; font-weight: 700; white-space: nowrap; }
+/* The live block's stamp — the time the FIRST quick note was written (ruling 6). */
+.tt-sessionstamp { font-size: 12px; color: var(--mc-dimmer); letter-spacing: .3px; margin-bottom: 6px; }
+/* The second editor reads as "live": accent border over the selection tint, shorter than the pad. */
+.tt-sessionnotes { min-height: 140px; line-height: 1.8; overflow-wrap: anywhere;
+  border-color: var(--mc-accent-primary); background: var(--timetracker-selection-background); }
+/* ---- Quick note capture (timer bar) --------------------------------------------------------- */
+.tt-quicknote { border-color: var(--mc-accent-primary); }
+.tt-quicknote:focus { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-accent-primary) 18%, transparent); }
+.tt-quickhint { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--mc-dimmer); margin-top: 4px; }
+.tt-kbd { font-family: var(--mc-mono); font-size: 10px; border: 1px solid var(--mc-border);
+  border-radius: 5px; padding: 2px 6px; color: var(--mc-dimmer); white-space: nowrap; }
 
 /* ---------- grand total bar — pinned above the shell footer ---------- */
 .tt-grandbar { flex: none; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; background: var(--mc-panels); border: 1px solid var(--mc-border); border-bottom: none; border-radius: 9px 9px 0 0; padding: 9px 16px 9px 18px; }
@@ -359,5 +419,18 @@
 .tt-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 11px; color: var(--mc-muted); flex: 1; min-width: 0; }
 .tt-fieldrow { display: flex; gap: 12px; }
 .tt-attach { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tt-error { background: color-mix(in srgb, var(--mc-orange) 14%, var(--mc-panels)); border: 1px solid var(--mc-orange); border-radius: 7px; color: var(--mc-text); font-size: 12px; padding: 8px 11px; margin-bottom: 10px; }
+/* Error banner — its OWN full-width block between the swatch row and the actions (Jason 08-01-2026).
+   The old rule carried no wrapping guarantee at all: with no `overflow-wrap`, any unbroken token
+   longer than the 520px dialog (a path, a channel name, a raw SqliteError run) overflows its box
+   instead of breaking, and the tail is lost past the dialog edge. `overflow-wrap: anywhere` breaks
+   such a token, `white-space: pre-wrap` keeps any newlines AND still wraps, and there is
+   deliberately NO height, NO max-height and NO text-overflow — the banner grows to as many lines as
+   the sentence needs. margin-top separates it from the swatches; it is a column so the hint sits on
+   its own line under the sentence. */
+.tt-error { display: flex; flex-direction: column; gap: 4px; width: 100%; box-sizing: border-box;
+  background: color-mix(in srgb, var(--mc-orange) 14%, var(--mc-panels)); border: 1px solid var(--mc-orange);
+  border-radius: 7px; color: var(--mc-text); font-size: 12px; line-height: 1.45; padding: 10px 12px;
+  margin: 16px 0 12px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.tt-error-plain { font-weight: 600; }
+.tt-error-hint { color: var(--mc-muted); font-size: 11.5px; }
 .tt-modalacts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }

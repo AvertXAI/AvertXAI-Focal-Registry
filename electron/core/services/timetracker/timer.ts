@@ -196,6 +196,31 @@ export function resume(db: Db, orgId: string, sessionId: number): MultiTimerStat
   return status(db);
 }
 
+/**
+ * Overwrite the running session's note column. This is where quick notes live while the clock runs
+ * (Jason ruling 2 — newline-packed into the EXISTING column, no new table, no migration). The
+ * FORMAT is owned by src/shared/ttNotes.ts; this function stores whatever it is handed and knows
+ * nothing about markers or stamps.
+ */
+export function setSessionNote(db: Db, sessionId: number, note: string | null): void {
+  const res = db
+    .prepare(`UPDATE timetracker_active_sessions SET note = ?, updated_at = ? WHERE id = ?`)
+    .run(note, nowIso(), sessionId);
+  if (res.changes === 0) throw new Error(`Session ${sessionId} not found`);
+}
+
+/**
+ * The three fields the stop path needs BEFORE stop() deletes the row: which project to file the
+ * notes under, the wall-clock start (the filed block's header time, ruling 5), and the packed notes.
+ */
+export function sessionFilingInfo(
+  db: Db,
+  sessionId: number
+): { projectId: number; wallStartedAt: string; note: string | null } {
+  const row = rowById(db, sessionId);
+  return { projectId: row.project_id, wallStartedAt: row.wall_started_at, note: row.note };
+}
+
 /** THE single time_entries write path — one clean row per stopped/kept session. */
 function closeSession(db: Db, orgId: string, row: SessionInfoRow, durationSeconds: number, note: string | null, endedAt?: string): TimeEntry {
   const ended = endedAt ?? nowIso();

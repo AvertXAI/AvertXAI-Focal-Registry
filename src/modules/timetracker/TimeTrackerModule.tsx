@@ -24,6 +24,7 @@ import AdjustmentsView from "./AdjustmentsView";
 import ActivityView from "./ActivityView";
 import ArchiveView from "./ArchiveView";
 import AnalyticsView from "./AnalyticsView";
+import { appendQuickNote, parseSessionNotes } from "../../shared/ttNotes";
 import "./timetracker.css";
 
 type Tab = "tracker" | "logbook" | "analytics" | "adjust" | "activity" | "archive";
@@ -52,11 +53,22 @@ export default function TimeTrackerModule() {
   const [totals, setTotals] = useState<TimeTrackerGroupTotalRow[]>([]);
   const [sortDir, setSortDir] = useState<TimeTrackerSidebarSortDir>("none");
   const [status, setStatus] = useState<TimeTrackerMultiTimerStatus>({ sessions: [], focusedId: null });
+  // False until the first status read settles. The empty initial value above is indistinguishable
+  // from "no timers running", which is exactly how a cold reload made live notes look erased.
+  const [statusReady, setStatusReady] = useState(false);
   const [tick, setTick] = useState<TimeTrackerTickPayload | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(() => selectedCache);
   const [modal, setModal] = useState<ModalState>(null);
   const [tab, setTab] = useState<Tab>("tracker");
   const [grand, setGrand] = useState<TimeTrackerGrandTotals | null>(null);
+  // Transient "N quick notes filed" banner (mockup v3, state 2). Cleared on a timeout by the detail
+  // panel's own effect — it is presentation, so nothing about it is persisted.
+  const [filed, setFiled] = useState<{ count: number; at: string } | null>(null);
+  // STABLE identity. As an inline arrow this was recreated on every render, and the detail panel's
+  // dismiss timer lists it as a dependency — so every render (every tab switch, every state change)
+  // tore the timer down and started a fresh one. The banner only cleared after a full quiet period
+  // rather than a fixed 3 seconds (Jason 08-02-2026).
+  const clearFiled = useCallback(() => setFiled(null), []);
   // Bumped on every reload — the detail panel re-fetches its one-round-trip projectDetail on it.
   const [refreshKey, setRefreshKey] = useState(0);
   const [railCollapsed, setRailCollapsed] = useState<boolean>(() => railCollapsedCache ?? false);
@@ -105,7 +117,20 @@ export default function TimeTrackerModule() {
     void api.timetracker.groups.list().then(setGroups).catch(() => {});
     void api.timetracker.projects.groupTotals().then(setTotals).catch(() => {});
     void api.timetracker.sidebar.getSort().then(setSortDir).catch(() => {});
-    void api.timetracker.timer.status().then(setStatus).catch(() => {});
+    // SCOPED failure path (the wider swallowed-catch pattern is a reported finding, not refactored
+    // here): this read carries the running session AND its captured quick notes, so a silent failure
+    // renders the Session notes block empty over notes that exist. Ready is set either way, so the
+    // panel resolves to a real state instead of saying "Loading…" forever.
+    void api.timetracker.timer
+      .status()
+      .then((s) => {
+        setStatus(s);
+        setStatusReady(true);
+      })
+      .catch((e: unknown) => {
+        console.error("[timetracker] timer status failed:", e);
+        setStatusReady(true);
+      });
     void api.timetracker.projects.grandTotals().then(setGrand).catch(() => {});
     void api.timetracker.license.get().then(setLicense).catch(() => {});
     setRefreshKey((k) => k + 1);
@@ -157,9 +182,35 @@ export default function TimeTrackerModule() {
   };
 
   // ---- timer (bar is a dumb view; mutations land here) ----
-  const onStart = (note: string): void => {
+  // No start note any more: the note field is the live-only quick-note capture (rulings 3 + 4), so
+  // there is nothing to carry into start().
+  const onStart = (): void => {
     if (!selected) return;
-    void api.timetracker.timer.start(selected.id, note.trim() || null).then(setStatus).catch(() => {});
+    void api.timetracker.timer
+      .start(selected.id, null)
+      .then((st) => {
+        setStatus(st);
+        // MUST reload, exactly as onStop does: starting a session CLEARS the pad main-side, and the
+        // detail panel only re-reads when refreshKey bumps. Without this the renderer keeps painting
+        // the pre-start detail.note — the database is empty while the screen still shows the old
+        // text (Jason 08-02-2026). Never leave a surface rendering state this action just invalidated.
+        reload();
+      })
+      .catch(() => {});
+  };
+  // ONE captured quick note → appended to the session's packed column through the new channel. The
+  // append is composed here from main-side truth (session.note) using the shared format module, so
+  // the renderer never invents a marker the main process wouldn't recognise.
+  const onQuickNote = (text: string): void => {
+    if (!session) return;
+    const packed = appendQuickNote(session.note, text, new Date().toISOString());
+    void api.timetracker.timer.setSessionNote(session.id, packed).then(setStatus).catch(() => {});
+  };
+  // The Session notes EDITOR's blur save — the second of the two editors (ruling 1). It hands over
+  // an already-packed value, so the same channel serves both writers.
+  const onSessionNotes = (packed: string | null): void => {
+    if (!session) return;
+    void api.timetracker.timer.setSessionNote(session.id, packed).then(setStatus).catch(() => {});
   };
   const onPause = (): void => {
     if (!session) return;
@@ -169,9 +220,21 @@ export default function TimeTrackerModule() {
     if (!session) return;
     void api.timetracker.timer.resume(session.id).then(setStatus).catch(() => {});
   };
+  // Stop files the quick notes MAIN-SIDE (see the stopTimer handler). The count and the header time
+  // are computed HERE from the session we are about to stop — the channel's return shape is left
+  // untouched because the mini timer's stop rides the same channel.
   const onStop = (): void => {
     if (!session) return;
-    void api.timetracker.timer.stop(session.id, null).then(setStatus).catch(() => {});
+    const { lines } = parseSessionNotes(session.note);
+    const filedAt = session.wallStartedAt;
+    void api.timetracker.timer
+      .stop(session.id, null)
+      .then((st) => {
+        setStatus(st);
+        if (lines.length > 0) setFiled({ count: lines.length, at: filedAt });
+        reload(); // the pad's new block only exists main-side until the detail refetches
+      })
+      .catch(() => {});
   };
 
   const onColor = (color: string): void => {
@@ -251,6 +314,7 @@ export default function TimeTrackerModule() {
                 tickSession={tickSession}
                 onSelectProject={select}
                 onStart={onStart}
+                onQuickNote={onQuickNote}
                 onPause={onPause}
                 onResume={onResume}
                 onStop={onStop}
@@ -264,6 +328,11 @@ export default function TimeTrackerModule() {
                 onArchive={onArchive}
                 archiveBlocked={session !== null}
                 onDataChanged={reload}
+                session={session}
+                onSessionNotes={onSessionNotes}
+                filed={filed}
+                onFiledSeen={clearFiled}
+                statusReady={statusReady}
               />
             </>
           )}

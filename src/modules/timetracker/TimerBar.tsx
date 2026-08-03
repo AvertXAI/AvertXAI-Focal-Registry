@@ -17,7 +17,9 @@ interface Props {
   session: TimeTrackerActiveSessionInfo | null;
   tickSession: TimeTrackerTickSession | null;
   onSelectProject: (id: number) => void;
-  onStart: (note: string) => void;
+  onStart: () => void;
+  /** Enter in the Quick note box — appends one bullet to the running session's notes. */
+  onQuickNote: (text: string) => void;
   onPause: () => void;
   onResume: () => void;
   onStop: () => void;
@@ -40,7 +42,7 @@ const fmtMoneyLive = (n: number): string =>
   `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** Project picker with a colour dot PER OPTION — a native <select> cannot render the dots, so this
-    is a minimal button+list dropdown. Closes on outside click via a transparent backdrop. */
+    is a minimal button+list dropdown. Dismissal is a document listener, NOT a backdrop — see below. */
 function ProjectSelect({ projects, project, disabled, onSelect }: {
   projects: TimeTrackerProjectListItem[];
   project: TimeTrackerProjectListItem | null;
@@ -48,8 +50,32 @@ function ProjectSelect({ projects, project, disabled, onSelect }: {
   onSelect: (id: number) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // ⚠ NO INVISIBLE BACKDROP. The old `.tt-pselback` was a full-viewport fixed div whose only job was
+  // to catch the dismissing click — but it ALSO ate that click, so the first press anywhere else did
+  // nothing at all: "+ New project", the module nav, everything read as frozen until you happened to
+  // press inside the list (Jason 08-01-2026). A press outside is now detected on the document in the
+  // CAPTURE phase, and NOTHING is prevented or stopped — so the very same gesture continues to its
+  // real target. One click closes the list and activates whatever you aimed at. Escape closes too.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent): void => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   return (
-    <div className="tt-psel">
+    <div className="tt-psel" ref={rootRef}>
       <button className="tt-input tt-pselbtn" disabled={disabled} aria-haspopup="listbox" aria-expanded={open}
         onClick={() => setOpen((o) => !o)}>
         {project ? (
@@ -60,20 +86,17 @@ function ProjectSelect({ projects, project, disabled, onSelect }: {
         <span className="tt-pselcaret">▾</span>
       </button>
       {open && (
-        <>
-          <div className="tt-pselback" onClick={() => setOpen(false)} />
-          <div className="tt-psellist" role="listbox">
-            {projects.map((p) => (
-              <button key={p.id} className={"tt-pselopt" + (p.id === project?.id ? " on" : "")} role="option"
-                aria-selected={p.id === project?.id}
-                onClick={() => { onSelect(p.id); setOpen(false); }}>
-                <span className="tt-dot" style={{ background: p.color }} />
-                <span className="tt-pselname">{p.name}</span>
-              </button>
-            ))}
-            {projects.length === 0 && <div className="tt-pselopt dim">No projects yet</div>}
-          </div>
-        </>
+        <div className="tt-psellist" role="listbox">
+          {projects.map((p) => (
+            <button key={p.id} className={"tt-pselopt" + (p.id === project?.id ? " on" : "")} role="option"
+              aria-selected={p.id === project?.id}
+              onClick={() => { onSelect(p.id); setOpen(false); }}>
+              <span className="tt-dot" style={{ background: p.color }} />
+              <span className="tt-pselname">{p.name}</span>
+            </button>
+          ))}
+          {projects.length === 0 && <div className="tt-pselopt dim">No projects yet</div>}
+        </div>
       )}
     </div>
   );
@@ -87,12 +110,12 @@ function HourglassIcon() {
   );
 }
 
-export default function TimerBar({ projects, project, session, tickSession, onSelectProject, onStart, onPause, onResume, onStop }: Props) {
-  const [note, setNote] = useState("");
+export default function TimerBar({ projects, project, session, tickSession, onSelectProject, onStart, onQuickNote, onPause, onResume, onStop }: Props) {
+  // The quick-note DRAFT only. It is never a store: Enter files it and clears (ruling 3), and the
+  // filed text lives main-side on the session row from that moment on.
+  const [quick, setQuick] = useState("");
   // 1s wall clock for the live date-time (the tick push only fires while a session exists).
   const [now, setNow] = useState(() => new Date());
-  const noteRef = useRef(note);
-  noteRef.current = note;
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
@@ -145,12 +168,32 @@ export default function TimerBar({ projects, project, session, tickSession, onSe
               <span>Contact</span>
               <span className="tt-input tt-ro">{project?.contact_phone || "—"}</span>
             </label>
-            <label className="tt-bfield">
-              <span>Session note</span>
-              <input className="tt-input" placeholder="optional..." value={live ? (session?.note ?? note) : note}
-                disabled={live} aria-label="Session note"
-                onChange={(e) => setNote(e.target.value)} />
-            </label>
+            {/* QUICK NOTE — present only while a session is live (ruling 4: hidden when idle, not
+                disabled). A type-and-Enter capture box, never a text store (ruling 3): Enter files a
+                bullet into the session block and clears the field. */}
+            {live && (
+              <label className="tt-bfield">
+                <span>Quick note</span>
+                <input
+                  className="tt-input tt-quicknote"
+                  placeholder="Type a note and press Enter…"
+                  value={quick}
+                  aria-label="Quick note"
+                  onChange={(e) => setQuick(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault(); // never submit anything; Enter means "file this note"
+                    const text = quick.trim();
+                    if (text === "") return;
+                    onQuickNote(text);
+                    setQuick("");
+                  }}
+                />
+                <span className="tt-quickhint">
+                  <span className="tt-kbd">Enter</span> files a bullet into Session notes below
+                </span>
+              </label>
+            )}
           </div>
 
           <div className="tt-clockblock">
@@ -163,7 +206,7 @@ export default function TimerBar({ projects, project, session, tickSession, onSe
 
           <div className="tt-barbtns">
             {!live && (
-              <button className="tt-btn start" disabled={!project} onClick={() => onStart(noteRef.current)}>Start</button>
+              <button className="tt-btn start" disabled={!project} onClick={onStart}>Start</button>
             )}
             {running && <button className="tt-btn pause" onClick={onPause}>Pause</button>}
             {paused && <button className="tt-btn start" onClick={onResume}>Resume</button>}
@@ -179,10 +222,13 @@ export default function TimerBar({ projects, project, session, tickSession, onSe
           </div>
         )}
       </div>
-      <div className="tt-barhint">
-        Live — nothing is written until you hit Stop. · On stop, the session saves but the
-        Project / Client / Contact fields stay filled for your next round.
-      </div>
+      {/* Mockup v3: the caption belongs to the LIVE state and is absent when idle. */}
+      {live && (
+        <div className="tt-barhint">
+          Live — nothing is written to the project until you hit Stop. Quick notes are held with the
+          running session and filed into Notes when it ends.
+        </div>
+      )}
     </div>
   );
 }

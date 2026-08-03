@@ -19,7 +19,7 @@ import { getDb } from "../db";
 import { getActiveOrg } from "../db/registry";
 import * as storage from "../storage";
 import { getMainWindow } from "../../windows";
-import type { Db } from "./db";
+import { ensureTimeTrackerSchema, type Db } from "./db";
 import * as projects from "./projects";
 import * as groups from "./groups";
 import * as timer from "./timer";
@@ -34,6 +34,8 @@ import * as license from "./license";
 import * as attention from "./attention";
 import { closeMiniTimer, forwardToMini, isMiniOpen, openMiniTimer, resizeMiniFor, wasMiniOpen } from "./mini-window";
 import { setBundledSoundsDir, setTimeTrackerStorageRoot } from "./paths";
+// Note FORMAT lives in ONE shared module so main and renderer cannot disagree about a block.
+import { parseSessionNotes } from "../../../../src/shared/ttNotes";
 import {
   REPORT_GRANULARITIES,
   REPORT_RANGES,
@@ -67,6 +69,7 @@ function safeHandle(channel: string, listener: Parameters<typeof ipcMain.handle>
 // write, or fresh heartbeats overwrite the stale ones and the recovery list comes up silently
 // empty. Sessions outlive module navigation, so none of this can wait for the module to open.
 let started = false;
+let schemaReady = false;
 let tickerHandle: ReturnType<typeof setInterval> | null = null;
 let tickCount = 0;
 // PDFs exported THIS session — the only paths timetracker:revealExportedPdf will hand to the OS.
@@ -76,6 +79,18 @@ function ttCtx(): { db: Db; orgId: string } {
   const org = getActiveOrg();
   if (!org) throw new Error("TimeTracker: no active org");
   const db = getDb();
+  // ⚠ SCHEMA FIRST — BEFORE the service-start block below and before any handler's query.
+  // main.ts's boot ensure sits inside `if (org)`, which is evaluated BEFORE the first-run wizard
+  // mints the org — so an org created in THIS session never reaches it. CONFIRMED at runtime
+  // 08-01-2026: after dev:reset + wizard, six handlers threw "no such table" until a relaunch.
+  // This restores the intent already claimed at registerTimeTrackerIpc(): "the lazy ctx covers the
+  // post-wizard session" — it covered service start but not the tables. Guard-only, idempotent, and
+  // gated to once per process. Order is load-bearing: captureInterrupted() below READS
+  // timetracker_active_sessions, so it cannot run first.
+  if (!schemaReady) {
+    ensureTimeTrackerSchema(db);
+    schemaReady = true;
+  }
   if (!started) {
     started = true;
     // File storage under the managed markdown tree: <root>\MissionControl\Focal-Registry\TimeTracker\
@@ -356,7 +371,13 @@ export function registerTimeTrackerIpc(): void {
   // timer (multi-session) — every mutation broadcasts so all surfaces stay in sync
   safeHandle("timetracker:startTimer", (_e, projectId: unknown, note: unknown) => {
     const { db, orgId } = ttCtx();
-    const st = timer.start(db, orgId, vId(projectId, "project id"), vNullableString(note, "session note", 2000));
+    const id = vId(projectId, "project id");
+    const st = timer.start(db, orgId, id, vNullableString(note, "session note", 2000));
+    // A session begins with a CLEAN pad (Jason 08-02-2026). The pad is staging for the session that
+    // is running — its life is the session's life: cleared here at the start, filed into History and
+    // cleared again at the stop. Anything still sitting in it was left by an earlier build, since the
+    // renderer refuses to write to it while no timer runs.
+    projects.saveNote(db, orgId, id, "");
     timerChanged();
     return st;
   });
@@ -372,10 +393,41 @@ export function registerTimeTrackerIpc(): void {
     timerChanged();
     return st;
   });
+  // STOP is the HARD SAVE (Jason 08-02-2026). Two working surfaces are consumed into ONE permanent
+  // record on the session's time_entries row:
+  //   1. the live quick notes packed on the session row, and
+  //   2. whatever is staged in the project's Notes pad,
+  // joined in that order and handed to timer.stop(), whose existing precedence (`note || row.note`)
+  // prefers what we pass. The pad is then CLEARED — nothing is destroyed, the text has moved into
+  // the permanent record the History tab reads.
+  //
+  // WHY time_entries AND NOT the notes pad: `timetracker_notes` is ONE upsertable column per
+  // project. If it held the history too, every pad save would have to parse around the filed text to
+  // avoid clobbering it — the exact boundary-parsing fragility the two-editor ruling avoided.
+  // time_entries has a single INSERT path and NO update path anywhere in the codebase, so a filed
+  // block is immutable by construction rather than by a UI that politely declines to edit it.
   safeHandle("timetracker:stopTimer", (_e, sessionId: unknown, note: unknown) => {
     const { db, orgId } = ttCtx();
-    timer.stop(db, orgId, vId(sessionId, "session id"), vNullableString(note, "session note", 2000));
+    const id = vId(sessionId, "session id");
+    const info = timer.sessionFilingInfo(db, id);
+    const quick = parseSessionNotes(info.note).lines;
+    const staged = projects.getNote(db, info.projectId).trim();
+    const parts = [...quick, ...(staged === "" ? [] : [staged])];
+    const joined = parts.join("\n");
+    timer.stop(db, orgId, id, joined || vNullableString(note, "session note", 20000));
+    if (staged !== "") projects.saveNote(db, orgId, info.projectId, ""); // staged text now lives in the record
     timerChanged();
+    // Return shape UNCHANGED (MultiTimerStatus): the mini window's stop rides this same channel, and
+    // the renderer already holds the session's notes, so it computes its own "filed" toast locally.
+    return timer.status(db);
+  });
+
+  // The ONE new channel this phase adds: overwrite the running session's packed note column. Used by
+  // the timer bar's quick-note capture and by the Session notes editor's blur save. Returns the
+  // fresh status so the renderer repaints from main-side truth rather than its own optimism.
+  safeHandle("timetracker:setSessionNote", (_e, sessionId: unknown, note: unknown) => {
+    const { db } = ttCtx();
+    timer.setSessionNote(db, vId(sessionId, "session id"), vNullableString(note, "session note", 20000));
     return timer.status(db);
   });
   safeHandle("timetracker:stopAllTimers", () => {

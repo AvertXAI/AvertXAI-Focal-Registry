@@ -67,6 +67,20 @@ export const TIPS: TipDef[] = [
     body:
       "The floating strip is just a window onto your timers — close it, move it, or forget it, and every clock keeps counting in the app. Click a row in it to pause that one timer; click again to resume.",
   },
+  {
+    id: "TIP-TT-007",
+    module: "timetracker",
+    title: "Writing notes",
+    body:
+      "Press Enter to start a new bulleted line, or Shift + Enter for a plain one with no bullet. Every new line begins with ∙. To number or letter a list instead, start a line with 1., A., 1-, 1 - , A- or A - and the lines that follow keep counting.",
+  },
+  {
+    id: "TIP-TT-008",
+    module: "timetracker",
+    title: "Session notes",
+    body:
+      "Quick notes you write while the timer runs are filed into this project's Notes when you stop it — under the date and time the session began, in the order you wrote them.",
+  },
 ];
 
 export const tipById = (id: string): TipDef | undefined => TIPS.find((t) => t.id === id);

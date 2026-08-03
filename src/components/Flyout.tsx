@@ -179,6 +179,8 @@ function moduleIcon(slug: string) {
       return <MigrateIcon />;
     case "timetracker":
       return <ClockIcon />;
+    case "employees":
+      return <PeopleIcon />;
     case "scout-viewer":
       return <SearchIcon />;
     case "vault":
@@ -227,6 +229,18 @@ function ClockIcon() {
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
       <circle cx="8" cy="8" r="6.2" />
       <path d="M8 4.6V8l2.4 1.6" />
+    </svg>
+  );
+}
+
+// employees — two-person outline (hand-rolled, like every glyph here: @fluentui/react-icons is
+// BANNED at 172 MB installed)
+function PeopleIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="6.2" cy="5.4" r="2.6" />
+      <path d="M1.8 13.6c0-2.4 2-4 4.4-4s4.4 1.6 4.4 4" />
+      <path d="M11 3.2a2.4 2.4 0 0 1 0 4.6M12.4 9.9c1.2.5 1.8 1.9 1.8 3.7" />
     </svg>
   );
 }

@@ -15,6 +15,7 @@ const CARD_COPY: Record<string, string> = {
   "scout-viewer": "An encrypted web-based browser with custom tools, meant for data extraction and AI automations.",
   vault: "AES-256 encrypted vault that holds secrets, passwords and private notes. Includes a custom password generator, easy for the user.",
   marketplace: "Browse and subscribe to Focal Registry modules. Coming soon.",
+  employees: "Track who worked, on what, at what rate — and what you have paid them. Coming soon.",
 };
 
 export default function Home({ onNavigate, modules }: { onNavigate: (v: View) => void; modules: ModuleRow[] }) {

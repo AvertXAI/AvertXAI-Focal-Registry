@@ -5,9 +5,11 @@ import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "ele
 import path from "node:path";
 import { getDb, initDb, openDb } from "./core/services/db";
 import { ensureTimeTrackerSchema } from "./core/services/timetracker/db";
+import { ensureEmployeesSchema } from "./core/services/employees/db";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
 import { getSetting, setSetting } from "./core/services/settings";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/crypto";
+import { ensureVaultSchema } from "./core/services/vault/db";
 import { registerIpcHandlers } from "./core/ipc";
 import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overlayFor, setBooting, setMainWindow, showMain } from "./core/windows";
 import { initUpdater, notifyUpdaterBootDone } from "./core/updater";
@@ -42,9 +44,13 @@ function readBootTheme(): string {
     const row = getDb().prepare("SELECT value FROM app_settings WHERE key = 'theme_mode'").get() as
       | { value: string }
       | undefined;
-    return row?.value === "light" || row?.value === "dark" ? row.value : "system";
+    // A STORED choice always wins — including an explicit "system" (Hybrid), which the toggle can
+    // set. Only the ABSENCE of a row falls to the default, and that default is LIGHT (Jason
+    // 08-01-2026): a new organization opens in light mode. Nothing is seeded into app_settings —
+    // the default lives here alone, the structural lesson from the break_enabled bug.
+    return row?.value === "light" || row?.value === "dark" || row?.value === "system" ? row.value : "light";
   } catch {
-    return "system"; // no org DB yet (first run) — hybrid default, never hang
+    return "light"; // no org DB yet (first run) — light default, never hang
   }
 }
 // AvertXAI mark (multi-res .ico) — window + taskbar icon.
@@ -216,9 +222,19 @@ app.whenReady().then(async () => {
     // crash-recovery capture must run before any heartbeat write, and running timers outlive module
     // navigation — so the tables must exist from second zero. Idempotent, guard-only, rerunnable.
     ensureTimeTrackerSchema(getDb());
-    // Vault lockdown: safeStorage-wrapped secret → Argon2id → SQLCipher key.
+    // Employees schema rides the SAME boot call site (Jason 08-01-2026). It has no ticker of its
+    // own, but the ensure is guard-only and idempotent, and payroll rows are read by surfaces that
+    // must not race a lazy first-IPC. The module's ipc ctx re-ensures defensively for an org minted
+    // by the first-run wizard mid-session, which never reaches this line.
+    ensureEmployeesSchema(getDb());
+    // Vault lockdown: safeStorage-wrapped secret → Argon2id → SQLCipher key. The file is
+    // <org_id>.atd — deliberately dull (ruled 08-02-2026), obscurity only; SQLCipher is the control.
     const vaultKey = await deriveVaultKey(getOrCreateVaultSecret(org.org_id));
-    openDb(path.join(userData, `vault_${org.org_id}.locked.db`), "vault", vaultKey);
+    const vaultDb = openDb(path.join(userData, `${org.org_id}.atd`), "vault", vaultKey);
+    // Vault schema rides the same boot call site as TimeTracker/Employees — guard-only, idempotent,
+    // and against the VAULT connection, never the shared DB. An org minted by the first-run wizard
+    // mid-session never reaches this line; the vault ipc ctx re-ensures defensively for that path.
+    ensureVaultSchema(vaultDb);
     // MindMerge engine is LAZY — it starts on the first MindMerge IPC (module open), not
     // at boot. Its initial ingest walks + parses the whole watch folder + writes a DB row per file; on
     // a dev-sized folder that is seconds of work and made the app unresponsive for ~4-5s at startup.

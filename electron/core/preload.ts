@@ -241,6 +241,9 @@ const api: Api = {
       resume: (sessionId: number) => invoke("timetracker:resumeTimer", sessionId),
       stop: (sessionId: number, note: string | null) => invoke("timetracker:stopTimer", sessionId, note),
       stopAll: () => invoke("timetracker:stopAllTimers"),
+      /** Overwrite the running session's packed quick notes (capture box + Session notes editor). */
+      setSessionNote: (sessionId: number, note: string | null) =>
+        invoke("timetracker:setSessionNote", sessionId, note),
       focus: (sessionId: number) => invoke("timetracker:focusTimer", sessionId),
       status: () => invoke("timetracker:timerStatus"),
       discardIdle: (sessionId: number, seconds: number) => invoke("timetracker:discardIdle", sessionId, seconds),
@@ -279,6 +282,67 @@ const api: Api = {
       snoozeBreak: () => invoke("timetracker:snoozeBreak"),
       resolveIdle: (discard: boolean) => invoke("timetracker:resolveIdle", discard),
     },
+  },
+  employees: {
+    people: {
+      list: () => invoke("employees:listPeople"),
+      listArchived: () => invoke("employees:listArchivedPeople"),
+      get: (id: number) => invoke("employees:getPerson", id),
+      create: (input: unknown) => invoke("employees:createPerson", input),
+      update: (id: number, input: unknown) => invoke("employees:updatePerson", id, input),
+      archive: (id: number, reason: string) => invoke("employees:archivePerson", id, reason),
+      restore: (id: number) => invoke("employees:restorePerson", id),
+    },
+    entries: {
+      // No update and no delete: an entry is never rewritten — corrections are adjustments.
+      create: (input: unknown) => invoke("employees:createEntry", input),
+      listForPerson: (employeeId: number) => invoke("employees:listEntriesForPerson", employeeId),
+      listForProject: (projectId: number) => invoke("employees:listEntriesForProject", projectId),
+      listInRange: (fromDate: string, toDate: string) => invoke("employees:listEntriesInRange", fromDate, toDate),
+    },
+    tasks: {
+      list: () => invoke("employees:listTasks"),
+      listForPerson: (employeeId: number) => invoke("employees:listTasksForPerson", employeeId),
+      create: (input: unknown) => invoke("employees:createTask", input),
+      update: (id: number, input: unknown) => invoke("employees:updateTask", id, input),
+      assign: (id: number, employeeId: number | null) => invoke("employees:assignTask", id, employeeId),
+      setDone: (id: number, done: boolean) => invoke("employees:setTaskDone", id, done),
+      remove: (id: number) => invoke("employees:removeTask", id), // SOFT delete
+    },
+    payments: {
+      // Append-only: a mistake is a reversing row, so no update/delete channel exists to expose.
+      list: (employeeId: number) => invoke("employees:listPayments", employeeId),
+      listInRange: (fromDate: string, toDate: string) => invoke("employees:listPaymentsInRange", fromDate, toDate),
+      record: (input: unknown) => invoke("employees:recordPayment", input),
+      reverse: (uuid: string, note: string | null) => invoke("employees:reversePayment", uuid, note),
+    },
+    adjustments: {
+      list: (employeeId: number) => invoke("employees:listAdjustments", employeeId),
+      listAll: () => invoke("employees:listAllAdjustments"),
+      createHours: (input: unknown) => invoke("employees:createHoursAdjustment", input),
+      createAmount: (input: unknown) => invoke("employees:createAmountAdjustment", input),
+      update: (uuid: string, deltaValue: number, note: string) =>
+        invoke("employees:updateAdjustment", uuid, deltaValue, note),
+      softDelete: (uuid: string) => invoke("employees:softDeleteAdjustment", uuid),
+    },
+    reports: {
+      costByProject: () => invoke("employees:costByProject"),
+      costForProject: (projectId: number) => invoke("employees:costForProject", projectId),
+      balance: (employeeId: number) => invoke("employees:balance", employeeId),
+    },
+    activity: {
+      list: (opts?: { limit?: number; employeeId?: number }) => invoke("employees:listActivity", opts ?? {}),
+    },
+  },
+  vault: {
+    // A secret VALUE crosses this bridge on exactly ONE method: read(). list() is metadata-only by
+    // construction (the service never selects the value column), and create/supersede return
+    // metadata — the page already holds the value it just sent.
+    create: (input: unknown) => invoke("vault:createSecret", input),
+    list: (includeArchived?: boolean) => invoke("vault:listSecrets", includeArchived === true),
+    read: (uuid: string) => invoke("vault:readSecret", uuid),
+    supersede: (uuid: string, value: string) => invoke("vault:supersedeSecret", uuid, value),
+    archive: (uuid: string, reason?: string | null) => invoke("vault:archiveSecret", uuid, reason ?? null),
   },
   updater: {
     check: () => invoke("updater:check"),

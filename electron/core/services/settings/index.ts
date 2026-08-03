@@ -35,6 +35,7 @@ const RENDERER_KEYS = new Set([
   // rail's « collapse, persisted like mindmerge.rail_collapsed. Licence/break keys stay OFF this
   // list: they write through validated timetracker:* channels only.
   "timetracker.rail_collapsed",
+  "timetracker.notes_sort", // Notes pad block order ("newest" | "oldest") — a sticky view preference
 ]);
 
 function safeKey(key: unknown): string {

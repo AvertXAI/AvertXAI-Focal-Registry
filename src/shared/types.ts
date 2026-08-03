@@ -706,6 +706,232 @@ export interface TimeTrackerIdlePayload {
   thresholdMin: number;
 }
 
+// ---- Employees module — renderer-safe copies of the service shapes at
+// electron/core/services/employees/types.ts (the renderer imports from HERE, never from services/).
+// Money is a plain number (REAL in SQLite), matching TimeTracker exactly — never integer cents.
+
+/** Pay type lives on the ENTRY, never on the person. Hours are recorded for all four. */
+export type EmployeePayType = "hourly" | "job" | "task" | "donated";
+/** Hours and amount corrections are different operations — the database enforces the split. */
+export type EmployeeAdjustmentKind = "hours" | "amount";
+export type EmployeeEventType =
+  | "person_added"
+  | "person_archived"
+  | "person_restored"
+  | "entry_logged"
+  | "task_created"
+  | "task_assigned"
+  | "task_done"
+  | "task_reopened"
+  | "payment_recorded"
+  | "payment_reversed"
+  | "adjusted"
+  | "adjustment_removed";
+
+export interface EmployeePerson {
+  id: number;
+  uuid: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  role: string | null;
+  /** Prefill only — never the money of record. That is rate_at_entry on each entry. */
+  default_rate: number | null;
+  notes: string | null;
+  archived_at: string | null;
+  archive_reason: string | null;
+  created_at: string;
+}
+
+export interface EmployeePersonInput {
+  name: string;
+  email: string | null;
+  phone: string | null;
+  role: string | null;
+  defaultRate: number | null;
+  notes: string | null;
+}
+
+export interface EmployeeEntry {
+  id: number;
+  uuid: string;
+  employee_id: number;
+  project_id: number | null;
+  project_name: string;
+  task_id: number | null;
+  pay_type: EmployeePayType;
+  hours_worked: number;
+  rate_at_entry: number;
+  /** Agreed amount for the per-job / per-task types; null for hourly and donated. */
+  flat_amount: number | null;
+  worked_on: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface EmployeeEntryInput {
+  employeeId: number;
+  projectId: number | null;
+  projectName: string;
+  taskId: number | null;
+  payType: EmployeePayType;
+  hoursWorked: number;
+  rateAtEntry: number;
+  flatAmount: number | null;
+  workedOn: string;
+  note: string | null;
+}
+
+export interface EmployeeTask {
+  id: number;
+  uuid: string;
+  title: string;
+  detail: string | null;
+  employee_id: number | null;
+  project_id: number | null;
+  project_name: string | null;
+  done_at: string | null;
+  deleted_at: string | null;
+  created_at: string;
+}
+
+export interface EmployeeTaskInput {
+  title: string;
+  detail: string | null;
+  employeeId: number | null;
+  projectId: number | null;
+  projectName: string | null;
+}
+
+export interface EmployeePayment {
+  id: number;
+  uuid: string;
+  employee_id: number;
+  /** Negative on a reversing row. Never zero. */
+  amount: number;
+  paid_on: string;
+  method: string | null;
+  reference: string | null;
+  note: string | null;
+  reverses_uuid: string | null;
+  created_at: string;
+}
+
+export interface EmployeePaymentInput {
+  employeeId: number;
+  amount: number;
+  paidOn: string;
+  method: string | null;
+  reference: string | null;
+  note: string | null;
+}
+
+export type EmployeeAuditEntry =
+  | {
+      action: "created";
+      at: string;
+      kind: EmployeeAdjustmentKind;
+      delta_minutes?: number;
+      delta_amount?: number;
+      note: string;
+    }
+  | {
+      action: "edited";
+      at: string;
+      from: { delta_minutes: number | null; delta_amount: number | null; note: string };
+      to: { delta_minutes: number | null; delta_amount: number | null; note: string };
+    }
+  | { action: "deleted"; at: string };
+
+export interface EmployeeAdjustment {
+  id: number;
+  uuid: string;
+  employee_id: number;
+  kind: EmployeeAdjustmentKind;
+  project_id: number | null;
+  project_name: string | null;
+  delta_minutes: number | null;
+  rate_at_entry: number | null;
+  delta_amount: number | null;
+  note: string;
+  deleted_at: string | null;
+  audit_log: EmployeeAuditEntry[];
+  created_at: string;
+}
+
+/** Project is REQUIRED on an hours correction, and it carries its own mandatory rate. */
+export interface EmployeeHoursAdjustmentInput {
+  employeeId: number;
+  projectId: number;
+  projectName: string;
+  deltaMinutes: number;
+  rateAtEntry: number;
+  note: string;
+}
+
+/** Project is OPTIONAL on an amount correction, and no rate applies. */
+export interface EmployeeAmountAdjustmentInput {
+  employeeId: number;
+  projectId: number | null;
+  projectName: string | null;
+  deltaAmount: number;
+  note: string;
+}
+
+export interface EmployeeEventRow {
+  id: number;
+  uuid: string;
+  ts: string;
+  event_type: EmployeeEventType;
+  employee_id: number | null;
+  employee_name: string;
+  detail: string | null;
+  created_at: string;
+}
+
+/** The analytics seam — built and deliberately consumed by nothing yet. */
+export interface EmployeeProjectCost {
+  project_id: number;
+  project_name: string;
+  employee_hours: number;
+  employee_cost: number;
+}
+
+/** Derived payroll position — never stored, and carries across periods by construction. */
+export interface EmployeeBalance {
+  employee_id: number;
+  earned: number;
+  paid: number;
+  outstanding: number;
+  hours: number;
+}
+
+export interface VaultSecretInput {
+  kind: string; // open set — 'api_key', 'password', 'taxpayer_id', …
+  label: string;
+  value: string;
+}
+
+/** Vault METADATA — every list/create/supersede/archive surface returns this shape, which has no
+ *  value field to leak. The uuid is the public locator other modules hold (never the value —
+ *  MindMerge's vault_pointer convention). */
+export interface VaultSecretMeta {
+  id: number;
+  uuid: string;
+  kind: string;
+  label: string;
+  version: number;
+  archived_at: string | null;
+  archive_reason: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+/** The single value-bearing shape — vault.read() alone returns it, and the read is access-logged. */
+export interface VaultSecretWithValue extends VaultSecretMeta {
+  value: string;
+}
+
 export interface Api {
   /** Read-only SQLite browser (Data Viewer module) — introspection only, never writes. */
   db: {
@@ -952,6 +1178,8 @@ export interface Api {
       /** Commits exactly ONE time-entry row for that session. */
       stop: (sessionId: number, note: string | null) => Promise<TimeTrackerMultiTimerStatus>;
       stopAll: () => Promise<number>;
+      /** Overwrite the running session's packed quick notes. Format: src/shared/ttNotes.ts. */
+      setSessionNote: (sessionId: number, note: string | null) => Promise<TimeTrackerMultiTimerStatus>;
       focus: (sessionId: number) => Promise<TimeTrackerMultiTimerStatus>;
       status: () => Promise<TimeTrackerMultiTimerStatus>;
       discardIdle: (sessionId: number, seconds: number) => Promise<TimeTrackerMultiTimerStatus>;
@@ -991,6 +1219,72 @@ export interface Api {
       snoozeBreak: () => Promise<void>;
       resolveIdle: (discard: boolean) => Promise<void>;
     };
+  };
+  /** Employees module — thin typed surface over employees:* IPC; services validate everything.
+   *  Note what is ABSENT and cannot be added by accident: no entry update or delete (corrections
+   *  are adjustments), and no payment update or delete (a mistake is a reversing row). */
+  employees: {
+    people: {
+      list: () => Promise<EmployeePerson[]>;
+      listArchived: () => Promise<EmployeePerson[]>;
+      get: (id: number) => Promise<EmployeePerson>;
+      create: (input: EmployeePersonInput) => Promise<EmployeePerson>;
+      update: (id: number, input: EmployeePersonInput) => Promise<EmployeePerson>;
+      archive: (id: number, reason: string) => Promise<EmployeePerson>;
+      restore: (id: number) => Promise<EmployeePerson>;
+    };
+    entries: {
+      create: (input: EmployeeEntryInput) => Promise<EmployeeEntry>;
+      listForPerson: (employeeId: number) => Promise<EmployeeEntry[]>;
+      listForProject: (projectId: number) => Promise<EmployeeEntry[]>;
+      listInRange: (fromDate: string, toDate: string) => Promise<EmployeeEntry[]>;
+    };
+    tasks: {
+      list: () => Promise<EmployeeTask[]>;
+      listForPerson: (employeeId: number) => Promise<EmployeeTask[]>;
+      create: (input: EmployeeTaskInput) => Promise<EmployeeTask>;
+      update: (id: number, input: EmployeeTaskInput) => Promise<EmployeeTask>;
+      assign: (id: number, employeeId: number | null) => Promise<EmployeeTask>;
+      setDone: (id: number, done: boolean) => Promise<EmployeeTask>;
+      /** SOFT delete — the row and its title survive for any entry that paid for it. */
+      remove: (id: number) => Promise<void>;
+    };
+    payments: {
+      list: (employeeId: number) => Promise<EmployeePayment[]>;
+      listInRange: (fromDate: string, toDate: string) => Promise<EmployeePayment[]>;
+      record: (input: EmployeePaymentInput) => Promise<EmployeePayment>;
+      /** Appends the mirror image; the original row is never touched. */
+      reverse: (uuid: string, note: string | null) => Promise<EmployeePayment>;
+    };
+    adjustments: {
+      list: (employeeId: number) => Promise<EmployeeAdjustment[]>;
+      listAll: () => Promise<EmployeeAdjustment[]>;
+      createHours: (input: EmployeeHoursAdjustmentInput) => Promise<EmployeeAdjustment>;
+      createAmount: (input: EmployeeAmountAdjustmentInput) => Promise<EmployeeAdjustment>;
+      update: (uuid: string, deltaValue: number, note: string) => Promise<EmployeeAdjustment>;
+      softDelete: (uuid: string) => Promise<void>;
+    };
+    reports: {
+      /** The seam. Nothing in analytics consumes it yet — that is a later phase. */
+      costByProject: () => Promise<EmployeeProjectCost[]>;
+      costForProject: (projectId: number) => Promise<EmployeeProjectCost>;
+      balance: (employeeId: number) => Promise<EmployeeBalance>;
+    };
+    activity: {
+      list: (opts?: { limit?: number; employeeId?: number }) => Promise<EmployeeEventRow[]>;
+    };
+  };
+  /** Secured Vault — thin typed surface over vault:* IPC against the vault's OWN SQLCipher file.
+   *  A secret VALUE crosses this bridge on exactly ONE method: read(), which is access-logged
+   *  main-side, misses included. list() is metadata-only by construction; create/supersede return
+   *  metadata. Note what is ABSENT and cannot be added by accident: no update-in-place (a new
+   *  version supersedes), no delete (retirement is a soft archive), no access-log channel yet. */
+  vault: {
+    create: (input: VaultSecretInput) => Promise<VaultSecretMeta>;
+    list: (includeArchived?: boolean) => Promise<VaultSecretMeta[]>;
+    read: (uuid: string) => Promise<VaultSecretWithValue>;
+    supersede: (uuid: string, value: string) => Promise<VaultSecretMeta>;
+    archive: (uuid: string, reason?: string | null) => Promise<VaultSecretMeta>;
   };
   /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the
    *  channel (progress tickers for scan / mindmerge / rename, live drive lists for scan). */

@@ -21,6 +21,8 @@ import * as mindmergeApi from "./services/mindmerge/api";
 import * as migrateEngine from "./services/migrate/engine";
 import { ensureMigrateSchema } from "./services/migrate/db";
 import { registerTimeTrackerIpc } from "./services/timetracker/ipc";
+import { registerEmployeesIpc } from "./services/employees/ipc";
+import { registerVaultIpc } from "./services/vault/ipc";
 import { ASSET_CLASSES } from "./services/migrate/registry";
 import { readDeviceIdentity } from "./services/identity";
 import { ingestAll, startMindMerge, type IngestProgress, type MindMergeHandle } from "./services/mindmerge/engine";
@@ -212,6 +214,12 @@ export function registerIpcHandlers(): void {
   // TimeTracker module (timetracker:*) — registration + service start live in the module's own
   // ipc file (crash-recovery capture MUST precede the ticker's first heartbeat; see that file).
   registerTimeTrackerIpc();
+  // Employees module (employees:*) — same shape: registration and its lazy org context live in the
+  // module's own ipc file. No service start, no ticker, no push channel — reads only until asked.
+  registerEmployeesIpc();
+  // Secured Vault (vault:*) — same shape again; its lazy ctx also derives the SQLCipher key and
+  // defensively ensures the vault schema (a wizard-minted org never reaches main.ts's boot ensure).
+  registerVaultIpc();
   // Live drive detection — starts once, independent of any org (enumeration is org-agnostic). A new
   // drive now pushes scan:drives to the renderer immediately; no Ctrl+R.
   startDriveWatcher();

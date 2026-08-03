@@ -35,9 +35,10 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
   // so a failure anywhere before it leaves the registry empty and the wizard simply runs again.
   // ponytail: a crash between seed and addOrg orphans the new .db files — harmless, never routed to.
   initDb(path.join(userData, `focalregistry_${orgId}.db`));
-  // Vault is born encrypted: safeStorage-wrapped secret → Argon2id → SQLCipher key.
+  // Vault is born encrypted: safeStorage-wrapped secret → Argon2id → SQLCipher key. The file is
+  // <org_id>.atd — deliberately dull (ruled 08-02-2026), obscurity only; SQLCipher is the control.
   const vaultKey = await deriveVaultKey(getOrCreateVaultSecret(orgId));
-  openDb(path.join(userData, `vault_${orgId}.locked.db`), "vault", vaultKey);
+  openDb(path.join(userData, `${orgId}.atd`), "vault", vaultKey);
 
   // Device identity is read BEFORE the transaction (it spawns built-in probes — never inside a tx)
   // and is NEVER fatal: a failed probe records NULL columns, the account is created regardless.
@@ -61,10 +62,11 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
       "INSERT INTO device_provenance (uuid, org_id, machine_guid, hardware_uuid, machine_name) VALUES (?, ?, ?, ?, ?)"
     ).run(generateUUIDv7(), orgId, identity.machine_guid, identity.hardware_uuid, identity.machine_name);
 
-    // Nav restructure shape (must stay in lockstep with db/index.ts's seedModule + normalization):
-    // Archive Media 1-3 · Applications 4 · Tools 5-6 · Secured Vault 7 (standalone) ·
-    // Marketplace 8 (standalone). nav_group/nav_standalone are set HERE so a fresh org's first
-    // boot renders the right sections immediately — no transient-NULL "Applications" window.
+    // Nav shape (must stay in lockstep with db/index.ts's seedModule + normalization), display_order
+    // contiguous 1-10: Archive Media 1-3 · Applications 4-5 (6 reserved for Calendar, which has NO
+    // row yet — the gap is deliberate) · Tools 7-8 · Secured Vault 9 (standalone) · Marketplace 10
+    // (standalone). nav_group/nav_standalone are set HERE so a fresh org's first boot renders the
+    // right sections immediately — no transient-NULL "Applications" window.
     const mod = db.prepare(
       "INSERT INTO modules (uuid, tenant_id, name, slug, type, display_order, is_locked, nav_group, nav_standalone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
@@ -72,10 +74,11 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
     mod.run(generateUUIDv7(), orgId, "Rename", "rename", "tool", 2, 0, "Archive Media", 0);
     mod.run(generateUUIDv7(), orgId, "Migrate", "migrate", "tool", 3, 0, "Archive Media", 0);
     mod.run(generateUUIDv7(), orgId, "TimeTracker", "timetracker", "tool", 4, 0, "Applications", 0);
-    mod.run(generateUUIDv7(), orgId, "MindMerge", "mindmerge", "notes", 5, 0, "Tools", 0);
-    mod.run(generateUUIDv7(), orgId, "Scout Viewer", "scout-viewer", "browser", 6, 0, "Tools", 0);
-    mod.run(generateUUIDv7(), orgId, "Secured Vault", "vault", "secrets", 7, 1, "Secured Vault", 1);
-    mod.run(generateUUIDv7(), orgId, "Marketplace", "marketplace", "market", 8, 0, "Marketplace", 1);
+    mod.run(generateUUIDv7(), orgId, "Employees", "employees", "tool", 5, 0, "Applications", 0);
+    mod.run(generateUUIDv7(), orgId, "MindMerge", "mindmerge", "notes", 7, 0, "Tools", 0);
+    mod.run(generateUUIDv7(), orgId, "Scout Viewer", "scout-viewer", "browser", 8, 0, "Tools", 0);
+    mod.run(generateUUIDv7(), orgId, "Secured Vault", "vault", "secrets", 9, 1, "Secured Vault", 1);
+    mod.run(generateUUIDv7(), orgId, "Marketplace", "marketplace", "market", 10, 0, "Marketplace", 1);
   })();
 
   addOrg(orgId, "focalregistry", name);

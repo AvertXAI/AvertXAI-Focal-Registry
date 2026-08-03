@@ -16,7 +16,8 @@
   --mc-seg-on-background:#303539; --mc-seg-on-icon:#4773a6;
 }
 :root{
-  --mc-flyout-width:300px; /* shell sidebar width — App re-sets it inline on drag (clamped ≤ 300) */
+  --mc-flyout-width:200px; /* shell sidebar DEFAULT — the narrow end (Jason 08-01-2026); App re-sets
+    it inline on drag, clamped to [200, 300]. A saved width overrides this on the next paint. */
   /* standing shell footer height — reserved by the full-height modules (dv/rbs/scv calc below) so the
      footer never overlaps or scrolls them; sized for the 2-line wrap at the 740px min width. */
   --mc-footer-height:65px;
@@ -131,9 +132,9 @@ svg{display:block;flex:none}
 .topbar .overlay,.topbar .search-pop{-webkit-app-region:no-drag}
 
 /* ---------- persistent left rail (always open — zero menu-diving) ---------- */
-body{padding-left:var(--mc-flyout-width,300px);padding-bottom:var(--mc-footer-height)} /* clears the fixed rail + the fixed footer; fixed overlays (wizard/terminal) ignore it */
+body{padding-left:var(--mc-flyout-width,200px);padding-bottom:var(--mc-footer-height)} /* clears the fixed rail + the fixed footer; fixed overlays (wizard/terminal) ignore it */
 body.rail-collapsed{padding-left:58px} /* content area expands when the rail collapses (instant snap) */
-.flyout{position:fixed;top:0;left:0;bottom:0;width:var(--mc-flyout-width,300px);background:var(--mc-sidebar);
+.flyout{position:fixed;top:0;left:0;bottom:0;width:var(--mc-flyout-width,200px);background:var(--mc-sidebar);
   border-right:1px solid var(--mc-border);z-index:35;display:flex;flex-direction:column;
   overflow-x:hidden;overflow-y:auto;white-space:nowrap}
 /* drag-resize handle on the rail's right edge (expanded only — Flyout unmounts it when collapsed) */

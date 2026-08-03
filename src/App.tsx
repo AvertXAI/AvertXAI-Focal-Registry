@@ -22,6 +22,7 @@ import VaultModule from "./modules/vault/VaultModule";
 import MindMergeModule from "./modules/mindmerge/MindMergeModule";
 import ScoutViewerModule from "./modules/scout-viewer/ScoutViewerModule";
 import MarketplaceModule from "./modules/marketplace/MarketplaceModule";
+import EmployeesModule from "./modules/employees/EmployeesModule";
 import { defaultSettings, type MindMergeSettings } from "./modules/mindmerge/config.manifest";
 import { startDiagReporter, bumpRender } from "./diag";
 
@@ -36,6 +37,11 @@ export type ThemeMode = "system" | "light" | "dark";
 // never wider than today's rail; raise this one constant to allow more.
 const FLYOUT_MAX_WIDTH = 300;
 const FLYOUT_MIN_WIDTH = 200;
+// A NEW organization starts at the NARROW end (Jason 08-01-2026): the rail opens at the minimum and
+// the user drags it OUT toward 300, rather than opening wide and only ever dragging in. The range is
+// unchanged — this switches which end is the default. Keep in sync with --mc-flyout-width in
+// globals.css, which governs the very first paint before this state reaches the DOM.
+const FLYOUT_DEFAULT_WIDTH = FLYOUT_MIN_WIDTH;
 const clampFlyoutWidth = (px: number): number =>
   Math.min(FLYOUT_MAX_WIDTH, Math.max(FLYOUT_MIN_WIDTH, Math.round(px)));
 
@@ -102,6 +108,7 @@ const MODULE_COMPONENTS: Record<string, ComponentType> = {
   "mindmerge": MindMergeMount,
   "scout-viewer": ScoutViewerModule,
   marketplace: MarketplaceModule,
+  employees: EmployeesModule,
 };
 
 // Manual-check status toast. The update OFFER itself (available → download → install) lives in the
@@ -162,7 +169,7 @@ export default function App() {
   // Sidebar collapse — persisted in app_settings (key 'rail_collapsed'), NOT localStorage (canon).
   const [railCollapsed, setRailCollapsed] = useState(false);
   // Sidebar width — persisted app_settings 'flyout_width'; live while dragging, written on drag-end.
-  const [flyoutWidth, setFlyoutWidth] = useState(FLYOUT_MAX_WIDTH);
+  const [flyoutWidth, setFlyoutWidth] = useState(FLYOUT_DEFAULT_WIDTH);
   // Nav section expand/collapse — persisted app_settings 'nav_section_state' (JSON). Absent group = expanded.
   const [navSections, setNavSections] = useState<Record<string, "expanded" | "collapsed">>({});
   // Theme mode — persisted app_settings 'theme_mode'; applied as <html data-theme>. Seeded from
@@ -171,7 +178,10 @@ export default function App() {
   // back to hybrid until the settings fetch returned (the recon-3b flash). Default: system.
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const t = new URLSearchParams(window.location.search).get("theme");
-    return t === "light" || t === "dark" ? t : "system";
+    // An explicit "system" from main is honoured; only a MISSING param falls to the default, which
+    // is light (Jason 08-01-2026) so a new organization's first paint is already light — matching
+    // main's readBootTheme, or the window would flash hybrid for a frame.
+    return t === "light" || t === "dark" || t === "system" ? t : "light";
   });
   // Org display name — app_settings 'org_name' (Config-as-Data); drives the TopBar brand and the
   // boot terminal's lead line. null = not yet resolved (the terminal gates on this); the 'AvertXAI'
@@ -209,7 +219,7 @@ export default function App() {
       if (themeM === "light" || themeM === "dark") setThemeMode(themeM); // else system (default)
       setOrgName(org || "AvertXAI"); // resolved — fallback applied here, never a blank name
       setRailCollapsed(railC === "1"); // restore the persisted sidebar collapse state
-      if (fw) setFlyoutWidth(clampFlyoutWidth(parseInt(fw, 10) || FLYOUT_MAX_WIDTH)); // clamped ≤ MAX
+      if (fw) setFlyoutWidth(clampFlyoutWidth(parseInt(fw, 10) || FLYOUT_DEFAULT_WIDTH)); // clamped to [200, 300]
       if (nss) {
         try {
           setNavSections(JSON.parse(nss)); // restore per-section collapse; corrupt → all default expanded

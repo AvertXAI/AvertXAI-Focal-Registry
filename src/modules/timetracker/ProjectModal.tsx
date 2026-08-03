@@ -5,6 +5,7 @@
 // main-side validators are the trust boundary — this form only keeps the obvious guards local.
 // Content-area modal: opaque theme surface, NO native-overlay dim (the recurring §3.4 defect).
 import { useState } from "react";
+import { explainTimeTrackerError, type TimeTrackerErrorExplanation } from "./ttErrors";
 import type {
   TimeTrackerContractKind,
   TimeTrackerGroup,
@@ -45,7 +46,7 @@ export default function ProjectModal({ state, groups, onClose, onSaved }: Props)
   const [newGroupName, setNewGroupName] = useState("");
   const [color, setColor] = useState(editing?.color ?? DEFAULT_COLOR);
   const [status, setStatus] = useState<TimeTrackerProjectStatus>(editing?.status ?? "active");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<TimeTrackerErrorExplanation | null>(null);
   const [saving, setSaving] = useState(false);
 
   const num = (s: string): number | null => {
@@ -80,7 +81,10 @@ export default function ProjectModal({ state, groups, onClose, onSaved }: Props)
       : api.timetracker.projects.create(input);
     void op.then(onSaved).catch((e: unknown) => {
       setSaving(false);
-      setError(e instanceof Error ? e.message : String(e));
+      const raw = e instanceof Error ? e.message : String(e);
+      // RAW text to the console ONLY — the dialog gets a sentence (scanErrors.ts precedent).
+      console.error("[timetracker] project save failed:", raw);
+      setError(explainTimeTrackerError(raw));
     });
   };
 
@@ -192,14 +196,21 @@ export default function ProjectModal({ state, groups, onClose, onSaved }: Props)
         )}
 
         <div className="tt-colorrow">
-          <span className="tt-infolabel">Colour</span>
+          <span className="tt-infolabel">Color</span>
           {["#2f6df6", "#3b82f6", "#38bdf8", "#16a34a", "#84cc16", "#eab308", "#f97316", "#ef4444", "#a855f7", "#8b9bb4"].map((c) => (
             <button key={c} className={"tt-swatch" + (c === color ? " on" : "")} style={{ background: c }}
-              aria-label={`Colour ${c}`} onClick={() => setColor(c)} />
+              aria-label={`Color ${c}`} onClick={() => setColor(c)} />
           ))}
         </div>
 
-        {error && <div className="tt-error">{error}</div>}
+        {/* Its own full-width block between the swatches and the actions — wraps to as many lines as
+            the sentence needs, never truncates. */}
+        {error && (
+          <div className="tt-error" role="alert">
+            <span className="tt-error-plain">{error.plain}</span>
+            {error.hint && <span className="tt-error-hint">{error.hint}</span>}
+          </div>
+        )}
 
         <div className="tt-modalacts">
           <button className="tt-btn ghost" onClick={onClose}>Cancel</button>

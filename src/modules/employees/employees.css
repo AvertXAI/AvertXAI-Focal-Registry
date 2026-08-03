@@ -1,0 +1,102 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* Employees module styles — shell tokens (--mc-*) read, never redefined; module tokens
+   --employees-* declared on .emp-shell (never :root), role names spelled in full. Layout mirrors
+   TimeTracker's module shell: fixed nested rail + tabbed main. Built to the approved mockup
+   MOCKUP-timetracker-employees-3-options (option 3, "its own module"). */
+
+.emp-shell {
+  --employees-rail-width: 240px;
+  --employees-selection-background: color-mix(in srgb, var(--mc-accent-primary) 12%, var(--mc-panels));
+  --employees-positive-color: var(--mc-green);
+  --employees-owed-color: #e0a53a; /* amber — money outstanding; NOT --mc-orange (the not-built glow) */
+  --employees-on-accent-ink: #07101f;
+  display: flex;
+  height: calc(100vh - 58px - var(--mc-footer-height, 0px));
+  background: var(--mc-base);
+  color: var(--mc-text);
+  overflow: hidden;
+}
+/* ⚠ THE SPECIFICITY TRAP (TimeTracker Phase 4 Task A, and it cost days there): globals.css has
+   `.view.shown{display:block}` at 0,2,0, which BEATS a single module class at 0,1,0 on the same
+   element — the rail would stack ABOVE the content instead of beside it. Three classes (0,3,0)
+   reclaim the row. tsc cannot see this; only a render can. */
+.view.shown.emp-shell { display: flex; }
+/* Light and dark fill accent buttons with the orange #d97757 accent — white ink reads there.
+   (Hybrid keeps dark ink on its blue accent.) Same fix as the TimeTracker shell. */
+[data-theme="light"] .emp-shell,
+[data-theme="dark"] .emp-shell { --employees-on-accent-ink: #ffffff; }
+
+/* ---------- PEOPLE rail (fixed width, mirrors .tt-rail) ---------- */
+.emp-rail { width: var(--employees-rail-width); flex: none; display: flex; flex-direction: column;
+  background: var(--mc-panels); border-right: 1px solid var(--mc-border); min-height: 0; }
+.emp-railhead { display: flex; align-items: center; gap: 8px; padding: 14px 14px 10px; }
+.emp-railtitle { font-size: 10.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--mc-muted); }
+.emp-railcount { margin-left: auto; font-family: var(--mc-mono); font-size: 11px; color: var(--mc-dimmer);
+  background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 10px; padding: 1px 8px; }
+.emp-raillist { flex: 1; overflow-y: auto; min-height: 0; padding: 0 8px 12px; }
+.emp-personrow { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 9px;
+  border-radius: 7px; background: none; border: none; color: var(--mc-text); font-size: 13px;
+  cursor: pointer; text-align: left; position: relative; }
+.emp-personrow:hover { background: var(--mc-nested); }
+.emp-personrow.on { background: var(--employees-selection-background); font-weight: 600; }
+.emp-personrow.on::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px;
+  border-radius: 0 2px 2px 0; background: var(--mc-accent-primary); }
+.emp-personname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.emp-personhrs { flex: none; font-family: var(--mc-mono); font-size: 11px; color: var(--mc-dimmer); }
+/* avatar — initials on a deterministic colour, the mockup's .av */
+.emp-avatar { flex: none; width: 24px; height: 24px; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; font-size: 9.5px; font-weight: 700; color: #07101f; }
+.emp-avatar.lg { width: 34px; height: 34px; font-size: 12px; }
+
+/* ---------- main column + tab strip ---------- */
+.emp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.emp-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 12px 18px 0; border-bottom: 1px solid var(--mc-border); }
+.emp-tab { background: none; border: 1px solid transparent; border-radius: 7px 7px 0 0; color: var(--mc-muted);
+  font-size: 12.5px; padding: 7px 14px; cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+.emp-tab:hover { color: var(--mc-text); }
+.emp-tab.on { color: var(--mc-text); font-weight: 600; border-color: var(--mc-border);
+  border-bottom-color: var(--mc-base); background: var(--mc-base); }
+.emp-tabbody { flex: 1; overflow-y: auto; min-height: 0; padding: 16px 18px 22px; }
+
+/* ---------- person header ---------- */
+.emp-personhead { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.emp-personhead h2 { font-size: 16px; font-weight: 700; }
+.emp-personrole { font-size: 11.5px; color: var(--mc-muted); }
+
+/* ---------- stat cards (mockup: Accumulated hours) ---------- */
+.emp-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;
+  margin-bottom: 18px; }
+.emp-card { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 8px; padding: 11px 13px; }
+.emp-cardlabel { display: block; font-size: 9px; letter-spacing: .7px; text-transform: uppercase;
+  color: var(--mc-muted); margin-bottom: 4px; }
+.emp-cardvalue { display: block; font-family: var(--mc-mono); font-size: 19px; font-weight: 600; letter-spacing: -.5px; }
+.emp-cardvalue.money { color: var(--employees-positive-color); }
+.emp-cardvalue.owed { color: var(--employees-owed-color); }
+.emp-cardsub { display: block; font-family: var(--mc-mono); font-size: 9.5px; color: var(--mc-dimmer); margin-top: 3px; }
+
+/* ---------- ledger table ---------- */
+.emp-sectlabel { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mc-muted);
+  font-weight: 700; margin-bottom: 8px; }
+.emp-table { width: 100%; border-collapse: collapse; font-size: 12px; background: var(--mc-panels);
+  border: 1px solid var(--mc-border); border-radius: 8px; overflow: hidden; }
+.emp-table th { text-align: left; padding: 8px 10px; font-size: 8.5px; letter-spacing: .7px;
+  text-transform: uppercase; color: var(--mc-muted); font-weight: 700; border-bottom: 1px solid var(--mc-border); }
+.emp-table td { padding: 8px 10px; border-bottom: 1px solid color-mix(in srgb, var(--mc-border) 50%, transparent);
+  vertical-align: middle; }
+.emp-table tr:last-child td { border-bottom: none; }
+.emp-table td.num { font-family: var(--mc-mono); }
+.emp-table td.money { font-family: var(--mc-mono); color: var(--employees-positive-color); }
+.emp-table td.dim { color: var(--mc-muted); }
+.emp-pill { font-size: 9px; padding: 2px 8px; border-radius: 10px; white-space: nowrap;
+  background: var(--mc-nested); color: var(--mc-muted); border: 1px solid var(--mc-border); }
+
+/* ---------- states: empty · loading · error, never mistakable for one another ---------- */
+.emp-state { padding: 16px 2px; font-size: 13px; color: var(--mc-muted); }
+.emp-state.error { color: var(--mc-text); background: color-mix(in srgb, var(--employees-owed-color) 12%, var(--mc-panels));
+  border: 1px solid var(--employees-owed-color); border-radius: 8px; padding: 12px 14px; overflow-wrap: anywhere; }
+.emp-state.error b { display: block; margin-bottom: 3px; }
+/* the four unbuilt tabs — the plain statement, never the orange glow (§3.6) */
+.emp-notbuilt { padding: 26px 2px; }
+.emp-notbuilt h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+.emp-notbuilt p { font-size: 13px; color: var(--mc-muted); max-width: 60ch; line-height: 1.6; }

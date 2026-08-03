@@ -3,9 +3,13 @@
 // Copyright: (c) 2026 AvertXAI. All Rights Reserved.
 // Project: AvertXAI Focal Registry
 // Description: Vault envelope encryption. Layer 1: a random 32-byte per-org secret stored at
-//              vault_<orgId>.key, encrypted at rest by Electron safeStorage (DPAPI/keychain).
+//              <orgId>.ixd, encrypted at rest by Electron safeStorage (DPAPI/keychain).
 //              Layer 2: Argon2id stretches that secret into the raw 32-byte SQLCipher key.
 //              The plaintext secret never touches the repo, the DB, or app_settings.
+//              FILENAMES ARE DELIBERATELY DULL (Jason ruled 08-02-2026): <org_id>.ixd for the key,
+//              <org_id>.atd for the database — no "vault", no ".key", no ".locked". This is
+//              OBSCURITY, NOT A SECURITY CONTROL: the protection is safeStorage + SQLCipher; the
+//              dull names only stop the files from announcing themselves to a folder browser.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/vault/crypto.ts
 //------------------------------------------------------------
@@ -24,7 +28,7 @@ export function getOrCreateVaultSecret(orgId: string): string {
   if (!safeStorage.isEncryptionAvailable()) {
     throw new Error("safeStorage unavailable — cannot protect the vault key file");
   }
-  const keyPath = path.join(app.getPath("userData"), `vault_${orgId}.key`);
+  const keyPath = path.join(app.getPath("userData"), `${orgId}.ixd`); // dull name by ruling — see header
   if (fs.existsSync(keyPath)) {
     return safeStorage.decryptString(fs.readFileSync(keyPath));
   }

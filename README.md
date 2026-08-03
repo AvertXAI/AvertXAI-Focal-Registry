@@ -13,14 +13,14 @@ npm run package  # electron-builder --win (nsis + portable)
 
 ## Database
 
-**Local (SQLite).** The shared DB is `focalregistry_{org_id}.db` under the app's userData folder (routed by `platform_registry.db`). Locked modules each open their own `*.locked.db`.
+**Local (SQLite).** The shared DB is `focalregistry_{org_id}.db` under the app's userData folder (routed by `platform_registry.db`). Locked modules each open their own encrypted database file.
 
 Browse any table from the **Data Viewer** (database icon, top bar) — read-only.
 
 ### Module slots
 
 - **GetScriptClips** (`getscriptclips`) — shared
-- **Vault** (`vault`) — locked → own DB `vault.locked.db`
+- **Vault** (`vault`) — locked → own encrypted DB (deliberately nondescript filename; see `src/modules/vault/LOCK-ME-DOWN.md`)
 
 ## Filling a module slot
 

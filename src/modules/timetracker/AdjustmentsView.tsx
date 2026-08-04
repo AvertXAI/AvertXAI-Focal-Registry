@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { TimeTrackerAdjustmentListItem, TimeTrackerProjectListItem } from "../../shared/types";
 import Tip from "../../components/Tip";
+import EmployeesCard from "../employees/EmployeesCard";
 
 interface Props {
   projects: TimeTrackerProjectListItem[];
@@ -98,6 +99,10 @@ export default function AdjustmentsView({ projects, onDataChanged }: Props) {
 
   return (
     <div className="tt-panel">
+      {/* EMPLOYEES leads the tab (approved placement). Its Adjust button navigates to Employees'
+          OWN Adjustments tab — never this form, which writes timetracker_adjustments, a different
+          table with no employee column. */}
+      <EmployeesCard />
       <div className="tt-toolrow" style={{ marginBottom: 8 }}>
         <select className="tt-input tt-select" value={filter === "all" ? "all" : String(filter)} aria-label="Filter by project"
           onChange={(e) => setFilter(e.target.value === "all" ? "all" : Number(e.target.value))}>

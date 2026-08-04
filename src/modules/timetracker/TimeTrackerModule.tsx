@@ -17,6 +17,7 @@ import type {
 } from "../../shared/types";
 import ProjectsRail from "./ProjectsRail";
 import TimerBar from "./TimerBar";
+import EmployeesCard from "../employees/EmployeesCard";
 import ProjectDetail from "./ProjectDetail";
 import ProjectModal, { type ModalState } from "./ProjectModal";
 import LogbookView from "./LogbookView";
@@ -319,6 +320,10 @@ export default function TimeTrackerModule() {
                 onResume={onResume}
                 onStop={onStop}
               />
+              {/* EMPLOYEES — inserted BETWEEN the timer card and the project card (approved
+                  placement, 08-03 mockup). Nothing in TimerBar above or ProjectDetail below is
+                  touched; the Mini timer button lives in the TAB STRIP, not in this card. */}
+              <EmployeesCard />
               <ProjectDetail
                 project={selected}
                 refreshKey={refreshKey}

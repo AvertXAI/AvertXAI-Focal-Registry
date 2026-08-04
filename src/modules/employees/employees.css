@@ -272,6 +272,44 @@
 .emp-tablewrap { overflow-x: auto; }
 .emp-cards.three { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 
+/* ---------- 3B.2-B · the EMPLOYEES card embedded in TimeTracker ----------
+   Rendered INSIDE .tt-shell, not .emp-shell, so it cannot inherit the --employees-* tokens declared
+   on the module shell. It therefore declares the few it needs on itself — the same full-word
+   prefix, still never on :root. Card chrome mirrors TimeTracker's own panels so the section reads
+   as part of that page rather than as a transplant; the mockup's dashed outline was a marker for
+   "this is the new piece" and is deliberately NOT reproduced. */
+.emp-card-embed {
+  --employees-on-accent-ink: #07101f;
+  --employees-error-color: #e0a53a;
+  --employees-negative-color: #e0574f;
+  --employees-positive-color: var(--mc-green);
+  /* DELIBERATELY NOT position:relative. The modals this card opens use .emp-modalback, which is
+     position:absolute — it must anchor to the nearest POSITIONED ancestor, and that is .tt-shell
+     (timetracker.css: `.tt-shell { position: relative }`). Positioning this card would trap a
+     full dialog inside a 60-pixel-tall box. */
+  background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 10px;
+  padding: 13px 15px; margin-bottom: 14px;
+}
+[data-theme="light"] .emp-card-embed,
+[data-theme="dark"] .emp-card-embed { --employees-on-accent-ink: #ffffff; }
+.emp-embedlabel { font-size: 10px; letter-spacing: 1.3px; text-transform: uppercase;
+  color: var(--mc-muted); font-weight: 700; margin-bottom: 9px; }
+.emp-embedrow { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
+/* The select takes the slack; the four buttons keep their natural width and wrap as a group at the
+   740px floor rather than compressing into unreadable stubs. */
+.emp-embedrow .emp-input { flex: 1 1 190px; width: auto; min-width: 150px; }
+.emp-embedhint { font-size: 11px; color: var(--mc-dimmer); line-height: 1.5; margin-top: 8px; }
+/* A running stop button reads as live without borrowing the not-built orange (§3.6). */
+.emp-btn.stop { background: color-mix(in srgb, var(--employees-negative-color) 22%, var(--mc-nested));
+  border-color: var(--employees-negative-color); color: var(--mc-text); font-weight: 600;
+  font-family: var(--mc-mono); }
+/* "Filed 6.25 h …" — a confirmation, not an error. Green, and it clears itself. */
+.emp-filed { margin-top: 10px; font-size: 12px; line-height: 1.45; padding: 9px 12px; border-radius: 7px;
+  color: var(--mc-text); overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--employees-positive-color) 13%, var(--mc-panels));
+  border: 1px solid var(--employees-positive-color); }
+.emp-card-embed .emp-error { margin: 10px 0 0; }
+
 /* ---------- adjustments tab ---------- */
 .emp-toolrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
 .emp-toolrow .emp-input { width: auto; flex: 0 1 220px; min-width: 140px; }

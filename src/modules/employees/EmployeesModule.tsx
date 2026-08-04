@@ -14,6 +14,7 @@ import PersonModal, { ArchiveModal, type PersonModalState } from "./PersonModal"
 import AddTimeModal from "./AddTimeModal";
 import AdjustmentsView from "./AdjustmentsView";
 import { ProjectChooser, ProjectModalHost } from "./NewEmployeeWizard";
+import { takeNavIntent } from "../../shared/navigate";
 import { bumpRender } from "../../diag";
 import "./employees.css";
 
@@ -100,6 +101,18 @@ export default function EmployeesModule() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // A sibling module asked for a specific tab and person (TimeTracker's Adjust button). Read ONCE,
+  // on mount — a stale intent replayed later would drag the user somewhere they did not ask to go.
+  useEffect(() => {
+    const intent = takeNavIntent("employees");
+    if (!intent) return;
+    if (intent.tab === "adjustments") setTab("adjustments");
+    if (intent.id != null) {
+      setAdjPerson(intent.id);
+      select(intent.id);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** TimeTracker's projects and groups — Employees has neither of its own. The person form needs
       projects for its Project select, and the hosted ProjectModal needs groups. Reloaded after the

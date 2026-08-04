@@ -23,6 +23,7 @@ import MindMergeModule from "./modules/mindmerge/MindMergeModule";
 import ScoutViewerModule from "./modules/scout-viewer/ScoutViewerModule";
 import MarketplaceModule from "./modules/marketplace/MarketplaceModule";
 import EmployeesModule from "./modules/employees/EmployeesModule";
+import { NAVIGATE_EVENT } from "./shared/navigate";
 import { defaultSettings, type MindMergeSettings } from "./modules/mindmerge/config.manifest";
 import { startDiagReporter, bumpRender } from "./diag";
 
@@ -340,6 +341,15 @@ export default function App() {
     window.scrollTo(0, 0);
     void window.api.settings.set("last_active_module", v); // boot restores the last screen
   };
+
+  // Cross-module navigation. A module cannot reach `select` — it is mounted as <ActiveModule /> with
+  // no props — so it asks through a window event, the same shape UPDATE_TOAST_EVENT already uses.
+  // The intent it carries is read by the DESTINATION on mount (src/shared/navigate.ts).
+  useEffect(() => {
+    const onNavigate = (e: Event) => select((e as CustomEvent<string>).detail as View);
+    window.addEventListener(NAVIGATE_EVENT, onNavigate);
+    return () => window.removeEventListener(NAVIGATE_EVENT, onNavigate);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Section expand/collapse — flip one group, persist the whole map as JSON via the settings path
   // (app_settings, never localStorage). An absent group is expanded, so the first click collapses it.

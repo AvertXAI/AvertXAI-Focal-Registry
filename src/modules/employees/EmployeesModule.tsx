@@ -7,11 +7,13 @@
 // Layout mirrors TimeTracker's module shell: `view shown emp-shell` with the three-class CSS rule
 // that beats globals.css's `.view.shown{display:block}` — see employees.css for why that matters.
 import { useCallback, useEffect, useState } from "react";
-import type { EmployeePerson } from "../../shared/types";
+import type { EmployeePerson, TimeTrackerGroup, TimeTrackerProjectListItem } from "../../shared/types";
 import PeopleRail from "./PeopleRail";
 import LedgerView from "./LedgerView";
 import PersonModal, { ArchiveModal, type PersonModalState } from "./PersonModal";
 import AddTimeModal from "./AddTimeModal";
+import AdjustmentsView from "./AdjustmentsView";
+import { ProjectChooser, ProjectModalHost } from "./NewEmployeeWizard";
 import { bumpRender } from "../../diag";
 import "./employees.css";
 
@@ -26,10 +28,9 @@ const TABS: [Tab, string][] = [
 ];
 
 /** What each unbuilt tab says. Plain statement of fact, in the customer's language. */
-const NOT_BUILT: Record<Exclude<Tab, "ledger">, string> = {
+const NOT_BUILT: Record<Exclude<Tab, "ledger" | "adjustments">, string> = {
   tasks: "Assignable tasks with a done state — what someone is meant to do, and whether it is finished.",
   payroll: "What each person has earned, what has been paid, and what is still outstanding.",
-  adjustments: "Corrections to hours and to amounts, kept as their own records so history is never rewritten.",
   details: "The person's own record — contact details, pay rate, and when they started.",
 };
 
@@ -49,10 +50,16 @@ export default function EmployeesModule() {
   const [error, setError] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [hoursById, setHoursById] = useState<Record<number, number>>({});
-  // ---- Phase 3B write surfaces. One modal at a time; each closes by returning its state to null.
+  // ---- write surfaces. One modal at a time; each closes by returning its state to null.
   const [personModal, setPersonModal] = useState<PersonModalState>(null);
   const [archiving, setArchiving] = useState<EmployeePerson | null>(null);
   const [addingTime, setAddingTime] = useState<EmployeePerson | null>(null);
+  // ---- the New Employee wizard: chooser → (optional) project modal → person form.
+  const [wizard, setWizard] = useState<"chooser" | "project" | null>(null);
+  const [projects, setProjects] = useState<TimeTrackerProjectListItem[]>([]);
+  const [groups, setGroups] = useState<TimeTrackerGroup[]>([]);
+  // ---- Adjustments tab (pulled forward from 3C so Part 2's Adjust button has a destination).
+  const [adjPerson, setAdjPerson] = useState<number | null>(null);
   // ---- archived view. `null` means "not read yet"; [] is the real answer "nobody is archived".
   const [showArchived, setShowArchived] = useState(false);
   const [archived, setArchived] = useState<EmployeePerson[] | null>(null);
@@ -94,6 +101,18 @@ export default function EmployeesModule() {
     load();
   }, [load]);
 
+  /** TimeTracker's projects and groups — Employees has neither of its own. The person form needs
+      projects for its Project select, and the hosted ProjectModal needs groups. Reloaded after the
+      wizard creates one so the new project is selectable immediately. */
+  const loadProjectData = useCallback((): void => {
+    void api.timetracker.projects.list().then(setProjects).catch(() => setProjects([]));
+    void api.timetracker.groups.list().then(setGroups).catch(() => setGroups([]));
+  }, [api]);
+
+  useEffect(() => {
+    loadProjectData();
+  }, [loadProjectData]);
+
   // Only fetch the archived list when it is actually on screen.
   useEffect(() => {
     if (showArchived) loadArchived();
@@ -123,11 +142,13 @@ export default function EmployeesModule() {
       the table, all four cards and (through onHours) the rail total all land from a single read. */
   const refreshLedger = (): void => setRefreshKey((k) => k + 1);
 
-  const onPersonSaved = (p: EmployeePerson): void => {
+  const onPersonSaved = (p: EmployeePerson, addTime: boolean): void => {
     setPersonModal(null);
     load(); // the roster changed — name, rate or a brand-new row
     select(p.id);
     refreshLedger();
+    // "Add Employee + Add Time" flows straight on, prefilled from the person just created.
+    if (addTime) setAddingTime(p);
   };
 
   const onArchived = (): void => {
@@ -163,7 +184,7 @@ export default function EmployeesModule() {
         onSelect={select}
         loading={loading}
         error={error}
-        onNew={() => setPersonModal({ mode: "new" })}
+        onNew={() => setWizard("chooser")}
         showArchived={showArchived}
         onToggleArchived={() => setShowArchived((v) => !v)}
         archived={archived}
@@ -206,12 +227,19 @@ export default function EmployeesModule() {
             </div>
           ) : loading ? (
             <div className="emp-state">Loading…</div>
+          ) : tab === "adjustments" ? (
+            <AdjustmentsView
+              people={people}
+              personFilter={adjPerson}
+              onPersonFilter={setAdjPerson}
+              onDataChanged={refreshLedger}
+            />
           ) : tab !== "ledger" ? (
             <div className="emp-notbuilt">
               <h3>{TABS.find(([k]) => k === tab)?.[1]}</h3>
               <p>
-                {NOT_BUILT[tab as Exclude<Tab, "ledger">]} This tab has not been built yet — it will
-                appear here once it is.
+                {NOT_BUILT[tab as Exclude<Tab, "ledger" | "adjustments">]} This tab has not been
+                built yet — it will appear here once it is.
               </p>
             </div>
           ) : selected === null ? (
@@ -232,8 +260,39 @@ export default function EmployeesModule() {
         </div>
       </div>
 
+      {wizard === "chooser" && (
+        <ProjectChooser
+          hasProjects={projects.length > 0}
+          onAddProject={() => setWizard("project")}
+          onAssign={() => {
+            setWizard(null);
+            setPersonModal({ mode: "new", project: null });
+          }}
+          onClose={() => setWizard(null)}
+        />
+      )}
+      {wizard === "project" && (
+        <ProjectModalHost
+          groups={groups}
+          onClose={() => setWizard(null)}
+          onSavedStop={() => {
+            setWizard(null);
+            loadProjectData();
+          }}
+          onSavedGoToEmployee={(p) => {
+            setWizard(null);
+            loadProjectData();
+            setPersonModal({ mode: "new", project: p });
+          }}
+        />
+      )}
       {personModal && (
-        <PersonModal state={personModal} onClose={() => setPersonModal(null)} onSaved={onPersonSaved} />
+        <PersonModal
+          state={personModal}
+          projects={projects}
+          onClose={() => setPersonModal(null)}
+          onSaved={onPersonSaved}
+        />
       )}
       {archiving && (
         <ArchiveModal person={archiving} onClose={() => setArchiving(null)} onArchived={onArchived} />

@@ -1,48 +1,84 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-// New/edit person, and the archive confirmation — two small dialogs that share one frame, one error
-// idiom and one file. Both mirror TimeTracker's ProjectModal (committed 470a5cd): content-area
-// overlay, opaque theme surface, NO native-overlay dim (the recurring §3.4 defect), raw error text
-// to the console and a plain sentence to the banner.
+// Create Employee / Edit Employee, and the archive confirmation.
 //
-// THE FORM OFFERS EXACTLY THE SIX FIELDS EmployeePersonInput CARRIES (src/shared/types.ts:746-753).
-// The 3-options mockup draws Address, Started, Status and Group on the person's Details panel —
-// NONE of those columns exist on employee_people, so they are deliberately not drawn here. Adding a
-// field to this form without a column behind it would fake a record the database cannot keep.
-import { useState } from "react";
-import type { EmployeePerson, EmployeePersonInput } from "../../shared/types";
+// Built to MOCKUP-employees-3b2-wizard-v5-08-03-2026.html scenes 3 (create) and 6 (edit).
+// Content-area overlay, opaque theme surface, NO native-overlay dim (the recurring §3.4 defect).
+// Raw error text to the console, a plain sentence to the banner (the ttErrors idiom).
+//
+// The form now offers every column employee_people carries after the 3B.2-A delta — including the
+// seven added 2026-08-04. Address is a REVEAL: an address is optional and most people will not have
+// one to hand, so it stays behind [+ Add Address] rather than padding the form with four empty
+// boxes. Social security is stored PLAIN by ruling; it shows while focused and masks on blur.
+import { useEffect, useState } from "react";
+import type {
+  EmployeePayType,
+  EmployeePerson,
+  EmployeePersonInput,
+  TimeTrackerProjectListItem,
+} from "../../shared/types";
 import { explainEmployeesError, type EmployeesErrorExplanation } from "./empErrors";
+import { PAY_TYPE_PILLS, US_STATES, formatPhone, formatSsn, maskSsn, normalizeMoney, rateSuffix } from "./format";
+import WorkHistory from "./WorkHistory";
 
-export type PersonModalState = { mode: "new" } | { mode: "edit"; person: EmployeePerson } | null;
+export type PersonModalState =
+  | { mode: "new"; project: TimeTrackerProjectListItem | null }
+  | { mode: "edit"; person: EmployeePerson }
+  | null;
 
 interface Props {
   state: Exclude<PersonModalState, null>;
+  projects: TimeTrackerProjectListItem[];
   onClose: () => void;
-  onSaved: (p: EmployeePerson) => void;
+  /** `addTime` is true when the user pressed "Add Employee + Add Time". */
+  onSaved: (p: EmployeePerson, addTime: boolean) => void;
 }
 
-export default function PersonModal({ state, onClose, onSaved }: Props) {
+type Tab = "details" | "history";
+
+export default function PersonModal({ state, projects, onClose, onSaved }: Props) {
   const api = window.api;
   const editing = state.mode === "edit" ? state.person : null;
+  const seedProject = state.mode === "new" ? state.project : null;
 
+  const [tab, setTab] = useState<Tab>("details");
   const [name, setName] = useState(editing?.name ?? "");
   const [email, setEmail] = useState(editing?.email ?? "");
-  const [phone, setPhone] = useState(editing?.phone ?? "");
+  const [phone, setPhone] = useState(formatPhone(editing?.phone ?? ""));
   const [role, setRole] = useState(editing?.role ?? "");
-  const [rate, setRate] = useState(editing?.default_rate != null ? String(editing.default_rate) : "");
   const [notes, setNotes] = useState(editing?.notes ?? "");
+  // Address — revealed on demand, but auto-open when editing someone who already has one.
+  const [showAddr, setShowAddr] = useState(
+    Boolean(editing?.street_address || editing?.city || editing?.state || editing?.zip)
+  );
+  const [street, setStreet] = useState(editing?.street_address ?? "");
+  const [city, setCity] = useState(editing?.city ?? "");
+  const [stateCode, setStateCode] = useState(editing?.state ?? "");
+  const [zip, setZip] = useState(editing?.zip ?? "");
+  // Social security — `ssn` is the real value; `ssnFocused` decides whether it or the mask shows.
+  const [ssn, setSsn] = useState(editing?.ssn ?? "");
+  const [ssnFocused, setSsnFocused] = useState(false);
+  const [payType, setPayType] = useState<EmployeePayType>(editing?.default_pay_type ?? "hourly");
+  const [rate, setRate] = useState(editing?.default_rate != null ? String(editing.default_rate) : "");
+  const [projectSel, setProjectSel] = useState(
+    String(editing?.default_project_id ?? seedProject?.id ?? "")
+  );
   const [error, setError] = useState<EmployeesErrorExplanation | null>(null);
   const [saving, setSaving] = useState(false);
 
-  /** Blank → null (the services collapse blanks anyway); a bad number → null, never NaN into IPC. */
+  // A project created by the wizard a moment ago may not have been in `projects` when this mounted.
+  useEffect(() => {
+    if (seedProject && projectSel === "") setProjectSel(String(seedProject.id));
+  }, [seedProject]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const nullable = (s: string): string | null => (s.trim() === "" ? null : s);
   const rateValue = (): number | null => {
     const n = Number(rate);
     return rate.trim() !== "" && Number.isFinite(n) && n >= 0 ? n : null;
   };
-  /** A typed rate that isn't a usable number is a mistake worth naming, not silently dropping. */
   const rateInvalid = rate.trim() !== "" && rateValue() === null;
+  const project = projects.find((p) => String(p.id) === projectSel) ?? null;
 
-  const submit = (): void => {
+  const submit = (addTime: boolean): void => {
     if (saving) return;
     const input: EmployeePersonInput = {
       name,
@@ -51,94 +87,249 @@ export default function PersonModal({ state, onClose, onSaved }: Props) {
       role: nullable(role),
       defaultRate: rateValue(),
       notes: nullable(notes),
+      streetAddress: nullable(street),
+      city: nullable(city),
+      state: nullable(stateCode),
+      zip: nullable(zip),
+      ssn: nullable(ssn),
+      defaultPayType: payType,
+      defaultProjectId: project?.id ?? null,
+      // Denormalized beside the id so the row stays readable if that project is ever purged.
+      defaultProjectName: project?.name ?? null,
     };
     setSaving(true);
     setError(null);
     const op = editing ? api.employees.people.update(editing.id, input) : api.employees.people.create(input);
-    void op.then(onSaved).catch((e: unknown) => {
-      setSaving(false);
-      const raw = e instanceof Error ? e.message : String(e);
-      // RAW text to the console ONLY — the dialog gets a sentence. The Free-tier cap refusal lands
-      // here and passes through the classifier untouched, because it is already a plain sentence.
-      console.error("[employees] person save failed:", raw);
-      setError(explainEmployeesError(raw, editing ? "this person" : "this new person"));
-    });
+    void op
+      .then((p) => onSaved(p, addTime))
+      .catch((e: unknown) => {
+        setSaving(false);
+        const raw = e instanceof Error ? e.message : String(e);
+        // RAW to the console ONLY. The Free-tier cap refusal lands here and passes through the
+        // classifier untouched, because it is already a plain sentence.
+        console.error("[employees] person save failed:", raw);
+        setError(explainEmployeesError(raw, editing ? "this person" : "this new person"));
+      });
   };
+
+  const disabled = saving || name.trim() === "" || rateInvalid;
 
   return (
     <div className="emp-modalback" onClick={onClose}>
       <div
-        className="emp-modal"
+        className="emp-modal wide"
         role="dialog"
-        aria-label={editing ? "Edit person" : "New employee"}
+        aria-label={editing ? "Edit employee" : "Create employee"}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="emp-modalhead">{editing ? `Edit ${editing.name}` : "New employee"}</div>
+        <div className="emp-modalhead">{editing ? "Edit Employee" : "Create Employee"}</div>
 
-        <label className="emp-field">
-          <span>Full name</span>
-          <input className="emp-input" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
-        </label>
-        <div className="emp-fieldrow">
-          <label className="emp-field">
-            <span>Email</span>
-            <input className="emp-input" value={email} onChange={(e) => setEmail(e.target.value)} />
-          </label>
-          <label className="emp-field">
-            <span>Phone</span>
-            <input className="emp-input" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </label>
-        </div>
-        <div className="emp-fieldrow">
-          <label className="emp-field">
-            <span>Role</span>
-            <input
-              className="emp-input"
-              value={role}
-              placeholder="Retoucher, second shooter…"
-              onChange={(e) => setRole(e.target.value)}
-            />
-          </label>
-          <label className="emp-field">
-            <span>Default rate ($ / hour)</span>
-            <input
-              className="emp-input"
-              inputMode="decimal"
-              value={rate}
-              placeholder="optional"
-              onChange={(e) => setRate(e.target.value)}
-            />
-            {/* Says plainly what this column is for, because the name invites the wrong assumption. */}
-            <em className="emp-hint">Prefills the Add Time form. Each entry keeps its own rate, so
-              changing this never alters time already logged.</em>
-          </label>
-        </div>
-        <label className="emp-field">
-          <span>Notes</span>
-          <textarea className="emp-input emp-textarea" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        </label>
-
-        {rateInvalid && (
-          <div className="emp-error" role="alert">
-            <span className="emp-error-plain">The default rate needs to be a number of zero or more.</span>
-            <span className="emp-error-hint">Clear the field to leave it unset.</span>
-          </div>
-        )}
-        {error && (
-          <div className="emp-error" role="alert">
-            <span className="emp-error-plain">{error.plain}</span>
-            {error.hint && <span className="emp-error-hint">{error.hint}</span>}
+        {/* Two tabs on EDIT only — there is no history to show for someone who does not exist yet.
+            House boxed-tab standard, the same shape as the module's own strip. */}
+        {editing && (
+          <div className="emp-tabs modal" role="tablist" aria-label="Employee views">
+            <button
+              className={"emp-tab" + (tab === "details" ? " on" : "")}
+              role="tab"
+              aria-selected={tab === "details"}
+              onClick={() => setTab("details")}
+            >
+              Employee Details
+            </button>
+            <button
+              className={"emp-tab" + (tab === "history" ? " on" : "")}
+              role="tab"
+              aria-selected={tab === "history"}
+              onClick={() => setTab("history")}
+            >
+              Work History
+            </button>
           </div>
         )}
 
-        <div className="emp-modalacts">
-          <button className="emp-btn ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="emp-btn primary" disabled={saving || name.trim() === "" || rateInvalid} onClick={submit}>
-            {saving ? "Saving…" : editing ? "Save changes" : "Add employee"}
-          </button>
-        </div>
+        {editing && tab === "history" ? (
+          <>
+            <WorkHistory person={editing} />
+            <div className="emp-modalacts">
+              <button className="emp-btn ghost" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <label className="emp-field">
+              <span>Full name</span>
+              <input className="emp-input" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
+            </label>
+
+            {!showAddr ? (
+              <div className="emp-field">
+                <button className="emp-reveal" onClick={() => setShowAddr(true)}>
+                  ＋ Add Address
+                </button>
+              </div>
+            ) : (
+              <>
+                <label className="emp-field">
+                  <span>Street address</span>
+                  <input className="emp-input" value={street} onChange={(e) => setStreet(e.target.value)} />
+                </label>
+                <div className="emp-fieldrow">
+                  <label className="emp-field">
+                    <span>City</span>
+                    <input className="emp-input" value={city} onChange={(e) => setCity(e.target.value)} />
+                  </label>
+                  <label className="emp-field narrow">
+                    <span>State</span>
+                    <select className="emp-input" value={stateCode} onChange={(e) => setStateCode(e.target.value)}>
+                      <option value="">—</option>
+                      {US_STATES.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="emp-field narrow">
+                    <span>Zip</span>
+                    <input className="emp-input mono" value={zip} onChange={(e) => setZip(e.target.value)} />
+                  </label>
+                </div>
+              </>
+            )}
+
+            <div className="emp-fieldrow">
+              <label className="emp-field">
+                <span>Email</span>
+                <input className="emp-input" value={email} onChange={(e) => setEmail(e.target.value)} />
+              </label>
+              <label className="emp-field">
+                <span>Phone</span>
+                <input
+                  className="emp-input mono"
+                  value={phone}
+                  placeholder="digits only — dashes add themselves"
+                  onChange={(e) => setPhone(formatPhone(e.target.value))}
+                />
+              </label>
+            </div>
+
+            <label className="emp-field">
+              <span>Role</span>
+              <input
+                className="emp-input"
+                value={role}
+                placeholder="Photographer 2, Second Shooter, Carpenter, Painter…"
+                onChange={(e) => setRole(e.target.value)}
+              />
+            </label>
+
+            {/* Directly under Role, as drawn. A soft reference: if that project is later purged the
+                id resolves to nothing, which is why the name is stored beside it. */}
+            <label className="emp-field">
+              <span>Project</span>
+              <select className="emp-input" value={projectSel} onChange={(e) => setProjectSel(e.target.value)}>
+                <option value="">No default project</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={String(p.id)}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <em className="emp-hint">
+                {seedProject
+                  ? "The project just created is selected — switch any time."
+                  : "Sets the starting project on this person's Add Time form."}
+              </em>
+            </label>
+
+            <div className="emp-fieldrow">
+              <div className="emp-field">
+                <span>Default rate (${rateSuffix(payType)})</span>
+                <div className="emp-rateline">
+                  <div className="emp-prefixed">
+                    <span className="emp-prefix">$</span>
+                    <input
+                      className="emp-input mono"
+                      inputMode="decimal"
+                      value={rate}
+                      onChange={(e) => setRate(e.target.value)}
+                      onBlur={() => setRate(normalizeMoney(rate))}
+                    />
+                  </div>
+                  {/* Joined pill, sized to its words, ALWAYS active — no checkbox (ruled). */}
+                  <div className="emp-pillset" role="radiogroup" aria-label="Default pay type">
+                    {PAY_TYPE_PILLS.map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        role="radio"
+                        aria-checked={payType === key}
+                        className={"emp-pillbtn" + (payType === key ? " on" : "")}
+                        onClick={() => setPayType(key)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <em className="emp-hint">
+                  Prefills the Add Time form. Each entry keeps its own rate, so changing this never
+                  alters time already logged.
+                </em>
+              </div>
+              <label className="emp-field">
+                <span>Social security</span>
+                <input
+                  className="emp-input mono"
+                  value={ssnFocused ? ssn : maskSsn(ssn)}
+                  onFocus={() => setSsnFocused(true)}
+                  onBlur={() => setSsnFocused(false)}
+                  onChange={(e) => setSsn(formatSsn(e.target.value))}
+                />
+                <em className="emp-hint">Plain while editing, masked when you leave the field.</em>
+              </label>
+            </div>
+
+            <label className="emp-field">
+              <span>Notes</span>
+              <textarea
+                className="emp-input emp-textarea"
+                value={notes}
+                placeholder="optional…"
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </label>
+
+            {rateInvalid && (
+              <div className="emp-error" role="alert">
+                <span className="emp-error-plain">The default rate needs to be a number of zero or more.</span>
+                <span className="emp-error-hint">Clear the field to leave it unset.</span>
+              </div>
+            )}
+            {error && (
+              <div className="emp-error" role="alert">
+                <span className="emp-error-plain">{error.plain}</span>
+                {error.hint && <span className="emp-error-hint">{error.hint}</span>}
+              </div>
+            )}
+
+            <div className="emp-modalacts">
+              <button className="emp-btn ghost" onClick={onClose}>
+                Cancel
+              </button>
+              <button className="emp-btn" disabled={disabled} onClick={() => submit(false)}>
+                {saving ? "Saving…" : editing ? "Save changes" : "Add Employee"}
+              </button>
+              {!editing && (
+                <button className="emp-btn primary" disabled={disabled} onClick={() => submit(true)}>
+                  Add Employee + Add Time
+                </button>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

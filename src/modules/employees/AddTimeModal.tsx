@@ -1,18 +1,18 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-// Add Time — manual entry of someone else's hours. No timer involved.
+// Add Time v2 — manual entry of someone else's hours. No timer involved.
 //
-// Built to MOCKUP-employees-addtime-adjustments-07-31-2026.html §1, with two rulings from
-// Jason 08-03-2026 applied on top:
-//   · PAY TYPE IS A FIELD HERE. The mockup drew it as a property of the person ("Hourly · $28.00/h")
-//     but canon puts pay type on the ENTRY (DECISIONS-51) and EmployeePerson carries no such column,
-//     so the form as drawn could not build a valid EmployeeEntryInput. Four options, default Hourly;
-//     Job and Task reveal a required Flat amount; Donated always previews $0.00.
-//   · NO DATE-RANGE TOGGLE. Deferred: spreading hours across days would mean a renderer loop of
-//     non-atomic creates, where a failure midway leaves half the days committed. It lands later as
-//     an atomic main-side batch. One date field here.
+// Restyled to MOCKUP-employees-3b2-wizard-v5-08-03-2026.html scene 4. What changed from 3B:
+//   · Three-line header: "Add Time" / the person's name / role — $rate/pay-type.
+//   · The separate pay-type SECTION at the top is GONE. The pill now lives on the same line as the
+//     rate input, joined, sized to its words, always visible and always active — no checkbox.
+//   · Task is a [+ Add Task] reveal instead of a "— New task…" select option.
 //
-// The money preview imports entryCost from ./entryCost — the SAME function the ledger table uses,
-// which in turn echoes ENTRY_COST_SQL (the authority). Three surfaces, one rule, one place.
+// WHAT DID NOT CHANGE: the service contract. entries.create still takes the same
+// EmployeeEntryInput (types.ts:772-783) and clean() still governs (entries.ts:33-58). The pill maps
+// to the EXISTING payType field and the amount box to the EXISTING flatAmount — job/task send a
+// value, hourly/donated send null, which is what satisfies both throws at entries.ts:37-42. The
+// person's default_pay_type and default_project_id set STARTING STATE only and never travel as
+// fields of their own.
 import { useEffect, useState } from "react";
 import type {
   EmployeeEntry,
@@ -24,48 +24,33 @@ import type {
 } from "../../shared/types";
 import { explainEmployeesError, type EmployeesErrorExplanation } from "./empErrors";
 import { entryCost } from "./entryCost";
+import { PAY_TYPE_PILLS, fmtHoursHuman, fmtMoney, normalizeMoney, rateSuffix, todayLocal } from "./format";
 
 interface Props {
   person: EmployeePerson;
   onClose: () => void;
-  /** Fired after every successful save, including "Save & add another" — the ledger refreshes live. */
+  /** Fired after every successful save, "add another" included — the ledger refreshes live. */
   onSaved: (e: EmployeeEntry) => void;
 }
 
-/** The four canon pay types, in the canon order (validate.ts PAY_TYPES). Hourly is the default. */
-const PAY_TYPES: [EmployeePayType, string][] = [
-  ["hourly", "Hourly"],
-  ["job", "Per job"],
-  ["task", "Per task"],
-  ["donated", "Donated"],
-];
 /** These two carry an agreed amount instead of hours × rate — entries.ts throws without one. */
 const FLAT: EmployeePayType[] = ["job", "task"];
-
-const NEW_TASK = "__new__";
-
-const fmtMoney = (n: number): string =>
-  n.toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-/** Local YYYY-MM-DD for today — never toISOString(), which shifts to UTC and can hand back yesterday. */
-function todayLocal(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 export default function AddTimeModal({ person, onClose, onSaved }: Props) {
   const api = window.api;
 
-  const [payType, setPayType] = useState<EmployeePayType>("hourly");
+  // STARTING positions from the person's defaults — nothing more. Both are plain useState seeds.
+  const [payType, setPayType] = useState<EmployeePayType>(person.default_pay_type ?? "hourly");
+  const [projectSel, setProjectSel] = useState(String(person.default_project_id ?? ""));
   const [workedOn, setWorkedOn] = useState(todayLocal());
   const [hours, setHours] = useState("");
   const [flatAmount, setFlatAmount] = useState("");
-  const [projectSel, setProjectSel] = useState("");
-  const [taskSel, setTaskSel] = useState("");
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [overrideRate, setOverrideRate] = useState(false);
   const [rateText, setRateText] = useState(person.default_rate != null ? String(person.default_rate) : "");
   const [note, setNote] = useState("");
+  // Task — the [+ Add Task] reveal over the unchanged two-call flow.
+  const [taskSel, setTaskSel] = useState("");
+  const [showNewTask, setShowNewTask] = useState(false);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
 
   const [projects, setProjects] = useState<TimeTrackerProjectListItem[] | null>(null);
   const [tasks, setTasks] = useState<EmployeeTask[] | null>(null);
@@ -105,10 +90,6 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
   const rateValue = num(rateText);
   const project = projects?.find((p) => String(p.id) === projectSel) ?? null;
 
-  // Live "= 6h 15m" beside the decimal box. Decimal is what gets STORED; this is display only.
-  const humanHours =
-    hoursValue === null ? "" : `= ${Math.floor(hoursValue)}h ${String(Math.round((hoursValue % 1) * 60)).padStart(2, "0")}m`;
-
   const preview = entryCost({
     pay_type: payType,
     hours_worked: hoursValue ?? 0,
@@ -125,13 +106,14 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
     hoursValue === null ||
     rateValue === null ||
     (isFlat && flatValue === null) ||
-    (taskSel === NEW_TASK && newTaskTitle.trim() === "");
+    (showNewTask && newTaskTitle.trim() === "");
 
   const reset = (): void => {
     setHours("");
     setFlatAmount("");
     setNote("");
     setTaskSel("");
+    setShowNewTask(false);
     setNewTaskTitle("");
   };
 
@@ -142,9 +124,9 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
 
     // Inline task create is TWO CALLS and they are not atomic (ruled 08-03-2026). If the entry then
     // fails, the task stays — and the message below says so, because a task with zero hours is a
-    // legitimate backlog item, not litter to clean up.
+    // legitimate backlog item, not litter to clean up. UNCHANGED by the reveal restyle.
     const taskStep: Promise<{ id: number | null; created: boolean }> =
-      taskSel === NEW_TASK
+      showNewTask && newTaskTitle.trim() !== ""
         ? api.employees.tasks
             .create({
               title: newTaskTitle.trim(),
@@ -204,13 +186,20 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
   return (
     <div className="emp-modalback" onClick={onClose}>
       <div className="emp-modal" role="dialog" aria-label="Add time" onClick={(e) => e.stopPropagation()}>
-        <div className="emp-modalhead">Add time — {person.name}</div>
-        {/* Only what EmployeePerson actually carries. The mockup's "Hourly ·" prefix is dead: pay
-            type is a property of the ENTRY, and it is the first field below. */}
+        {/* Three lines, as drawn. Only what EmployeePerson carries — role and rate. */}
+        <div className="emp-modalhead">Add Time</div>
+        <div className="emp-modalname">{person.name}</div>
         <div className="emp-modalsub">
-          {[person.role, person.default_rate != null ? `${fmtMoney(person.default_rate)} / hour` : null]
-            .filter(Boolean)
-            .join(" · ") || "No role or default rate set"}
+          {person.role ?? "No role set"}
+          {person.default_rate != null && (
+            <>
+              {" — "}
+              <span className="mono">
+                {fmtMoney(person.default_rate)}
+                {rateSuffix(person.default_pay_type ?? "hourly")}
+              </span>
+            </>
+          )}
         </div>
 
         {listError && (
@@ -222,67 +211,23 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
           </div>
         )}
 
-        <div className="emp-field">
-          <span>Pay type</span>
-          <div className="emp-seg" role="radiogroup" aria-label="Pay type">
-            {PAY_TYPES.map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                role="radio"
-                aria-checked={payType === key}
-                className={"emp-segbtn" + (payType === key ? " on" : "")}
-                onClick={() => setPayType(key)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <em className="emp-hint">
-            Pay type belongs to this entry, not to {person.name} — the same person can be hourly on
-            one project and per-job on another.
-          </em>
-        </div>
-
         <div className="emp-fieldrow">
           <label className="emp-field">
             <span>Date</span>
-            <input className="emp-input" type="date" value={workedOn} onChange={(e) => setWorkedOn(e.target.value)} />
+            <input className="emp-input mono" type="date" value={workedOn} onChange={(e) => setWorkedOn(e.target.value)} />
           </label>
           <label className="emp-field">
             <span>Hours worked</span>
-            <div className="emp-inputpair">
-              <input
-                className="emp-input mono"
-                inputMode="decimal"
-                value={hours}
-                placeholder="6.25"
-                onChange={(e) => setHours(e.target.value)}
-              />
-              <span className="emp-readout">{humanHours || "—"}</span>
-            </div>
-            <em className="emp-hint">Decimal in, readable beside it. The decimal is what is stored.</em>
-          </label>
-        </div>
-
-        {isFlat && (
-          <label className="emp-field">
-            <span>
-              Agreed amount ($) <b className="emp-req">· required</b>
-            </span>
             <input
               className="emp-input mono"
               inputMode="decimal"
-              value={flatAmount}
-              placeholder="450.00"
-              onChange={(e) => setFlatAmount(e.target.value)}
+              value={hours}
+              placeholder="6.25"
+              onChange={(e) => setHours(e.target.value)}
             />
-            <em className="emp-hint">
-              A per-{payType === "job" ? "job" : "task"} entry is worth the agreed amount, not hours ×
-              rate. Hours are still recorded, so the effective rate can be read back later.
-            </em>
+            <em className="emp-hint mono">{hoursValue === null ? "—" : `= ${fmtHoursHuman(hoursValue)}`}</em>
           </label>
-        )}
+        </div>
 
         <label className="emp-field">
           <span>
@@ -297,59 +242,122 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
             ))}
           </select>
           <em className="emp-hint">
-            Without a project these hours cannot be billed to anyone or counted anywhere in Analytics.
+            {person.default_project_id != null && projectSel === String(person.default_project_id)
+              ? "This person's default project is already selected."
+              : "Without a project these hours cannot be billed to anyone or counted anywhere in Analytics."}
           </em>
         </label>
 
-        <label className="emp-field">
+        {/* Task — the reveal. Picking an existing one and creating a new one are separate doors. */}
+        <div className="emp-field">
           <span>Task</span>
-          <select className="emp-input" value={taskSel} onChange={(e) => setTaskSel(e.target.value)}>
-            <option value="">No task</option>
-            {(tasks ?? []).map((t) => (
-              <option key={t.id} value={String(t.id)}>
-                {t.title}
-                {t.done_at ? " (done)" : ""}
-              </option>
-            ))}
-            <option value={NEW_TASK}>— New task…</option>
-          </select>
-        </label>
-        {taskSel === NEW_TASK && (
-          <label className="emp-field">
-            <span>New task name</span>
-            <input
-              className="emp-input"
-              value={newTaskTitle}
-              placeholder="Culling — wedding set 3"
-              onChange={(e) => setNewTaskTitle(e.target.value)}
-            />
+          {!showNewTask && (
+            <select className="emp-input" value={taskSel} onChange={(e) => setTaskSel(e.target.value)}>
+              <option value="">No task</option>
+              {(tasks ?? []).map((t) => (
+                <option key={t.id} value={String(t.id)}>
+                  {t.title}
+                  {t.done_at ? " (done)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+          {!showNewTask ? (
+            <button
+              className="emp-reveal"
+              onClick={() => {
+                setShowNewTask(true);
+                setTaskSel("");
+              }}
+            >
+              ＋ Add Task
+            </button>
+          ) : (
+            <div className="emp-taskadd">
+              <input
+                className="emp-input"
+                value={newTaskTitle}
+                autoFocus
+                placeholder="New task name"
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+              />
+              <button
+                className="emp-btn ghost"
+                onClick={() => {
+                  setShowNewTask(false);
+                  setNewTaskTitle("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          {showNewTask && (
             <em className="emp-hint">
-              Created as its own record and assigned to {person.name}, then attached to this entry.
+              Created as its own record and assigned to {person.name} when the entry saves.
             </em>
-          </label>
-        )}
+          )}
+        </div>
 
+        {/* Rate + the joined pill, one line. The pill IS the pay type — it drives the suffix, the
+            money preview, and whether the box below means a rate or an agreed amount. */}
         <div className="emp-field">
           <span>Rate</span>
-          <div className="emp-inputpair">
+          <div className="emp-rateline">
+            <div className="emp-prefixed">
+              <span className="emp-prefix">$</span>
+              <input
+                className="emp-input mono"
+                inputMode="decimal"
+                value={rateText}
+                onChange={(e) => setRateText(e.target.value)}
+                onBlur={() => setRateText(normalizeMoney(rateText))}
+              />
+              <span className="emp-suffix">{rateSuffix(payType)}</span>
+            </div>
+            <div className="emp-perwrap">
+              <b>per</b>
+              <div className="emp-pillset" role="radiogroup" aria-label="Pay type">
+                {PAY_TYPE_PILLS.map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="radio"
+                    aria-checked={payType === key}
+                    className={"emp-pillbtn" + (payType === key ? " on" : "")}
+                    onClick={() => setPayType(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <em className="emp-hint">
+            Type 15, 20, or 12 — it always means dollars: $15.00. The rate is stored <b>on the
+            entry</b>, so a future raise never rewrites this.
+          </em>
+        </div>
+
+        {isFlat && (
+          <label className="emp-field">
+            <span>
+              Agreed amount ($) <b className="emp-req">· required</b>
+            </span>
             <input
               className="emp-input mono"
               inputMode="decimal"
-              value={rateText}
-              disabled={!overrideRate}
-              placeholder="0.00"
-              onChange={(e) => setRateText(e.target.value)}
+              value={flatAmount}
+              placeholder="450.00"
+              onChange={(e) => setFlatAmount(e.target.value)}
+              onBlur={() => setFlatAmount(normalizeMoney(flatAmount))}
             />
-            <label className="emp-check">
-              <input type="checkbox" checked={overrideRate} onChange={(e) => setOverrideRate(e.target.checked)} />
-              Use a different rate for this entry
-            </label>
-          </div>
-          <em className="emp-hint">
-            The rate is stored <b>on the entry</b>, not read back from {person.name}&apos;s record. A
-            future raise never rewrites this.
-          </em>
-        </div>
+            <em className="emp-hint">
+              A per-{payType} entry is worth the agreed amount, not hours × rate. Hours are still
+              recorded, so the effective rate can be read back later.
+            </em>
+          </label>
+        )}
 
         <label className="emp-field">
           <span>Note</span>

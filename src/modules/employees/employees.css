@@ -15,6 +15,9 @@
      is exactly how a later theme tweak breaks the one you weren't thinking about. NOT --mc-orange,
      which is the not-built glow and is suppressed in this product (§3.6). */
   --employees-error-color: #e0a53a;
+  /* A negative correction and a destructive action. Distinct from the error amber above: "this
+     number went down" and "that write failed" are different meanings and must be able to diverge. */
+  --employees-negative-color: #e0574f;
   --employees-modal-width: 520px;
   --employees-modal-scrim: color-mix(in srgb, var(--mc-base) 62%, transparent);
   display: flex;
@@ -187,14 +190,52 @@
   color: var(--mc-muted); cursor: pointer; }
 .emp-check input { accent-color: var(--mc-accent-primary); }
 
-/* pay-type segmented control — four options, the selected one filled */
-.emp-seg { display: flex; gap: 6px; flex-wrap: wrap; }
-.emp-segbtn { flex: 1 1 auto; border: 1px solid var(--mc-border); background: var(--mc-nested);
-  color: var(--mc-muted); border-radius: 7px; font-family: var(--mc-font); font-size: 12px; padding: 6px 10px;
-  cursor: pointer; white-space: nowrap; }
-.emp-segbtn:hover { color: var(--mc-text); }
-.emp-segbtn.on { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary);
-  color: var(--employees-on-accent-ink); font-weight: 600; }
+/* ---------- 3B.2-A · the joined pay-type pill ----------
+   ONE control, four segments, butted together with shared borders — sized to its WORDS, not
+   stretched to fill (ruled 08-04). Always visible, always active, never behind a checkbox: the
+   pill IS the pay type, so hiding it would hide what the money below actually means. */
+.emp-pillset { display: inline-flex; flex: none; }
+.emp-pillbtn { border: 1px solid var(--mc-border); background: var(--mc-nested); color: var(--mc-muted);
+  font-family: var(--mc-font); font-size: 11.5px; padding: 6px 11px; cursor: pointer; white-space: nowrap;
+  margin-left: -1px; /* collapse the shared edge so the four read as one control */ }
+.emp-pillbtn:first-child { margin-left: 0; border-radius: 7px 0 0 7px; }
+.emp-pillbtn:last-child { border-radius: 0 7px 7px 0; }
+.emp-pillbtn:hover { color: var(--mc-text); }
+.emp-pillbtn.on { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary);
+  color: var(--employees-on-accent-ink); font-weight: 600; position: relative; z-index: 1; }
+
+/* rate input + pill on ONE line (ruled). Wraps at the 740px floor rather than crushing either. */
+.emp-rateline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.emp-perwrap { display: flex; align-items: center; gap: 8px; }
+.emp-perwrap b { font-size: 12.5px; color: var(--mc-text); }
+/* fixed $ prefix and the per-unit suffix, both inside the field's border */
+.emp-prefixed { flex: 1 1 150px; min-width: 130px; display: flex; align-items: center; gap: 0;
+  background: var(--mc-field); border: 1px solid var(--mc-border); border-radius: 7px; padding: 0 10px; }
+.emp-prefixed:focus-within { border-color: var(--mc-accent-primary); }
+.emp-prefixed .emp-input { border: none; background: none; padding: 7px 4px; flex: 1; min-width: 0; }
+.emp-prefixed .emp-input:focus { border: none; }
+.emp-prefix { flex: none; color: var(--mc-muted); font-family: var(--mc-mono); font-size: 12.5px; }
+.emp-suffix { flex: none; color: var(--mc-dimmer); font-size: 11px; white-space: nowrap; }
+
+/* ---------- reveals: [+ Add Address] and [+ Add Task] ---------- */
+.emp-reveal { align-self: flex-start; background: none; border: 1px dashed var(--mc-border); border-radius: 7px;
+  color: var(--mc-accent-primary); font-family: var(--mc-font); font-size: 12px; font-weight: 600;
+  padding: 6px 12px; cursor: pointer; }
+.emp-reveal:hover { border-style: solid; background: var(--mc-nested); }
+.emp-taskadd { display: flex; gap: 8px; align-items: center; }
+.emp-taskadd .emp-input { flex: 1; min-width: 0; }
+
+/* ---------- the wizard ---------- */
+.emp-choices { display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0 2px; }
+.emp-choices .emp-btn { flex: 1 1 160px; padding: 10px 14px; }
+/* TimeTracker's ProjectModal, hosted. Its own action row is hidden so the user sees exactly the
+   three drawn buttons and never two competing Cancels — the wrapper presses that hidden submit. */
+.emp-projecthost .tt-modalacts { display: none; }
+/* Portalled INTO .tt-modal, so it is a normal block at the end of that modal's flow — no absolute
+   positioning, nothing to drift when the form grows or the window resizes. */
+.emp-hostacts { display: flex; justify-content: flex-end; align-items: center; gap: 10px;
+  flex-wrap: wrap; margin-top: 14px; }
+.emp-hostacts .emp-error { flex: 1 1 100%; margin: 0 0 4px; }
 
 /* live amount preview */
 .emp-calc { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 4px; padding: 10px 12px;
@@ -216,3 +257,37 @@
   overflow-wrap: anywhere; white-space: pre-wrap; }
 .emp-error-plain { font-weight: 600; }
 .emp-error-hint { color: var(--mc-muted); font-size: 11.5px; }
+
+/* ---------- 3B.2-A · modal sizing, the three-line header, and the in-modal tab strip ---------- */
+.emp-modal.wide { width: 660px; }
+.emp-modalname { font-size: 13.5px; font-weight: 600; color: var(--mc-text); }
+.emp-modalhead + .emp-modalname { margin-top: 2px; }
+/* The house boxed-tab standard, reused inside a dialog. Same rules as the module strip so the two
+   can never drift apart visually. */
+.emp-tabs.modal { padding: 10px 0 0; margin-bottom: 14px; }
+.emp-field.narrow { flex: 0 1 110px; min-width: 90px; }
+.emp-hint.mono { font-family: var(--mc-mono); }
+
+/* ---------- tables that must scroll rather than push the page sideways ---------- */
+.emp-tablewrap { overflow-x: auto; }
+.emp-cards.three { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+
+/* ---------- adjustments tab ---------- */
+.emp-toolrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.emp-toolrow .emp-input { width: auto; flex: 0 1 220px; min-width: 140px; }
+.emp-note { font-size: 11.5px; color: var(--mc-muted); line-height: 1.5; margin-bottom: 14px; max-width: 70ch; }
+.emp-table td.pos { color: var(--employees-positive-color); }
+.emp-table td.neg { color: var(--employees-negative-color); }
+.emp-table td.pos .emp-pill, .emp-table td.neg .emp-pill { margin-left: 7px; color: var(--mc-muted); }
+/* A soft-deleted correction stays visible and struck through — the row is never removed, and the
+   restore action lives on it. */
+.emp-table tr.deleted td { opacity: .55; text-decoration: line-through; }
+.emp-table tr.deleted .emp-rowacts { text-decoration: none; opacity: 1; }
+.emp-rowacts { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.emp-iconbtn { background: none; border: 1px solid transparent; border-radius: 6px; color: var(--mc-muted);
+  font-family: var(--mc-font); font-size: 11px; padding: 2px 7px; cursor: pointer; line-height: 1.6; }
+.emp-iconbtn:hover:not(:disabled) { color: var(--mc-text); border-color: var(--mc-border); background: var(--mc-nested); }
+.emp-iconbtn.danger:hover:not(:disabled) { color: var(--employees-negative-color); border-color: var(--employees-negative-color); }
+.emp-iconbtn:disabled { opacity: .5; cursor: default; }
+.emp-audit { background: var(--mc-nested); font-family: var(--mc-mono); font-size: 10.5px;
+  color: var(--mc-muted); line-height: 1.7; padding: 8px 12px; }

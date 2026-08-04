@@ -300,6 +300,12 @@ const api: Api = {
       listForProject: (projectId: number) => invoke("employees:listEntriesForProject", projectId),
       listInRange: (fromDate: string, toDate: string) => invoke("employees:listEntriesInRange", fromDate, toDate),
     },
+    sessions: {
+      active: () => invoke("employees:activeSessions"),
+      start: (input: unknown) => invoke("employees:startSession", input),
+      stop: (sessionId: number, note?: string | null) => invoke("employees:stopSession", sessionId, note ?? null),
+      cancel: (sessionId: number) => invoke("employees:cancelSession", sessionId),
+    },
     tasks: {
       list: () => invoke("employees:listTasks"),
       listForPerson: (employeeId: number) => invoke("employees:listTasksForPerson", employeeId),

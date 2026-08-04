@@ -900,6 +900,34 @@ export interface EmployeeAmountAdjustmentInput {
   note: string;
 }
 
+/** An open (or closed) work session — the employee timer. Elapsed time is computed in the RENDERER
+    from started_at; there is no tick channel and no main-process clock. */
+export interface EmployeeSession {
+  id: number;
+  uuid: string;
+  employee_id: number;
+  project_id: number;
+  project_name: string;
+  task_id: number | null;
+  pay_type: EmployeePayType;
+  /** Captured AT START — a mid-session raise never reprices work already under way. */
+  rate_at_start: number;
+  note: string | null;
+  started_at: string;
+  ended_at: string | null;
+  created_at: string;
+}
+
+export interface EmployeeSessionInput {
+  employeeId: number;
+  projectId: number;
+  projectName: string;
+  taskId: number | null;
+  payType: EmployeePayType;
+  rateAtStart: number;
+  note: string | null;
+}
+
 export interface EmployeeEventRow {
   id: number;
   uuid: string;
@@ -1260,6 +1288,15 @@ export interface Api {
       listForPerson: (employeeId: number) => Promise<EmployeeEntry[]>;
       listForProject: (projectId: number) => Promise<EmployeeEntry[]>;
       listInRange: (fromDate: string, toDate: string) => Promise<EmployeeEntry[]>;
+    };
+    sessions: {
+      /** Every RUNNING session, org-wide. Refuses a second one for the same person. */
+      active: () => Promise<EmployeeSession[]>;
+      start: (input: EmployeeSessionInput) => Promise<EmployeeSession>;
+      /** Files the work through the SAME createEntry a manual entry uses, then closes the session. */
+      stop: (sessionId: number, note?: string | null) => Promise<{ session: EmployeeSession; entry: EmployeeEntry }>;
+      /** Closes a session WITHOUT filing an entry — started by mistake. */
+      cancel: (sessionId: number) => Promise<EmployeeSession>;
     };
     tasks: {
       list: () => Promise<EmployeeTask[]>;

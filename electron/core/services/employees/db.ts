@@ -153,6 +153,35 @@ export function ensureEmployeesSchema(db: Db): void {
     "audit_log TEXT NOT NULL", // append-only JSON array; history is never rewritten
   ]);
 
+  // OPEN WORK SESSIONS — the employee timer (3B.2-B). Deliberately THIN: this table holds only what
+  // is needed to reconstruct an entry when the clock stops. It stores NO money and NO duration.
+  //   · A row exists while the clock runs. On stop the service composes a normal employee_entries
+  //     row through the EXISTING createEntry and stamps ended_at here. ONE money rule, ONE write
+  //     path — this table never duplicates cost logic, so it can never disagree with the ledger.
+  //   · rate_at_start and pay_type are captured AT START, not read back at stop: a raise mid-session
+  //     must not retroactively reprice work already being done. Same doctrine as rate_at_entry.
+  //   · ended_at is kept rather than the row deleted, so a stopped session is auditable and a
+  //     crashed one is distinguishable from a finished one.
+  // project_id/task_id are soft references, same doctrine as entries — see the block above.
+  createTable(db, "employee_sessions", [
+    "org_id TEXT NOT NULL",
+    "employee_id INTEGER NOT NULL REFERENCES employee_people(id)",
+    "project_id INTEGER NOT NULL", // soft reference; an entry needs a project, so a session does too
+    "project_name TEXT NOT NULL", // denormalized at start, exactly as entries do
+    "task_id INTEGER", // soft reference, nullable
+    "pay_type TEXT NOT NULL CHECK (pay_type IN ('hourly','job','task','donated'))",
+    "rate_at_start REAL NOT NULL CHECK (rate_at_start >= 0)",
+    "note TEXT",
+    "started_at TEXT NOT NULL",
+    "ended_at TEXT", // NULL = running. Set on stop; the row is never deleted.
+  ]);
+  // ONE open session per person, enforced by the DATABASE rather than by a caller remembering.
+  // A partial index over the running rows only: two stopped sessions for the same person are
+  // normal and must stay legal, so the uniqueness applies WHERE ended_at IS NULL.
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS employee_sessions_one_open ON employee_sessions (employee_id) WHERE ended_at IS NULL;"
+  );
+
   // DELIBERATE, mirroring timetracker_event_log: employee_id has NO foreign key. The event log is
   // append-only history that must SURVIVE whatever happens to the person or project it mentions —
   // a hard FK would cascade-delete it or block the operation. employee_name is denormalized at

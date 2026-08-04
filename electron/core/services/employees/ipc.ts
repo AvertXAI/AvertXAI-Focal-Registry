@@ -22,6 +22,7 @@ import * as tasks from "./tasks";
 import * as payments from "./payments";
 import * as adjustments from "./adjustments";
 import * as reports from "./reports";
+import * as sessions from "./sessions";
 import { listEvents } from "./eventLog";
 import type { EntryInput, PaymentInput, PersonInput, TaskInput } from "./types";
 import type { AmountAdjustmentInput, HoursAdjustmentInput } from "./adjustments";
@@ -100,6 +101,24 @@ export function registerEmployeesIpc(): void {
   });
 
   // ---- tasks ----
+  // ---- the employee timer. No tick channel by design: elapsed time is renderer-computed from
+  // ---- started_at, so a running session costs the main process nothing.
+  safeHandle("employees:activeSessions", () => {
+    const { db, orgId } = empCtx();
+    return sessions.getActiveSessions(db, orgId);
+  });
+  safeHandle("employees:startSession", (_e, input: unknown) => {
+    const { db, orgId } = empCtx();
+    return sessions.startSession(db, orgId, input as Parameters<typeof sessions.startSession>[2]);
+  });
+  safeHandle("employees:stopSession", (_e, sessionId: unknown, note: unknown) => {
+    const { db, orgId } = empCtx();
+    return sessions.stopSession(db, orgId, sessionId as number, note);
+  });
+  safeHandle("employees:cancelSession", (_e, sessionId: unknown) => {
+    return sessions.cancelSession(empCtx().db, sessionId as number);
+  });
+
   safeHandle("employees:listTasks", () => {
     const { db, orgId } = empCtx();
     return tasks.listTasks(db, orgId);

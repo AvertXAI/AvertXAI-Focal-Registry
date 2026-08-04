@@ -184,6 +184,35 @@ export interface Adjustment {
   created_at: string;
 }
 
+/** An open (or closed) work session — the employee timer. Holds NO money and NO duration: the
+    money rule lives in entries/reports, and elapsed time is derived from started_at. */
+export interface Session {
+  id: number;
+  uuid: string;
+  employee_id: number;
+  project_id: number;
+  project_name: string;
+  task_id: number | null;
+  pay_type: PayType;
+  /** Captured AT START — a mid-session raise must never retroactively reprice work under way. */
+  rate_at_start: number;
+  note: string | null;
+  started_at: string;
+  /** NULL = running. Set on stop or cancel; the row is never deleted. */
+  ended_at: string | null;
+  created_at: string;
+}
+
+export interface SessionInput {
+  employeeId: number;
+  projectId: number;
+  projectName: string;
+  taskId: number | null;
+  payType: PayType;
+  rateAtStart: number;
+  note: string | null;
+}
+
 export interface EventLogRow {
   id: number;
   uuid: string;

@@ -20,7 +20,19 @@ export function listGroups(db: Db, orgId: string): Group[] {
 }
 
 /** Find-or-create by name (case-insensitive) — used by the modal's inline create. */
-export function createGroup(db: Db, orgId: string, name: string, color: string): Group {
+/** The eight icons the approved picker offers. Kept here as well as in the modal because the
+    service must be able to auto-assign without the renderer telling it what the set is. */
+const GROUP_ICONS = ["📷", "🎥", "💍", "🏗", "🎨", "🧾", "📦", "⭐"];
+
+/** Stable auto-assignment from the group's own name, so the same name always yields the same icon
+    and two groups created in a row do not collide. Mirrors the picker's default in ProjectModal. */
+function autoIcon(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return GROUP_ICONS[h % GROUP_ICONS.length];
+}
+
+export function createGroup(db: Db, orgId: string, name: string, color: string, icon?: string | null): Group {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Group name is required");
   const existing = db
@@ -30,9 +42,10 @@ export function createGroup(db: Db, orgId: string, name: string, color: string):
   const maxOrder = db.prepare(`SELECT COALESCE(MAX(sort_order), 0) AS m FROM timetracker_groups`).get() as { m: number };
   const res = db
     .prepare(
-      `INSERT INTO timetracker_groups (uuid, org_id, name, color, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO timetracker_groups (uuid, org_id, name, color, icon, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(generateUUIDv7(), orgId, trimmed, color, maxOrder.m + 1, nowIso());
+    // Colour is unchanged and still stored; the icon is ADDED beside it, never in place of it.
+    .run(generateUUIDv7(), orgId, trimmed, color, icon || autoIcon(trimmed), maxOrder.m + 1, nowIso());
   return db.prepare(`SELECT * FROM timetracker_groups WHERE id = ?`).get(Number(res.lastInsertRowid)) as Group;
 }
 

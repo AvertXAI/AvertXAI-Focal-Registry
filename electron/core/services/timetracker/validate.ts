@@ -116,6 +116,11 @@ export function vProjectInput(raw: unknown): NewProjectInput {
     groupId: vNullableId(o.groupId, "group id"),
     newGroupName: vNullableString(o.newGroupName, "new group name", 100),
     newGroupColor: o.newGroupColor == null ? null : vColor(o.newGroupColor),
+    // Emoji, short. Not an enum: the picker offers eight, but a future Settings surface may offer
+    // more, and a CHECK here would need a migration per addition.
+    newGroupIcon: o.newGroupIcon == null ? null : vString(o.newGroupIcon, "group icon", 8),
+    spendBudget: o.spendBudget == null ? null : vAmount(o.spendBudget, "spend budget"),
+    phoneExt: o.phoneExt == null ? null : vString(o.phoneExt, "extension", 6),
     contractAmount,
     contractDescription: vString(o.contractDescription ?? "", "contract description", 2000),
     contractSourcePath: vNullableString(o.contractSourcePath, "contract file path", 1000),

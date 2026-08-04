@@ -40,6 +40,13 @@ export function ensureTimeTrackerSchema(db: Db): void {
     "color TEXT NOT NULL DEFAULT '#3b82f6'",
     "sort_order INTEGER NOT NULL DEFAULT 0",
   ]);
+  // Group ICON — added 08-04-2026, ALONGSIDE color, never replacing it (Jason ruled colour stays).
+  // A short emoji string. Nullable: existing groups have none until one is assigned, and the
+  // service auto-assigns on create so only pre-existing rows can be null.
+  {
+    const cols = (db.pragma("table_info(timetracker_groups)") as { name: string }[]).map((c) => c.name);
+    if (!cols.includes("icon")) db.exec("ALTER TABLE timetracker_groups ADD COLUMN icon TEXT;");
+  }
 
   createTable(db, "timetracker_projects", [
     "org_id TEXT NOT NULL",
@@ -61,6 +68,60 @@ export function ensureTimeTrackerSchema(db: Db): void {
     "archive_reason TEXT",
     "archive_audit TEXT", // append-only JSON array of {action, at, reason?} entries
   ]);
+  // Additive migration, guarded, AFTER its createTable (canon order — never before). This is the
+  // FIRST migration this file has performed: the header documented the pattern, employees/db.ts and
+  // scan/db.ts exercised it, and these two follow the same shape. Both NULLABLE with no default —
+  // SQLite cannot ADD COLUMN NOT NULL without one, and a default would invent a budget or an
+  // extension for every project already on file.
+  {
+    const cols = (db.pragma("table_info(timetracker_projects)") as { name: string }[]).map((c) => c.name);
+    // What the user PLANS to spend hiring and buying for this project. Distinct from contract_amount,
+    // which already exists and is what the CLIENT agreed to pay — the two are opposite directions of
+    // money and "Budget left" is measured against THIS one.
+    if (!cols.includes("spend_budget")) db.exec("ALTER TABLE timetracker_projects ADD COLUMN spend_budget REAL;");
+    // Phone extension, its own field so the ten-digit cap on contact_phone stays a real cap.
+    if (!cols.includes("phone_ext")) db.exec("ALTER TABLE timetracker_projects ADD COLUMN phone_ext TEXT;");
+  }
+
+  // ITEMIZED COSTS — the qty/description/amount rows the project modal carries. Storage the
+  // 08-04 recon proved absent (no table, no service, no type anywhere in the tree).
+  // SOFT DELETE by design, mirroring employee_adjustments and employee_tasks: an itemized row is a
+  // money row that feeds "Spent so far", and hard-removing one would silently change a total that
+  // someone may already have quoted. amount is signed-free (>= 0); a refund is not an itemized cost.
+  createTable(db, "timetracker_project_items", [
+    "org_id TEXT NOT NULL",
+    "project_id INTEGER NOT NULL REFERENCES timetracker_projects(id)",
+    "qty REAL NOT NULL DEFAULT 1 CHECK (qty >= 0)",
+    "description TEXT NOT NULL",
+    "amount REAL NOT NULL DEFAULT 0 CHECK (amount >= 0)", // the LINE total, not the unit price
+    "deleted_at TEXT", // soft delete — rows are never hard-removed
+  ]);
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_timetracker_project_items_project ON timetracker_project_items (project_id);"
+  );
+
+  // PROJECT MEMBERSHIP — who is ON this project, which employee_entries cannot express because it
+  // only records work ALREADY DONE. The modal assigns people before any hours exist.
+  //   · Lives in TIMETRACKER's schema because the project owns the roster, not the person: a
+  //     person's employees.default_project_id stays exactly what it was, a PREFILL for Add Time.
+  //   · person_id is a SOFT reference (no FK) for the same reason every Employees↔TimeTracker link
+  //     is soft — one side must survive the other being purged.
+  //   · removed_at is a soft removal so "who was on this in June" stays answerable.
+  createTable(db, "timetracker_project_employees", [
+    "org_id TEXT NOT NULL",
+    "project_id INTEGER NOT NULL REFERENCES timetracker_projects(id)",
+    "person_id INTEGER NOT NULL", // soft reference into employee_people — see above
+    "added_at TEXT NOT NULL",
+    "removed_at TEXT", // NULL = currently on the project
+  ]);
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_timetracker_project_employees_project ON timetracker_project_employees (project_id);"
+  );
+  // One CURRENT membership per (project, person). Partial, over the live rows only: re-adding
+  // someone after a removal is normal and must stay legal.
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS timetracker_project_employees_one_live ON timetracker_project_employees (project_id, person_id) WHERE removed_at IS NULL;"
+  );
 
   // time_entries is written by exactly ONE service path (timer closeSession) and is never
   // modified by any migration or adjustment — the standalone engine's hard constraint carries over.

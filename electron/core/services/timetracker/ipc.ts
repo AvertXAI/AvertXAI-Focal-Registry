@@ -21,6 +21,7 @@ import * as storage from "../storage";
 import { getMainWindow } from "../../windows";
 import { ensureTimeTrackerSchema, type Db } from "./db";
 import * as projects from "./projects";
+import * as financials from "./projectFinancials";
 import * as groups from "./groups";
 import * as timer from "./timer";
 import * as ledger from "./ledger";
@@ -292,6 +293,37 @@ export function registerTimeTrackerIpc(): void {
   safeHandle("timetracker:saveSettings", (_e, input: unknown) => {
     const { db } = ttCtx();
     return settings.saveSettings(db, input);
+  });
+
+  // ---- project financials: itemized rows, the roster, and the three readouts. The spend read
+  // ---- composes Employees' PROVEN per-project cost and deliberately excludes the user's own
+  // ---- tracked time (Jason 08-04-2026) — see projectFinancials.ts.
+  safeHandle("timetracker:listProjectItems", (_e, projectId: unknown) =>
+    financials.listProjectItems(ttCtx().db, projectId as number)
+  );
+  safeHandle("timetracker:addProjectItem", (_e, input: unknown) => {
+    const { db, orgId } = ttCtx();
+    return financials.addProjectItem(db, orgId, input as Parameters<typeof financials.addProjectItem>[2]);
+  });
+  safeHandle("timetracker:updateProjectItem", (_e, id: unknown, input: unknown) =>
+    financials.updateProjectItem(ttCtx().db, id as number, input as Parameters<typeof financials.updateProjectItem>[2])
+  );
+  safeHandle("timetracker:removeProjectItem", (_e, id: unknown) => {
+    financials.removeProjectItem(ttCtx().db, id as number);
+  });
+  safeHandle("timetracker:listProjectEmployees", (_e, projectId: unknown) =>
+    financials.listProjectEmployees(ttCtx().db, projectId as number)
+  );
+  safeHandle("timetracker:addProjectEmployee", (_e, projectId: unknown, personId: unknown) => {
+    const { db, orgId } = ttCtx();
+    return financials.addProjectEmployee(db, orgId, projectId as number, personId as number);
+  });
+  safeHandle("timetracker:removeProjectEmployee", (_e, projectId: unknown, personId: unknown) => {
+    financials.removeProjectEmployee(ttCtx().db, projectId as number, personId as number);
+  });
+  safeHandle("timetracker:projectSpend", (_e, projectId: unknown) => {
+    const { db, orgId } = ttCtx();
+    return financials.projectSpend(db, orgId, projectId as number);
   });
 
   // adjustments — own table only; never touches time_entries; never capped

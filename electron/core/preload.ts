@@ -214,6 +214,16 @@ const api: Api = {
       setKey: (raw: string) => invoke("timetracker:setLicenseKey", raw),
       setMarketplaceId: (raw: string) => invoke("timetracker:setMarketplaceId", raw),
     },
+    financials: {
+      items: (projectId: number) => invoke("timetracker:listProjectItems", projectId),
+      addItem: (input: unknown) => invoke("timetracker:addProjectItem", input),
+      updateItem: (id: number, input: unknown) => invoke("timetracker:updateProjectItem", id, input),
+      removeItem: (id: number) => invoke("timetracker:removeProjectItem", id),
+      members: (projectId: number) => invoke("timetracker:listProjectEmployees", projectId),
+      addMember: (projectId: number, personId: number) => invoke("timetracker:addProjectEmployee", projectId, personId),
+      removeMember: (projectId: number, personId: number) => invoke("timetracker:removeProjectEmployee", projectId, personId),
+      spend: (projectId: number) => invoke("timetracker:projectSpend", projectId),
+    },
     adjustments: {
       list: (projectId: number) => invoke("timetracker:listAdjustments", projectId),
       listAll: () => invoke("timetracker:listAllAdjustments"),

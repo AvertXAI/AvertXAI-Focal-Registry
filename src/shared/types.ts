@@ -421,6 +421,9 @@ export interface TimeTrackerLicenseState {
 }
 
 export interface TimeTrackerGroup {
+  /** Emoji shown BESIDE the colour dot — added 08-04-2026, never replacing colour.
+      Nullable: groups created before that date have none until one is assigned. */
+  icon?: string | null;
   id: number;
   uuid: string;
   name: string;
@@ -464,6 +467,8 @@ export interface TimeTrackerProjectListItem extends TimeTrackerProject {
   email: string | null;
   group_name: string | null;
   group_color: string | null;
+  /** The group's emoji, shown BESIDE the colour dot. Null when ungrouped or not yet assigned. */
+  group_icon: string | null;
   note_body: string | null;
   total_seconds: number;
   /** Hourly: hours x rate. Contract paid: contract_amount. Contract donated: 0 (shown as "Donated"). */
@@ -684,6 +689,12 @@ export interface TimeTrackerNewProjectInput {
   groupId: number | null;
   newGroupName: string | null;
   newGroupColor: string | null;
+  /** Icon for an inline-created group — alongside colour, never replacing it. */
+  newGroupIcon?: string | null;
+  /** Planned spend on hiring/buying. Distinct from contractAmount. */
+  spendBudget?: number | null;
+  /** Phone extension, six digits max. */
+  phoneExt?: string | null;
   contractAmount: number | null;
   contractDescription: string;
   contractSourcePath: string | null;
@@ -902,6 +913,56 @@ export interface EmployeeAmountAdjustmentInput {
 
 /** An open (or closed) work session — the employee timer. Elapsed time is computed in the RENDERER
     from started_at; there is no tick channel and no main-process clock. */
+/** An itemized cost row on a project — the Qty | Description | Amount rows. amount is the LINE
+    total, not a unit price, so the itemized total is a plain sum. Soft-deleted, never removed. */
+export interface TimeTrackerProjectItem {
+  id: number;
+  uuid: string;
+  project_id: number;
+  qty: number;
+  description: string;
+  amount: number;
+  deleted_at: string | null;
+  created_at: string;
+}
+
+export interface TimeTrackerProjectItemInput {
+  projectId: number;
+  qty: number;
+  description: string;
+  amount: number;
+}
+
+/** Someone ON a project — membership, which employee_entries cannot express because it only
+    records work already done. person_* fields are LEFT-JOINed and null if that person was purged. */
+export interface TimeTrackerProjectMember {
+  id: number;
+  uuid: string;
+  project_id: number;
+  person_id: number;
+  added_at: string;
+  person_name: string | null;
+  person_role: string | null;
+  default_rate: number | null;
+  default_pay_type: string | null;
+}
+
+/** The three readouts. Jason's OWN tracked time is deliberately NOT part of `spent`. */
+export interface TimeTrackerProjectSpend {
+  project_id: number;
+  /** What the CLIENT agreed to pay (the existing contract_amount column). */
+  contracted: number | null;
+  employee_cost: number;
+  employee_hours: number;
+  itemized_total: number;
+  /** employee_cost + itemized_total. Excludes timetracker_time_entries by ruling. */
+  spent: number;
+  /** What the user planned to SPEND hiring and buying. */
+  spend_budget: number | null;
+  /** spend_budget - spent. NULL when no budget is set: that is a different answer from zero. */
+  budget_left: number | null;
+}
+
 export interface EmployeeSession {
   id: number;
   uuid: string;
@@ -1198,6 +1259,19 @@ export interface Api {
       get: () => Promise<TimeTrackerLicenseState>;
       setKey: (raw: string) => Promise<TimeTrackerLicenseState>;
       setMarketplaceId: (raw: string) => Promise<TimeTrackerLicenseState>;
+    };
+    financials: {
+      /** Itemized cost rows — live rows only; removal is soft. */
+      items: (projectId: number) => Promise<TimeTrackerProjectItem[]>;
+      addItem: (input: TimeTrackerProjectItemInput) => Promise<TimeTrackerProjectItem>;
+      updateItem: (id: number, input: TimeTrackerProjectItemInput) => Promise<TimeTrackerProjectItem>;
+      removeItem: (id: number) => Promise<void>;
+      /** Project roster — people assigned BEFORE any hours exist. */
+      members: (projectId: number) => Promise<TimeTrackerProjectMember[]>;
+      addMember: (projectId: number, personId: number) => Promise<TimeTrackerProjectMember>;
+      removeMember: (projectId: number, personId: number) => Promise<void>;
+      /** Contracted / Spent so far / Budget left. Excludes the user's own tracked time. */
+      spend: (projectId: number) => Promise<TimeTrackerProjectSpend>;
     };
     adjustments: {
       list: (projectId: number) => Promise<TimeTrackerAdjustmentListItem[]>;

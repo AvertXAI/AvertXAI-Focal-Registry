@@ -45,6 +45,7 @@ SELECT
   c.email,
   g.name  AS group_name,
   g.color AS group_color,
+  g.icon  AS group_icon,
   (SELECT n.body FROM timetracker_notes n WHERE n.project_id = p.id) AS note_body,
   COALESCE((SELECT SUM(co.amount) FROM timetracker_costs co WHERE co.project_id = p.id), 0) AS total_costs,
   -- total time = clamp(session seconds + non-deleted adjustment minutes, 0). Adjustments live in
@@ -151,7 +152,7 @@ export function findOrCreateClient(db: Db, orgId: string, name: string, phone: s
 /** Resolve the modal's group choice: inline-created group wins over an existing selection. */
 function resolveGroupId(db: Db, orgId: string, input: NewProjectInput): number | null {
   if (input.newGroupName && input.newGroupName.trim()) {
-    return createGroup(db, orgId, input.newGroupName, input.newGroupColor || "#3b82f6").id;
+    return createGroup(db, orgId, input.newGroupName, input.newGroupColor || "#3b82f6", input.newGroupIcon ?? null).id;
   }
   if (input.groupId != null) {
     if (!getGroup(db, input.groupId)) throw new Error(`Group ${input.groupId} not found`);
@@ -197,8 +198,9 @@ export function createProject(db: Db, orgId: string, input: NewProjectInput): Pr
     .prepare(
       `INSERT INTO timetracker_projects
          (uuid, org_id, client_id, name, color, status, rate_type, hourly_rate, priority_order, created_at,
-          group_id, contract_amount, contract_description, contract_kind, target_hours)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          group_id, contract_amount, contract_description, contract_kind, target_hours,
+          spend_budget, phone_ext)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       generateUUIDv7(),
@@ -215,7 +217,9 @@ export function createProject(db: Db, orgId: string, input: NewProjectInput): Pr
       kind === "paid" ? input.contractAmount : null,
       isContract ? input.contractDescription.trim() || null : null,
       kind,
-      kind === "donated" ? input.targetHours : null
+      kind === "donated" ? input.targetHours : null,
+      input.spendBudget ?? null,
+      input.phoneExt ?? null
     );
   const projectId = Number(res.lastInsertRowid);
   if (isContract && input.contractSourcePath) attachContractFile(db, projectId, input.contractSourcePath);
@@ -241,7 +245,7 @@ export function updateProject(db: Db, orgId: string, input: UpdateProjectInput):
     `UPDATE timetracker_projects SET
        name = ?, color = ?, status = ?, rate_type = ?, hourly_rate = ?,
        group_id = ?, contract_amount = ?, contract_description = ?,
-       contract_kind = ?, target_hours = ?,
+       contract_kind = ?, target_hours = ?, spend_budget = ?, phone_ext = ?,
        contract_file_path = CASE WHEN ? THEN contract_file_path ELSE NULL END,
        updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`
@@ -256,6 +260,8 @@ export function updateProject(db: Db, orgId: string, input: UpdateProjectInput):
     isContract ? input.contractDescription.trim() || null : null,
     kind,
     kind === "donated" ? input.targetHours : null,
+    input.spendBudget ?? null,
+    input.phoneExt ?? null,
     isContract ? 1 : 0,
     input.id
   );

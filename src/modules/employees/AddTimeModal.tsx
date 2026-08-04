@@ -47,10 +47,12 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
   const [flatAmount, setFlatAmount] = useState("");
   const [rateText, setRateText] = useState(person.default_rate != null ? String(person.default_rate) : "");
   const [note, setNote] = useState("");
-  // Task — the [+ Add Task] reveal over the unchanged two-call flow.
+  // STATE 3: which joined block is open. null = the two options are showing.
+  const [mode, setMode] = useState<"task" | "hours" | null>(null);
+  // Task — the two-call flow underneath is unchanged; taskAdded is the visible confirmation only.
   const [taskSel, setTaskSel] = useState("");
-  const [showNewTask, setShowNewTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [taskAdded, setTaskAdded] = useState<string | null>(null);
 
   const [projects, setProjects] = useState<TimeTrackerProjectListItem[] | null>(null);
   const [tasks, setTasks] = useState<EmployeeTask[] | null>(null);
@@ -90,6 +92,23 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
   const rateValue = num(rateText);
   const project = projects?.find((p) => String(p.id) === projectSel) ?? null;
 
+  /** The Enter button / Enter key. It does NOT call the service — the task is still created on save,
+      inside the same two-call flow as before, so a typed-but-unsaved entry cannot strand a task.
+      This only confirms the name is taken, which is what was missing. */
+  const confirmTask = (): void => {
+    const title = newTaskTitle.trim();
+    if (title === "") return;
+    setTaskSel(""); // a typed new task wins over a picked existing one
+    setTaskAdded(title);
+  };
+
+  const backToOptions = (): void => {
+    setMode(null);
+    setNewTaskTitle("");
+    setTaskAdded(null);
+    setTaskSel("");
+  };
+
   const preview = entryCost({
     pay_type: payType,
     hours_worked: hoursValue ?? 0,
@@ -106,15 +125,16 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
     hoursValue === null ||
     rateValue === null ||
     (isFlat && flatValue === null) ||
-    (showNewTask && newTaskTitle.trim() === "");
+    mode === null; // nothing to save until one of the two options is open
 
   const reset = (): void => {
     setHours("");
     setFlatAmount("");
     setNote("");
     setTaskSel("");
-    setShowNewTask(false);
     setNewTaskTitle("");
+    setTaskAdded(null);
+    setMode(null);
   };
 
   const save = (andAnother: boolean): void => {
@@ -126,7 +146,7 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
     // fails, the task stays — and the message below says so, because a task with zero hours is a
     // legitimate backlog item, not litter to clean up. UNCHANGED by the reveal restyle.
     const taskStep: Promise<{ id: number | null; created: boolean }> =
-      showNewTask && newTaskTitle.trim() !== ""
+      mode === "task" && newTaskTitle.trim() !== ""
         ? api.employees.tasks
             .create({
               title: newTaskTitle.trim(),
@@ -183,6 +203,54 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
       });
   };
 
+  // Reusable pieces — declared once so the joined blocks can order them differently without the
+  // markup being written twice.
+  const rateField = (
+    <div className="emp-field">
+      <span>Rate</span>
+      <div className="emp-rateline">
+        <div className="emp-prefixed">
+          <span className="emp-prefix">$</span>
+          <input className="emp-input mono" inputMode="decimal" value={rateText}
+            onChange={(e) => setRateText(e.target.value)}
+            onBlur={() => setRateText(normalizeMoney(rateText))} />
+          <span className="emp-suffix">{rateSuffix(payType)}</span>
+        </div>
+        <div className="emp-perwrap">
+          <b>per</b>
+          <div className="emp-pillset" role="radiogroup" aria-label="Pay type">
+            {PAY_TYPE_PILLS.map(([key, label]) => (
+              <button key={key} type="button" role="radio" aria-checked={payType === key}
+                className={"emp-pillbtn" + (payType === key ? " on" : "")}
+                onClick={() => setPayType(key)}>{label}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <em className="emp-hint">
+        Type 15, 20, or 12 — it always means dollars: $15.00. The rate is stored <b>on the entry</b>,
+        so a future raise never rewrites this.
+      </em>
+    </div>
+  );
+
+  const hoursField = (
+    <label className="emp-field">
+      <span>Hours worked</span>
+      <input className="emp-input mono" inputMode="decimal" value={hours} placeholder="6.25"
+        onChange={(e) => setHours(e.target.value)} />
+      <em className="emp-hint mono">{hoursValue === null ? "—" : `= ${fmtHoursHuman(hoursValue)}`}</em>
+    </label>
+  );
+
+  const noteField = (
+    <label className="emp-field">
+      <span>Notes</span>
+      <input className="emp-input" value={note} placeholder="optional…"
+        onChange={(e) => setNote(e.target.value)} />
+    </label>
+  );
+
   return (
     <div className="emp-modalback" onClick={onClose}>
       <div className="emp-modal" role="dialog" aria-label="Add time" onClick={(e) => e.stopPropagation()}>
@@ -211,23 +279,10 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
           </div>
         )}
 
-        <div className="emp-fieldrow">
-          <label className="emp-field">
-            <span>Date</span>
-            <input className="emp-input mono" type="date" value={workedOn} onChange={(e) => setWorkedOn(e.target.value)} />
-          </label>
-          <label className="emp-field">
-            <span>Hours worked</span>
-            <input
-              className="emp-input mono"
-              inputMode="decimal"
-              value={hours}
-              placeholder="6.25"
-              onChange={(e) => setHours(e.target.value)}
-            />
-            <em className="emp-hint mono">{hoursValue === null ? "—" : `= ${fmtHoursHuman(hoursValue)}`}</em>
-          </label>
-        </div>
+        <label className="emp-field">
+          <span>Date</span>
+          <input className="emp-input mono" type="date" value={workedOn} onChange={(e) => setWorkedOn(e.target.value)} />
+        </label>
 
         <label className="emp-field">
           <span>
@@ -249,120 +304,64 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
         </label>
 
         {/* Task — the reveal. Picking an existing one and creating a new one are separate doors. */}
-        <div className="emp-field">
-          <span>Task</span>
-          {!showNewTask && (
-            <select className="emp-input" value={taskSel} onChange={(e) => setTaskSel(e.target.value)}>
-              <option value="">No task</option>
-              {(tasks ?? []).map((t) => (
-                <option key={t.id} value={String(t.id)}>
-                  {t.title}
-                  {t.done_at ? " (done)" : ""}
-                </option>
-              ))}
-            </select>
-          )}
-          {!showNewTask ? (
-            <button
-              className="emp-reveal"
-              onClick={() => {
-                setShowNewTask(true);
-                setTaskSel("");
-              }}
-            >
-              ＋ Add Task
-            </button>
-          ) : (
-            <div className="emp-taskadd">
-              <input
-                className="emp-input"
-                value={newTaskTitle}
-                autoFocus
-                placeholder="New task name"
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-              />
-              <button
-                className="emp-btn ghost"
-                onClick={() => {
-                  setShowNewTask(false);
-                  setNewTaskTitle("");
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-          {showNewTask && (
-            <em className="emp-hint">
-              Created as its own record and assigned to {person.name} when the entry saves.
-            </em>
-          )}
-        </div>
-
-        {/* Rate + the joined pill, one line. The pill IS the pay type — it drives the suffix, the
-            money preview, and whether the box below means a rate or an agreed amount. */}
-        <div className="emp-field">
-          <span>Rate</span>
-          <div className="emp-rateline">
-            <div className="emp-prefixed">
-              <span className="emp-prefix">$</span>
-              <input
-                className="emp-input mono"
-                inputMode="decimal"
-                value={rateText}
-                onChange={(e) => setRateText(e.target.value)}
-                onBlur={() => setRateText(normalizeMoney(rateText))}
-              />
-              <span className="emp-suffix">{rateSuffix(payType)}</span>
-            </div>
-            <div className="emp-perwrap">
-              <b>per</b>
-              <div className="emp-pillset" role="radiogroup" aria-label="Pay type">
-                {PAY_TYPE_PILLS.map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    role="radio"
-                    aria-checked={payType === key}
-                    className={"emp-pillbtn" + (payType === key ? " on" : "")}
-                    onClick={() => setPayType(key)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+        {/* STATE 3 — two in-section options, each revealing its own JOINED block. The choice is
+            about what the user is recording: a task at a rate, or a rate for a number of hours.
+            Both write the SAME EmployeeEntryInput through the SAME entries.create — the chooser is
+            presentation over one contract, not two code paths. */}
+        {mode === null ? (
+          <div className="emp-field">
+            <span>What are you adding?</span>
+            <div className="emp-choices">
+              <button className="emp-btn" onClick={() => setMode("task")}>＋ Add Task &amp; Rate</button>
+              <button className="emp-btn" onClick={() => setMode("hours")}>＋ Add Rate &amp; Hours</button>
             </div>
           </div>
-          <em className="emp-hint">
-            Type 15, 20, or 12 — it always means dollars: $15.00. The rate is stored <b>on the
-            entry</b>, so a future raise never rewrites this.
-          </em>
-        </div>
+        ) : (
+          <div className="emp-joined">
+            <div className="emp-joinedhead">
+              <button className="emp-back" onClick={backToOptions} aria-label="Back to the options">←</button>
+              <span>{mode === "task" ? "Task & Rate" : "Rate & Hours"}</span>
+            </div>
 
-        {isFlat && (
-          <label className="emp-field">
-            <span>
-              Agreed amount ($) <b className="emp-req">· required</b>
-            </span>
-            <input
-              className="emp-input mono"
-              inputMode="decimal"
-              value={flatAmount}
-              placeholder="450.00"
-              onChange={(e) => setFlatAmount(e.target.value)}
-              onBlur={() => setFlatAmount(normalizeMoney(flatAmount))}
-            />
-            <em className="emp-hint">
-              A per-{payType} entry is worth the agreed amount, not hours × rate. Hours are still
-              recorded, so the effective rate can be read back later.
-            </em>
-          </label>
+            {mode === "task" && (
+              <div className="emp-field">
+                <span>Task</span>
+                <select className="emp-input" value={taskSel} onChange={(e) => setTaskSel(e.target.value)}>
+                  <option value="">No task</option>
+                  {(tasks ?? []).map((t) => (
+                    <option key={t.id} value={String(t.id)}>{t.title}{t.done_at ? " (done)" : ""}</option>
+                  ))}
+                </select>
+                {/* The task line: type a name and press Enter (or the button). The confirmation is
+                    the point — a task created inline used to vanish into the select with no sign
+                    it had worked. The two-call flow underneath is UNCHANGED. */}
+                <div className="emp-taskadd">
+                  <input
+                    className="emp-input"
+                    value={newTaskTitle}
+                    placeholder="New task name"
+                    onChange={(e) => { setNewTaskTitle(e.target.value); setTaskAdded(null); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); confirmTask(); } }}
+                  />
+                  <button className="emp-btn ghost" disabled={newTaskTitle.trim() === ""} onClick={confirmTask}>
+                    Enter
+                  </button>
+                </div>
+                {taskAdded && <div className="emp-taskok" role="status">✓ Task added — “{taskAdded}”</div>}
+                {taskAdded && (
+                  <em className="emp-hint">
+                    It is created as its own record and attached to this entry when you save.
+                  </em>
+                )}
+              </div>
+            )}
+
+            {rateField}
+            {/* HOURS SITS UNDER THE RATE (state 3). It was beside the date before. */}
+            {hoursField}
+            {noteField}
+          </div>
         )}
-
-        <label className="emp-field">
-          <span>Note</span>
-          <input className="emp-input" value={note} placeholder="optional…" onChange={(e) => setNote(e.target.value)} />
-        </label>
 
         <div className="emp-calc">
           <span className="emp-calclabel">Amount</span>

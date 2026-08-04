@@ -329,3 +329,21 @@
 .emp-iconbtn:disabled { opacity: .5; cursor: default; }
 .emp-audit { background: var(--mc-nested); font-family: var(--mc-mono); font-size: 10.5px;
   color: var(--mc-muted); line-height: 1.7; padding: 8px 12px; }
+
+/* ---------- 08-04-2026 · Add Time state 3: the two options and their joined blocks ---------- */
+.emp-joined { border: 1px solid var(--mc-border); border-radius: 9px; padding: 11px 13px;
+  background: var(--mc-nested); margin-bottom: 11px; }
+.emp-joinedhead { display: flex; align-items: center; gap: 9px; font-size: 10px; letter-spacing: 1.1px;
+  text-transform: uppercase; color: var(--mc-muted); font-weight: 700; margin-bottom: 10px; }
+.emp-back { background: none; border: 1px solid var(--mc-border); border-radius: 6px; color: var(--mc-muted);
+  font-family: var(--mc-font); font-size: 12px; line-height: 1; padding: 2px 8px; cursor: pointer; }
+.emp-back:hover { color: var(--mc-text); border-color: var(--mc-accent-primary); }
+/* Task added — a confirmation, not an error. The inline-created task used to vanish into the
+   select with no sign it had registered. */
+.emp-taskok { margin-top: 7px; font-size: 11.5px; padding: 6px 10px; border-radius: 6px;
+  color: var(--mc-text); overflow-wrap: anywhere;
+  background: color-mix(in srgb, var(--employees-positive-color) 13%, var(--mc-panels));
+  border: 1px solid var(--employees-positive-color); }
+/* Enlarged social-security mask glyphs (fix list). Only the MASKED state grows — the real value
+   stays at field size so a typed number reads normally. */
+.emp-ssn.masked { font-size: 17px; letter-spacing: 2px; }

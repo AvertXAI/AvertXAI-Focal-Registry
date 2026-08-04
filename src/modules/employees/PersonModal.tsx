@@ -201,7 +201,7 @@ export default function PersonModal({ state, projects, onClose, onSaved }: Props
 
             <div className="emp-fieldrow">
               <label className="emp-field">
-                <span>Email</span>
+                <span>Contact email</span>
                 <input className="emp-input" value={email} onChange={(e) => setEmail(e.target.value)} />
               </label>
               <label className="emp-field">
@@ -282,7 +282,8 @@ export default function PersonModal({ state, projects, onClose, onSaved }: Props
               <label className="emp-field">
                 <span>Social security</span>
                 <input
-                  className="emp-input mono"
+                  /* emp-ssn enlarges the mask glyphs only — plain-on-focus behaviour is unchanged. */
+                  className={"emp-input mono emp-ssn" + (ssnFocused ? "" : " masked")}
                   value={ssnFocused ? ssn : maskSsn(ssn)}
                   onFocus={() => setSsnFocused(true)}
                   onBlur={() => setSsnFocused(false)}

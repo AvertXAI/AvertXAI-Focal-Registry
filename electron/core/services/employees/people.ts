@@ -6,7 +6,8 @@
 //              NEVER hard-deleted: entries, payments and adjustments point at these rows and a
 //              payroll record must not lose the name it belongs to. Archiving hides someone from
 //              the active roster and nothing else — their history and outstanding balance survive
-//              untouched. Electron-free; tier caps are a LATER phase and appear nowhere here.
+//              untouched. Electron-free. The Free-tier person cap is enforced HERE, main-side, on
+//              create — a disabled button is a hint, the service is the limit (license.ts doctrine).
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/employees/people.ts
 //------------------------------------------------------------
@@ -47,8 +48,37 @@ export function getPerson(db: Db, id: number): Person {
   return row;
 }
 
+/**
+ * Free-tier ceiling on ACTIVE people — canon DECISIONS-51: "Free tier caps employees at 5".
+ *
+ * A named constant rather than a tier lookup, deliberately: Employees has no licence file yet, and
+ * TimeTracker's resolveTier lives in ITS service layer — modules share a DATABASE, never each
+ * other's services (the validate.ts doctrine). The Employees licence file replaces this constant
+ * with a real CAPS[tier] read at its own phase. UNTIL THEN EVERY TIER SITS AT THE FREE CEILING,
+ * which is the conservative direction to be wrong in and is flagged in the Phase 3B report.
+ */
+const FREE_PERSON_CAP = 5;
+
+/** Live count, ACTIVE only — archiving frees a slot, exactly as TimeTracker counts projects
+    (license.ts:136-140). A live query so the refusal can never trust stale renderer state. */
+function activePersonCount(db: Db, orgId: string): number {
+  return (
+    db
+      .prepare(`SELECT COUNT(*) AS n FROM employee_people WHERE org_id = ? AND archived_at IS NULL`)
+      .get(orgId) as { n: number }
+  ).n;
+}
+
 export function createPerson(db: Db, orgId: string, input: PersonInput): Person {
   const p = clean(input);
+  // Cap BEFORE validation side effects reach the table. Error copy mirrors license.ts:159 so every
+  // cap in the product reads the same way, and it names the way out rather than just refusing.
+  if (activePersonCount(db, orgId) >= FREE_PERSON_CAP) {
+    throw new Error(
+      `Cap reached: the Free tier allows ${FREE_PERSON_CAP} people. ` +
+        `Archive someone you no longer work with to free a slot — their history and balance are kept.`
+    );
+  }
   const at = nowIso();
   const res = db
     .prepare(

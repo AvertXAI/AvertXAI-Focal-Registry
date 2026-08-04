@@ -434,3 +434,104 @@
 .tt-error-plain { font-weight: 600; }
 .tt-error-hint { color: var(--mc-muted); font-size: 11.5px; }
 .tt-modalacts { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+
+/* ============ 08-04-2026 · project modal rework (approved mockup state 1) ============ */
+
+/* WIDTH MATH — the modal spans the module CONTENT AREA minus the backdrop 16px padding, never the
+   window, because .tt-modalback is absolute inside .tt-shell which begins BELOW the 58px topbar.
+   That containment is what keeps it off the native window buttons (section 3.4).
+     740 window - 300 rail (max)       - 32 = 408 available
+     740 window - 200 rail (default)   - 32 = 508
+     740 window -  58 rail (collapsed) - 32 = 650
+     960 window - 200 rail - 32 = 728      1440 - 200 - 32 = 1208
+   Two columns need 2 x 320 + 18 = 658, so at the 740 floor this ALWAYS stacks. The grid keys off
+   the modal own width via minmax, not the viewport, because the rail moves the content area
+   independently of the window. */
+.tt-modal.wide { width: min(1180px, 100%); }
+.tt-modalgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+.tt-mcol { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.tt-block { border: 1px solid var(--mc-border); border-radius: 9px; padding: 12px 14px; background: var(--mc-nested); }
+.tt-blocktitle { display: flex; align-items: center; gap: 7px; font-size: 10px; letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--mc-muted); font-weight: 700; margin-bottom: 10px; }
+.tt-blocksub { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--mc-muted);
+  font-weight: 700; margin: 14px 0 7px; }
+.tt-hint { font-size: 10.5px; color: var(--mc-dimmer); line-height: 1.45; margin-top: 4px; }
+.tt-field.narrow { flex: 0 1 92px; min-width: 74px; }
+
+/* the grouping explainer — hover AND keyboard focus, because a hover-only tip is unreachable */
+.tt-info { position: relative; cursor: help; color: var(--mc-dimmer); font-size: 11px; }
+.tt-infotip { display: none; position: absolute; left: 0; top: 18px; z-index: 5; width: 260px;
+  background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 7px; padding: 9px 11px;
+  font-size: 11px; line-height: 1.5; color: var(--mc-text); text-transform: none; letter-spacing: 0;
+  font-weight: 400; box-shadow: 0 10px 30px color-mix(in srgb, var(--mc-boot-bg) 50%, transparent); }
+.tt-info:hover .tt-infotip, .tt-info:focus .tt-infotip, .tt-info:focus-within .tt-infotip { display: block; }
+
+/* reveal button — Add Address */
+.tt-reveal { align-self: flex-start; background: none; border: 1px dashed var(--mc-border); border-radius: 7px;
+  color: var(--mc-accent-primary); font-family: var(--mc-font); font-size: 12px; font-weight: 600;
+  padding: 6px 12px; cursor: pointer; margin-bottom: 10px; }
+.tt-reveal:hover { border-style: solid; background: var(--mc-panels); }
+
+/* the group ICON picker — icons are ADDED alongside colour, they do not replace it */
+.tt-iconrow { display: flex; gap: 7px; flex-wrap: wrap; }
+.tt-icon { width: 34px; height: 34px; border: 1px solid var(--mc-border); border-radius: 8px; cursor: pointer;
+  background: var(--mc-field); font-size: 16px; line-height: 1; display: flex; align-items: center;
+  justify-content: center; }
+.tt-icon:hover { border-color: var(--mc-accent-primary); }
+.tt-icon.on { border-color: var(--mc-accent-primary); box-shadow: inset 0 0 0 1px var(--mc-accent-primary); }
+
+/* Active | Pause — the EXISTING active/parked values, worded for a human */
+.tt-statuspill { display: inline-flex; }
+.tt-pillbtn { border: 1px solid var(--mc-border); background: var(--mc-field); color: var(--mc-muted);
+  font-family: var(--mc-font); font-size: 12px; padding: 6px 16px; cursor: pointer; margin-left: -1px; }
+.tt-pillbtn:first-child { margin-left: 0; border-radius: 7px 0 0 7px; }
+.tt-pillbtn:last-child { border-radius: 0 7px 7px 0; }
+.tt-pillbtn.on { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary);
+  color: var(--timetracker-on-accent-ink); font-weight: 600; position: relative; z-index: 1; }
+
+/* fixed dollar prefix inside the field border */
+.tt-prefixed { display: flex; align-items: center; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 7px; padding: 0 10px; min-width: 0; }
+.tt-prefixed:focus-within { border-color: var(--mc-accent-primary); }
+.tt-prefixed .tt-input { border: none; background: none; padding: 7px 4px; flex: 1; min-width: 0; }
+.tt-prefix { flex: none; color: var(--mc-muted); font-family: var(--mc-mono); font-size: 12.5px; }
+
+/* the three live readouts */
+.tt-statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 9px; margin: 12px 0 4px; }
+.tt-stat { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 8px; padding: 9px 11px; }
+.tt-stat .k { display: block; font-size: 9px; letter-spacing: .7px; text-transform: uppercase;
+  color: var(--mc-muted); margin-bottom: 3px; }
+.tt-stat .v { display: block; font-family: var(--mc-mono); font-size: 15px; font-weight: 600; }
+.tt-stat .v.good { color: var(--mc-green); }
+.tt-stat .v.over { color: var(--timetracker-negative-color, #e0574f); }
+
+/* itemize rows */
+.tt-itemhead, .tt-itemrow { display: grid; grid-template-columns: 56px 1fr 108px 30px; gap: 8px;
+  align-items: center; }
+.tt-itemhead { font-size: 9px; letter-spacing: .6px; text-transform: uppercase; color: var(--mc-muted);
+  font-weight: 700; padding-bottom: 5px; }
+.tt-itemrow { padding: 5px 0; font-size: 12px; border-top: 1px solid color-mix(in srgb, var(--mc-border) 55%, transparent); }
+.tt-itemrow.new { padding-top: 8px; }
+.tt-itemrow .mono { font-family: var(--mc-mono); }
+.tt-itemx { background: none; border: none; color: var(--mc-dimmer); cursor: pointer; font-size: 13px;
+  line-height: 1; padding: 3px 5px; border-radius: 5px; }
+.tt-itemx:hover { color: var(--timetracker-negative-color, #e0574f); background: var(--mc-panels); }
+.tt-totline { display: flex; justify-content: space-between; align-items: baseline; margin-top: 9px;
+  padding-top: 8px; border-top: 1px solid var(--mc-border); font-size: 12px; color: var(--mc-muted); }
+.tt-totline b { font-family: var(--mc-mono); font-size: 14px; color: var(--mc-text); }
+
+/* employees on this project */
+.tt-emprow { display: flex; align-items: center; gap: 10px; padding: 7px 0;
+  border-top: 1px solid color-mix(in srgb, var(--mc-border) 55%, transparent); }
+.tt-emprow .who { flex: 1; min-width: 0; font-size: 12.5px; }
+.tt-emprow .who .r { font-size: 10.5px; color: var(--mc-muted); }
+.tt-emprow .pay { flex: none; font-family: var(--mc-mono); font-size: 11.5px; color: var(--mc-muted); }
+.tt-addemp { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.tt-addemp .tt-input { flex: 1; min-width: 0; }
+.tt-btn.sm { padding: 5px 11px; font-size: 11.5px; }
+
+/* GROUP ICON beside the colour dot — three render sites, colour untouched at every one */
+.tt-groupicon { flex: none; font-size: 12px; line-height: 1; }
+.tt-groupicon.big { font-size: 17px; }
+.tt-raildotwrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.tt-groupicon.rail { font-size: 10px; }

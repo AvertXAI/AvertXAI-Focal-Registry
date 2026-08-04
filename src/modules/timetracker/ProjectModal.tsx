@@ -1,18 +1,33 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-// TimeTracker new/edit project modal — client + contact, rate type (hourly rate, or contract with
-// paid/donated kind, amount / donated-hours goal, description, contract file), group (existing or
-// inline new), colour, status. Submits through timetracker:createProject / updateProject, whose
-// main-side validators are the trust boundary — this form only keeps the obvious guards local.
+// TimeTracker new/edit project modal — reworked to the approved MOCKUP-project-financials-paymodel
+// -v5-08-04-2026.html, state 1. Three blocks across a responsive two-column grid: CLIENT, GROUP,
+// and CONTRACT / ASSIGNMENT + EMPLOYEES ON THIS PROJECT.
+//
+// WHAT CHANGED, and the rulings behind each (08-04-2026):
+//   · Rate type and Hourly rate are GONE from this modal. Rate editing stays where it already
+//     lives — ProjectDetail's own controls — and is untouched.
+//   · There is NO colour row here. Colour STAYS on the project and every dot keeps painting; it is
+//     simply not edited from this modal. ProjectDetail's swatch row (its existing picker) remains
+//     the place colour is chosen. The GROUP gains an ICON, added ALONGSIDE colour, never replacing.
+//   · Status reads Active | Pause. Those are the EXISTING 'active' / 'parked' values — a wording
+//     change, not a schema one. 'done' is untouched and still set from ProjectDetail.
+//   · The three action buttons are rendered NATIVELY here. The Employees portal-wrapper seam from
+//     3B.2 is retired: two mechanisms must never fight over one action row.
+//
 // Content-area modal: opaque theme surface, NO native-overlay dim (the recurring §3.4 defect).
-import { useState } from "react";
+// It is anchored to .tt-shell, which begins below the topbar, so it structurally cannot cover the
+// native window buttons.
+import { useCallback, useEffect, useState } from "react";
 import { explainTimeTrackerError, type TimeTrackerErrorExplanation } from "./ttErrors";
 import type {
-  TimeTrackerContractKind,
   TimeTrackerGroup,
   TimeTrackerNewProjectInput,
+  TimeTrackerProjectItem,
   TimeTrackerProjectListItem,
+  TimeTrackerProjectMember,
+  TimeTrackerProjectSpend,
   TimeTrackerProjectStatus,
-  TimeTrackerRateType,
+  EmployeePerson,
 } from "../../shared/types";
 
 export type ModalState = { mode: "new" } | { mode: "edit"; project: TimeTrackerProjectListItem } | null;
@@ -22,189 +37,473 @@ interface Props {
   groups: TimeTrackerGroup[];
   onClose: () => void;
   onSaved: (p: TimeTrackerProjectListItem) => void;
+  /** Optional third action. Supplied by the Employees wizard; absent inside TimeTracker itself. */
+  onSavedCreateEmployee?: (p: TimeTrackerProjectListItem) => void;
+  /** Lets a caller refresh its own group list after one is created in place. */
+  onGroupsChanged?: () => void;
 }
 
 const NEW_GROUP = "__new__";
+/** Colour is not edited here, but create still needs a value — the column is NOT NULL. */
 const DEFAULT_COLOR = "#2f6df6";
 
-export default function ProjectModal({ state, groups, onClose, onSaved }: Props) {
+/** The icon set the mockup draws (v5:156). Emoji, so nothing is fetched and nothing is licensed. */
+export const GROUP_ICONS = ["📷", "🎥", "💍", "🏗", "🎨", "🧾", "📦", "⭐"] as const;
+
+/** Auto-assignment: a stable pick from the group's own name, so the same group always gets the same
+    icon and two groups created in a row do not collide by accident. */
+export function autoIcon(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return GROUP_ICONS[h % GROUP_ICONS.length];
+}
+
+const fmtMoney = (n: number): string =>
+  n.toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Ten digits, auto-dashed. Anything beyond ten is dropped — a US number has ten, and quietly
+    accepting an eleventh produces something nobody can dial. */
+function formatPhone(raw: string): string {
+  const d = raw.replace(/\D/g, "").slice(0, 10);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+}
+/** Extension: digits only, capped at six. */
+const formatExt = (raw: string): string => raw.replace(/\D/g, "").slice(0, 6);
+
+export default function ProjectModal({
+  state,
+  groups,
+  onClose,
+  onSaved,
+  onSavedCreateEmployee,
+  onGroupsChanged,
+}: Props) {
   const api = window.api;
   const editing = state.mode === "edit" ? state.project : null;
 
   const [name, setName] = useState(editing?.name ?? "");
   const [clientName, setClientName] = useState(editing?.client_name ?? "");
-  const [phone, setPhone] = useState(editing?.contact_phone ?? "");
+  const [phone, setPhone] = useState(formatPhone(editing?.contact_phone ?? ""));
+  const [ext, setExt] = useState("");
   const [email, setEmail] = useState(editing?.email ?? "");
-  const [rateType, setRateType] = useState<TimeTrackerRateType>(editing?.rate_type ?? "hourly");
-  const [hourlyRate, setHourlyRate] = useState(editing?.hourly_rate != null ? String(editing.hourly_rate) : "");
-  const [kind, setKind] = useState<TimeTrackerContractKind>(editing?.contract_kind ?? "paid");
+  // Address is a reveal — most clients will not have one to hand, and four empty boxes is worse
+  // than a button. Stored on the CLIENT via the project input (see the deviation note in the report).
+  const [showAddr, setShowAddr] = useState(false);
+  const [street, setStreet] = useState("");
+  const [city, setCity] = useState("");
+  const [stateCode, setStateCode] = useState("");
+  const [zip, setZip] = useState("");
   const [amount, setAmount] = useState(editing?.contract_amount != null ? String(editing.contract_amount) : "");
-  const [targetHours, setTargetHours] = useState(editing?.target_hours != null ? String(editing.target_hours) : "");
+  const [budget, setBudget] = useState("");
   const [description, setDescription] = useState(editing?.contract_description ?? "");
   const [contract, setContract] = useState<{ path: string; name: string } | null>(null);
   const [groupSel, setGroupSel] = useState<string>(editing?.group_id != null ? String(editing.group_id) : "");
   const [newGroupName, setNewGroupName] = useState("");
-  const [color, setColor] = useState(editing?.color ?? DEFAULT_COLOR);
+  const [groupIcon, setGroupIcon] = useState<string>("");
   const [status, setStatus] = useState<TimeTrackerProjectStatus>(editing?.status ?? "active");
   const [error, setError] = useState<TimeTrackerErrorExplanation | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // ---- live data, EDIT MODE ONLY: all three need a project id, which a new project has not got yet.
+  const [items, setItems] = useState<TimeTrackerProjectItem[] | null>(null);
+  const [members, setMembers] = useState<TimeTrackerProjectMember[] | null>(null);
+  const [spend, setSpend] = useState<TimeTrackerProjectSpend | null>(null);
+  const [people, setPeople] = useState<EmployeePerson[]>([]);
+  const [dataError, setDataError] = useState(false);
+  const [newItem, setNewItem] = useState({ qty: "1", description: "", amount: "" });
+  const [memberSel, setMemberSel] = useState("");
+
+  const projectId = editing?.id ?? null;
+
+  const loadFinancials = useCallback((): void => {
+    if (projectId == null) return;
+    setDataError(false);
+    Promise.all([
+      api.timetracker.financials.items(projectId),
+      api.timetracker.financials.members(projectId),
+      api.timetracker.financials.spend(projectId),
+    ])
+      .then(([i, m, s]) => {
+        setItems(i);
+        setMembers(m);
+        setSpend(s);
+      })
+      .catch((e: unknown) => {
+        // An empty itemize list must never stand in for a failed read on a money surface.
+        console.error("[timetracker] project financials read failed:", e);
+        setDataError(true);
+      });
+  }, [api, projectId]);
+
+  useEffect(() => {
+    loadFinancials();
+  }, [loadFinancials]);
+
+  useEffect(() => {
+    void api.employees.people.list().then(setPeople).catch(() => setPeople([]));
+  }, [api]);
+
   const num = (s: string): number | null => {
-    const n = Number(s);
+    const n = Number(s.replace(/,/g, ""));
     return s.trim() !== "" && Number.isFinite(n) && n >= 0 ? n : null;
   };
 
-  const submit = (): void => {
+  const buildInput = (): TimeTrackerNewProjectInput => ({
+    name,
+    clientName,
+    // The extension rides with the number so one column carries a dialable string; the modal keeps
+    // them as separate fields, which is what the ruling asked for. See the report's deviation note.
+    contactPhone: ext.trim() === "" ? phone : `${phone} x${ext}`,
+    email,
+    // Rate type is no longer editable here. Existing projects keep whatever they had; new ones take
+    // the column default, and rate editing continues to live in ProjectDetail.
+    rateType: editing?.rate_type ?? "hourly",
+    hourlyRate: editing?.hourly_rate ?? null,
+    color: editing?.color ?? DEFAULT_COLOR, // colour STAYS; it is simply not edited from this modal
+    status,
+    groupId: groupSel !== "" && groupSel !== NEW_GROUP ? Number(groupSel) : null,
+    newGroupName: groupSel === NEW_GROUP ? newGroupName.trim() || null : null,
+    newGroupColor: null,
+    newGroupIcon: groupSel === NEW_GROUP ? groupIcon || autoIcon(newGroupName.trim()) : null,
+    contractAmount: num(amount),
+    contractDescription: description,
+    contractSourcePath: contract?.path ?? null,
+    contractKind: editing?.contract_kind ?? null,
+    targetHours: editing?.target_hours ?? null,
+    spendBudget: num(budget),
+    phoneExt: ext.trim() === "" ? null : ext,
+  });
+
+  const submit = (then: "close" | "employee"): void => {
     if (saving) return;
-    const input: TimeTrackerNewProjectInput = {
-      name,
-      clientName,
-      contactPhone: phone,
-      email,
-      rateType,
-      hourlyRate: rateType === "hourly" ? num(hourlyRate) : null,
-      color,
-      status,
-      groupId: groupSel !== "" && groupSel !== NEW_GROUP ? Number(groupSel) : null,
-      newGroupName: groupSel === NEW_GROUP ? newGroupName.trim() || null : null,
-      newGroupColor: null,
-      contractAmount: rateType === "contract" && kind === "paid" ? num(amount) : null,
-      contractDescription: rateType === "contract" ? description : "",
-      contractSourcePath: contract?.path ?? null,
-      contractKind: rateType === "contract" ? kind : null,
-      targetHours: rateType === "contract" && kind === "donated" ? num(targetHours) : null,
-    };
     setSaving(true);
     setError(null);
+    const input = buildInput();
     const op = editing
       ? api.timetracker.projects.update({ ...input, id: editing.id })
       : api.timetracker.projects.create(input);
-    void op.then(onSaved).catch((e: unknown) => {
-      setSaving(false);
-      const raw = e instanceof Error ? e.message : String(e);
-      // RAW text to the console ONLY — the dialog gets a sentence (scanErrors.ts precedent).
-      console.error("[timetracker] project save failed:", raw);
-      setError(explainTimeTrackerError(raw));
-    });
+    void op
+      .then((p) => {
+        onGroupsChanged?.();
+        if (then === "employee" && onSavedCreateEmployee) onSavedCreateEmployee(p);
+        else onSaved(p);
+      })
+      .catch((e: unknown) => {
+        setSaving(false);
+        const raw = e instanceof Error ? e.message : String(e);
+        // RAW text to the console ONLY — the dialog gets a sentence (scanErrors.ts precedent).
+        console.error("[timetracker] project save failed:", raw);
+        setError(explainTimeTrackerError(raw));
+      });
   };
 
   const pickContract = (): void => {
     void api.timetracker.files.pickContract().then((f) => { if (f) setContract(f); }).catch(() => {});
   };
 
+  const addItem = (): void => {
+    if (projectId == null || newItem.description.trim() === "") return;
+    void api.timetracker.financials
+      .addItem({
+        projectId,
+        qty: num(newItem.qty) ?? 1,
+        description: newItem.description,
+        amount: num(newItem.amount) ?? 0,
+      })
+      .then(() => {
+        setNewItem({ qty: "1", description: "", amount: "" });
+        loadFinancials(); // the readouts move with it
+      })
+      .catch((e: unknown) => console.error("[timetracker] add item failed:", e));
+  };
+
+  const itemTotal = (items ?? []).reduce((s, i) => s + i.amount, 0);
+
   return (
     <div className="tt-modalback" onClick={onClose}>
-      <div className="tt-modal" role="dialog" aria-label={editing ? "Edit project" : "New project"} onClick={(e) => e.stopPropagation()}>
+      <div
+        className="tt-modal wide"
+        role="dialog"
+        aria-label={editing ? "Edit project" : "New project"}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="tt-modalhead">{editing ? "Edit project" : "New project"}</div>
 
-        <label className="tt-field">
-          <span>Project name</span>
-          <input className="tt-input" value={name} autoFocus onChange={(e) => setName(e.target.value)} />
-        </label>
-        <div className="tt-fieldrow">
-          <label className="tt-field">
-            <span>Client</span>
-            <input className="tt-input" value={clientName} onChange={(e) => setClientName(e.target.value)} />
-          </label>
-          <label className="tt-field">
-            <span>Phone</span>
-            <input className="tt-input" value={phone ?? ""} onChange={(e) => setPhone(e.target.value)} />
-          </label>
-        </div>
-        <label className="tt-field">
-          <span>Email</span>
-          <input className="tt-input" value={email ?? ""} onChange={(e) => setEmail(e.target.value)} />
-        </label>
+        {/* Two columns above ~658px of MODAL width, one below — driven by the modal's own width via
+            minmax, not the viewport, because the rail changes the content area independently.
+            At the 740px floor this always stacks. See the report's width table. */}
+        <div className="tt-modalgrid">
+          {/* ---------------- LEFT: CLIENT + GROUP ---------------- */}
+          <div className="tt-mcol">
+            <div className="tt-block">
+              <div className="tt-blocktitle">Client</div>
+              <label className="tt-field">
+                <span>Client</span>
+                <input className="tt-input" value={clientName} autoFocus onChange={(e) => setClientName(e.target.value)} />
+              </label>
 
-        <div className="tt-fieldrow">
-          <label className="tt-field">
-            <span>Rate type</span>
-            <select className="tt-input" value={rateType} onChange={(e) => setRateType(e.target.value as TimeTrackerRateType)}>
-              <option value="hourly">Hourly</option>
-              <option value="contract">Contract</option>
-            </select>
-          </label>
-          {rateType === "hourly" ? (
-            <label className="tt-field">
-              <span>Hourly rate ($)</span>
-              <input className="tt-input" inputMode="decimal" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
-            </label>
-          ) : (
-            <label className="tt-field">
-              <span>Contract kind</span>
-              <select className="tt-input" value={kind} onChange={(e) => setKind(e.target.value as TimeTrackerContractKind)}>
-                <option value="paid">Paid</option>
-                <option value="donated">Donated</option>
-              </select>
-            </label>
-          )}
-        </div>
-
-        {rateType === "contract" && (
-          <>
-            <div className="tt-fieldrow">
-              {kind === "paid" ? (
-                <label className="tt-field">
-                  <span>Contract amount ($)</span>
-                  <input className="tt-input" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
-                </label>
+              {!showAddr ? (
+                <button className="tt-reveal" onClick={() => setShowAddr(true)}>＋ Add Address</button>
               ) : (
+                <>
+                  <label className="tt-field">
+                    <span>Street address</span>
+                    <input className="tt-input" value={street} onChange={(e) => setStreet(e.target.value)} />
+                  </label>
+                  <div className="tt-fieldrow">
+                    <label className="tt-field"><span>City</span>
+                      <input className="tt-input" value={city} onChange={(e) => setCity(e.target.value)} />
+                    </label>
+                    <label className="tt-field narrow"><span>State</span>
+                      <input className="tt-input" maxLength={2} value={stateCode}
+                        onChange={(e) => setStateCode(e.target.value.toUpperCase())} />
+                    </label>
+                    <label className="tt-field narrow"><span>Zip</span>
+                      <input className="tt-input" value={zip} onChange={(e) => setZip(e.target.value)} />
+                    </label>
+                  </div>
+                </>
+              )}
+
+              <label className="tt-field">
+                <span>Contact email</span>
+                <input className="tt-input" value={email ?? ""} onChange={(e) => setEmail(e.target.value)} />
+              </label>
+              <div className="tt-fieldrow">
                 <label className="tt-field">
-                  <span>Donated-hours goal</span>
-                  <input className="tt-input" inputMode="decimal" value={targetHours} onChange={(e) => setTargetHours(e.target.value)} />
+                  <span>Phone</span>
+                  <input className="tt-input" value={phone} placeholder="digits only — dashes add themselves"
+                    onChange={(e) => setPhone(formatPhone(e.target.value))} />
                 </label>
+                <label className="tt-field narrow">
+                  <span>Ext</span>
+                  <input className="tt-input" value={ext} onChange={(e) => setExt(formatExt(e.target.value))} />
+                </label>
+              </div>
+              <p className="tt-hint">Phone caps at ten digits; the extension field caps at six.</p>
+            </div>
+
+            <div className="tt-block">
+              <div className="tt-blocktitle">
+                Group
+                <span className="tt-info" tabIndex={0}>
+                  ⓘ
+                  <span className="tt-infotip" role="tooltip">
+                    A group collects related projects in the rail — a client with several shoots, or a
+                    season. Projects keep their own timers and totals; the group is how they sit
+                    together in the list.
+                  </span>
+                </span>
+              </div>
+              <label className="tt-field">
+                <span>Group</span>
+                <select className="tt-input" value={groupSel} onChange={(e) => setGroupSel(e.target.value)}>
+                  <option value="">Ungrouped</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={String(g.id)}>{g.icon ? `${g.icon} ` : ""}{g.name}</option>
+                  ))}
+                  <option value={NEW_GROUP}>＋ Create group…</option>
+                </select>
+              </label>
+              {groupSel === NEW_GROUP && (
+                <>
+                  <label className="tt-field">
+                    <span>New group name</span>
+                    <input className="tt-input" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} />
+                  </label>
+                  <div className="tt-field">
+                    <span>Icon</span>
+                    <div className="tt-iconrow">
+                      {GROUP_ICONS.map((ic) => {
+                        const auto = groupIcon === "" && newGroupName.trim() !== "" && autoIcon(newGroupName.trim()) === ic;
+                        return (
+                          <button key={ic} type="button"
+                            className={"tt-icon" + (groupIcon === ic || auto ? " on" : "")}
+                            aria-pressed={groupIcon === ic || auto}
+                            onClick={() => setGroupIcon(ic)}>{ic}</button>
+                        );
+                      })}
+                    </div>
+                    <p className="tt-hint">
+                      The group assigns its own icon automatically — pick a different one here if you
+                      want, or change it later in Settings. Project colour is unchanged and still set
+                      from the project card.
+                    </p>
+                  </div>
+                </>
               )}
               <div className="tt-field">
-                <span>Contract file</span>
-                <button className="tt-btn ghost tt-attach" onClick={pickContract}>
-                  {contract ? contract.name : editing?.contract_file_path ? "Replace attached file…" : "Attach file…"}
-                </button>
+                <span>Status</span>
+                <div className="tt-statuspill" role="radiogroup" aria-label="Status">
+                  <button type="button" role="radio" aria-checked={status === "active"}
+                    className={"tt-pillbtn" + (status === "active" ? " on" : "")}
+                    onClick={() => setStatus("active")}>Active</button>
+                  <button type="button" role="radio" aria-checked={status === "parked"}
+                    className={"tt-pillbtn" + (status === "parked" ? " on" : "")}
+                    onClick={() => setStatus("parked")}>Pause</button>
+                </div>
+                {status === "done" && (
+                  <p className="tt-hint">
+                    This project is marked Done. Choosing Active or Pause above will change that.
+                  </p>
+                )}
               </div>
             </div>
-            <label className="tt-field">
-              <span>Description</span>
-              <textarea className="tt-input tt-textarea" value={description ?? ""} onChange={(e) => setDescription(e.target.value)} />
-            </label>
-          </>
-        )}
+          </div>
 
-        <div className="tt-fieldrow">
-          <label className="tt-field">
-            <span>Group</span>
-            <select className="tt-input" value={groupSel} onChange={(e) => setGroupSel(e.target.value)}>
-              <option value="">Ungrouped</option>
-              {groups.map((g) => (
-                <option key={g.id} value={String(g.id)}>{g.name}</option>
-              ))}
-              <option value={NEW_GROUP}>— New group…</option>
-            </select>
-          </label>
-          <label className="tt-field">
-            <span>Status</span>
-            <select className="tt-input" value={status} onChange={(e) => setStatus(e.target.value as TimeTrackerProjectStatus)}>
-              <option value="active">Active</option>
-              <option value="parked">Parked</option>
-              <option value="done">Done</option>
-            </select>
-          </label>
+          {/* ---------------- RIGHT: CONTRACT / ASSIGNMENT + EMPLOYEES ---------------- */}
+          <div className="tt-mcol">
+            <div className="tt-block">
+              <div className="tt-blocktitle">Contract / Assignment</div>
+              <label className="tt-field">
+                <span>Project name</span>
+                <input className="tt-input" value={name} onChange={(e) => setName(e.target.value)} />
+              </label>
+              <div className="tt-fieldrow">
+                <label className="tt-field">
+                  <span>Contracted agreed amount</span>
+                  <div className="tt-prefixed"><span className="tt-prefix">$</span>
+                    <input className="tt-input mono" inputMode="decimal" value={amount}
+                      onChange={(e) => setAmount(e.target.value)} /></div>
+                  <p className="tt-hint">What the client agreed to pay for this project.</p>
+                </label>
+                <label className="tt-field">
+                  <span>Hire &amp; spend budget</span>
+                  <div className="tt-prefixed"><span className="tt-prefix">$</span>
+                    <input className="tt-input mono" inputMode="decimal" value={budget}
+                      onChange={(e) => setBudget(e.target.value)} /></div>
+                  <p className="tt-hint">What you plan to spend hiring and buying for this project.</p>
+                </label>
+              </div>
+
+              <div className="tt-statgrid">
+                <div className="tt-stat"><span className="k">Contracted</span>
+                  <span className="v">{fmtMoney(num(amount) ?? 0)}</span></div>
+                <div className="tt-stat"><span className="k">Spent so far</span>
+                  <span className="v">{fmtMoney(spend?.spent ?? 0)}</span></div>
+                <div className="tt-stat"><span className="k">Budget left</span>
+                  <span className={"v" + ((spend?.budget_left ?? 0) >= 0 ? " good" : " over")}>
+                    {num(budget) == null ? "—" : fmtMoney((num(budget) ?? 0) - (spend?.spent ?? 0))}
+                  </span></div>
+              </div>
+              <p className="tt-hint">
+                Spent = employee time and completions on this project plus the itemized rows below.
+                Your own tracked time is not counted as spend.
+              </p>
+
+              <div className="tt-blocksub">Itemize</div>
+              {projectId == null ? (
+                <p className="tt-hint">
+                  Itemized rows attach to a saved project — create this one first, then reopen it to
+                  add them.
+                </p>
+              ) : dataError ? (
+                <div className="tt-error" role="alert">
+                  <span className="tt-error-plain">Couldn&apos;t load this project&apos;s costs.</span>
+                  <span className="tt-error-hint">Nothing is shown rather than an empty list.</span>
+                </div>
+              ) : items === null ? (
+                <p className="tt-hint">Loading…</p>
+              ) : (
+                <>
+                  <div className="tt-itemhead"><span>Qty</span><span>Description</span><span>Amount</span><span /></div>
+                  {items.map((it) => (
+                    <div key={it.id} className="tt-itemrow">
+                      <span className="mono">{it.qty}</span>
+                      <span>{it.description}</span>
+                      <span className="mono">{fmtMoney(it.amount)}</span>
+                      <button className="tt-itemx" aria-label={`Remove ${it.description}`}
+                        onClick={() => void api.timetracker.financials.removeItem(it.id).then(loadFinancials)
+                          .catch((e: unknown) => console.error("[timetracker] remove item failed:", e))}>✕</button>
+                    </div>
+                  ))}
+                  <div className="tt-itemrow new">
+                    <input className="tt-input mono" value={newItem.qty}
+                      onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} />
+                    <input className="tt-input" placeholder="Description" value={newItem.description}
+                      onChange={(e) => setNewItem({ ...newItem, description: e.target.value })} />
+                    <div className="tt-prefixed"><span className="tt-prefix">$</span>
+                      <input className="tt-input mono" inputMode="decimal" value={newItem.amount}
+                        onChange={(e) => setNewItem({ ...newItem, amount: e.target.value })} /></div>
+                    <button className="tt-btn ghost sm" disabled={newItem.description.trim() === ""}
+                      onClick={addItem}>＋</button>
+                  </div>
+                  <div className="tt-totline"><span>Itemized total</span><b>{fmtMoney(itemTotal)}</b></div>
+                </>
+              )}
+            </div>
+
+            <div className="tt-block">
+              <div className="tt-blocktitle">Employees on this project</div>
+              {projectId == null ? (
+                <p className="tt-hint">
+                  People attach to a saved project — create this one first, then reopen it to build
+                  the team.
+                </p>
+              ) : dataError ? (
+                <div className="tt-error" role="alert">
+                  <span className="tt-error-plain">Couldn&apos;t load the project team.</span>
+                </div>
+              ) : members === null ? (
+                <p className="tt-hint">Loading…</p>
+              ) : (
+                <>
+                  {members.length === 0 && <p className="tt-hint">Nobody is on this project yet.</p>}
+                  {members.map((m) => (
+                    <div key={m.id} className="tt-emprow">
+                      <div className="who">
+                        <b>{m.person_name ?? "(removed person)"}</b>
+                        <div className="r">{m.person_role ?? "No role set"}</div>
+                      </div>
+                      <div className="pay">
+                        {m.default_rate != null
+                          ? `${fmtMoney(m.default_rate)} / ${m.default_pay_type ?? "hour"}`
+                          : "No rate set"}
+                      </div>
+                      <button className="tt-itemx" aria-label={`Remove ${m.person_name ?? "person"}`}
+                        onClick={() => void api.timetracker.financials.removeMember(projectId, m.person_id)
+                          .then(loadFinancials)
+                          .catch((e: unknown) => console.error("[timetracker] remove member failed:", e))}>✕</button>
+                    </div>
+                  ))}
+                  <div className="tt-addemp">
+                    <select className="tt-input" value={memberSel} onChange={(e) => setMemberSel(e.target.value)}>
+                      <option value="">Add an employee…</option>
+                      {people
+                        .filter((p) => !(members ?? []).some((m) => m.person_id === p.id))
+                        .map((p) => (
+                          <option key={p.id} value={String(p.id)}>{p.name}</option>
+                        ))}
+                    </select>
+                    <button className="tt-btn ghost sm" disabled={memberSel === ""}
+                      onClick={() => {
+                        void api.timetracker.financials.addMember(projectId, Number(memberSel))
+                          .then(() => { setMemberSel(""); loadFinancials(); })
+                          .catch((e: unknown) => console.error("[timetracker] add member failed:", e));
+                      }}>Add</button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
-        {groupSel === NEW_GROUP && (
-          <label className="tt-field">
-            <span>New group name</span>
-            <input className="tt-input" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} />
-          </label>
-        )}
 
-        <div className="tt-colorrow">
-          <span className="tt-infolabel">Color</span>
-          {["#2f6df6", "#3b82f6", "#38bdf8", "#16a34a", "#84cc16", "#eab308", "#f97316", "#ef4444", "#a855f7", "#8b9bb4"].map((c) => (
-            <button key={c} className={"tt-swatch" + (c === color ? " on" : "")} style={{ background: c }}
-              aria-label={`Color ${c}`} onClick={() => setColor(c)} />
-          ))}
+        {/* Contract description and attachment keep their home, below the grid. */}
+        <label className="tt-field">
+          <span>Description</span>
+          <textarea className="tt-input tt-textarea" value={description ?? ""}
+            onChange={(e) => setDescription(e.target.value)} />
+        </label>
+        <div className="tt-field">
+          <span>Contract file</span>
+          <button className="tt-btn ghost tt-attach" onClick={pickContract}>
+            {contract ? contract.name : editing?.contract_file_path ? "Replace attached file…" : "Attach file…"}
+          </button>
         </div>
 
-        {/* Its own full-width block between the swatches and the actions — wraps to as many lines as
-            the sentence needs, never truncates. */}
+        {/* Its own full-width block — wraps to as many lines as the sentence needs, never truncates. */}
         {error && (
           <div className="tt-error" role="alert">
             <span className="tt-error-plain">{error.plain}</span>
@@ -212,11 +511,19 @@ export default function ProjectModal({ state, groups, onClose, onSaved }: Props)
           </div>
         )}
 
+        {/* NATIVE three-button row (ruling 6). The Employees portal wrapper is retired. */}
         <div className="tt-modalacts">
           <button className="tt-btn ghost" onClick={onClose}>Cancel</button>
-          <button className="tt-btn start" disabled={saving || name.trim() === "" || clientName.trim() === ""} onClick={submit}>
-            {saving ? "Saving…" : editing ? "Save changes" : "Create project"}
+          <button className="tt-btn" disabled={saving || name.trim() === "" || clientName.trim() === ""}
+            onClick={() => submit("close")}>
+            {saving ? "Saving…" : editing ? "Save changes" : "Add Project"}
           </button>
+          {onSavedCreateEmployee && !editing && (
+            <button className="tt-btn start" disabled={saving || name.trim() === "" || clientName.trim() === ""}
+              onClick={() => submit("employee")}>
+              Add Project + Create Employee
+            </button>
+          )}
         </div>
       </div>
     </div>

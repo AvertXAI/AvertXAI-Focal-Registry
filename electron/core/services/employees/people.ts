@@ -15,7 +15,7 @@ import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
 import type { Person, PersonInput } from "./types";
-import { vAmount, vId, vNullableString, vString } from "./validate";
+import { vAmount, vId, vNullableId, vNullablePayType, vNullableState, vNullableString, vString } from "./validate";
 
 function clean(raw: PersonInput): PersonInput {
   return {
@@ -25,6 +25,18 @@ function clean(raw: PersonInput): PersonInput {
     role: vNullableString(raw.role, "role", 100),
     defaultRate: raw.defaultRate == null ? null : vAmount(raw.defaultRate, "default rate"),
     notes: vNullableString(raw.notes, "notes", 4000),
+    // ---- 3B.2-A additions. Every one nullable: the form treats them all as optional.
+    streetAddress: vNullableString(raw.streetAddress, "street address", 300),
+    city: vNullableString(raw.city, "city", 120),
+    state: vNullableState(raw.state),
+    // Free text, NOT a number: postal codes lead with zeros and are not all digits worldwide.
+    zip: vNullableString(raw.zip, "zip", 20),
+    // Stored as typed. No normalization, no stripping: what the user entered is what a tax form
+    // has to match, and silently reformatting an identifier is how one stops matching.
+    ssn: vNullableString(raw.ssn, "social security", 40),
+    defaultPayType: vNullablePayType(raw.defaultPayType),
+    defaultProjectId: vNullableId(raw.defaultProjectId, "default project id"),
+    defaultProjectName: vNullableString(raw.defaultProjectName, "default project name", 200),
   };
 }
 
@@ -82,10 +94,31 @@ export function createPerson(db: Db, orgId: string, input: PersonInput): Person 
   const at = nowIso();
   const res = db
     .prepare(
-      `INSERT INTO employee_people (uuid, org_id, name, email, phone, role, default_rate, notes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO employee_people
+         (uuid, org_id, name, email, phone, role, default_rate, notes,
+          street_address, city, state, zip, ssn, default_pay_type, default_project_id,
+          default_project_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(generateUUIDv7(), orgId, p.name, p.email, p.phone, p.role, p.defaultRate, p.notes, at);
+    .run(
+      generateUUIDv7(),
+      orgId,
+      p.name,
+      p.email,
+      p.phone,
+      p.role,
+      p.defaultRate,
+      p.notes,
+      p.streetAddress,
+      p.city,
+      p.state,
+      p.zip,
+      p.ssn,
+      p.defaultPayType,
+      p.defaultProjectId,
+      p.defaultProjectName,
+      at
+    );
   const person = getPerson(db, Number(res.lastInsertRowid));
   logEvent(db, orgId, { type: "person_added", employeeId: person.id, employeeName: person.name });
   return person;
@@ -99,10 +132,29 @@ export function updatePerson(db: Db, id: number, input: PersonInput): Person {
   const res = db
     .prepare(
       `UPDATE employee_people
-       SET name = ?, email = ?, phone = ?, role = ?, default_rate = ?, notes = ?, updated_at = ?
+       SET name = ?, email = ?, phone = ?, role = ?, default_rate = ?, notes = ?,
+           street_address = ?, city = ?, state = ?, zip = ?, ssn = ?, default_pay_type = ?,
+           default_project_id = ?, default_project_name = ?, updated_at = ?
        WHERE id = ?`
     )
-    .run(p.name, p.email, p.phone, p.role, p.defaultRate, p.notes, nowIso(), personId);
+    .run(
+      p.name,
+      p.email,
+      p.phone,
+      p.role,
+      p.defaultRate,
+      p.notes,
+      p.streetAddress,
+      p.city,
+      p.state,
+      p.zip,
+      p.ssn,
+      p.defaultPayType,
+      p.defaultProjectId,
+      p.defaultProjectName,
+      nowIso(),
+      personId
+    );
   if (res.changes === 0) throw new Error(`Person ${personId} not found`);
   return getPerson(db, personId);
 }

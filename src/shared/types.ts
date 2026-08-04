@@ -738,6 +738,18 @@ export interface EmployeePerson {
   /** Prefill only — never the money of record. That is rate_at_entry on each entry. */
   default_rate: number | null;
   notes: string | null;
+  // ---- 3B.2-A (2026-08-04). All nullable; every one is optional on the approved form.
+  street_address: string | null;
+  city: string | null;
+  state: string | null; // 2-letter US code
+  zip: string | null;
+  /** PLAIN, in the shared org database, by the 2026-08-04 ruling. The Vault is not involved. */
+  ssn: string | null;
+  /** PREFILL only — the Add Time form's starting pill. Pay type still lives on the ENTRY. */
+  default_pay_type: EmployeePayType | null;
+  /** SOFT reference to a TimeTracker project — resolves to nothing if that project is purged. */
+  default_project_id: number | null;
+  default_project_name: string | null;
   archived_at: string | null;
   archive_reason: string | null;
   created_at: string;
@@ -750,6 +762,14 @@ export interface EmployeePersonInput {
   role: string | null;
   defaultRate: number | null;
   notes: string | null;
+  streetAddress: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  ssn: string | null;
+  defaultPayType: EmployeePayType | null;
+  defaultProjectId: number | null;
+  defaultProjectName: string | null;
 }
 
 export interface EmployeeEntry {
@@ -841,7 +861,9 @@ export type EmployeeAuditEntry =
       from: { delta_minutes: number | null; delta_amount: number | null; note: string };
       to: { delta_minutes: number | null; delta_amount: number | null; note: string };
     }
-  | { action: "deleted"; at: string };
+  | { action: "deleted"; at: string }
+  /** A soft delete undone — appended after the "deleted" entry, never replacing it. */
+  | { action: "restored"; at: string };
 
 export interface EmployeeAdjustment {
   id: number;
@@ -1263,6 +1285,8 @@ export interface Api {
       createAmount: (input: EmployeeAmountAdjustmentInput) => Promise<EmployeeAdjustment>;
       update: (uuid: string, deltaValue: number, note: string) => Promise<EmployeeAdjustment>;
       softDelete: (uuid: string) => Promise<void>;
+      /** Undoes a soft delete; the audit trail keeps both the deletion and the restore. */
+      restore: (uuid: string) => Promise<EmployeeAdjustment>;
     };
     reports: {
       /** The seam. Nothing in analytics consumes it yet — that is a later phase. */

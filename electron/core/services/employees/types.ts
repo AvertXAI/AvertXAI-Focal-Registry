@@ -38,6 +38,18 @@ export interface Person {
   /** Prefill only — never the money of record. That is rate_at_entry on each entry. */
   default_rate: number | null;
   notes: string | null;
+  // ---- added 2026-08-04 (3B.2-A). All nullable — every one is optional on the approved form.
+  street_address: string | null;
+  city: string | null;
+  state: string | null; // 2-letter US code
+  zip: string | null;
+  /** PLAIN, in the shared org database, by the 2026-08-04 ruling. The Vault is not involved. */
+  ssn: string | null;
+  /** PREFILL only. Pay type still lives on the ENTRY — this just sets the form's starting pill. */
+  default_pay_type: PayType | null;
+  /** SOFT reference to a TimeTracker project — no FK; resolves to nothing if the project is purged. */
+  default_project_id: number | null;
+  default_project_name: string | null;
   archived_at: string | null;
   archive_reason: string | null;
   created_at: string;
@@ -50,6 +62,14 @@ export interface PersonInput {
   role: string | null;
   defaultRate: number | null;
   notes: string | null;
+  streetAddress: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  ssn: string | null;
+  defaultPayType: PayType | null;
+  defaultProjectId: number | null;
+  defaultProjectName: string | null;
 }
 
 export interface Entry {
@@ -141,7 +161,10 @@ export type EmployeeAuditEntry =
       from: { delta_minutes: number | null; delta_amount: number | null; note: string };
       to: { delta_minutes: number | null; delta_amount: number | null; note: string };
     }
-  | { action: "deleted"; at: string };
+  | { action: "deleted"; at: string }
+  /** A soft delete undone. Appended, never replacing the "deleted" entry it follows — the audit
+      trail records that it WAS deleted and then restored, which is the point of an audit trail. */
+  | { action: "restored"; at: string };
 
 export interface Adjustment {
   id: number;

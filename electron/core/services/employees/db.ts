@@ -11,8 +11,13 @@
 //              a caller remembering. FRESH schema — no data import, no user_version ladder
 //              (timetracker/db.ts precedent). Everything additive; any future column follows the
 //              PRAGMA table_info guard pattern placed AFTER its createTable call, never before.
-//              NOTE: there is deliberately NO taxpayer-identifier column anywhere in this file —
-//              canon puts those in the Vault, never the shared database, and Phase 1 stores none.
+//              TAXPAYER IDENTIFIER — RULING CHANGED 2026-08-04. This file previously stated that no
+//              taxpayer-identifier column existed here because canon put them in the Vault
+//              (DECISIONS-51:451). Jason has ruled that superseded FOR EMPLOYEES: the social
+//              security number is stored PLAIN, in this shared org database, in employee_people.ssn
+//              below. The Vault is deliberately NOT involved. Logged in CANON-UPDATES.md
+//              (2026-08-04). Consequence to know: the shared org database is unencrypted (canon
+//              ruled encryption of it NOT PROCEEDING), so this value sits in plaintext on disk.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/employees/db.ts
 //------------------------------------------------------------
@@ -43,6 +48,31 @@ export function ensureEmployeesSchema(db: Db): void {
     "archived_at TEXT", // soft archive; NULL = active
     "archive_reason TEXT",
   ]);
+  // Additive migration, guarded, AFTER its createTable (canon order — never before), following the
+  // employee_tasks.deleted_at precedent below. SEVEN columns, ALL NULLABLE with no default: SQLite
+  // cannot ADD COLUMN NOT NULL without one, and a default here would invent an address, a state or
+  // a pay type for every person already on file. Every one of these is optional in the approved
+  // form, so nullable is also the honest shape, not just the reachable one.
+  //   default_project_id is a SOFT reference — no REFERENCES clause — for the same reason
+  //   employee_entries.project_id carries none: an Employees row must survive a TimeTracker project
+  //   purge. It resolves through a plain join (one database, one connection) and simply resolves to
+  //   nothing if the project is gone. default_project_name rides beside it so the person's row stays
+  //   readable afterwards, exactly as entries denormalize project_name.
+  //   ssn is PLAIN TEXT by the 2026-08-04 ruling — see the header block.
+  {
+    const cols = (db.pragma("table_info(employee_people)") as { name: string }[]).map((c) => c.name);
+    const add = (name: string, decl: string): void => {
+      if (!cols.includes(name)) db.exec(`ALTER TABLE employee_people ADD COLUMN ${decl};`);
+    };
+    add("street_address", "street_address TEXT");
+    add("city", "city TEXT");
+    add("state", "state TEXT"); // 2-letter US code, validated in the service; NULL = unset
+    add("zip", "zip TEXT"); // free text — postal codes are not numbers and lead with zeros
+    add("ssn", "ssn TEXT"); // plain, ruled 2026-08-04; see the header block
+    add("default_pay_type", "default_pay_type TEXT"); // PREFILL only — pay type still lives on the ENTRY
+    add("default_project_id", "default_project_id INTEGER"); // soft reference, see above
+    add("default_project_name", "default_project_name TEXT"); // denormalized beside the id
+  }
 
   // A unit of work — the payroll atom. THREE canon rulings are enforced here by CHECK:
   //   1. pay_type lives on the ENTRY, not the person (four types, hours recorded for every one).

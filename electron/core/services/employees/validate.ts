@@ -98,6 +98,27 @@ export function vEnum<T extends string>(value: unknown, allowed: readonly T[], l
   return value as T;
 }
 
+/** Two-letter US state code, or null. Uppercased so "tx" and "TX" store identically — the form
+    offers a fixed list, but the service is the trust boundary and takes whatever IPC hands it. */
+export function vNullableState(value: unknown, label = "state"): string | null {
+  if (value == null) return null;
+  // Deliberately NOT vString: that helper SLICES to maxLen, so vString(value, label, 2) would turn
+  // "TXX" into "TX" and the check below would pass a value the caller never sent. Silent truncation
+  // is the one thing a validator must not do — the raw string is tested as given.
+  if (typeof value !== "string") throw new Error(`Invalid ${label}`);
+  const s = value.trim().toUpperCase();
+  if (s === "") return null;
+  if (!/^[A-Z]{2}$/.test(s)) throw new Error(`Invalid ${label} — expected a two-letter code`);
+  return s;
+}
+
+/** A pay type, or null. NULL is a real answer here: it means "no default set for this person",
+    which is different from hourly. The ENTRY's pay type is still mandatory and unaffected. */
+export function vNullablePayType(value: unknown): PayType | null {
+  if (value == null || value === "") return null;
+  return vEnum(value, PAY_TYPES, "default pay type");
+}
+
 /** A calendar date the work happened on / a payment was made on: YYYY-MM-DD, real date. */
 export function vDate(value: unknown, label = "date"): string {
   const s = vString(value, label, 10, true);

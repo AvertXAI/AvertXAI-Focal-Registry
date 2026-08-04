@@ -188,6 +188,37 @@ export function updateAdjustment(db: Db, uuid: string, deltaValue: number, note:
   return getOne(db, existing.uuid);
 }
 
+/**
+ * Undoes a soft delete: clears deleted_at and APPENDS a "restored" entry. The "deleted" entry it
+ * follows is never removed — the trail has to say that this row was deleted and then brought back,
+ * or it is not an audit trail. Idempotent: restoring a live adjustment is a no-op, not an error
+ * (the archivePerson precedent). Added 2026-08-04 with the Employees Adjustments tab, which is the
+ * first surface that can show a struck-through row and therefore the first that can offer a way back.
+ */
+export function restoreAdjustment(db: Db, orgId: string, uuid: string): Adjustment {
+  const existing = db.prepare(`SELECT * FROM employee_adjustments WHERE uuid = ?`).get(vUuid(uuid, "adjustment id")) as
+    | AdjustmentRow
+    | undefined;
+  if (!existing) throw new Error(`Adjustment ${uuid} not found`);
+  if (!existing.deleted_at) return parse(existing);
+  const at = nowIso();
+  const audit = JSON.parse(existing.audit_log) as EmployeeAuditEntry[];
+  audit.push({ action: "restored", at });
+  db.prepare(`UPDATE employee_adjustments SET deleted_at = NULL, updated_at = ?, audit_log = ? WHERE uuid = ?`).run(
+    at,
+    JSON.stringify(audit),
+    existing.uuid
+  );
+  const person = getPerson(db, existing.employee_id);
+  logEvent(db, orgId, {
+    type: "adjusted",
+    employeeId: person.id,
+    employeeName: person.name,
+    detail: "correction restored",
+  });
+  return getOne(db, existing.uuid);
+}
+
 /** Soft delete: sets deleted_at and appends a delete entry; the row is never hard-removed. */
 export function softDeleteAdjustment(db: Db, orgId: string, uuid: string): void {
   const existing = db.prepare(`SELECT * FROM employee_adjustments WHERE uuid = ?`).get(vUuid(uuid, "adjustment id")) as

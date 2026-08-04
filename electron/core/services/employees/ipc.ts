@@ -166,6 +166,12 @@ export function registerEmployeesIpc(): void {
     const { db, orgId } = empCtx();
     adjustments.softDeleteAdjustment(db, orgId, uuid as string);
   });
+  // Undoes a soft delete. Added 2026-08-04 with the Adjustments tab — the first surface that can
+  // show a struck-through row, and therefore the first that needs a way back.
+  safeHandle("employees:restoreAdjustment", (_e, uuid: unknown) => {
+    const { db, orgId } = empCtx();
+    return adjustments.restoreAdjustment(db, orgId, uuid as string);
+  });
 
   // ---- derived reads (SELECT-only; the per-project cost seam stays UNWIRED to analytics) ----
   safeHandle("employees:costByProject", () => {

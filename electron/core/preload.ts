@@ -324,6 +324,7 @@ const api: Api = {
       update: (uuid: string, deltaValue: number, note: string) =>
         invoke("employees:updateAdjustment", uuid, deltaValue, note),
       softDelete: (uuid: string) => invoke("employees:softDeleteAdjustment", uuid),
+      restore: (uuid: string) => invoke("employees:restoreAdjustment", uuid),
     },
     reports: {
       costByProject: () => invoke("employees:costByProject"),

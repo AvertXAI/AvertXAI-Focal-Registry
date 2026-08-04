@@ -10,11 +10,21 @@
   --employees-positive-color: var(--mc-green);
   --employees-owed-color: #e0a53a; /* amber — money outstanding; NOT --mc-orange (the not-built glow) */
   --employees-on-accent-ink: #07101f;
+  /* Phase 3B form surfaces. Amber is REUSED for the error banner but declared as its own token:
+     "money outstanding" and "this write failed" are different meanings, and one token serving both
+     is exactly how a later theme tweak breaks the one you weren't thinking about. NOT --mc-orange,
+     which is the not-built glow and is suppressed in this product (§3.6). */
+  --employees-error-color: #e0a53a;
+  --employees-modal-width: 520px;
+  --employees-modal-scrim: color-mix(in srgb, var(--mc-base) 62%, transparent);
   display: flex;
   height: calc(100vh - 58px - var(--mc-footer-height, 0px));
   background: var(--mc-base);
   color: var(--mc-text);
   overflow: hidden;
+  /* Anchors .emp-modalback to the MODULE's content area rather than the window — the same job
+     .tt-shell does. Without it the overlay escapes to the viewport and covers the topbar. */
+  position: relative;
 }
 /* ⚠ THE SPECIFICITY TRAP (TimeTracker Phase 4 Task A, and it cost days there): globals.css has
    `.view.shown{display:block}` at 0,2,0, which BEATS a single module class at 0,1,0 on the same
@@ -60,9 +70,12 @@
 .emp-tabbody { flex: 1; overflow-y: auto; min-height: 0; padding: 16px 18px 22px; }
 
 /* ---------- person header ---------- */
-.emp-personhead { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.emp-personhead { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
 .emp-personhead h2 { font-size: 16px; font-weight: 700; }
 .emp-personrole { font-size: 11.5px; color: var(--mc-muted); }
+/* Actions cluster — pushed right, but wraps below the name at the 740px floor rather than
+   squeezing the name into an ellipsis. */
+.emp-headacts { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* ---------- stat cards (mockup: Accumulated hours) ---------- */
 .emp-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;
@@ -77,7 +90,7 @@
 
 /* ---------- ledger table ---------- */
 .emp-sectlabel { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mc-muted);
-  font-weight: 700; margin-bottom: 8px; }
+  font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
 .emp-table { width: 100%; border-collapse: collapse; font-size: 12px; background: var(--mc-panels);
   border: 1px solid var(--mc-border); border-radius: 8px; overflow: hidden; }
 .emp-table th { text-align: left; padding: 8px 10px; font-size: 8.5px; letter-spacing: .7px;
@@ -100,3 +113,106 @@
 .emp-notbuilt { padding: 26px 2px; }
 .emp-notbuilt h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
 .emp-notbuilt p { font-size: 13px; color: var(--mc-muted); max-width: 60ch; line-height: 1.6; }
+
+/* ============ PHASE 3B — write surfaces ============ */
+
+/* ---------- buttons ---------- */
+.emp-btn { flex: none; border-radius: 7px; border: 1px solid var(--mc-border); background: var(--mc-nested);
+  color: var(--mc-text); font-size: 12.5px; padding: 6px 14px; cursor: pointer; font-family: var(--mc-font); }
+.emp-btn:hover:not(:disabled) { border-color: var(--mc-accent-primary); }
+.emp-btn:disabled { opacity: .5; cursor: default; }
+.emp-btn.primary { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary);
+  color: var(--employees-on-accent-ink); font-weight: 600; }
+.emp-btn.ghost { background: none; }
+/* the second "+ Add Time" on the Time-ledger label, as drawn */
+.emp-linkbtn { margin-left: auto; background: none; border: none; cursor: pointer; font-family: var(--mc-font);
+  font-size: 10.5px; font-weight: 700; letter-spacing: .6px; color: var(--mc-accent-primary); padding: 0; }
+.emp-linkbtn:hover { text-decoration: underline; }
+
+/* ---------- rail controls ---------- */
+.emp-railnew { margin: 0 12px 10px; padding: 7px 10px; border-radius: 7px; cursor: pointer;
+  border: 1px dashed var(--mc-border); background: none; color: var(--mc-accent-primary);
+  font-family: var(--mc-font); font-size: 12px; font-weight: 600; }
+.emp-railnew:hover:not(:disabled) { border-style: solid; background: var(--mc-nested); }
+.emp-railnew:disabled { opacity: .45; cursor: default; }
+.emp-railtoggle { display: block; width: 100%; margin-top: 10px; padding: 7px 9px; border: none; background: none;
+  color: var(--mc-muted); font-family: var(--mc-font); font-size: 11px; text-align: left; cursor: pointer;
+  border-top: 1px solid var(--mc-border); }
+.emp-railtoggle:hover { color: var(--mc-text); }
+/* An archived row is a DIV, not a selection button — it offers Restore and nothing else. */
+.emp-personrow.archived { cursor: default; opacity: .72; }
+.emp-personrow.archived:hover { background: none; }
+.emp-avatar.dim { background: var(--mc-nested); color: var(--mc-muted); border: 1px solid var(--mc-border); }
+.emp-restore { flex: none; background: none; border: 1px solid var(--mc-border); border-radius: 6px;
+  color: var(--mc-accent-primary); font-family: var(--mc-font); font-size: 10.5px; padding: 2px 8px; cursor: pointer; }
+.emp-restore:hover:not(:disabled) { border-color: var(--mc-accent-primary); }
+.emp-restore:disabled { opacity: .5; cursor: default; }
+
+/* ---------- modal — CONTENT-AREA overlay (below the topbar): opaque theme surfaces, and
+   deliberately NO native-overlay dim. Dimming the native buttons for a modal that only covers the
+   content area paints a dark block over them in light mode (§3.4 scope rule, recurring defect). */
+.emp-modalback { position: absolute; inset: 0; background: var(--employees-modal-scrim); z-index: 20;
+  display: flex; align-items: flex-start; justify-content: center; padding: 28px 16px; overflow-y: auto; }
+.emp-modal { width: var(--employees-modal-width); max-width: 100%; background: var(--mc-panels);
+  border: 1px solid var(--mc-border); border-radius: 11px; padding: 18px 20px 20px;
+  box-shadow: 0 18px 50px color-mix(in srgb, var(--mc-boot-bg) 55%, transparent); }
+.emp-modal.narrow { width: 420px; }
+.emp-modalhead { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
+.emp-modalsub { font-size: 11.5px; color: var(--mc-muted); margin-bottom: 14px; }
+.emp-modaldesc { font-size: 12.5px; color: var(--mc-muted); line-height: 1.55; margin: 8px 0 14px; }
+.emp-modalacts { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 14px;
+  flex-wrap: wrap; }
+.emp-savedcount { margin-right: auto; font-size: 11.5px; color: var(--employees-positive-color); }
+
+/* ---------- fields ---------- */
+.emp-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 11px; font-size: 11px;
+  color: var(--mc-muted); flex: 1; min-width: 0; }
+.emp-fieldrow { display: flex; gap: 12px; flex-wrap: wrap; }
+.emp-fieldrow .emp-field { min-width: 150px; } /* wraps rather than crushing at the 740px floor */
+.emp-input { width: 100%; box-sizing: border-box; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 7px; color: var(--mc-text); font-size: 12.5px; padding: 7px 10px; outline: none;
+  font-family: var(--mc-font); }
+.emp-input:focus { border-color: var(--mc-accent-primary); }
+.emp-input:disabled { opacity: .6; cursor: default; }
+.emp-input::placeholder { color: var(--mc-dimmer); }
+.emp-input.mono { font-family: var(--mc-mono); }
+.emp-textarea { min-height: 60px; resize: vertical; font-family: var(--mc-font); }
+.emp-hint { font-size: 10.5px; color: var(--mc-dimmer); font-style: normal; line-height: 1.45; }
+.emp-req { color: var(--mc-accent-primary); font-weight: 700; }
+/* decimal box + its live readout, and the rate box + its override tick */
+.emp-inputpair { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.emp-inputpair .emp-input { flex: 1 1 120px; width: auto; }
+.emp-readout { flex: 1 1 90px; font-family: var(--mc-mono); font-size: 12px; color: var(--mc-muted); }
+.emp-check { flex: 1 1 180px; display: flex; align-items: center; gap: 6px; font-size: 11px;
+  color: var(--mc-muted); cursor: pointer; }
+.emp-check input { accent-color: var(--mc-accent-primary); }
+
+/* pay-type segmented control — four options, the selected one filled */
+.emp-seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.emp-segbtn { flex: 1 1 auto; border: 1px solid var(--mc-border); background: var(--mc-nested);
+  color: var(--mc-muted); border-radius: 7px; font-family: var(--mc-font); font-size: 12px; padding: 6px 10px;
+  cursor: pointer; white-space: nowrap; }
+.emp-segbtn:hover { color: var(--mc-text); }
+.emp-segbtn.on { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary);
+  color: var(--employees-on-accent-ink); font-weight: 600; }
+
+/* live amount preview */
+.emp-calc { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 4px; padding: 10px 12px;
+  background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 8px; }
+.emp-calclabel { font-size: 9px; letter-spacing: .7px; text-transform: uppercase; color: var(--mc-muted);
+  font-weight: 700; }
+.emp-calcmath { font-family: var(--mc-mono); font-size: 11px; color: var(--mc-muted); }
+.emp-calcvalue { margin-left: auto; font-family: var(--mc-mono); font-size: 17px; font-weight: 600;
+  color: var(--employees-positive-color); }
+
+/* ---------- error banner — the ttErrors idiom (committed 470a5cd), same guarantees.
+   Deliberately NO height, NO max-height, NO text-overflow: the banner grows to as many lines as the
+   sentence needs. `overflow-wrap: anywhere` breaks an unbroken token longer than the dialog (a path,
+   a raw SqliteError run) instead of letting its tail vanish past the edge. */
+.emp-error { display: flex; flex-direction: column; gap: 4px; width: 100%; box-sizing: border-box;
+  background: color-mix(in srgb, var(--employees-error-color) 14%, var(--mc-panels));
+  border: 1px solid var(--employees-error-color); border-radius: 7px; color: var(--mc-text);
+  font-size: 12px; line-height: 1.45; padding: 10px 12px; margin: 14px 0 4px;
+  overflow-wrap: anywhere; white-space: pre-wrap; }
+.emp-error-plain { font-weight: 600; }
+.emp-error-hint { color: var(--mc-muted); font-size: 11.5px; }

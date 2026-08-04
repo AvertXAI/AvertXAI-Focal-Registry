@@ -9,6 +9,9 @@
 import { useEffect, useState } from "react";
 import type { EmployeeBalance, EmployeeEntry, EmployeePerson } from "../../shared/types";
 import { avatarColor, initials } from "./PeopleRail";
+// ONE expression of the money rule, shared with the Add Time preview (Jason 08-03-2026). The
+// authority is still ENTRY_COST_SQL in the reports service — see the comment in ./entryCost.
+import { entryCost } from "./entryCost";
 
 interface Props {
   person: EmployeePerson;
@@ -16,19 +19,9 @@ interface Props {
   refreshKey: number;
   /** Lets the module keep the rail's hours in step with what this tab actually read. */
   onHours: (employeeId: number, hours: number) => void;
-}
-
-/**
- * What ONE entry is worth. This mirrors ENTRY_COST_SQL in
- * electron/core/services/employees/reports.ts — that SQL is the authority; this is a renderer-side
- * echo of the same rule because no per-entry cost read is exposed yet. Kept in one place here, and
- * flagged in the phase report so a later phase can serve the figure from main instead of echoing it.
- *   donated → 0 always · hourly → hours × rate_at_entry · job/task → the agreed flat amount.
- */
-export function entryCost(e: EmployeeEntry): number {
-  if (e.pay_type === "donated") return 0;
-  if (e.pay_type === "hourly") return e.hours_worked * e.rate_at_entry;
-  return e.flat_amount ?? 0;
+  onEdit: () => void;
+  onArchive: () => void;
+  onAddTime: () => void;
 }
 
 const fmtMoney = (n: number): string =>
@@ -50,21 +43,31 @@ const daysAgo = (ymd: string): number => {
   return (Date.now() - then) / 86_400_000;
 };
 
-export default function LedgerView({ person, refreshKey, onHours }: Props) {
+export default function LedgerView({ person, refreshKey, onHours, onEdit, onArchive, onAddTime }: Props) {
   const api = window.api;
   const [entries, setEntries] = useState<EmployeeEntry[] | null>(null);
   const [balance, setBalance] = useState<EmployeeBalance | null>(null);
+  /** id → title, so the Task column can show a NAME. An entry stores task_id and no title, and
+      listEntriesForPerson does no join — so this map is the whole mechanism (ruled 08-03-2026:
+      renderer map, no service change). A task that was soft-deleted drops out of tasks.list, so its
+      id resolves to nothing and the cell falls back to the em dash rather than inventing a name. */
+  const [taskNames, setTaskNames] = useState<Record<number, string>>({});
   const [error, setError] = useState(false);
 
   useEffect(() => {
     let live = true;
     setEntries(null);
     setError(false);
-    Promise.all([api.employees.entries.listForPerson(person.id), api.employees.reports.balance(person.id)])
-      .then(([rows, bal]) => {
+    Promise.all([
+      api.employees.entries.listForPerson(person.id),
+      api.employees.reports.balance(person.id),
+      api.employees.tasks.list(),
+    ])
+      .then(([rows, bal, tasks]) => {
         if (!live) return;
         setEntries(rows);
         setBalance(bal);
+        setTaskNames(Object.fromEntries(tasks.map((t) => [t.id, t.title])));
         onHours(person.id, rows.reduce((s, e) => s + e.hours_worked, 0));
       })
       .catch((e: unknown) => {
@@ -96,6 +99,12 @@ export default function LedgerView({ person, refreshKey, onHours }: Props) {
               .filter(Boolean)
               .join(" · ") || "No role set"}
           </div>
+        </div>
+        {/* The mockup's right-aligned actions cluster — Phase 3A had none, by design. */}
+        <div className="emp-headacts">
+          <button className="emp-btn" onClick={onEdit}>Edit</button>
+          <button className="emp-btn" onClick={onArchive}>Archive</button>
+          <button className="emp-btn primary" onClick={onAddTime}>+ Add Time</button>
         </div>
       </div>
 
@@ -132,16 +141,19 @@ export default function LedgerView({ person, refreshKey, onHours }: Props) {
             </div>
           </div>
 
-          <div className="emp-sectlabel">Time ledger</div>
+          <div className="emp-sectlabel">
+            Time ledger
+            <button className="emp-linkbtn" onClick={onAddTime}>+ Add Time</button>
+          </div>
           {entries.length === 0 ? (
             <div className="emp-state">
-              No time logged for {person.name} yet. Entries appear here as they are recorded.
+              No time logged for {person.name} yet. Use <b>+ Add Time</b> above to record some.
             </div>
           ) : (
             <table className="emp-table">
               <thead>
                 <tr>
-                  <th>Date</th><th>Project</th><th>Note</th><th>Pay type</th><th>Hours</th><th>Amount</th>
+                  <th>Date</th><th>Project</th><th>Task</th><th>Note</th><th>Pay type</th><th>Hours</th><th>Amount</th>
                 </tr>
               </thead>
               <tbody>
@@ -149,6 +161,7 @@ export default function LedgerView({ person, refreshKey, onHours }: Props) {
                   <tr key={e.id}>
                     <td className="num">{fmtDate(e.worked_on)}</td>
                     <td>{e.project_name}</td>
+                    <td className="dim">{(e.task_id != null ? taskNames[e.task_id] : null) ?? "—"}</td>
                     <td className="dim">{e.note ?? "—"}</td>
                     <td><span className="emp-pill">{e.pay_type}</span></td>
                     <td className="num">{e.hours_worked.toFixed(2)}</td>

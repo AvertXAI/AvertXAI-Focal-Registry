@@ -3,8 +3,9 @@
 // (fixed width, selection drives the main panel). Per the approved mockup's option 3, "its own
 // module": a PEOPLE header with a count, then one row per person — avatar initials, name, hours.
 //
-// PHASE 3A is a READ surface: there is no "+ New Employee" control here yet. The mockup shows one,
-// but the create form is a later phase, and a button that does nothing is worse than no button.
+// PHASE 3B added the two controls Phase 3A deliberately withheld: "+ New Employee" in the header
+// (the mockup's placement), and a "Show archived" affordance — the FIRST consumer of the
+// people.listArchived bridge, which shipped in Phase 2 and had no surface until now.
 import type { EmployeePerson } from "../../shared/types";
 
 interface Props {
@@ -16,6 +17,15 @@ interface Props {
   /** Loading and error are DISTINCT states: an empty rail must never mean "the read failed". */
   loading: boolean;
   error: boolean;
+  onNew: () => void;
+  // ---- archived view. Owned by the module; the rail only renders and reports clicks.
+  showArchived: boolean;
+  onToggleArchived: () => void;
+  /** null = not read yet (loading). The empty array is a real answer: nobody is archived. */
+  archived: EmployeePerson[] | null;
+  archivedError: boolean;
+  onRestore: (id: number) => void;
+  restoringId: number | null;
 }
 
 /** Deterministic avatar colour — the same person always gets the same swatch, no storage needed. */
@@ -32,13 +42,30 @@ export function initials(name: string): string {
 
 const fmtHours = (h: number): string => `${h.toFixed(h % 1 === 0 ? 0 : 1)}h`;
 
-export default function PeopleRail({ people, hoursById, selectedId, onSelect, loading, error }: Props) {
+export default function PeopleRail({
+  people,
+  hoursById,
+  selectedId,
+  onSelect,
+  loading,
+  error,
+  onNew,
+  showArchived,
+  onToggleArchived,
+  archived,
+  archivedError,
+  onRestore,
+  restoringId,
+}: Props) {
   return (
     <aside className="emp-rail" aria-label="People">
       <div className="emp-railhead">
         <span className="emp-railtitle">People</span>
         {!loading && !error && <span className="emp-railcount">{people.length}</span>}
       </div>
+      <button className="emp-railnew" onClick={onNew} disabled={loading || error}>
+        + New Employee
+      </button>
       <div className="emp-raillist">
         {error ? (
           <div className="emp-state error" role="alert">
@@ -48,7 +75,9 @@ export default function PeopleRail({ people, hoursById, selectedId, onSelect, lo
         ) : loading ? (
           <div className="emp-state">Loading…</div>
         ) : people.length === 0 ? (
-          <div className="emp-state">No people yet. Adding them arrives with the next phase.</div>
+          <div className="emp-state">
+            No people yet. Use <b>+ New Employee</b> above to add the first one.
+          </div>
         ) : (
           people.map((p) => (
             <button
@@ -64,6 +93,45 @@ export default function PeopleRail({ people, hoursById, selectedId, onSelect, lo
               <span className="emp-personhrs">{fmtHours(hoursById[p.id] ?? 0)}</span>
             </button>
           ))
+        )}
+
+        {/* Archived people — collapsed by default. Archiving is how a Free-tier slot is freed, so
+            this is also the way back from a cap refusal. */}
+        {!loading && !error && (
+          <>
+            <button className="emp-railtoggle" onClick={onToggleArchived} aria-expanded={showArchived}>
+              {showArchived ? "▾" : "▸"} Show archived
+            </button>
+            {showArchived &&
+              (archivedError ? (
+                <div className="emp-state error" role="alert">
+                  <b>Couldn&apos;t load the archived list.</b>
+                  Nothing is shown rather than an empty one.
+                </div>
+              ) : archived === null ? (
+                <div className="emp-state">Loading…</div>
+              ) : archived.length === 0 ? (
+                <div className="emp-state">Nobody is archived.</div>
+              ) : (
+                archived.map((p) => (
+                  <div key={p.id} className="emp-personrow archived">
+                    <span className="emp-avatar dim" aria-hidden="true">
+                      {initials(p.name)}
+                    </span>
+                    <span className="emp-personname" title={p.archive_reason ?? undefined}>
+                      {p.name}
+                    </span>
+                    <button
+                      className="emp-restore"
+                      onClick={() => onRestore(p.id)}
+                      disabled={restoringId === p.id}
+                    >
+                      {restoringId === p.id ? "…" : "Restore"}
+                    </button>
+                  </div>
+                ))
+              ))}
+          </>
         )}
       </div>
     </aside>

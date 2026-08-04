@@ -10,6 +10,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { EmployeePerson } from "../../shared/types";
 import PeopleRail from "./PeopleRail";
 import LedgerView from "./LedgerView";
+import PersonModal, { ArchiveModal, type PersonModalState } from "./PersonModal";
+import AddTimeModal from "./AddTimeModal";
 import { bumpRender } from "../../diag";
 import "./employees.css";
 
@@ -47,6 +49,15 @@ export default function EmployeesModule() {
   const [error, setError] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [hoursById, setHoursById] = useState<Record<number, number>>({});
+  // ---- Phase 3B write surfaces. One modal at a time; each closes by returning its state to null.
+  const [personModal, setPersonModal] = useState<PersonModalState>(null);
+  const [archiving, setArchiving] = useState<EmployeePerson | null>(null);
+  const [addingTime, setAddingTime] = useState<EmployeePerson | null>(null);
+  // ---- archived view. `null` means "not read yet"; [] is the real answer "nobody is archived".
+  const [showArchived, setShowArchived] = useState(false);
+  const [archived, setArchived] = useState<EmployeePerson[] | null>(null);
+  const [archivedError, setArchivedError] = useState(false);
+  const [restoringId, setRestoringId] = useState<number | null>(null);
 
   const load = useCallback((): void => {
     setError(false);
@@ -65,9 +76,28 @@ export default function EmployeesModule() {
       });
   }, [api]);
 
+  /** The archived roster. Re-read on every open and after any archive/restore, so the two lists
+      can never disagree about where someone is. */
+  const loadArchived = useCallback((): void => {
+    setArchivedError(false);
+    setArchived(null);
+    void api.employees.people
+      .listArchived()
+      .then(setArchived)
+      .catch((e: unknown) => {
+        console.error("[employees] archived list failed:", e);
+        setArchivedError(true);
+      });
+  }, [api]);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  // Only fetch the archived list when it is actually on screen.
+  useEffect(() => {
+    if (showArchived) loadArchived();
+  }, [showArchived, loadArchived]);
 
   // Selection heals when it is unset or points at someone no longer listed.
   useEffect(() => {
@@ -88,6 +118,42 @@ export default function EmployeesModule() {
 
   const selected = people.find((p) => p.id === selectedId) ?? null;
 
+  /** ONE refresh knob for a write that changed entries. Bumping refreshKey re-runs the ledger's
+      effect, which refetches the entries, the balance AND the task names in one Promise.all — so
+      the table, all four cards and (through onHours) the rail total all land from a single read. */
+  const refreshLedger = (): void => setRefreshKey((k) => k + 1);
+
+  const onPersonSaved = (p: EmployeePerson): void => {
+    setPersonModal(null);
+    load(); // the roster changed — name, rate or a brand-new row
+    select(p.id);
+    refreshLedger();
+  };
+
+  const onArchived = (): void => {
+    setArchiving(null);
+    load();
+    // Selection heals itself in the effect above once the archived person leaves `people`.
+    if (showArchived) loadArchived();
+  };
+
+  const restore = (id: number): void => {
+    setRestoringId(id);
+    void api.employees.people
+      .restore(id)
+      .then((p) => {
+        load();
+        loadArchived();
+        select(p.id);
+      })
+      .catch((e: unknown) => {
+        // A failed restore must not look like it worked: the row stays in the archived list.
+        console.error("[employees] restore failed:", e);
+        setArchivedError(true);
+      })
+      .finally(() => setRestoringId(null));
+  };
+
   return (
     <main className="view shown emp-shell">
       <PeopleRail
@@ -97,6 +163,13 @@ export default function EmployeesModule() {
         onSelect={select}
         loading={loading}
         error={error}
+        onNew={() => setPersonModal({ mode: "new" })}
+        showArchived={showArchived}
+        onToggleArchived={() => setShowArchived((v) => !v)}
+        archived={archived}
+        archivedError={archivedError}
+        onRestore={restore}
+        restoringId={restoringId}
       />
       <div className="emp-main">
         <div className="emp-tabs" role="tablist" aria-label="Employees views">
@@ -143,14 +216,37 @@ export default function EmployeesModule() {
             </div>
           ) : selected === null ? (
             <div className="emp-state">
-              No people yet. Once someone is added they will appear in the rail, and their time
+              No people yet. Use <b>+ New Employee</b> in the rail to add the first one — their time
               ledger will show here.
             </div>
           ) : (
-            <LedgerView person={selected} refreshKey={refreshKey} onHours={onHours} />
+            <LedgerView
+              person={selected}
+              refreshKey={refreshKey}
+              onHours={onHours}
+              onEdit={() => setPersonModal({ mode: "edit", person: selected })}
+              onArchive={() => setArchiving(selected)}
+              onAddTime={() => setAddingTime(selected)}
+            />
           )}
         </div>
       </div>
+
+      {personModal && (
+        <PersonModal state={personModal} onClose={() => setPersonModal(null)} onSaved={onPersonSaved} />
+      )}
+      {archiving && (
+        <ArchiveModal person={archiving} onClose={() => setArchiving(null)} onArchived={onArchived} />
+      )}
+      {addingTime && (
+        <AddTimeModal
+          person={addingTime}
+          onClose={() => setAddingTime(null)}
+          // Fires on EVERY save, "add another" included, so the ledger behind the modal is already
+          // current when it closes — no navigation, no remount.
+          onSaved={refreshLedger}
+        />
+      )}
     </main>
   );
 }

@@ -136,8 +136,9 @@ export function initDb(dbPath: string): void {
   seedModule("Scan", "scan", "tool", 1, "Archive Media");
   seedModule("Rename", "rename", "tool", 2, "Archive Media");
   seedModule("Migrate", "migrate", "tool", 3, "Archive Media");
-  seedModule("TimeTracker", "timetracker", "tool", 4, "Applications");
-  seedModule("Employees", "employees", "tool", 5, "Applications");
+  // Employees leads Applications (ruled 2026-08-04) — people come before their timers.
+  seedModule("Employees", "employees", "tool", 4, "Applications");
+  seedModule("TimeTracker", "timetracker", "tool", 5, "Applications");
   seedModule("MindMerge", "mindmerge", "notes", 7, "Tools");
   seedModule("Scout Viewer", "scout-viewer", "browser", 8, "Tools");
   seedModule("Marketplace", "marketplace", "market", 10, "Marketplace", 1);
@@ -146,16 +147,18 @@ export function initDb(dbPath: string): void {
   db.exec("DELETE FROM modules WHERE slug IN ('getscriptclips', 'canon-distributor');");
   // Nav normalization (shell-lane; restructure ruled 2026-07-31, renumbered 08-01-2026 for
   // Employees) — five top-level entries, display_order contiguous 1-10:
-  //   Archive Media (Scan 1 · Rename 2 · Migrate 3) · Applications (TimeTracker 4 · Employees 5 ·
+  //   Archive Media (Scan 1 · Rename 2 · Migrate 3) · Applications (Employees 4 · TimeTracker 5 ·
   //   [6 = Calendar, reserved, no row yet]) · Tools (MindMerge 7 · Scout Viewer 8) ·
   //   Secured Vault 9 (standalone) · Marketplace 10 (standalone).
+  //   Employees leads TimeTracker as of 2026-08-04 — the UPDATEs below carry existing installs
+  //   across the swap on their next boot, which is the whole reason they run unconditionally.
   // Idempotent per-slug UPDATEs run every boot so existing DBs (Paul's) converge in place with no
   // rebuild; fresh installs seed straight into this shape (firstrun + seedModule both carry the
   // columns). "Secured Vault" is a DISPLAY NAME change only — the slug stays 'vault'.
   db.exec(`
     UPDATE modules SET nav_group = 'Archive Media' WHERE slug IN ('scan', 'rename', 'migrate');
-    UPDATE modules SET display_order = 4, nav_group = 'Applications' WHERE slug = 'timetracker';
-    UPDATE modules SET display_order = 5, nav_group = 'Applications' WHERE slug = 'employees';
+    UPDATE modules SET display_order = 4, nav_group = 'Applications' WHERE slug = 'employees';
+    UPDATE modules SET display_order = 5, nav_group = 'Applications' WHERE slug = 'timetracker';
     UPDATE modules SET display_order = 7, nav_group = 'Tools' WHERE slug = 'mindmerge';
     UPDATE modules SET display_order = 8, nav_group = 'Tools' WHERE slug = 'scout-viewer';
     UPDATE modules SET display_order = 9, nav_group = 'Secured Vault', nav_standalone = 1, name = 'Secured Vault' WHERE slug = 'vault';

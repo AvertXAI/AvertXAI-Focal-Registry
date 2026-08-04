@@ -73,8 +73,9 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
     mod.run(generateUUIDv7(), orgId, "Scan", "scan", "tool", 1, 0, "Archive Media", 0);
     mod.run(generateUUIDv7(), orgId, "Rename", "rename", "tool", 2, 0, "Archive Media", 0);
     mod.run(generateUUIDv7(), orgId, "Migrate", "migrate", "tool", 3, 0, "Archive Media", 0);
-    mod.run(generateUUIDv7(), orgId, "TimeTracker", "timetracker", "tool", 4, 0, "Applications", 0);
-    mod.run(generateUUIDv7(), orgId, "Employees", "employees", "tool", 5, 0, "Applications", 0);
+    // Employees leads Applications (ruled 2026-08-04) — people come before their timers.
+    mod.run(generateUUIDv7(), orgId, "Employees", "employees", "tool", 4, 0, "Applications", 0);
+    mod.run(generateUUIDv7(), orgId, "TimeTracker", "timetracker", "tool", 5, 0, "Applications", 0);
     mod.run(generateUUIDv7(), orgId, "MindMerge", "mindmerge", "notes", 7, 0, "Tools", 0);
     mod.run(generateUUIDv7(), orgId, "Scout Viewer", "scout-viewer", "browser", 8, 0, "Tools", 0);
     mod.run(generateUUIDv7(), orgId, "Secured Vault", "vault", "secrets", 9, 1, "Secured Vault", 1);

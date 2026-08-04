@@ -216,6 +216,7 @@ export default function ProjectDetail({
     <div className="tt-detail">
       <div className="tt-detailhead">
         <span className="tt-dot big" style={{ background: project.color }} />
+        {project.group_icon && <span className="tt-groupicon big" aria-hidden="true">{project.group_icon}</span>}
         <div className="tt-detailtitle">
           <div className="tt-detailname">{project.name}</div>
           <div className="tt-detailsub">Client / project info</div>

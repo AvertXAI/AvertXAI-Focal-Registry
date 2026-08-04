@@ -42,14 +42,17 @@ export default function ProjectsRail({ projects, groups, totals, sortDir, select
         <button className="tt-railtoggle" title="Expand the projects rail" aria-label="Expand the projects rail" onClick={onToggleCollapse}>»</button>
         <div className="tt-raildots">
           {projects.map((p) => (
-            <button
-              key={p.id}
-              className={"tt-raildot" + (p.id === selectedId ? " on" : "")}
-              style={{ background: p.color }}
-              title={p.name}
-              aria-label={`Select ${p.name}`}
-              onClick={() => onSelect(p.id)}
-            />
+            /* The group's icon rides BESIDE the colour dot — colour is unchanged (ruling 2). */
+            <span key={p.id} className="tt-raildotwrap">
+              <button
+                className={"tt-raildot" + (p.id === selectedId ? " on" : "")}
+                style={{ background: p.color }}
+                title={p.name}
+                aria-label={`Select ${p.name}`}
+                onClick={() => onSelect(p.id)}
+              />
+              {p.group_icon && <span className="tt-groupicon rail" aria-hidden="true">{p.group_icon}</span>}
+            </span>
           ))}
         </div>
       </aside>

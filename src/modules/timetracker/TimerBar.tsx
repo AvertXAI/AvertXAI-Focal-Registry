@@ -79,7 +79,7 @@ function ProjectSelect({ projects, project, disabled, onSelect }: {
       <button className="tt-input tt-pselbtn" disabled={disabled} aria-haspopup="listbox" aria-expanded={open}
         onClick={() => setOpen((o) => !o)}>
         {project ? (
-          <><span className="tt-dot" style={{ background: project.color }} /><span className="tt-pselname">{project.name}</span></>
+          <><span className="tt-dot" style={{ background: project.color }} />{project.group_icon && <span className="tt-groupicon" aria-hidden="true">{project.group_icon}</span>}<span className="tt-pselname">{project.name}</span></>
         ) : (
           <span className="tt-pselname dim">Pick a project…</span>
         )}
@@ -92,6 +92,7 @@ function ProjectSelect({ projects, project, disabled, onSelect }: {
               aria-selected={p.id === project?.id}
               onClick={() => { onSelect(p.id); setOpen(false); }}>
               <span className="tt-dot" style={{ background: p.color }} />
+              {p.group_icon && <span className="tt-groupicon" aria-hidden="true">{p.group_icon}</span>}
               <span className="tt-pselname">{p.name}</span>
             </button>
           ))}

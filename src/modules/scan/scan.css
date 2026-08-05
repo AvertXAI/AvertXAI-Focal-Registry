@@ -241,3 +241,7 @@
 .scan-err-cat{color:var(--mc-text);font-weight:700;font-size:11px;letter-spacing:.6px;text-transform:uppercase;margin:14px 0 2px}
 .scan-err-cat.danger{color:#e0574f}
 .scan-err-cat .n{color:var(--mc-dimmer);font-weight:500}
+/* The saved-export bar is a BUTTON when it has a path — clicking reveals the file. Styled to read
+   as clickable (pointer, underline on hover) without becoming a second kind of control. */
+button.scan-export-rail { width: 100%; text-align: left; border: none; font: inherit; cursor: pointer; }
+button.scan-export-rail.link:hover { text-decoration: underline; }

@@ -10,6 +10,7 @@
 // File: electron/core/services/scan/export.ts
 //------------------------------------------------------------
 import fs from "node:fs";
+import { buildXlsx, type Cell } from "./xlsx";
 import path from "node:path";
 import type { Db } from "./db";
 import { formatStamp } from "../../../../src/shared/datetime";
@@ -70,4 +71,32 @@ export function exportFoldersCsv(db: Db, runId: number, outPath: string): Promis
       reject(e instanceof Error ? e : new Error(String(e)));
     }
   });
+}
+
+/**
+ * The same rows as the CSV, as a real .xlsx. Deliberately shares CSV_SQL and CSV_HEADER — one
+ * query, two containers, so the two exports can never drift into disagreeing about what a scan
+ * found. Counts and byte totals go out as NUMBERS so Excel can sum them; everything else is text.
+ * Not streamed, unlike the CSV: a workbook is a ZIP with a central directory at the end, so it has
+ * to be assembled whole. The row count here is folders-with-media, not files, so this stays small.
+ */
+export function exportFoldersXlsx(db: Db, runId: number, outPath: string): void {
+  const header = CSV_HEADER.split(",");
+  const rows: Cell[][] = [];
+  const iter = db.prepare(CSV_SQL).iterate(runId) as IterableIterator<Record<string, unknown>>;
+  for (const r of iter) {
+    rows.push([
+      String(r.folder_path ?? ""),
+      Number(r.file_count ?? 0),
+      Number(r.stills ?? 0),
+      Number(r.video ?? 0),
+      Number(r.audio ?? 0),
+      Number(r.total_bytes ?? 0),
+      formatStamp(r.oldest_capture as string | null, "iso"),
+      formatStamp(r.newest_capture as string | null, "iso"),
+      String(r.top_camera ?? ""),
+      String(r.formats ?? ""),
+    ]);
+  }
+  fs.writeFileSync(outPath, buildXlsx("Folders", header, rows));
 }

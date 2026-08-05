@@ -169,8 +169,8 @@ export default function ScanModule() {
   const [error, setError] = useState<string | null>(null);
   const [reportModal, setReportModal] = useState<{ runId: number; path: string; content: string } | null>(null);
   const [reportView, setReportView] = useState<"read" | "source">("read");
-  const [exportMsg, setExportMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [exporting, setExporting] = useState<"pdf" | "csv" | null>(null);
+  const [exportMsg, setExportMsg] = useState<{ ok: boolean; text: string; path?: string } | null>(null);
+  const [exporting, setExporting] = useState<"pdf" | "csv" | "xlsx" | null>(null);
   const [reloadTick, setReloadTick] = useState(0); // bump to re-pull the selected drive's card after a nuke
   const [errorsModal, setErrorsModal] = useState<ScanErrorList | null>(null);
   const startedAt = useRef<number | null>(null);
@@ -382,14 +382,19 @@ export default function ScanModule() {
   };
   // Export the open report. PDF prints the Reading view (rendered to a static HTML string here, so it
   // exports regardless of which view tab is showing); CSV streams the folder rows in the main process.
-  const exportReport = async (kind: "pdf" | "csv"): Promise<void> => {
+  const exportReport = async (kind: "pdf" | "csv" | "xlsx"): Promise<void> => {
     if (!reportModal) return;
     setExporting(kind); setExportMsg(null);
     try {
       const res = kind === "pdf"
         ? await window.api.scan.exportReportPdf(reportModal.runId, renderReportPrintHtml(reportModal.content), PRINT_STYLESHEET)
-        : await window.api.scan.exportReportCsv(reportModal.runId);
-      setExportMsg(res.ok ? { ok: true, text: `Saved ${res.path}` } : { ok: false, text: res.error ?? "Export failed." });
+        : kind === "xlsx"
+          ? await window.api.scan.exportReportXlsx(reportModal.runId)
+          : await window.api.scan.exportReportCsv(reportModal.runId);
+      // The PATH is kept, not just the sentence — the bar is clickable and needs somewhere to go.
+      setExportMsg(res.ok
+        ? { ok: true, text: `Saved ${res.path}`, path: res.path }
+        : { ok: false, text: res.error ?? "Export failed." });
     } catch (e) {
       setExportMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally { setExporting(null); }
@@ -571,12 +576,27 @@ export default function ScanModule() {
                 <div className="scan-export">
                   <span className="scan-export-label">Export:</span>
                   <button className="scan-btn" disabled={exporting !== null} onClick={() => void exportReport("pdf")}>{exporting === "pdf" ? "…" : "PDF"}</button>
+                  <button className="scan-btn" disabled={exporting !== null} onClick={() => void exportReport("xlsx")}>{exporting === "xlsx" ? "…" : "XLSX"}</button>
                   <button className="scan-btn" disabled={exporting !== null} onClick={() => void exportReport("csv")}>{exporting === "csv" ? "…" : "CSV"}</button>
                 </div>
               </div>
               <button className="scan-modal-close" aria-label="Close" style={{ marginLeft: 10 }} onClick={() => setReportModal(null)}>×</button>
             </div>
-            {exportMsg && <div className={`scan-export-rail${exportMsg.ok ? " ok" : " err"}`}>{exportMsg.text}</div>}
+            {exportMsg && (
+              exportMsg.path ? (
+                /* Clicking re-opens the file's folder with it selected. The main side refuses any
+                   path outside the exports directory, so this stays a reveal and never an "open". */
+                <button
+                  className="scan-export-rail ok link"
+                  title="Show this file in its folder"
+                  onClick={() => void window.api.scan.revealExport(exportMsg.path as string)}
+                >
+                  {exportMsg.text}
+                </button>
+              ) : (
+                <div className={`scan-export-rail${exportMsg.ok ? " ok" : " err"}`}>{exportMsg.text}</div>
+              )
+            )}
             <div className="scan-modal-body">
               <div className="scan-sub scan-mono" style={{ marginBottom: 12, wordBreak: "break-all" }}>{reportModal.path}</div>
               {reportView === "read"

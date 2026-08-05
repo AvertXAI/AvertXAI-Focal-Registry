@@ -1156,6 +1156,9 @@ export interface Api {
     exportReportPdf: (runId: number, html: string, css: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
     /** Stream every media-bearing folder row to a CSV beside the .md report. */
     exportReportCsv: (runId: number) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    exportReportXlsx: (runId: number) => Promise<{ ok: boolean; path?: string; error?: string }>;
+    /** Re-reveal an already-exported file; refuses anything outside the exports folder. */
+    revealExport: (p: string) => Promise<{ ok: boolean; error?: string }>;
     /** Soft-clear ALL scan history (History Nuke) — hidden from viewers, kept 30 days, restorable. */
     clearHistory: () => Promise<{ cleared: number }>;
     /** Restore soft-cleared history — runs reappear ordered by date. */

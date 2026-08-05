@@ -635,6 +635,38 @@ export function registerIpcHandlers(): void {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   });
+  // Same rows as the CSV, as a workbook. Written by our own minimal writer — no dependency.
+  safeHandle("scan:exportReportXlsx", async (_e, runId: unknown) => {
+    try {
+      const { db } = scanCtx();
+      const run = scan.getRun(db, Number(runId));
+      if (run.status !== "completed") return { ok: false, error: "The scan has not completed yet." };
+      const { base } = scanReport.reportStem(db, run.id);
+      const exportDir = storage.documentsExportsDir();
+      fs.mkdirSync(exportDir, { recursive: true });
+      const outPath = scanExport.collisionFreeName(exportDir, base, ".xlsx");
+      scanExport.exportFoldersXlsx(db, run.id, outPath);
+      void shell.showItemInFolder(outPath);
+      return { ok: true, path: outPath };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  // Re-reveal an export the user already made — what the green "Saved …" bar clicks through to.
+  // HARDENED: the path must sit inside the exports directory, so this cannot reveal arbitrary
+  // locations on the machine even though the value originates in the renderer.
+  safeHandle("scan:revealExport", (_e, target: unknown) => {
+    try {
+      const p = String(target ?? "");
+      const exportDir = path.resolve(storage.documentsExportsDir());
+      if (!p || !path.resolve(p).startsWith(exportDir)) return { ok: false, error: "outside the exports folder" };
+      if (!fs.existsSync(p)) return { ok: false, error: "that file is no longer there" };
+      void shell.showItemInFolder(p);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
   safeHandle("scan:openReportsFolder", (_e, runId: unknown) => {
     const { db } = scanCtx();
     const run = scan.getRun(db, Number(runId));

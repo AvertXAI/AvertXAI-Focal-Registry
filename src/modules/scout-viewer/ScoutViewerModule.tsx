@@ -15,9 +15,13 @@ import { useEffect, useRef, useState } from "react";
 import type { ScoutDomCard, ScoutTargetRow } from "../../shared/types";
 import "./scout-viewer.css";
 
+/** The start page and the Home button target. Google for now — a deliberate placeholder until a
+    real default is ruled, kept in ONE place so changing it is a one-line edit. */
+export const HOME_URL = "https://www.google.com";
+
 export default function ScoutViewerModule() {
   const holeRef = useRef<HTMLDivElement | null>(null);
-  const [urlText, setUrlText] = useState("https://app.halopsa.com/tickets");
+  const [urlText, setUrlText] = useState(HOME_URL);
   // The ACTIVE page ({url,title} straight from the engine) — distinct from urlText, which the user
   // can freely edit in the bar. The bookmark star compares/saves against THIS, never the input.
   const [page, setPage] = useState<{ url: string; title: string }>({ url: "", title: "" });
@@ -221,6 +225,18 @@ export default function ScoutViewerModule() {
           onClick={() => (loading ? window.api.scout.stop() : window.api.scout.reload())}
         >
           {loading ? "✖" : "⟳"}
+        </button>
+        {/* Home — sits between the reload control and the address bar. google.com for now. */}
+        <button
+          className="scv-nav"
+          title="Home"
+          aria-label="Home"
+          onClick={() => {
+            setUrlText(HOME_URL);
+            void window.api.scout.navigate(HOME_URL);
+          }}
+        >
+          ⌂
         </button>
         <div className="scv-url">
           <span className="scv-lk">🔒</span>

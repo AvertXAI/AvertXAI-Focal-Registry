@@ -18,7 +18,9 @@ import { app, WebContentsView, type WebContents } from "electron";
 import { getMainWindow } from "../../windows";
 import { getTabState, saveTabState, saveTabUrl } from "./tab-state";
 
-const START_URL = "https://app.halopsa.com/tickets";
+// Google for now (Jason 08-05-2026) — a deliberate placeholder until a real default is ruled.
+// The renderer keeps its own HOME_URL constant for the Home button; the two are the same value.
+const START_URL = "https://www.google.com";
 const DEFAULT_CLIENT = "halo";
 // Present as stock Chrome — the default Electron UA trips SaaS bot/compat firewalls (HaloPSA, Pylon,
 // etc.). Compatibility spoof for an authorized first-party tool, not evasion. Bump the Chrome major

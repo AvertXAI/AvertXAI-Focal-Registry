@@ -101,11 +101,13 @@ export function initDb(dbPath: string): void {
     );
     const halo = generateUUIDv7();
     const pylon = generateUUIDv7();
-    ins.run(generateUUIDv7(), "HaloPSA · Tickets", "https://app.halopsa.com/tickets", halo, 0);
-    ins.run(generateUUIDv7(), "HaloPSA · Dashboard", "https://app.halopsa.com/dashboard", halo, 1);
-    ins.run(generateUUIDv7(), "Pylon · Inbox", "https://app.usepylon.com/inbox", pylon, 2);
-    ins.run(generateUUIDv7(), "Pylon · Issue view", "https://app.usepylon.com/issues", pylon, 3);
-    ins.run(generateUUIDv7(), "incident.io · Timeline", "https://app.incident.io/timeline", generateUUIDv7(), 4);
+    // URLs are PLACEHOLDERS (Jason 08-05-2026): the shipped seeds no longer point at anyone's real
+    // tooling. The rows still exist so the rail has its shape; the user edits each target's URL.
+    ins.run(generateUUIDv7(), "Target 1", "[PLACEHOLDER_URL]", halo, 0);
+    ins.run(generateUUIDv7(), "Target 2", "[PLACEHOLDER_URL]", halo, 1);
+    ins.run(generateUUIDv7(), "Target 3", "[PLACEHOLDER_URL]", pylon, 2);
+    ins.run(generateUUIDv7(), "Target 4", "[PLACEHOLDER_URL]", pylon, 3);
+    ins.run(generateUUIDv7(), "Target 5", "[PLACEHOLDER_URL]", generateUUIDv7(), 4);
     db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('scout_targets_seeded', '1')").run();
   }
   // Additive migrations: orgs minted before a module existed get its registry row here (this is

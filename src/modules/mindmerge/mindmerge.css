@@ -65,7 +65,7 @@ button.rbs-tgl{border:0;background:transparent;padding:0;cursor:pointer;font-fam
 
 /* ---------- collapsed-strip search modal (module-scoped: absolute inside .rbs-shell) ---------- */
 .rbs-overlay{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--mc-base) 62%,transparent);backdrop-filter:blur(1px)}
-.rbs-modal{width:520px;max-width:90%;max-height:70%;display:flex;flex-direction:column;gap:10px;padding:14px;background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:var(--mc-radius);box-shadow:0 18px 50px rgba(0,0,0,.45)}
+.rbs-modal{width:520px;max-width:90%;max-height:70%;display:flex;flex-direction:column;gap:10px;padding:14px;background:var(--mc-panels);border:1px solid var(--mc-modal-border);border-radius:var(--mc-radius);box-shadow:0 18px 50px rgba(0,0,0,.45)}
 .rbs-mcount{font:11px var(--mc-mono);color:var(--mc-muted)}
 .rbs-mresults{overflow-y:auto;display:flex;flex-direction:column;gap:2px}
 .rbs-mrow{display:flex;flex-direction:column;gap:3px;text-align:left;padding:8px 10px;border-radius:var(--mc-radius);cursor:pointer}

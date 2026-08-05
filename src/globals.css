@@ -31,12 +31,18 @@
   --mc-scrollbar-thumb:#2c3a58; /* hybrid default; dark/light override per-theme */
   --mc-font:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
   --mc-mono:ui-monospace,"SFMono-Regular",Consolas,monospace;
+  /* MODAL EDGE — hybrid only (Jason 08-05-2026). A dialog on hybrid's deep navy sat so close in
+     value to the page behind it that it was easy to miss; a thin gold rule makes the boundary read
+     at a glance. Dark and light already separate well, so both reset it to the ordinary border
+     below. Every module's modal consumes this ONE token — never a hardcoded gold. */
+  --mc-modal-border:#c9a227;
 }
 [data-theme="dark"]{ /* approved Claude-desktop dark (recon-031/048); rose accent per DECISIONS L135 */
   --mc-base:#1f1f1f; --mc-panels:#2c2c2a; --mc-nested:#2c2a26; --mc-border:#61615b;
   --mc-text:#E5E5E5; --mc-muted:#A0A0A0; --mc-dimmer:#71716B; --mc-accent-primary:#d97757; --mc-orange:#ff9100;
   --mc-topbar:#262626; --mc-sidebar:#262626; --mc-field:#424240; --mc-avatar:#313131; --mc-scrollbar-thumb:#7c7b75;
   --mc-toggle-on:#4f8df0; --mc-seg-on-background:#303539; --mc-seg-on-icon:#4773a6;
+  --mc-modal-border:var(--mc-border); /* dark separates on its own — no gold */
 }
 [data-theme="light"]{ /* Claude Desktop crisp white (stash@{0} port); surface tokens kept from recon-024 */
   --mc-base:#FAFAFA; --mc-panels:#FFFFFF; --mc-nested:#F5F5F5; --mc-border:#E5E5E5;
@@ -44,6 +50,7 @@
   --mc-topbar:#FFFFFF; --mc-sidebar:#FFFFFF; --mc-field:#FFFFFF; --mc-avatar:#E6E6E6; --mc-scrollbar-thumb:#B1B1B0;
   /* light-scope override: pale blue chip so the selected seg doesn't sit dark on white */
   --mc-toggle-on:#4f8df0; --mc-seg-on-background:#DCE8F5; --mc-seg-on-icon:#4773a6;
+  --mc-modal-border:var(--mc-border); /* light separates on its own — no gold */
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body,#root{height:100%}
@@ -275,7 +282,10 @@ tbody tr:hover{background:var(--mc-nested)}
    ============================================================ */
 .dv-shell{display:flex;height:calc(100vh - 58px - var(--mc-footer-height));overflow:hidden}
 .dv-rail{width:180px;flex:0 0 180px;border-right:1px solid var(--mc-border);
-  background:var(--mc-panels);display:flex;flex-direction:column;overflow:hidden}
+  background:var(--mc-panels);display:flex;flex-direction:column;overflow:hidden;position:relative}
+/* drag handle on the rail's right edge — 6px of grab area over a 1px visual line */
+.dv-railgrip{position:absolute;top:0;right:0;bottom:0;width:6px;cursor:col-resize;z-index:2}
+.dv-railgrip:hover{background:color-mix(in srgb,var(--mc-accent-primary) 40%,transparent)}
 .dv-rail-head{padding:12px 14px;font-weight:600;font-size:13px;color:var(--mc-muted);
   border-bottom:1px solid var(--mc-border);display:flex;align-items:center;gap:8px}
 .dv-count{margin-left:auto;font:11px var(--mc-mono);color:var(--mc-muted);
@@ -351,7 +361,7 @@ tbody tr:hover{background:var(--mc-nested)}
    ============================================================ */
 .overlay { position: fixed; inset: 0; background: rgba(4, 8, 16, .66); display: flex; align-items: center;
   justify-content: center; z-index: 50; backdrop-filter: blur(2px); }
-.modal { width: 460px; max-width: 92vw; max-height: 90vh; overflow-y: auto; background: var(--mc-panels);
+.modal { width: 460px; max-width: 92vw; max-height: 90vh; overflow-y: auto; background: var(--mc-panels); border: 1px solid var(--mc-modal-border);
   border: 1px solid var(--mc-border); border-radius: 14px; padding: 20px; box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
 .modal h3 { font-size: 16px; font-weight: 800; margin-bottom: 14px; display: flex; align-items: center; gap: 9px; }
 .modal p.desc { font-size: 12.5px; color: var(--mc-muted); line-height: 1.55; margin-bottom: 14px; }

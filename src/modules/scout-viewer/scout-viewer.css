@@ -44,7 +44,7 @@
 /* sessions modal — scoped INSIDE .scv-view (inset:0 → overlays the guest pane only, not the shell).
    RUNTIME: the native guest renders above shell HTML, so main HIDES the guest while this is open. */
 .scv-mwrap{position:absolute;inset:0;background:color-mix(in srgb,var(--mc-base) 62%,transparent);display:flex;align-items:center;justify-content:center;z-index:30}
-.scv-modal{width:min(560px,86%);max-height:80%;background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:14px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6);display:flex;flex-direction:column}
+.scv-modal{width:min(560px,86%);max-height:80%;background:var(--mc-panels);border:1px solid var(--mc-modal-border);border-radius:14px;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.6);display:flex;flex-direction:column}
 .scv-mhead{display:flex;align-items:center;padding:15px 18px;border-bottom:1px solid var(--mc-border);background:var(--mc-topbar)}
 .scv-mt{font-size:14px;font-weight:700;color:var(--mc-text)}
 .scv-mt .scv-k{color:var(--mc-dimmer);font-weight:500;margin-left:8px;font-size:12px}

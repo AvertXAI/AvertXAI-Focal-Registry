@@ -41,16 +41,18 @@ export function ProjectChooser({
       <div className="emp-modal narrow" role="dialog" aria-label="New employee" onClick={(e) => e.stopPropagation()}>
         <div className="emp-modalhead">New employee</div>
         <p className="emp-modaldesc">
-          Everyone you pay is attached to a project — that is what makes their hours billable and
-          what puts their cost on a chart. Start with the project.
+          Attaching someone to a project is what makes their hours billable and puts their cost on a
+          chart. Add the person now and pick a project on their form, or create the project first.
         </p>
+        {/* Adding the person leads (Jason 08-05-2026) — it is the thing the button is actually
+            called, and the project it attaches to is optional on the form behind it. */}
         <div className="emp-choices">
-          <button className="emp-btn primary" onClick={onAddProject}>＋ Add Project</button>
-          <button className="emp-btn" onClick={onAssign} disabled={!hasProjects}>Assign To Project</button>
+          <button className="emp-btn primary" onClick={onAssign}>＋ Add Employee</button>
+          <button className="emp-btn" onClick={onAddProject}>＋ Add Project</button>
         </div>
         {!hasProjects && (
           <p className="emp-hint" style={{ marginTop: 8 }}>
-            There are no projects yet, so the first one has to be created here.
+            There are no projects yet — you can still add the person and attach them later.
           </p>
         )}
         <div className="emp-modalacts">

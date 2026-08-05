@@ -86,6 +86,9 @@ export interface Project {
   created_at: string;
   group_id: number | null;
   contract_amount: number | null;
+  /** What the user plans to SPEND hiring/buying. Returned by p.* since 08-04; typed here 08-05. */
+  spend_budget: number | null;
+  phone_ext: string | null;
   contract_description: string | null;
   contract_file_path: string | null;
   contract_kind: ContractKind | null;

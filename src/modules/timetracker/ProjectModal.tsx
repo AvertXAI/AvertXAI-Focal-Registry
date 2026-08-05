@@ -91,7 +91,7 @@ export default function ProjectModal({
   const [name, setName] = useState(editing?.name ?? "");
   const [clientName, setClientName] = useState(editing?.client_name ?? "");
   const [phone, setPhone] = useState(formatPhone(editing?.contact_phone ?? ""));
-  const [ext, setExt] = useState("");
+  const [ext, setExt] = useState(editing?.phone_ext ?? "");
   const [email, setEmail] = useState(editing?.email ?? "");
   // Address is a reveal — most clients will not have one to hand, and four empty boxes is worse
   // than a button. Stored on the CLIENT via the project input (see the deviation note in the report).
@@ -101,7 +101,7 @@ export default function ProjectModal({
   const [stateCode, setStateCode] = useState("");
   const [zip, setZip] = useState("");
   const [amount, setAmount] = useState(editing?.contract_amount != null ? String(editing.contract_amount) : "");
-  const [budget, setBudget] = useState("");
+  const [budget, setBudget] = useState(editing?.spend_budget != null ? String(editing.spend_budget) : "");
   const [description, setDescription] = useState(editing?.contract_description ?? "");
   const [contract, setContract] = useState<{ path: string; name: string } | null>(null);
   const [groupSel, setGroupSel] = useState<string>(editing?.group_id != null ? String(editing.group_id) : "");
@@ -128,6 +128,15 @@ export default function ProjectModal({
   const [pendingItems, setPendingItems] = useState<{ qty: number; description: string; amount: number }[]>([]);
   const [pendingMembers, setPendingMembers] = useState<number[]>([]);
   const [creatingPerson, setCreatingPerson] = useState(false);
+  const [groupAccepted, setGroupAccepted] = useState(false);
+  /** The textarea's live text. `description` is the COMMITTED value that actually gets saved. */
+  const [descDraft, setDescDraft] = useState(editing?.contract_description ?? "");
+  /** After a successful create: offer to staff the project before closing. */
+  const [askStaff, setAskStaff] = useState<TimeTrackerProjectListItem | null>(null);
+  /** Highlights the Employees block when the user comes back to add someone. */
+  const [glowStaff, setGlowStaff] = useState(false);
+  /** Every project — the nested Create Employee form needs it for its own Project dropdown. */
+  const [allProjects, setAllProjects] = useState<TimeTrackerProjectListItem[]>([]);
 
   const projectId = editing?.id ?? null;
 
@@ -157,11 +166,18 @@ export default function ProjectModal({
 
   useEffect(() => {
     void api.employees.people.list().then(setPeople).catch(() => setPeople([]));
+    void api.timetracker.projects.list().then(setAllProjects).catch(() => setAllProjects([]));
   }, [api]);
 
   const num = (s: string): number | null => {
     const n = Number(s.replace(/,/g, ""));
     return s.trim() !== "" && Number.isFinite(n) && n >= 0 ? n : null;
+  };
+
+  const acceptGroup = (): void => {
+    if (newGroupName.trim() === "") return;
+    if (!groupIcon) setGroupIcon(autoIcon(newGroupName.trim()));
+    setGroupAccepted(true);
   };
 
   const buildInput = (): TimeTrackerNewProjectInput => ({
@@ -237,8 +253,15 @@ export default function ProjectModal({
           }
         }
         onGroupsChanged?.();
-        if (then === "employee" && onSavedCreateEmployee) onSavedCreateEmployee(p);
-        else onSaved(p);
+        if (then === "employee" && onSavedCreateEmployee) { onSavedCreateEmployee(p); return; }
+        // A brand-new project with nobody on it: ask before closing, because staffing it is the
+        // next thing the user almost always wants and the section is easy to miss.
+        if (!editing && pendingMembers.length === 0) {
+          setSaving(false);
+          setAskStaff(p);
+          return;
+        }
+        onSaved(p);
       })
       .catch((e: unknown) => {
         setSaving(false);
@@ -275,6 +298,10 @@ export default function ProjectModal({
       .catch((e: unknown) => console.error("[timetracker] add item failed:", e));
   };
 
+  /** Saved employee cost + saved items + anything still buffered. The service half is null until a
+      project exists, so a NEW project's figures come entirely from the buffer. */
+  const liveSpent = (spend?.spent ?? 0) + pendingItems.reduce((s, i) => s + i.amount, 0);
+
   // Saved rows plus anything still buffered — so the total is honest before the project exists.
   const itemTotal =
     (items ?? []).reduce((s, i) => s + i.amount, 0) + pendingItems.reduce((s, i) => s + i.amount, 0);
@@ -293,7 +320,116 @@ export default function ProjectModal({
             minmax, not the viewport, because the rail changes the content area independently.
             At the 740px floor this always stacks. See the report's width table. */}
         <div className="tt-modalgrid">
-          {/* ---------------- LEFT: CLIENT + GROUP ---------------- */}
+          {/* ---------------- LEFT: CONTRACT / ASSIGNMENT (a contract is written first,
+               then who it is with) ---------------- */}
+          <div className="tt-mcol">
+            <div className="tt-block">
+              <div className="tt-blocktitle">Contract / Assignment</div>
+              <label className="tt-field">
+                <span>Project name</span>
+                <input className="tt-input" value={name} onChange={(e) => setName(e.target.value)} />
+              </label>
+              <div className="tt-fieldrow">
+                <label className="tt-field">
+                  <span>Contracted agreed amount</span>
+                  <div className="tt-prefixed"><span className="tt-prefix">$</span>
+                    <input className="tt-input mono" inputMode="decimal" value={amount}
+                      onChange={(e) => setAmount(e.target.value)} /></div>
+                  <p className="tt-hint">What the client agreed to pay for this project.</p>
+                </label>
+                <label className="tt-field">
+                  <span>Hire &amp; spend budget</span>
+                  <div className="tt-prefixed"><span className="tt-prefix">$</span>
+                    <input className="tt-input mono" inputMode="decimal" value={budget}
+                      onChange={(e) => setBudget(e.target.value)} /></div>
+                  <p className="tt-hint">What you plan to spend hiring and buying for this project.</p>
+                </label>
+              </div>
+
+              {/* LIVE, and computed HERE rather than read straight off the service: buffered rows
+                  on a new project are not in the database yet, and the figures have to move as the
+                  user types or the readouts look broken. `spend.spent` is the saved half. */}
+              <div className="tt-statgrid">
+                <div className="tt-stat"><span className="k">Contracted</span>
+                  <span className="v">{fmtMoney(num(amount) ?? 0)}</span></div>
+                <div className="tt-stat"><span className="k">Spent so far</span>
+                  <span className="v">{fmtMoney(liveSpent)}</span></div>
+                <div className="tt-stat"><span className="k">Budget left</span>
+                  <span className={"v" + ((num(budget) ?? 0) - liveSpent >= 0 ? " good" : " over")}>
+                    {num(budget) == null ? "—" : fmtMoney((num(budget) ?? 0) - liveSpent)}
+                  </span></div>
+              </div>
+              <p className="tt-hint">
+                Spent = employee time and completions on this project plus the itemized rows below.
+                Your own tracked time is not counted as spend.
+              </p>
+
+              {/* Contract file lives INSIDE this block, above Itemize, with a rule separating it
+                  from the readouts above. */}
+              <div className="tt-rule" />
+              <div className="tt-field">
+                <span>Contract file</span>
+                <button className="tt-btn ghost sm tt-attach" onClick={pickContract}>
+                  {contract ? contract.name : editing?.contract_file_path ? "Replace attached file…" : "Attach file…"}
+                </button>
+              </div>
+
+              <div className="tt-blocksub">Itemize</div>
+              {dataError ? (
+                <div className="tt-error" role="alert">
+                  <span className="tt-error-plain">Couldn&apos;t load this project&apos;s costs.</span>
+                  <span className="tt-error-hint">Nothing is shown rather than an empty list.</span>
+                </div>
+              ) : projectId != null && items === null ? (
+                <p className="tt-hint">Loading…</p>
+              ) : (
+                <>
+                  <div className="tt-itemhead"><span>Qty</span><span>Description</span><span>Amount</span><span /></div>
+                  {/* Saved rows — edit mode only, removable through the service. */}
+                  {(items ?? []).map((it) => (
+                    <div key={it.id} className="tt-itemrow">
+                      <span className="mono">{it.qty}</span>
+                      <span>{it.description}</span>
+                      <span className="mono">{fmtMoney(it.amount)}</span>
+                      <button className="tt-itemx" aria-label={`Remove ${it.description}`}
+                        onClick={() => void api.timetracker.financials.removeItem(it.id).then(loadFinancials)
+                          .catch((e: unknown) => console.error("[timetracker] remove item failed:", e))}>✕</button>
+                    </div>
+                  ))}
+                  {/* Buffered rows on a NEW project — identical to look at, removed from the buffer
+                      rather than the database because they are not in it yet. */}
+                  {pendingItems.map((it, i) => (
+                    <div key={`pending-${i}`} className="tt-itemrow">
+                      <span className="mono">{it.qty}</span>
+                      <span>{it.description}</span>
+                      <span className="mono">{fmtMoney(it.amount)}</span>
+                      <button className="tt-itemx" aria-label={`Remove ${it.description}`}
+                        onClick={() => setPendingItems((prev) => prev.filter((_, j) => j !== i))}>✕</button>
+                    </div>
+                  ))}
+                  <div className="tt-itemrow new">
+                    <input className="tt-input mono" value={newItem.qty} aria-label="Quantity"
+                      onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} />
+                    <input className="tt-input" placeholder="Description" value={newItem.description}
+                      onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }} />
+                    <div className="tt-prefixed"><span className="tt-prefix">$</span>
+                      <input className="tt-input mono" inputMode="decimal" value={newItem.amount} aria-label="Amount"
+                        onChange={(e) => setNewItem({ ...newItem, amount: e.target.value })}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }} /></div>
+                    <button className="tt-btn ghost sm" disabled={newItem.description.trim() === ""}
+                      onClick={addItem} aria-label="Add row">＋</button>
+                  </div>
+                  <div className="tt-totline"><span>Itemized total</span><b>{fmtMoney(itemTotal)}</b></div>
+                  {projectId == null && pendingItems.length > 0 && (
+                    <p className="tt-hint">These rows are saved with the project when you press Add Project.</p>
+                  )}
+                </>
+              )}
+            </div>
+
+          </div>
+          {/* ---------------- RIGHT: CLIENT + GROUP + EMPLOYEES ---------------- */}
           <div className="tt-mcol">
             <div className="tt-block">
               <div className="tt-blocktitle">Client</div>
@@ -367,10 +503,27 @@ export default function ProjectModal({
               </label>
               {groupSel === NEW_GROUP && (
                 <>
-                  <label className="tt-field">
+                  <div className="tt-field">
                     <span>New group name</span>
-                    <input className="tt-input" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} />
-                  </label>
+                    {/* An explicit accept, so it is obvious the name registered. The group is still
+                        CREATED with the project (one write, one transaction) — this only confirms
+                        the name is taken and locks in the icon. */}
+                    <div className="tt-inline">
+                      <input className="tt-input" value={newGroupName} disabled={groupAccepted}
+                        onChange={(e) => setNewGroupName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); acceptGroup(); } }} />
+                      {groupAccepted ? (
+                        <button className="tt-btn ghost sm" onClick={() => setGroupAccepted(false)}>Edit</button>
+                      ) : (
+                        <button className="tt-btn sm" disabled={newGroupName.trim() === ""} onClick={acceptGroup}>
+                          Enter
+                        </button>
+                      )}
+                    </div>
+                    {groupAccepted && (
+                      <p className="tt-ok">✓ Group “{newGroupName.trim()}” will be created with this project.</p>
+                    )}
+                  </div>
                   <div className="tt-field">
                     <span>Icon</span>
                     <div className="tt-iconrow">
@@ -409,113 +562,7 @@ export default function ProjectModal({
                 )}
               </div>
             </div>
-          </div>
-
-          {/* ---------------- RIGHT: CONTRACT / ASSIGNMENT + EMPLOYEES ---------------- */}
-          <div className="tt-mcol">
-            <div className="tt-block">
-              <div className="tt-blocktitle">Contract / Assignment</div>
-              <label className="tt-field">
-                <span>Project name</span>
-                <input className="tt-input" value={name} onChange={(e) => setName(e.target.value)} />
-              </label>
-              <div className="tt-fieldrow">
-                <label className="tt-field">
-                  <span>Contracted agreed amount</span>
-                  <div className="tt-prefixed"><span className="tt-prefix">$</span>
-                    <input className="tt-input mono" inputMode="decimal" value={amount}
-                      onChange={(e) => setAmount(e.target.value)} /></div>
-                  <p className="tt-hint">What the client agreed to pay for this project.</p>
-                </label>
-                <label className="tt-field">
-                  <span>Hire &amp; spend budget</span>
-                  <div className="tt-prefixed"><span className="tt-prefix">$</span>
-                    <input className="tt-input mono" inputMode="decimal" value={budget}
-                      onChange={(e) => setBudget(e.target.value)} /></div>
-                  <p className="tt-hint">What you plan to spend hiring and buying for this project.</p>
-                </label>
-              </div>
-
-              <div className="tt-statgrid">
-                <div className="tt-stat"><span className="k">Contracted</span>
-                  <span className="v">{fmtMoney(num(amount) ?? 0)}</span></div>
-                <div className="tt-stat"><span className="k">Spent so far</span>
-                  <span className="v">{fmtMoney(spend?.spent ?? 0)}</span></div>
-                <div className="tt-stat"><span className="k">Budget left</span>
-                  <span className={"v" + ((spend?.budget_left ?? 0) >= 0 ? " good" : " over")}>
-                    {num(budget) == null ? "—" : fmtMoney((num(budget) ?? 0) - (spend?.spent ?? 0))}
-                  </span></div>
-              </div>
-              <p className="tt-hint">
-                Spent = employee time and completions on this project plus the itemized rows below.
-                Your own tracked time is not counted as spend.
-              </p>
-
-              {/* Contract file lives INSIDE this block, above Itemize, with a rule separating it
-                  from the readouts above. */}
-              <div className="tt-rule" />
-              <div className="tt-field">
-                <span>Contract file</span>
-                <button className="tt-btn ghost sm tt-attach" onClick={pickContract}>
-                  {contract ? contract.name : editing?.contract_file_path ? "Replace attached file…" : "Attach file…"}
-                </button>
-              </div>
-
-              <div className="tt-blocksub">Itemize</div>
-              {dataError ? (
-                <div className="tt-error" role="alert">
-                  <span className="tt-error-plain">Couldn&apos;t load this project&apos;s costs.</span>
-                  <span className="tt-error-hint">Nothing is shown rather than an empty list.</span>
-                </div>
-              ) : projectId != null && items === null ? (
-                <p className="tt-hint">Loading…</p>
-              ) : (
-                <>
-                  <div className="tt-itemhead"><span>Qty</span><span>Description</span><span>Amount</span><span /></div>
-                  {/* Saved rows — edit mode only, removable through the service. */}
-                  {(items ?? []).map((it) => (
-                    <div key={it.id} className="tt-itemrow">
-                      <span className="mono">{it.qty}</span>
-                      <span>{it.description}</span>
-                      <span className="mono">{fmtMoney(it.amount)}</span>
-                      <button className="tt-itemx" aria-label={`Remove ${it.description}`}
-                        onClick={() => void api.timetracker.financials.removeItem(it.id).then(loadFinancials)
-                          .catch((e: unknown) => console.error("[timetracker] remove item failed:", e))}>✕</button>
-                    </div>
-                  ))}
-                  {/* Buffered rows on a NEW project — identical to look at, removed from the buffer
-                      rather than the database because they are not in it yet. */}
-                  {pendingItems.map((it, i) => (
-                    <div key={`pending-${i}`} className="tt-itemrow">
-                      <span className="mono">{it.qty}</span>
-                      <span>{it.description}</span>
-                      <span className="mono">{fmtMoney(it.amount)}</span>
-                      <button className="tt-itemx" aria-label={`Remove ${it.description}`}
-                        onClick={() => setPendingItems((prev) => prev.filter((_, j) => j !== i))}>✕</button>
-                    </div>
-                  ))}
-                  <div className="tt-itemrow new">
-                    <input className="tt-input mono" value={newItem.qty} aria-label="Quantity"
-                      onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} />
-                    <input className="tt-input" placeholder="Description" value={newItem.description}
-                      onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }} />
-                    <div className="tt-prefixed"><span className="tt-prefix">$</span>
-                      <input className="tt-input mono" inputMode="decimal" value={newItem.amount} aria-label="Amount"
-                        onChange={(e) => setNewItem({ ...newItem, amount: e.target.value })}
-                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }} /></div>
-                    <button className="tt-btn ghost sm" disabled={newItem.description.trim() === ""}
-                      onClick={addItem} aria-label="Add row">＋</button>
-                  </div>
-                  <div className="tt-totline"><span>Itemized total</span><b>{fmtMoney(itemTotal)}</b></div>
-                  {projectId == null && pendingItems.length > 0 && (
-                    <p className="tt-hint">These rows are saved with the project when you press Add Project.</p>
-                  )}
-                </>
-              )}
-            </div>
-
-            <div className="tt-block">
+            <div className={"tt-block" + (glowStaff ? " tt-glow" : "")}>
               <div className="tt-blocktitle">Employees on this project</div>
               {dataError ? (
                 <div className="tt-error" role="alert">
@@ -595,7 +642,10 @@ export default function ProjectModal({
                     {/* Opens the Employees create form LAYERED OVER this modal. Deliberately NOT a
                         navigation: switching modules would unmount this form and lose everything
                         typed into it. The new person lands in the list below without leaving. */}
-                    <button className="tt-btn ghost sm" onClick={() => setCreatingPerson(true)}>
+                    {/* Filled when there is nobody to pick — with an empty roster this IS the
+                        only way forward, so it should not look like a secondary action. */}
+                    <button className={"tt-btn sm" + (people.length === 0 ? " start" : " ghost")}
+                      onClick={() => setCreatingPerson(true)}>
                       ＋ Add Employee
                     </button>
                   </div>
@@ -606,15 +656,31 @@ export default function ProjectModal({
               )}
             </div>
           </div>
+
         </div>
 
         {/* Description sits below the grid with real air above it — it was crowding the GROUP
             block's lower edge. Contract file moved INTO Contract / Assignment, above Itemize. */}
-        <label className="tt-field tt-descfield">
+        {/* Description commits on [+ Add Entry] rather than simply being whatever is in the box
+            when the project saves. The draft is separate from the committed value, so it is always
+            clear which text is actually going to be stored. */}
+        <div className="tt-field tt-descfield">
           <span>Description</span>
-          <textarea className="tt-input tt-textarea" value={description ?? ""}
-            onChange={(e) => setDescription(e.target.value)} />
-        </label>
+          <textarea className="tt-input tt-textarea" value={descDraft}
+            onChange={(e) => setDescDraft(e.target.value)} />
+          <div className="tt-inline">
+            <button className="tt-btn sm" disabled={descDraft.trim() === "" || descDraft === description}
+              onClick={() => setDescription(descDraft)}>
+              ＋ Add Entry
+            </button>
+            {description.trim() !== "" && descDraft === description && (
+              <span className="tt-ok">✓ Saved with the project.</span>
+            )}
+            {description.trim() !== "" && descDraft !== description && (
+              <span className="tt-hint">Unsaved changes — press Add Entry to keep them.</span>
+            )}
+          </div>
+        </div>
 
         {/* Its own full-width block — wraps to as many lines as the sentence needs, never truncates. */}
         {error && (
@@ -624,12 +690,34 @@ export default function ProjectModal({
           </div>
         )}
 
+        {/* Post-create: staff it now, or finish. */}
+        {askStaff && (
+          <div className="tt-modalback" onClick={() => onSaved(askStaff)}>
+            <div className="tt-modal mini" role="dialog" aria-label="Add an employee?"
+              onClick={(e) => e.stopPropagation()}>
+              <div className="tt-modalhead">Project created</div>
+              <p className="tt-hint" style={{ fontSize: "12.5px" }}>
+                Do you want to add an employee to this project?
+              </p>
+              <div className="tt-modalacts">
+                <button className="tt-btn start" onClick={() => {
+                  // Stay in this modal and point at the block, rather than navigating away.
+                  setAskStaff(null);
+                  setGlowStaff(true);
+                  window.setTimeout(() => setGlowStaff(false), 4000);
+                }}>＋ Add Employee</button>
+                <button className="tt-btn" onClick={() => onSaved(askStaff)}>Save Project</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* The Employees create form, layered on top. Nothing here unmounts, so every field the
             user has already filled in survives. */}
         {creatingPerson && (
           <PersonModal
             state={{ mode: "new", project: null }}
-            projects={[]}
+            projects={allProjects}
             onClose={() => setCreatingPerson(false)}
             onSaved={(person) => {
               setCreatingPerson(false);
@@ -648,7 +736,7 @@ export default function ProjectModal({
         {/* NATIVE three-button row (ruling 6). The Employees portal wrapper is retired. */}
         <div className="tt-modalacts">
           <button className="tt-btn ghost" onClick={onClose}>Cancel</button>
-          <button className="tt-btn" disabled={saving || name.trim() === "" || clientName.trim() === ""}
+          <button className="tt-btn start" disabled={saving || name.trim() === "" || clientName.trim() === ""}
             onClick={() => submit("close")}>
             {saving ? "Saving…" : editing ? "Save changes" : "Add Project"}
           </button>

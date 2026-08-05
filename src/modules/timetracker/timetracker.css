@@ -551,3 +551,18 @@
 /* A dialog opened FROM a dialog must sit above it. .emp-modalback and .tt-modalback are both
    z-index 20; DOM order already favours the nested one, but stating it removes the ambiguity. */
 .tt-modal .emp-modalback { z-index: 30; }
+/* inline control row — input plus its accept button */
+.tt-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.tt-inline .tt-input { flex: 1 1 140px; min-width: 0; }
+.tt-ok { font-size: 11px; color: var(--mc-green); margin-top: 5px; }
+/* the mini confirm after a project is created */
+.tt-modal.mini { width: 400px; }
+/* Points at the Employees block when the user comes back to staff the project. Pulsed, then it
+   stops — a permanent highlight would just become part of the furniture. */
+.tt-block.tt-glow { border-color: var(--mc-accent-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mc-accent-primary) 35%, transparent);
+  animation: tt-glowpulse 1.1s ease-in-out 3; }
+@keyframes tt-glowpulse {
+  0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--mc-accent-primary) 18%, transparent); }
+  50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--mc-accent-primary) 45%, transparent); }
+}

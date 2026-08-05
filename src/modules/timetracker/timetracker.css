@@ -414,7 +414,7 @@
    and deliberately NO native-overlay dim (§3.4 scope rule — the recurring light-theme defect). */
 .tt-modalback { position: absolute; inset: 0; background: color-mix(in srgb, var(--mc-base) 62%, transparent); display: flex; align-items: flex-start; justify-content: center; padding: 34px 16px; overflow-y: auto; z-index: 20; }
 .tt-shell { position: relative; } /* anchors the modal to the module's content area, not the window */
-.tt-modal { width: 520px; max-width: 100%; background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 11px; padding: 18px 20px 20px; box-shadow: 0 18px 50px color-mix(in srgb, var(--mc-boot-bg) 55%, transparent); }
+.tt-modal { width: 520px; max-width: 100%; background: var(--mc-panels); border: 1px solid var(--mc-modal-border); border-radius: 11px; padding: 18px 20px 20px; box-shadow: 0 18px 50px color-mix(in srgb, var(--mc-boot-bg) 55%, transparent); }
 .tt-modalhead { font-size: 15px; font-weight: 700; margin-bottom: 14px; }
 .tt-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 11px; color: var(--mc-muted); flex: 1; min-width: 0; }
 .tt-fieldrow { display: flex; gap: 12px; }
@@ -543,3 +543,11 @@
   text-overflow: ellipsis; white-space: nowrap; }
 /* Description was sitting on the GROUP block's lower edge — real air above it. */
 .tt-descfield { margin-top: 18px; }
+/* separator rule inside a block — used above Contract file */
+.tt-rule { height: 1px; background: var(--mc-border); margin: 14px 0 12px; }
+/* the add-employee row wraps rather than crushing the select at the 740 floor */
+.tt-addemp { flex-wrap: wrap; }
+.tt-addemp .tt-input { flex: 1 1 150px; }
+/* A dialog opened FROM a dialog must sit above it. .emp-modalback and .tt-modalback are both
+   z-index 20; DOM order already favours the nested one, but stating it removes the ambiguity. */
+.tt-modal .emp-modalback { z-index: 30; }

@@ -19,6 +19,11 @@
 // native window buttons.
 import { useCallback, useEffect, useState } from "react";
 import { explainTimeTrackerError, type TimeTrackerErrorExplanation } from "./ttErrors";
+// The Employees create form, reused rather than duplicated. Its stylesheet is imported explicitly
+// for the same reason NewEmployeeWizard imports TimeTracker's — the single-bundle CSS is an
+// accident of static imports, not a guarantee.
+import PersonModal from "../employees/PersonModal";
+import "../employees/employees.css";
 import type {
   TimeTrackerGroup,
   TimeTrackerNewProjectInput,
@@ -122,6 +127,7 @@ export default function ProjectModal({
    */
   const [pendingItems, setPendingItems] = useState<{ qty: number; description: string; amount: number }[]>([]);
   const [pendingMembers, setPendingMembers] = useState<number[]>([]);
+  const [creatingPerson, setCreatingPerson] = useState(false);
 
   const projectId = editing?.id ?? null;
 
@@ -445,8 +451,9 @@ export default function ProjectModal({
                 Your own tracked time is not counted as spend.
               </p>
 
-              {/* Contract file now lives INSIDE this block, above Itemize, and the button is sized
-                  to its own words rather than spanning the whole modal. */}
+              {/* Contract file lives INSIDE this block, above Itemize, with a rule separating it
+                  from the readouts above. */}
+              <div className="tt-rule" />
               <div className="tt-field">
                 <span>Contract file</span>
                 <button className="tt-btn ghost sm tt-attach" onClick={pickContract}>
@@ -558,8 +565,14 @@ export default function ProjectModal({
                     );
                   })}
                   <div className="tt-addemp">
-                    <select className="tt-input" value={memberSel} onChange={(e) => setMemberSel(e.target.value)}>
-                      <option value="">Add an employee…</option>
+                    {/* The select lists people who ALREADY EXIST. With none on file it is disabled
+                        and says so, rather than offering an empty menu that looks broken. Creating
+                        someone is the button beside it — a separate action, not a menu entry. */}
+                    <select className="tt-input" value={memberSel} disabled={people.length === 0}
+                      onChange={(e) => setMemberSel(e.target.value)}>
+                      <option value="">
+                        {people.length === 0 ? "Add an employee first" : "Add an employee…"}
+                      </option>
                       {people
                         .filter((p) => !(members ?? []).some((m) => m.person_id === p.id))
                         .filter((p) => !pendingMembers.includes(p.id))
@@ -579,6 +592,12 @@ export default function ProjectModal({
                           .then(() => { setMemberSel(""); loadFinancials(); })
                           .catch((e: unknown) => console.error("[timetracker] add member failed:", e));
                       }}>Add</button>
+                    {/* Opens the Employees create form LAYERED OVER this modal. Deliberately NOT a
+                        navigation: switching modules would unmount this form and lose everything
+                        typed into it. The new person lands in the list below without leaving. */}
+                    <button className="tt-btn ghost sm" onClick={() => setCreatingPerson(true)}>
+                      ＋ Add Employee
+                    </button>
                   </div>
                   {projectId == null && pendingMembers.length > 0 && (
                     <p className="tt-hint">Added to the project when you press Add Project.</p>
@@ -603,6 +622,27 @@ export default function ProjectModal({
             <span className="tt-error-plain">{error.plain}</span>
             {error.hint && <span className="tt-error-hint">{error.hint}</span>}
           </div>
+        )}
+
+        {/* The Employees create form, layered on top. Nothing here unmounts, so every field the
+            user has already filled in survives. */}
+        {creatingPerson && (
+          <PersonModal
+            state={{ mode: "new", project: null }}
+            projects={[]}
+            onClose={() => setCreatingPerson(false)}
+            onSaved={(person) => {
+              setCreatingPerson(false);
+              // Refresh the roster source and preselect the person just created.
+              void api.employees.people
+                .list()
+                .then((rows) => {
+                  setPeople(rows);
+                  setMemberSel(String(person.id));
+                })
+                .catch(() => setPeople((prev) => [...prev, person]));
+            }}
+          />
         )}
 
         {/* NATIVE three-button row (ruling 6). The Employees portal wrapper is retired. */}

@@ -47,12 +47,15 @@ function streamReportTo(
       for (const f of topFolders) {
         const fmts = formatsByFolder.get(f.id) ?? [];
         const fmtLine = fmts.length > 0 ? fmts.map((x) => `${x.key || "(none)"}: ${x.n}`).join(" · ") : "—";
+        // Order ruled 08-05-2026: capture range (with its camera) and size first — WHEN and HOW BIG
+        // — then formats, then the media-file breakdown. The PDF renderer picks these lines BY
+        // LABEL, so this order and the printed one stay independent of each other.
         const section =
           `## ${f.path}\n\n` +
-          `- Media files: ${f.media_files.toLocaleString()} of ${f.total_files.toLocaleString()} seen (stills ${f.image_count}, video ${f.video_count}, audio ${f.audio_count}, unreadable ${f.unreadable_count})\n` +
+          `- Capture range: ${fmtDate(f.date_min)} → ${fmtDate(f.date_max)}${f.top_camera ? ` · Top camera: ${f.top_camera}` : ""}\n` +
           `- Size: ${fmtBytes(f.total_bytes)}\n` +
           `- Formats: ${fmtLine}\n` +
-          `- Capture range: ${fmtDate(f.date_min)} → ${fmtDate(f.date_max)}${f.top_camera ? ` · Top camera: ${f.top_camera}` : ""}\n\n`;
+          `- Media files: ${f.media_files.toLocaleString()} of ${f.total_files.toLocaleString()} seen (stills ${f.image_count}, video ${f.video_count}, audio ${f.audio_count}, unreadable ${f.unreadable_count})\n\n`;
         fs.writeSync(fd, section);
       }
     } finally {
@@ -298,9 +301,12 @@ export function writeScanReport(db: Db, runId: number, opts: WriteReportOptions 
       "| | |",
       "|---|---|",
       `| Status | ${partial ? `**Partial — in progress**${pct != null ? ` (${pct}%)` : ""}` : "Complete"} |`,
-      `| Root | \`${run.root_path}\` |`,
+      // Order ruled 08-05-2026: WHEN it was scanned, WHAT was scanned, WHEN the work inside it
+      // was shot — the three orienting facts, before any counts.
+      `| Scanned On | ${formatStamp(scannedAt, "eventTime") || "—"} |`,
+      `| Drive | \`${run.root_path}\` |`,
+      `| Capture range | ${fmtDate(oldest)} → ${fmtDate(newest)} |`,
       `| Volume serial | ${drive?.volume_serial ?? "—"} |`,
-      `| Scanned | ${formatStamp(scannedAt, "eventTime") || "—"} |`,
       ...(elapsed ? [`| Elapsed | ${elapsed} |`] : []),
       `| Folders | ${folders.toLocaleString()} |`,
       `| Media files | ${files.toLocaleString()} |`,
@@ -308,7 +314,6 @@ export function writeScanReport(db: Db, runId: number, opts: WriteReportOptions 
       `| Video | ${video.toLocaleString()} |`,
       `| Audio | ${audio.toLocaleString()} |`,
       `| Other / unreadable | ${unknown.toLocaleString()} |`,
-      `| Capture range | ${fmtDate(oldest)} → ${fmtDate(newest)} |`,
       `| Errors logged | ${run.errors_logged.toLocaleString()} |`,
       "",
       `_Showing the top ${Math.min(TOP_FOLDERS, topFolders.length)} folders by media file count. Full per-folder detail for all ${folders.toLocaleString()} folders is queryable in the Focal Registry database (\`scan_folders\` / \`scan_files\` for run ${runId})._`,

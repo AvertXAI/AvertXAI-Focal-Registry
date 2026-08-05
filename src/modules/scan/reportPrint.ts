@@ -114,15 +114,35 @@ export function renderReportPrintHtml(content: string): string {
       .map((l) => l.trim().replace(/^- /, "").replace(/`/g, ""));
     const pick = (label: string): string | null =>
       stats.find((l) => l.toLowerCase().startsWith(label.toLowerCase())) ?? null;
-    const line1 = [pick("Capture range"), pick("Size")].filter(Boolean).join(" · ");
-    const line2 = [pick("Media files"), pick("Formats")].filter(Boolean).join(" · ");
+
+    /** `Label: value` → `Label: <b>value</b>`. Escaping happens per side, so the <b> we add is the
+        only markup that survives — a path or camera name containing < is still inert. */
+    const boldValue = (line: string | null): string => {
+      if (!line) return "";
+      const i = line.indexOf(":");
+      if (i === -1) return esc(line);
+      return `${esc(line.slice(0, i + 1))} <b>${esc(line.slice(i + 1).trim())}</b>`;
+    };
+    /** Capture range carries "· Top camera: X" on the same line — bold each value separately so
+        the dates AND the camera both stand out rather than one long bold run. */
+    const boldEachSegment = (line: string | null): string =>
+      !line ? "" : line.split(" · ").map((seg) => boldValue(seg)).join(" · ");
+
+    const line1 = [boldEachSegment(pick("Capture range")), boldValue(pick("Size"))]
+      .filter(Boolean)
+      .join(" · ");
+    // FORMATS BEFORE MEDIA FILES (ruled 08-05-2026), and every format's count is bold.
+    // Media files stays entirely unbold — it is the detail line, not a headline.
+    const line2 = [boldEachSegment(pick("Formats")), esc(pick("Media files") ?? "")]
+      .filter(Boolean)
+      .join(" · ");
     // Anything the two lines did not claim still prints, so a future stat cannot vanish silently.
     const claimed = ["capture range", "size", "media files", "formats"];
     const rest = stats.filter((l) => !claimed.some((c) => l.toLowerCase().startsWith(c)));
     sections.push(
       `<div class="pr-folder"><div class="pr-path">${pathBreaks(p)}</div>` +
-        (line1 ? `<p class="pr-stats">${esc(line1)}</p>` : "") +
-        (line2 ? `<p class="pr-stats">${esc(line2)}</p>` : "") +
+        (line1 ? `<p class="pr-stats">${line1}</p>` : "") +
+        (line2 ? `<p class="pr-stats">${line2}</p>` : "") +
         rest.map((l) => `<p class="pr-stats">${esc(l)}</p>`).join("") +
         `</div>`
     );

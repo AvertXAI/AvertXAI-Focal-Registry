@@ -31,11 +31,12 @@
   --mc-scrollbar-thumb:#2c3a58; /* hybrid default; dark/light override per-theme */
   --mc-font:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
   --mc-mono:ui-monospace,"SFMono-Regular",Consolas,monospace;
-  /* MODAL EDGE — hybrid only (Jason 08-05-2026). A dialog on hybrid's deep navy sat so close in
-     value to the page behind it that it was easy to miss; a thin gold rule makes the boundary read
-     at a glance. Dark and light already separate well, so both reset it to the ordinary border
-     below. Every module's modal consumes this ONE token — never a hardcoded gold. */
-  --mc-modal-border:#c9a227;
+  /* MODAL EDGE — hybrid only (Jason 08-05-2026, revised same day). A dialog on hybrid's deep navy
+     sat so close in value to the page behind it that it was easy to miss. Gold was tried and read
+     as tacky; this is the accent blue already used for button hover, so the edge belongs to the
+     palette instead of introducing a colour. Dark and light separate on their own and reset it
+     below. Every module's modal consumes this ONE token. */
+  --mc-modal-border:var(--mc-accent-primary);
 }
 [data-theme="dark"]{ /* approved Claude-desktop dark (recon-031/048); rose accent per DECISIONS L135 */
   --mc-base:#1f1f1f; --mc-panels:#2c2c2a; --mc-nested:#2c2a26; --mc-border:#61615b;

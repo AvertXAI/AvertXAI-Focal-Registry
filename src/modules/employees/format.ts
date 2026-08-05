@@ -41,9 +41,12 @@ export function formatSsn(raw: string): string {
   return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
 }
 
-/** The blurred form: ∙∙∙-∙∙-∙∙∙∙ (mockup v5:179). Shape only — it reveals nothing, and an empty
-    value stays empty rather than showing a mask over nothing. */
-export const SSN_MASK = "∙∙∙-∙∙-∙∙∙∙";
+/** The blurred form. Asterisks rather than bullet operators (Jason 08-05-2026): they read at the
+    field's own size, so the masked and unmasked states can share one font-size and the box never
+    resizes. Exactly as long as a real number (11 characters either way), which is what keeps the
+    width stable between focus and blur. Shape only — it reveals nothing, and an empty value stays
+    empty rather than showing a mask over nothing. */
+export const SSN_MASK = "***-**-****";
 export const maskSsn = (value: string): string => (value.trim() === "" ? "" : SSN_MASK);
 
 /**

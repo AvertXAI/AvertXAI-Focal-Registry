@@ -535,3 +535,11 @@
 .tt-groupicon.big { font-size: 17px; }
 .tt-raildotwrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .tt-groupicon.rail { font-size: 10px; }
+
+/* --- 08-05-2026 device-feedback fixes --- */
+/* The attach button was full-width and enormous. Sized to its own words, with a sane ceiling so a
+   long filename truncates instead of stretching the block. */
+.tt-attach { width: auto; align-self: flex-start; max-width: 100%; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+/* Description was sitting on the GROUP block's lower edge — real air above it. */
+.tt-descfield { margin-top: 18px; }

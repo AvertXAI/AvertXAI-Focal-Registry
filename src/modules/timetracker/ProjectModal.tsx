@@ -114,6 +114,14 @@ export default function ProjectModal({
   const [dataError, setDataError] = useState(false);
   const [newItem, setNewItem] = useState({ qty: "1", description: "", amount: "" });
   const [memberSel, setMemberSel] = useState("");
+  /**
+   * NEW-PROJECT BUFFER. Itemized rows and roster entries both need a project_id, and a project
+   * being created has not got one yet. Rather than making these blocks edit-only, the form holds
+   * them here and FLUSHES them straight after create returns the real id. Same fields, same
+   * services, same validation — only the moment of the write differs.
+   */
+  const [pendingItems, setPendingItems] = useState<{ qty: number; description: string; amount: number }[]>([]);
+  const [pendingMembers, setPendingMembers] = useState<number[]>([]);
 
   const projectId = editing?.id ?? null;
 
@@ -176,6 +184,33 @@ export default function ProjectModal({
     phoneExt: ext.trim() === "" ? null : ext,
   });
 
+  /**
+   * Writes the buffered rows against the id the project just got. Sequential, not parallel: these
+   * are money rows and a predictable order is worth more than a few milliseconds.
+   * If one fails the project still exists — so the caller is told exactly what landed and what did
+   * not, rather than the whole save appearing to have failed.
+   */
+  const flushPending = async (newId: number): Promise<string | null> => {
+    let failed = 0;
+    for (const it of pendingItems) {
+      try {
+        await api.timetracker.financials.addItem({ projectId: newId, ...it });
+      } catch (e) {
+        failed++;
+        console.error("[timetracker] buffered item failed:", e);
+      }
+    }
+    for (const personId of pendingMembers) {
+      try {
+        await api.timetracker.financials.addMember(newId, personId);
+      } catch (e) {
+        failed++;
+        console.error("[timetracker] buffered member failed:", e);
+      }
+    }
+    return failed === 0 ? null : `The project was created, but ${failed} of the rows you added could not be saved.`;
+  };
+
   const submit = (then: "close" | "employee"): void => {
     if (saving) return;
     setSaving(true);
@@ -185,7 +220,16 @@ export default function ProjectModal({
       ? api.timetracker.projects.update({ ...input, id: editing.id })
       : api.timetracker.projects.create(input);
     void op
-      .then((p) => {
+      .then(async (p) => {
+        // Only a NEW project has anything buffered; editing writes straight through.
+        if (!editing && (pendingItems.length > 0 || pendingMembers.length > 0)) {
+          const problem = await flushPending(p.id);
+          if (problem) {
+            setSaving(false);
+            setError({ plain: problem, hint: "Reopen the project to add the missing ones." });
+            return;
+          }
+        }
         onGroupsChanged?.();
         if (then === "employee" && onSavedCreateEmployee) onSavedCreateEmployee(p);
         else onSaved(p);
@@ -204,14 +248,20 @@ export default function ProjectModal({
   };
 
   const addItem = (): void => {
-    if (projectId == null || newItem.description.trim() === "") return;
+    if (newItem.description.trim() === "") return;
+    const row = {
+      qty: num(newItem.qty) ?? 1,
+      description: newItem.description.trim(),
+      amount: num(newItem.amount) ?? 0,
+    };
+    // No project id yet → hold it; the flush after create writes it through the same service.
+    if (projectId == null) {
+      setPendingItems((prev) => [...prev, row]);
+      setNewItem({ qty: "1", description: "", amount: "" });
+      return;
+    }
     void api.timetracker.financials
-      .addItem({
-        projectId,
-        qty: num(newItem.qty) ?? 1,
-        description: newItem.description,
-        amount: num(newItem.amount) ?? 0,
-      })
+      .addItem({ projectId, ...row })
       .then(() => {
         setNewItem({ qty: "1", description: "", amount: "" });
         loadFinancials(); // the readouts move with it
@@ -219,7 +269,9 @@ export default function ProjectModal({
       .catch((e: unknown) => console.error("[timetracker] add item failed:", e));
   };
 
-  const itemTotal = (items ?? []).reduce((s, i) => s + i.amount, 0);
+  // Saved rows plus anything still buffered — so the total is honest before the project exists.
+  const itemTotal =
+    (items ?? []).reduce((s, i) => s + i.amount, 0) + pendingItems.reduce((s, i) => s + i.amount, 0);
 
   return (
     <div className="tt-modalback" onClick={onClose}>
@@ -393,23 +445,28 @@ export default function ProjectModal({
                 Your own tracked time is not counted as spend.
               </p>
 
+              {/* Contract file now lives INSIDE this block, above Itemize, and the button is sized
+                  to its own words rather than spanning the whole modal. */}
+              <div className="tt-field">
+                <span>Contract file</span>
+                <button className="tt-btn ghost sm tt-attach" onClick={pickContract}>
+                  {contract ? contract.name : editing?.contract_file_path ? "Replace attached file…" : "Attach file…"}
+                </button>
+              </div>
+
               <div className="tt-blocksub">Itemize</div>
-              {projectId == null ? (
-                <p className="tt-hint">
-                  Itemized rows attach to a saved project — create this one first, then reopen it to
-                  add them.
-                </p>
-              ) : dataError ? (
+              {dataError ? (
                 <div className="tt-error" role="alert">
                   <span className="tt-error-plain">Couldn&apos;t load this project&apos;s costs.</span>
                   <span className="tt-error-hint">Nothing is shown rather than an empty list.</span>
                 </div>
-              ) : items === null ? (
+              ) : projectId != null && items === null ? (
                 <p className="tt-hint">Loading…</p>
               ) : (
                 <>
                   <div className="tt-itemhead"><span>Qty</span><span>Description</span><span>Amount</span><span /></div>
-                  {items.map((it) => (
+                  {/* Saved rows — edit mode only, removable through the service. */}
+                  {(items ?? []).map((it) => (
                     <div key={it.id} className="tt-itemrow">
                       <span className="mono">{it.qty}</span>
                       <span>{it.description}</span>
@@ -419,39 +476,52 @@ export default function ProjectModal({
                           .catch((e: unknown) => console.error("[timetracker] remove item failed:", e))}>✕</button>
                     </div>
                   ))}
+                  {/* Buffered rows on a NEW project — identical to look at, removed from the buffer
+                      rather than the database because they are not in it yet. */}
+                  {pendingItems.map((it, i) => (
+                    <div key={`pending-${i}`} className="tt-itemrow">
+                      <span className="mono">{it.qty}</span>
+                      <span>{it.description}</span>
+                      <span className="mono">{fmtMoney(it.amount)}</span>
+                      <button className="tt-itemx" aria-label={`Remove ${it.description}`}
+                        onClick={() => setPendingItems((prev) => prev.filter((_, j) => j !== i))}>✕</button>
+                    </div>
+                  ))}
                   <div className="tt-itemrow new">
-                    <input className="tt-input mono" value={newItem.qty}
+                    <input className="tt-input mono" value={newItem.qty} aria-label="Quantity"
                       onChange={(e) => setNewItem({ ...newItem, qty: e.target.value })} />
                     <input className="tt-input" placeholder="Description" value={newItem.description}
-                      onChange={(e) => setNewItem({ ...newItem, description: e.target.value })} />
+                      onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }} />
                     <div className="tt-prefixed"><span className="tt-prefix">$</span>
-                      <input className="tt-input mono" inputMode="decimal" value={newItem.amount}
-                        onChange={(e) => setNewItem({ ...newItem, amount: e.target.value })} /></div>
+                      <input className="tt-input mono" inputMode="decimal" value={newItem.amount} aria-label="Amount"
+                        onChange={(e) => setNewItem({ ...newItem, amount: e.target.value })}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }} /></div>
                     <button className="tt-btn ghost sm" disabled={newItem.description.trim() === ""}
-                      onClick={addItem}>＋</button>
+                      onClick={addItem} aria-label="Add row">＋</button>
                   </div>
                   <div className="tt-totline"><span>Itemized total</span><b>{fmtMoney(itemTotal)}</b></div>
+                  {projectId == null && pendingItems.length > 0 && (
+                    <p className="tt-hint">These rows are saved with the project when you press Add Project.</p>
+                  )}
                 </>
               )}
             </div>
 
             <div className="tt-block">
               <div className="tt-blocktitle">Employees on this project</div>
-              {projectId == null ? (
-                <p className="tt-hint">
-                  People attach to a saved project — create this one first, then reopen it to build
-                  the team.
-                </p>
-              ) : dataError ? (
+              {dataError ? (
                 <div className="tt-error" role="alert">
                   <span className="tt-error-plain">Couldn&apos;t load the project team.</span>
                 </div>
-              ) : members === null ? (
+              ) : projectId != null && members === null ? (
                 <p className="tt-hint">Loading…</p>
               ) : (
                 <>
-                  {members.length === 0 && <p className="tt-hint">Nobody is on this project yet.</p>}
-                  {members.map((m) => (
+                  {(members ?? []).length === 0 && pendingMembers.length === 0 && (
+                    <p className="tt-hint">Nobody is on this project yet.</p>
+                  )}
+                  {(members ?? []).map((m) => (
                     <div key={m.id} className="tt-emprow">
                       <div className="who">
                         <b>{m.person_name ?? "(removed person)"}</b>
@@ -463,45 +533,69 @@ export default function ProjectModal({
                           : "No rate set"}
                       </div>
                       <button className="tt-itemx" aria-label={`Remove ${m.person_name ?? "person"}`}
-                        onClick={() => void api.timetracker.financials.removeMember(projectId, m.person_id)
-                          .then(loadFinancials)
+                        onClick={() => projectId != null && void api.timetracker.financials
+                          .removeMember(projectId, m.person_id).then(loadFinancials)
                           .catch((e: unknown) => console.error("[timetracker] remove member failed:", e))}>✕</button>
                     </div>
                   ))}
+                  {/* Buffered on a NEW project — flushed straight after create returns the id. */}
+                  {pendingMembers.map((pid) => {
+                    const person = people.find((x) => x.id === pid);
+                    return (
+                      <div key={`pending-${pid}`} className="tt-emprow">
+                        <div className="who">
+                          <b>{person?.name ?? "Selected person"}</b>
+                          <div className="r">{person?.role ?? "No role set"}</div>
+                        </div>
+                        <div className="pay">
+                          {person?.default_rate != null
+                            ? `${fmtMoney(person.default_rate)} / ${person.default_pay_type ?? "hour"}`
+                            : "No rate set"}
+                        </div>
+                        <button className="tt-itemx" aria-label={`Remove ${person?.name ?? "person"}`}
+                          onClick={() => setPendingMembers((prev) => prev.filter((x) => x !== pid))}>✕</button>
+                      </div>
+                    );
+                  })}
                   <div className="tt-addemp">
                     <select className="tt-input" value={memberSel} onChange={(e) => setMemberSel(e.target.value)}>
                       <option value="">Add an employee…</option>
                       {people
                         .filter((p) => !(members ?? []).some((m) => m.person_id === p.id))
+                        .filter((p) => !pendingMembers.includes(p.id))
                         .map((p) => (
                           <option key={p.id} value={String(p.id)}>{p.name}</option>
                         ))}
                     </select>
                     <button className="tt-btn ghost sm" disabled={memberSel === ""}
                       onClick={() => {
-                        void api.timetracker.financials.addMember(projectId, Number(memberSel))
+                        const pid = Number(memberSel);
+                        if (projectId == null) {
+                          setPendingMembers((prev) => [...prev, pid]);
+                          setMemberSel("");
+                          return;
+                        }
+                        void api.timetracker.financials.addMember(projectId, pid)
                           .then(() => { setMemberSel(""); loadFinancials(); })
                           .catch((e: unknown) => console.error("[timetracker] add member failed:", e));
                       }}>Add</button>
                   </div>
+                  {projectId == null && pendingMembers.length > 0 && (
+                    <p className="tt-hint">Added to the project when you press Add Project.</p>
+                  )}
                 </>
               )}
             </div>
           </div>
         </div>
 
-        {/* Contract description and attachment keep their home, below the grid. */}
-        <label className="tt-field">
+        {/* Description sits below the grid with real air above it — it was crowding the GROUP
+            block's lower edge. Contract file moved INTO Contract / Assignment, above Itemize. */}
+        <label className="tt-field tt-descfield">
           <span>Description</span>
           <textarea className="tt-input tt-textarea" value={description ?? ""}
             onChange={(e) => setDescription(e.target.value)} />
         </label>
-        <div className="tt-field">
-          <span>Contract file</span>
-          <button className="tt-btn ghost tt-attach" onClick={pickContract}>
-            {contract ? contract.name : editing?.contract_file_path ? "Replace attached file…" : "Attach file…"}
-          </button>
-        </div>
 
         {/* Its own full-width block — wraps to as many lines as the sentence needs, never truncates. */}
         {error && (

@@ -47,12 +47,39 @@ SELECT
   g.color AS group_color,
   g.icon  AS group_icon,
   (SELECT n.body FROM timetracker_notes n WHERE n.project_id = p.id) AS note_body,
-  COALESCE((SELECT SUM(co.amount) FROM timetracker_costs co WHERE co.project_id = p.id), 0) AS total_costs,
+  -- COSTS = hard line items + EMPLOYEE COST. Canon (DECISIONS-51): "Employee cost reaches
+  -- Analytics. Hours logged against a project at a rate feed that project's COSTS and every
+  -- chart." Before 08-05-2026 this summed timetracker_costs alone, so paying someone against a
+  -- project left its COSTS card reading $0.00.
+  -- The three employee sources match reports.ENTRY_COST_SQL exactly — entries, valued hours
+  -- corrections, and project-scoped amount corrections, soft-deleted ones excluded. A plain
+  -- cross-module SELECT is the sanctioned arrangement here: one database, one connection, no
+  -- ATTACH (employees/db.ts).
+  COALESCE((SELECT SUM(co.amount) FROM timetracker_costs co WHERE co.project_id = p.id), 0)
+  + COALESCE((SELECT SUM(CASE e.pay_type
+        WHEN 'donated' THEN 0
+        WHEN 'hourly'  THEN e.hours_worked * e.rate_at_entry
+        ELSE COALESCE(e.flat_amount, 0) END)
+      FROM employee_entries e WHERE e.project_id = p.id), 0)
+  + COALESCE((SELECT SUM((ea.delta_minutes / 60.0) * ea.rate_at_entry)
+      FROM employee_adjustments ea
+      WHERE ea.project_id = p.id AND ea.kind = 'hours' AND ea.deleted_at IS NULL), 0)
+  + COALESCE((SELECT SUM(ea.delta_amount)
+      FROM employee_adjustments ea
+      WHERE ea.project_id = p.id AND ea.kind = 'amount' AND ea.deleted_at IS NULL), 0)
+  AS total_costs,
   -- total time = clamp(session seconds + non-deleted adjustment minutes, 0). Adjustments live in
   -- their own table; time_entries is never modified. Display clamps at 0; the raw deltas stay honest.
+  -- Total time = the user's own committed sessions + their adjustments + EMPLOYEE hours logged
+  -- against this project + employee hours corrections. Canon records hours for EVERY pay type,
+  -- donated included, so no pay_type filter belongs here — a donated hour is still an hour worked.
+  -- Added 08-05-2026: before this the rail read 0h for a project that only had employee time on it.
   MAX(0,
     COALESCE((SELECT SUM(te.duration_seconds) FROM timetracker_time_entries te WHERE te.project_id = p.id), 0)
     + COALESCE((SELECT SUM(a.delta_minutes) * 60 FROM timetracker_adjustments a WHERE a.project_id = p.id AND a.deleted_at IS NULL), 0)
+    + COALESCE((SELECT SUM(e.hours_worked) * 3600 FROM employee_entries e WHERE e.project_id = p.id), 0)
+    + COALESCE((SELECT SUM(ea.delta_minutes) * 60 FROM employee_adjustments ea
+        WHERE ea.project_id = p.id AND ea.kind = 'hours' AND ea.deleted_at IS NULL), 0)
   ) AS total_seconds,
   (SELECT MAX(te.ended_at) FROM timetracker_time_entries te WHERE te.project_id = p.id) AS last_worked,
   (SELECT vl.amount FROM timetracker_value_ledger vl WHERE vl.project_id = p.id ORDER BY vl.id DESC LIMIT 1) AS latest_ledger_amount
@@ -106,7 +133,7 @@ export function getProject(db: Db, id: number): ProjectListItem {
 
 /**
  * Read-only group rollup: per group (null = Ungrouped), the summed COMMITTED time of its
- * non-archived projects — saved sessions ± non-deleted adjustments, each project clamped at 0
+ * non-archived projects — saved sessions ± adjustments ± EMPLOYEE hours, each project clamped at 0
  * (the same formula as LIST_SQL's total_seconds). A live/running session is NOT included until
  * it is stopped and saved. Pure SELECT — never touches time_entries.
  */
@@ -117,6 +144,9 @@ export function groupTotals(db: Db, orgId: string): GroupTotalRow[] {
          SUM(MAX(0,
            COALESCE((SELECT SUM(te.duration_seconds) FROM timetracker_time_entries te WHERE te.project_id = p.id), 0)
            + COALESCE((SELECT SUM(a.delta_minutes) * 60 FROM timetracker_adjustments a WHERE a.project_id = p.id AND a.deleted_at IS NULL), 0)
+           + COALESCE((SELECT SUM(e.hours_worked) * 3600 FROM employee_entries e WHERE e.project_id = p.id), 0)
+           + COALESCE((SELECT SUM(ea.delta_minutes) * 60 FROM employee_adjustments ea
+               WHERE ea.project_id = p.id AND ea.kind = 'hours' AND ea.deleted_at IS NULL), 0)
          )) AS total_seconds
        FROM timetracker_projects p
        WHERE p.org_id = ? AND p.archived_at IS NULL

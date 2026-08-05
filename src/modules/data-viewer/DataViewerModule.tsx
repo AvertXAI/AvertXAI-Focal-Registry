@@ -24,8 +24,30 @@ const PIN_ORDER: Record<string, string[]> = {
 // 36-char uuid-shaped columns get a tighter width cap (dv-cap-uuid).
 const UUID_CAP = new Set(["uuid", "tenant_id", "client_id"]);
 
+/** Rail sizing. 180 is the shipped width; 280 is the ceiling — wide enough for the longest table
+    name in the tree (timetracker_adjustments) without the picker crowding the grid it feeds. */
+const RAIL_DEFAULT = 180;
+const RAIL_MIN = 180;
+const RAIL_MAX = 280;
+
 export default function DataViewerModule() {
   const [tables, setTables] = useState<DbTable[]>([]);
+  const [railWidth, setRailWidth] = useState(RAIL_DEFAULT);
+
+  /** Pointer-driven resize. The rail is fixed at the module's left edge, so the pointer's clientX
+      relative to the shell IS the width — no offset bookkeeping. Clamped hard at both ends. */
+  const startDrag = (e: React.MouseEvent): void => {
+    e.preventDefault();
+    const shellLeft = (e.currentTarget as HTMLElement).closest(".dv-shell")?.getBoundingClientRect().left ?? 0;
+    const onMove = (ev: MouseEvent): void =>
+      setRailWidth(Math.min(RAIL_MAX, Math.max(RAIL_MIN, ev.clientX - shellLeft)));
+    const onUp = (): void => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
   const [selected, setSelected] = useState<string | null>(null);
   const [columns, setColumns] = useState<DbColumn[]>([]);
   const [page, setPage] = useState<DbRowsPage | null>(null);
@@ -117,10 +139,21 @@ export default function DataViewerModule() {
 
   return (
     <div className="dv-shell">
-      <aside className="dv-rail">
+      <aside className="dv-rail" style={{ width: railWidth, flexBasis: railWidth }}>
         <div className="dv-rail-head">
           Tables <span className="dv-count">{tables.length}</span>
         </div>
+        {/* Drag handle — table names like timetracker_adjustments truncate at the default width.
+            Range is deliberately narrow (180-280): the rail is a picker, not a panel, and letting it
+            eat the grid would trade one unreadable thing for another. Session-only by design —
+            persisting it would mean a new app_settings key and its RENDERER_KEYS entry. */}
+        <div
+          className="dv-railgrip"
+          role="separator"
+          aria-label="Resize the table list"
+          aria-orientation="vertical"
+          onMouseDown={startDrag}
+        />
         <div className="dv-tables">
           {tables.map((t) => (
             <button

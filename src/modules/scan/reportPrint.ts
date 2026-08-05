@@ -95,7 +95,14 @@ export function renderReportPrintHtml(content: string): string {
     rollupTable("Video codecs", jsonPairs(fm.video_codecs ?? "")) +
     rollupTable("Audio codecs", jsonPairs(fm.audio_codecs ?? ""));
 
-  // 3.4 folder sections — each break-inside:avoid, path mono heading breaking on separators, inline stats
+  // 3.4 folder sections. RESTRUCTURED 08-05-2026: the drive location is the title, and its stats
+  // read as two prose lines beneath it instead of one long run of chips:
+  //     line 1 — capture range · size · top camera   (WHEN and HOW BIG: the orienting facts)
+  //     line 2 — media files · formats               (WHAT is in there: the detail)
+  // The source markdown emits them in a different order (media, size, formats, capture), so each
+  // line is picked out BY LABEL rather than by position — a reordering upstream cannot silently
+  // scramble the output. "Top camera" arrives appended to the capture-range line, so it rides
+  // along with it for free.
   const sections: string[] = [];
   const parts = body.split(/\n## /).slice(1); // everything after the first "## "
   for (const part of parts) {
@@ -104,13 +111,30 @@ export function renderReportPrintHtml(content: string): string {
     const stats = lines
       .slice(1)
       .filter((l) => l.trim().startsWith("- "))
-      .map((l) => `<span>${esc(l.trim().replace(/^- /, "").replace(/`/g, ""))}</span>`)
-      .join("");
-    sections.push(`<div class="pr-folder"><div class="pr-path">${pathBreaks(p)}</div><div class="pr-stats">${stats}</div></div>`);
+      .map((l) => l.trim().replace(/^- /, "").replace(/`/g, ""));
+    const pick = (label: string): string | null =>
+      stats.find((l) => l.toLowerCase().startsWith(label.toLowerCase())) ?? null;
+    const line1 = [pick("Capture range"), pick("Size")].filter(Boolean).join(" · ");
+    const line2 = [pick("Media files"), pick("Formats")].filter(Boolean).join(" · ");
+    // Anything the two lines did not claim still prints, so a future stat cannot vanish silently.
+    const claimed = ["capture range", "size", "media files", "formats"];
+    const rest = stats.filter((l) => !claimed.some((c) => l.toLowerCase().startsWith(c)));
+    sections.push(
+      `<div class="pr-folder"><div class="pr-path">${pathBreaks(p)}</div>` +
+        (line1 ? `<p class="pr-stats">${esc(line1)}</p>` : "") +
+        (line2 ? `<p class="pr-stats">${esc(line2)}</p>` : "") +
+        rest.map((l) => `<p class="pr-stats">${esc(l)}</p>`).join("") +
+        `</div>`
+    );
   }
   const foldersHeading = sections.length ? `<h2 class="pr-h">Folders — top level</h2>` : "";
 
-  return titleBlock + summary + rollups + foldersHeading + sections.join("");
+  // TWO COLUMNS. Each .pr-folder is break-inside:avoid, so an entry flows to the next column rather
+  // than splitting across it. If long paths crowd, the column rule and the path's own break
+  // behaviour absorb it — and one column per page is an acceptable outcome if they do not fit.
+  const foldersBlock = sections.length ? `<div class="pr-folders">${sections.join("")}</div>` : "";
+
+  return titleBlock + summary + rollups + foldersHeading + foldersBlock;
 }
 
 // 3.6/3.7 — the print stylesheet lives HERE, in its own file, never shared with the Reading view.
@@ -133,6 +157,9 @@ export const PRINT_STYLESHEET = `
   .pr-folder { break-inside: avoid; page-break-inside: avoid; margin: 0 0 11pt; }
   .pr-path { font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: 10pt; font-weight: 700;
             word-break: keep-all; overflow-wrap: normal; margin: 0 0 3pt; color: #111; }
-  .pr-stats { font-size: 9.5pt; color: #333; margin: 0; }
+  .pr-stats { font-size: 9.5pt; color: #333; margin: 0 0 1pt; line-height: 1.35; }
   .pr-stats span { margin-right: 12pt; white-space: nowrap; }
+  /* Two columns for the folder list. column-fill:auto fills the first column before starting the
+     second, which reads top-to-bottom like a list rather than balancing into two short stubs. */
+  .pr-folders { column-count: 2; column-gap: 18pt; column-rule: 1px solid #e2e2e2; column-fill: auto; }
 `;

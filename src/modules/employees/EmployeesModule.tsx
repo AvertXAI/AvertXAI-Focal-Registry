@@ -55,6 +55,8 @@ export default function EmployeesModule() {
   const [personModal, setPersonModal] = useState<PersonModalState>(null);
   const [archiving, setArchiving] = useState<EmployeePerson | null>(null);
   const [addingTime, setAddingTime] = useState<EmployeePerson | null>(null);
+  /** True when Add Time was opened by "Add Employee + Add Time" — decides whether Back exists. */
+  const [cameFromForm, setCameFromForm] = useState(false);
   // ---- the New Employee wizard: chooser → (optional) project modal → person form.
   const [wizard, setWizard] = useState<"chooser" | "project" | null>(null);
   const [projects, setProjects] = useState<TimeTrackerProjectListItem[]>([]);
@@ -161,7 +163,10 @@ export default function EmployeesModule() {
     select(p.id);
     refreshLedger();
     // "Add Employee + Add Time" flows straight on, prefilled from the person just created.
-    if (addTime) setAddingTime(p);
+    if (addTime) {
+      setCameFromForm(true);
+      setAddingTime(p);
+    }
   };
 
   const onArchived = (): void => {
@@ -317,6 +322,17 @@ export default function EmployeesModule() {
           // Fires on EVERY save, "add another" included, so the ledger behind the modal is already
           // current when it closes — no navigation, no remount.
           onSaved={refreshLedger}
+          // Only when this was reached FROM the person form; the ledger's own + Add Time has
+          // nothing to go back TO, so no control is drawn there.
+          onBack={
+            cameFromForm
+              ? () => {
+                  setAddingTime(null);
+                  setCameFromForm(false);
+                  setPersonModal({ mode: "edit", person: addingTime });
+                }
+              : undefined
+          }
         />
       )}
     </main>

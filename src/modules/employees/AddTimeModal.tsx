@@ -31,12 +31,14 @@ interface Props {
   onClose: () => void;
   /** Fired after every successful save, "add another" included — the ledger refreshes live. */
   onSaved: (e: EmployeeEntry) => void;
+  /** Supplied only when this modal was opened FROM another one — renders the Back control. */
+  onBack?: () => void;
 }
 
 /** These two carry an agreed amount instead of hours × rate — entries.ts throws without one. */
 const FLAT: EmployeePayType[] = ["job", "task"];
 
-export default function AddTimeModal({ person, onClose, onSaved }: Props) {
+export default function AddTimeModal({ person, onClose, onSaved, onBack }: Props) {
   const api = window.api;
 
   // STARTING positions from the person's defaults — nothing more. Both are plain useState seeds.
@@ -254,6 +256,11 @@ export default function AddTimeModal({ person, onClose, onSaved }: Props) {
   return (
     <div className="emp-modalback" onClick={onClose}>
       <div className="emp-modal" role="dialog" aria-label="Add time" onClick={(e) => e.stopPropagation()}>
+        {/* Back sits ABOVE the title, outlined and in the accent colour — this modal is reached
+            mid-flow from the person form, and a control that blends in is a control nobody finds. */}
+        {onBack && (
+          <button className="emp-backtop" onClick={onBack}>← Back</button>
+        )}
         {/* Three lines, as drawn. Only what EmployeePerson carries — role and rate. */}
         <div className="emp-modalhead">Add Time</div>
         <div className="emp-modalname">{person.name}</div>

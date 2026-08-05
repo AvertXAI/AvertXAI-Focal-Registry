@@ -355,3 +355,9 @@
 .emp-pillbtn:hover { color: #ffffff; }
 [data-theme="light"] .emp-pillbtn { color: var(--mc-text); }
 [data-theme="light"] .emp-pillbtn.on { color: #ffffff; }
+/* Back, above the modal title. Outlined and accent-coloured on purpose — this is reached mid-flow
+   and a ghost button here reads as decoration. */
+.emp-backtop { align-self: flex-start; margin-bottom: 10px; background: none; cursor: pointer;
+  border: 1px solid var(--mc-accent-primary); border-radius: 7px; color: var(--mc-accent-primary);
+  font-family: var(--mc-font); font-size: 12px; font-weight: 600; padding: 5px 12px; }
+.emp-backtop:hover { background: var(--mc-accent-primary); color: var(--employees-on-accent-ink); }

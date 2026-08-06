@@ -370,3 +370,7 @@
 .emp-btn.primary, .emp-btn.start { color: var(--employees-on-accent-ink); }
 /* E13: the people search — the Projects rail's .tt-railsearch idiom, module-prefixed */
 .emp-railsearch { padding: 0 12px 8px; }
+
+/* Employee Profile block (08-06) — a labelled sub-block inside the Details form */
+.emp-profileblock { border: 1px solid var(--mc-border); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.emp-profiletitle { font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--mc-muted); font-weight: 700; margin-bottom: 10px; }

@@ -72,6 +72,12 @@ export function ensureEmployeesSchema(db: Db): void {
     add("default_pay_type", "default_pay_type TEXT"); // PREFILL only — pay type still lives on the ENTRY
     add("default_project_id", "default_project_id INTEGER"); // soft reference, see above
     add("default_project_name", "default_project_name TEXT"); // denormalized beside the id
+    // EMPLOYEE PROFILE (Jason ruled 08-06-2026, "same for employee"): only the two fields that had
+    // no home and are needed to pay someone. Both nullable; employment_type is validated to
+    // 'employee' | 'contractor' in the service (ALTER cannot add a CHECK). 1099 output is NOT
+    // built on these — registered in CANON-UPDATES as future, not started.
+    add("payment_method", "payment_method TEXT"); // free text — Zelle, Venmo, check payable-to
+    add("employment_type", "employment_type TEXT"); // 'employee' | 'contractor', service-validated
   }
 
   // A unit of work — the payroll atom. THREE canon rulings are enforced here by CHECK:

@@ -59,6 +59,12 @@ export default function PersonModal({ state, projects, onClose, onSaved }: Props
   const [ssnFocused, setSsnFocused] = useState(false);
   const [payType, setPayType] = useState<EmployeePayType>(editing?.default_pay_type ?? "hourly");
   const [rate, setRate] = useState(editing?.default_rate != null ? String(editing.default_rate) : "");
+  // Employee Profile (08-06, "same for employee") — the two fields that had no home. Everything
+  // else the profile shows already lives on the person row; nothing is duplicated.
+  const [paymentMethod, setPaymentMethod] = useState(editing?.payment_method ?? "");
+  const [employmentType, setEmploymentType] = useState<"" | "employee" | "contractor">(
+    editing?.employment_type ?? ""
+  );
   const [projectSel, setProjectSel] = useState(
     String(editing?.default_project_id ?? seedProject?.id ?? "")
   );
@@ -96,6 +102,8 @@ export default function PersonModal({ state, projects, onClose, onSaved }: Props
       defaultProjectId: project?.id ?? null,
       // Denormalized beside the id so the row stays readable if that project is ever purged.
       defaultProjectName: project?.name ?? null,
+      paymentMethod: nullable(paymentMethod),
+      employmentType: employmentType === "" ? null : employmentType,
     };
     setSaving(true);
     setError(null);
@@ -291,6 +299,37 @@ export default function PersonModal({ state, projects, onClose, onSaved }: Props
                 />
                 <em className="emp-hint">Plain while editing, masked when you leave the field.</em>
               </label>
+            </div>
+
+            {/* EMPLOYEE PROFILE (08-06): a labelled block so everything about paying this person
+                reads in one place. Only these two fields are NEW columns — the rest of the person's
+                profile is the fields above. 1099 output is NOT built on this (CANON-UPDATES). */}
+            <div className="emp-profileblock">
+              <div className="emp-profiletitle">Employee Profile</div>
+              <div className="emp-fieldrow">
+                <label className="emp-field">
+                  <span>Payment method</span>
+                  <input
+                    className="emp-input"
+                    placeholder="Zelle, Venmo, check payable-to…"
+                    value={paymentMethod}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                  />
+                </label>
+                <label className="emp-field narrow">
+                  <span>Employment type</span>
+                  <select
+                    className="emp-input"
+                    value={employmentType}
+                    onChange={(e) => setEmploymentType(e.target.value as "" | "employee" | "contractor")}
+                  >
+                    <option value="">— unset —</option>
+                    <option value="employee">Employee</option>
+                    <option value="contractor">Contractor</option>
+                  </select>
+                </label>
+              </div>
+              <em className="emp-hint">How this person gets paid, and what they are to the business.</em>
             </div>
 
             <label className="emp-field">

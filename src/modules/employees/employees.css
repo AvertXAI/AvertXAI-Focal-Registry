@@ -347,7 +347,9 @@
 /* Social security — ONE size in both states. The earlier version grew the mask to 17px, which made
    the box wider when blurred and snap narrower on focus. The mask and a real number are both 11
    characters, so a fixed ch width plus a single font-size means the field never moves. */
-.emp-ssn, .emp-ssn.masked { font-size: 13px; letter-spacing: 1.5px; width: 15ch; min-width: 15ch; flex: none; }
+/* 11 characters plus the padding and the letter-spacing. 15ch clipped the last digit, so the box
+   is sized from the real content instead of guessed at. */
+.emp-ssn, .emp-ssn.masked { font-size: 13px; letter-spacing: 1.5px; width: 100%; min-width: 19ch; }
 /* Pay-type pills: the UNSELECTED text was --mc-muted, which is grey and read as disabled in
    hybrid and light. Dark happened to look right only because its muted is already near-white.
    White (with weight on the selected one) in every mode. */
@@ -361,3 +363,8 @@
   border: 1px solid var(--mc-accent-primary); border-radius: 7px; color: var(--mc-accent-primary);
   font-family: var(--mc-font); font-size: 12px; font-weight: 600; padding: 5px 12px; }
 .emp-backtop:hover { background: var(--mc-accent-primary); color: var(--employees-on-accent-ink); }
+
+/* Every filled accent button carries white ink in light and dark (their accent is the salmon
+   #d97757, where dark ink is unreadable). Hybrid keeps its dark-on-blue, which reads correctly.
+   Driven by the existing --employees-on-accent-ink token rather than a hardcoded colour. */
+.emp-btn.primary, .emp-btn.start { color: var(--employees-on-accent-ink); }

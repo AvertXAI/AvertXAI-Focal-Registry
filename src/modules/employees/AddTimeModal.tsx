@@ -72,6 +72,13 @@ export default function AddTimeModal({ person, onClose, onSaved, onBack }: Props
         if (!live) return;
         setProjects(p);
         setTasks(t);
+        // Auto-select the person's project so it does not have to be picked every time. The seed
+        // at mount can miss it (the list arrives after), so it is re-applied here once the projects
+        // are actually known — and only if the user has not chosen something else meanwhile.
+        if (projectSel === "" && person.default_project_id != null &&
+            p.some((x) => x.id === person.default_project_id)) {
+          setProjectSel(String(person.default_project_id));
+        }
       })
       .catch((e: unknown) => {
         if (!live) return;
@@ -293,7 +300,7 @@ export default function AddTimeModal({ person, onClose, onSaved, onBack }: Props
 
         <label className="emp-field">
           <span>
-            Project <b className="emp-req">· required</b>
+            Project {projectSel === "" && <b className="emp-req">· required</b>}
           </span>
           <select className="emp-input" value={projectSel} onChange={(e) => setProjectSel(e.target.value)}>
             <option value="">{projects === null ? "Loading…" : "Choose a project…"}</option>

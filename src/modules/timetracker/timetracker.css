@@ -566,3 +566,8 @@
   0%, 100% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--mc-accent-primary) 18%, transparent); }
   50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--mc-accent-primary) 45%, transparent); }
 }
+
+/* Same rule for TimeTracker's filled buttons — white ink in light and dark, dark on hybrid's blue. */
+[data-theme="light"] .tt-btn.start, [data-theme="dark"] .tt-btn.start,
+[data-theme="light"] .tt-pillbtn.on, [data-theme="dark"] .tt-pillbtn.on,
+[data-theme="light"] .tt-btn.sm.start, [data-theme="dark"] .tt-btn.sm.start { color: #ffffff; }

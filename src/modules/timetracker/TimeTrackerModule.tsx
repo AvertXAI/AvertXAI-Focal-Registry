@@ -24,11 +24,12 @@ import LogbookView from "./LogbookView";
 import AdjustmentsView from "./AdjustmentsView";
 import ActivityView from "./ActivityView";
 import ArchiveView from "./ArchiveView";
+import CompletedView from "./CompletedView";
 import AnalyticsView from "./AnalyticsView";
 import { appendQuickNote, parseSessionNotes } from "../../shared/ttNotes";
 import "./timetracker.css";
 
-type Tab = "tracker" | "logbook" | "analytics" | "adjust" | "activity" | "archive";
+type Tab = "tracker" | "logbook" | "analytics" | "adjust" | "activity" | "completed" | "archive";
 
 // Module-level caches — instant re-entry paint (the migrate/mindmerge pattern); a running timer's
 // truth lives main-side, so a stale cache can never fake a clock. Never localStorage.
@@ -315,9 +316,12 @@ export default function TimeTrackerModule() {
             ["analytics", "Analytics"],
             ["adjust", "Adjustments"],
             ["activity", "Activity"],
+            ["completed", "Completed"], // before Archive, per the approved 08-06 mockup
             ["archive", "Archive"],
           ] as const).map(([key, label]) => (
-            <button key={key} className={"tt-tab" + (tab === key ? " on" : "")} onClick={() => setTab(key)}>{label}</button>
+            // The Completed tab is GREEN only while SELECTED (ruled 08-06) — the .completed class
+            // scopes an .on-only ink override; unselected it reads as every other tab.
+            <button key={key} className={"tt-tab" + (key === "completed" ? " completed" : "") + (tab === key ? " on" : "")} onClick={() => setTab(key)}>{label}</button>
           ))}
           <button
             className={"tt-minibtn" + (miniOpen ? " on" : "")}
@@ -370,6 +374,7 @@ export default function TimeTrackerModule() {
           {tab === "analytics" && <AnalyticsView project={selected} onClearSelection={() => select(null)} />}
           {tab === "adjust" && <AdjustmentsView projects={projects} onDataChanged={reload} />}
           {tab === "activity" && <ActivityView projects={projects} />}
+          {tab === "completed" && <CompletedView projects={projects} onDataChanged={reload} />}
           {tab === "archive" && <ArchiveView onDataChanged={reload} />}
         </div>
         {/* GRAND TOTAL — all-time, ALL projects (not the selection). Pinned above the shell footer. */}

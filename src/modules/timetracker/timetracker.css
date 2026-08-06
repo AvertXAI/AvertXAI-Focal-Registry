@@ -506,7 +506,8 @@
 .tt-stat .v.over { color: var(--timetracker-negative-color, #e0574f); }
 
 /* itemize rows */
-.tt-itemhead, .tt-itemrow { display: grid; grid-template-columns: 56px 1fr 108px 30px; gap: 8px;
+/* 08-06: RATE column added for the invoice's qty x rate = amount set. */
+.tt-itemhead, .tt-itemrow { display: grid; grid-template-columns: 48px 1fr 88px 100px 30px; gap: 8px;
   align-items: center; }
 .tt-itemhead { font-size: 9px; letter-spacing: .6px; text-transform: uppercase; color: var(--mc-muted);
   font-weight: 700; padding-bottom: 5px; }
@@ -584,3 +585,50 @@
   border: 1px solid var(--mc-accent-primary); border-radius: 6px; color: var(--mc-accent-primary);
   font-family: var(--mc-font); font-size: 11.5px; padding: 3px 10px; }
 .tt-filterclear:hover { background: var(--mc-accent-primary); color: #fff; }
+
+/* ---- Complete Job + Completed tab (08-06, per the approved mockup) ---- */
+/* The Completed tab: GREEN ONLY WHILE SELECTED (ruled) — the .on scope keeps the unselected tab on
+   the house muted ink. Token only (--mc-green), per the tab standard's hard rule 1. */
+.tt-tab.completed.on { color: var(--mc-green); }
+.tt-btn.done { background: var(--mc-green); border-color: var(--mc-green); color: #fff; font-weight: 600; }
+.tt-btn.done:hover { filter: brightness(1.08); }
+.tt-btn.sm { padding: 5px 11px; font-size: 12px; }
+.tt-completedchip {
+  display: inline-flex; align-items: center; gap: 6px; align-self: center;
+  color: var(--mc-green); border: 1px solid var(--mc-green); border-radius: 999px;
+  padding: 5px 12px; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+}
+/* The confirm's amber warning block — the mockup's treatment on the shell's own surfaces. */
+.tt-completewarn {
+  background: var(--mc-nested); border-left: 4px solid var(--mc-orange); border-radius: 8px;
+  padding: 12px 15px; margin: 4px 0 12px;
+}
+.tt-completewarn b {
+  display: block; font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--mc-orange); margin-bottom: 5px;
+}
+.tt-completewarn p { font-size: 13px; color: var(--mc-muted); line-height: 1.55; margin: 0; }
+.tt-completefigs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 10px 0 14px; }
+/* Completed rows — dropdown documents. */
+.tt-crow { border: 1px solid var(--mc-border); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+.tt-chead {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer;
+  background: none; border: none; width: 100%; text-align: left; color: var(--mc-text); font: inherit;
+}
+.tt-chead:hover { background: var(--mc-nested); }
+.tt-caret { color: var(--mc-dimmer); font-size: 12px; width: 12px; flex: none; }
+.tt-cname { font-weight: 600; font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tt-cfig { font-family: var(--mc-mono); font-size: 13px; color: var(--mc-muted); white-space: nowrap; }
+.tt-cwhen { font-family: var(--mc-mono); font-size: 12px; color: var(--mc-dimmer); white-space: nowrap; }
+.tt-crowacts { display: flex; gap: 8px; flex: none; }
+.tt-cbody { border-top: 1px solid var(--mc-border); padding: 16px 18px; background: var(--mc-panels); }
+.tt-lockchip {
+  display: inline-flex; align-items: center; gap: 6px; background: var(--mc-nested);
+  border-radius: 7px; padding: 4px 10px; font-size: 11.5px; color: var(--mc-muted); margin-bottom: 4px;
+}
+.tt-docsect {
+  font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--mc-muted);
+  font-weight: 700; margin: 16px 0 8px;
+}
+.tt-docnotes { font-size: 13px; color: var(--mc-muted); white-space: pre-wrap; margin: 0; }
+.tt-net { color: var(--mc-green); }

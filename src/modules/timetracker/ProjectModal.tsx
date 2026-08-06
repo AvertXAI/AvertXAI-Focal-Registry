@@ -68,6 +68,17 @@ const fmtMoney = (n: number): string =>
 
 /** Ten digits, auto-dashed. Anything beyond ten is dropped — a US number has ten, and quietly
     accepting an eleventh produces something nobody can dial. */
+/** "street\ncity, ST zip" → parts for the reveal's four boxes; null when nothing is stored.
+    An unparseable second line lands whole in city so nothing typed is ever dropped. */
+function parseAddress(stored: string | null): { street: string; city: string; state: string; zip: string } | null {
+  if (!stored || stored.trim() === "") return null;
+  const [first, ...rest] = stored.split("\n");
+  const line2 = rest.join(" ").trim();
+  const m = /^(.*?),\s*([A-Za-z]{2})\s*([\w-]*)$/.exec(line2);
+  if (m) return { street: first.trim(), city: m[1].trim(), state: m[2].toUpperCase(), zip: m[3] };
+  return { street: first.trim(), city: line2, state: "", zip: "" };
+}
+
 function formatPhone(raw: string): string {
   const d = raw.replace(/\D/g, "").slice(0, 10);
   if (d.length <= 3) return d;
@@ -90,16 +101,19 @@ export default function ProjectModal({
 
   const [name, setName] = useState(editing?.name ?? "");
   const [clientName, setClientName] = useState(editing?.client_name ?? "");
+  const [company, setCompany] = useState(editing?.client_company ?? "");
   const [phone, setPhone] = useState(formatPhone(editing?.contact_phone ?? ""));
   const [ext, setExt] = useState(editing?.phone_ext ?? "");
   const [email, setEmail] = useState(editing?.email ?? "");
   // Address is a reveal — most clients will not have one to hand, and four empty boxes is worse
-  // than a button. Stored on the CLIENT via the project input (see the deviation note in the report).
-  const [showAddr, setShowAddr] = useState(false);
-  const [street, setStreet] = useState("");
-  const [city, setCity] = useState("");
-  const [stateCode, setStateCode] = useState("");
-  const [zip, setZip] = useState("");
+  // than a button. PERSISTED since 08-06 (clients.address, one text value) — stored as
+  // "street\ncity, ST zip" and re-split here on edit; an unparseable value lands whole in street.
+  const stored = parseAddress(editing?.client_address ?? null);
+  const [showAddr, setShowAddr] = useState(stored != null);
+  const [street, setStreet] = useState(stored?.street ?? "");
+  const [city, setCity] = useState(stored?.city ?? "");
+  const [stateCode, setStateCode] = useState(stored?.state ?? "");
+  const [zip, setZip] = useState(stored?.zip ?? "");
   const [amount, setAmount] = useState(editing?.contract_amount != null ? String(editing.contract_amount) : "");
   const [budget, setBudget] = useState(editing?.spend_budget != null ? String(editing.spend_budget) : "");
   const [description, setDescription] = useState(editing?.contract_description ?? "");
@@ -117,7 +131,7 @@ export default function ProjectModal({
   const [spend, setSpend] = useState<TimeTrackerProjectSpend | null>(null);
   const [people, setPeople] = useState<EmployeePerson[]>([]);
   const [dataError, setDataError] = useState(false);
-  const [newItem, setNewItem] = useState({ qty: "1", description: "", amount: "" });
+  const [newItem, setNewItem] = useState({ qty: "1", description: "", rate: "", amount: "" });
   const [memberSel, setMemberSel] = useState("");
   /**
    * NEW-PROJECT BUFFER. Itemized rows and roster entries both need a project_id, and a project
@@ -125,7 +139,7 @@ export default function ProjectModal({
    * them here and FLUSHES them straight after create returns the real id. Same fields, same
    * services, same validation — only the moment of the write differs.
    */
-  const [pendingItems, setPendingItems] = useState<{ qty: number; description: string; amount: number }[]>([]);
+  const [pendingItems, setPendingItems] = useState<{ qty: number; description: string; amount: number; unitRate: number | null }[]>([]);
   const [pendingMembers, setPendingMembers] = useState<number[]>([]);
   const [creatingPerson, setCreatingPerson] = useState(false);
   const [groupAccepted, setGroupAccepted] = useState(false);
@@ -180,9 +194,20 @@ export default function ProjectModal({
     setGroupAccepted(true);
   };
 
+  // One text value on the client row: "street" newline "city, ST zip" — only the parts given.
+  const composeAddress = (): string | null => {
+    const line2 = [city.trim(), [stateCode.trim(), zip.trim()].filter(Boolean).join(" ")]
+      .filter(Boolean)
+      .join(", ");
+    const whole = [street.trim(), line2].filter(Boolean).join("\n");
+    return whole === "" ? null : whole;
+  };
+
   const buildInput = (): TimeTrackerNewProjectInput => ({
     name,
     clientName,
+    clientCompany: company.trim() || null,
+    clientAddress: composeAddress(),
     // The extension rides with the number so one column carries a dialable string; the modal keeps
     // them as separate fields, which is what the ruling asked for. See the report's deviation note.
     contactPhone: ext.trim() === "" ? phone : `${phone} x${ext}`,
@@ -278,21 +303,26 @@ export default function ProjectModal({
 
   const addItem = (): void => {
     if (newItem.description.trim() === "") return;
+    // Unit rate (08-06): when a rate is typed, amount = qty × rate unless the user overrode it.
+    const qty = num(newItem.qty) ?? 1;
+    const rate = num(newItem.rate);
+    const typedAmount = num(newItem.amount);
     const row = {
-      qty: num(newItem.qty) ?? 1,
+      qty,
       description: newItem.description.trim(),
-      amount: num(newItem.amount) ?? 0,
+      amount: typedAmount ?? (rate != null ? Math.round(qty * rate * 100) / 100 : 0),
+      unitRate: rate,
     };
     // No project id yet → hold it; the flush after create writes it through the same service.
     if (projectId == null) {
       setPendingItems((prev) => [...prev, row]);
-      setNewItem({ qty: "1", description: "", amount: "" });
+      setNewItem({ qty: "1", description: "", rate: "", amount: "" });
       return;
     }
     void api.timetracker.financials
       .addItem({ projectId, ...row })
       .then(() => {
-        setNewItem({ qty: "1", description: "", amount: "" });
+        setNewItem({ qty: "1", description: "", rate: "", amount: "" });
         loadFinancials(); // the readouts move with it
       })
       .catch((e: unknown) => console.error("[timetracker] add item failed:", e));
@@ -384,12 +414,14 @@ export default function ProjectModal({
                 <p className="tt-hint">Loading…</p>
               ) : (
                 <>
-                  <div className="tt-itemhead"><span>Qty</span><span>Description</span><span>Amount</span><span /></div>
-                  {/* Saved rows — edit mode only, removable through the service. */}
+                  <div className="tt-itemhead"><span>Qty</span><span>Description</span><span>Rate</span><span>Amount</span><span /></div>
+                  {/* Saved rows — edit mode only, removable through the service. Legacy rows without
+                      a stored rate DERIVE it as amount ÷ qty (the 08-06 ruling's read-side rule). */}
                   {(items ?? []).map((it) => (
                     <div key={it.id} className="tt-itemrow">
                       <span className="mono">{it.qty}</span>
                       <span>{it.description}</span>
+                      <span className="mono dim">{fmtMoney(it.unit_rate ?? (it.qty > 0 ? it.amount / it.qty : it.amount))}</span>
                       <span className="mono">{fmtMoney(it.amount)}</span>
                       <button className="tt-itemx" aria-label={`Remove ${it.description}`}
                         onClick={() => void api.timetracker.financials.removeItem(it.id).then(loadFinancials)
@@ -402,6 +434,7 @@ export default function ProjectModal({
                     <div key={`pending-${i}`} className="tt-itemrow">
                       <span className="mono">{it.qty}</span>
                       <span>{it.description}</span>
+                      <span className="mono dim">{fmtMoney(it.unitRate ?? (it.qty > 0 ? it.amount / it.qty : it.amount))}</span>
                       <span className="mono">{fmtMoney(it.amount)}</span>
                       <button className="tt-itemx" aria-label={`Remove ${it.description}`}
                         onClick={() => setPendingItems((prev) => prev.filter((_, j) => j !== i))}>✕</button>
@@ -413,6 +446,16 @@ export default function ProjectModal({
                     <input className="tt-input" placeholder="Description" value={newItem.description}
                       onChange={(e) => setNewItem({ ...newItem, description: e.target.value })}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }} />
+                    <div className="tt-prefixed"><span className="tt-prefix">$</span>
+                      {/* Typing a rate fills Amount live (qty × rate); Amount stays editable and wins. */}
+                      <input className="tt-input mono" inputMode="decimal" value={newItem.rate} aria-label="Unit rate"
+                        onChange={(e) => {
+                          const rate = e.target.value;
+                          const q = num(newItem.qty) ?? 1;
+                          const r = num(rate);
+                          setNewItem({ ...newItem, rate, amount: r != null ? String(Math.round(q * r * 100) / 100) : newItem.amount });
+                        }}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }} /></div>
                     <div className="tt-prefixed"><span className="tt-prefix">$</span>
                       <input className="tt-input mono" inputMode="decimal" value={newItem.amount} aria-label="Amount"
                         onChange={(e) => setNewItem({ ...newItem, amount: e.target.value })}
@@ -436,6 +479,10 @@ export default function ProjectModal({
               <label className="tt-field">
                 <span>Client</span>
                 <input className="tt-input" value={clientName} autoFocus onChange={(e) => setClientName(e.target.value)} />
+              </label>
+              <label className="tt-field">
+                <span>Company (optional)</span>
+                <input className="tt-input" value={company} onChange={(e) => setCompany(e.target.value)} />
               </label>
 
               {!showAddr ? (

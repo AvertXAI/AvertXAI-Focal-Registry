@@ -79,6 +79,10 @@ export default function ProjectDetail({
   const [detail, setDetail] = useState<TimeTrackerProjectDetail | null>(null);
   const [archiving, setArchiving] = useState(false);
   const [reason, setReason] = useState("");
+  // Complete Job (08-06) — the confirm shows the FINAL figures, so opening it fetches spend + roster.
+  const [completing, setCompleting] = useState(false);
+  const [completeError, setCompleteError] = useState<string | null>(null);
+  const [completeFigures, setCompleteFigures] = useState<{ spent: number; people: number } | null>(null);
   const [ledgerModal, setLedgerModal] = useState(false);
   const [ledgerAmount, setLedgerAmount] = useState("");
   const [ledgerNote, setLedgerNote] = useState("");
@@ -240,10 +244,29 @@ export default function ProjectDetail({
           <div className="tt-detailname">{project.name}</div>
           <div className="tt-detailsub">Client / project info</div>
         </div>
-        <button className="tt-btn ghost" onClick={onEdit}>Edit</button>
+        <button className="tt-btn ghost" onClick={onEdit} disabled={project.completed_at != null}
+          title={project.completed_at ? "Completed — reactivate from the Completed tab to edit" : undefined}>Edit</button>
         <button className="tt-btn ghost" disabled={archiveBlocked}
           title={archiveBlocked ? "Stop the running timer on this project first" : "Archive this project (recoverable)"}
           onClick={() => { setReason(""); setArchiving(true); }}>Archive</button>
+        {project.completed_at ? (
+          <span className="tt-completedchip" title="View-only. Reactivate from the Completed tab.">
+            ✓ Completed {fmtDate(project.completed_at)}
+          </span>
+        ) : (
+          <button className="tt-btn done" disabled={archiveBlocked}
+            title={archiveBlocked ? "Stop the running timer on this project first" : "Complete this job — locks it view-only"}
+            onClick={() => {
+              setCompleteError(null);
+              setCompleteFigures(null);
+              setCompleting(true);
+              // The confirm's four figures: hours + contracted ride the project row; spent + people
+              // are fetched fresh so the modal never shows a stale number.
+              void Promise.all([api.timetracker.financials.spend(project.id), api.timetracker.financials.members(project.id)])
+                .then(([spend, members]) => setCompleteFigures({ spent: spend.spent, people: members.length }))
+                .catch(() => setCompleteFigures({ spent: project.total_costs, people: 0 }));
+            }}>Complete job</button>
+        )}
       </div>
 
       <div className="tt-inforow">
@@ -499,6 +522,40 @@ export default function ProjectDetail({
       </div>
 
       {/* ---- modals ---- */}
+      {completing && (
+        <div className="tt-modalback" onClick={() => setCompleting(false)}>
+          <div className="tt-modal" role="dialog" aria-label="Complete this job" onClick={(e) => e.stopPropagation()}>
+            <div className="tt-modalhead">Complete this job?</div>
+            <p className="tt-emptysub" style={{ marginBottom: 10 }}>
+              <b>{project.name}</b> — {project.client_name}
+            </p>
+            {/* The mockup's amber warning block: what completing MEANS, stated plainly. */}
+            <div className="tt-completewarn">
+              <b>This locks the project</b>
+              <p>
+                Once completed, the project becomes view-only. Nothing can be edited — no time, no costs,
+                no itemized rows, no employees, no notes. It moves to the <b>Completed</b> tab, where you
+                can open it, export it, or reactivate it if you need to work on it again.
+              </p>
+            </div>
+            <div className="tt-completefigs">
+              <div className="tt-card"><span className="tt-cardlabel">Hours</span><span className="tt-cardvalue">{fmtDuration(project.total_seconds)}</span></div>
+              <div className="tt-card"><span className="tt-cardlabel">Contracted</span><span className="tt-cardvalue">{project.contract_amount != null ? fmtMoney(project.contract_amount) : "—"}</span></div>
+              <div className="tt-card"><span className="tt-cardlabel">Spent</span><span className="tt-cardvalue">{completeFigures ? fmtMoney(completeFigures.spent) : "…"}</span></div>
+              <div className="tt-card"><span className="tt-cardlabel">People</span><span className="tt-cardvalue">{completeFigures ? completeFigures.people : "…"}</span></div>
+            </div>
+            {completeError && <div className="tt-error">{completeError}</div>}
+            <div className="tt-modalacts">
+              <button className="tt-btn ghost" onClick={() => setCompleting(false)}>Cancel</button>
+              <button className="tt-btn done" onClick={() => {
+                void api.timetracker.projects.complete(project.id)
+                  .then(() => { setCompleting(false); onDataChanged(); })
+                  .catch((e: unknown) => setCompleteError(e instanceof Error ? e.message : String(e)));
+              }}>Yes, complete it</button>
+            </div>
+          </div>
+        </div>
+      )}
       {archiving && (
         <div className="tt-modalback" onClick={() => setArchiving(false)}>
           <div className="tt-modal" role="dialog" aria-label="Archive project" onClick={(e) => e.stopPropagation()}>

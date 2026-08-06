@@ -93,6 +93,8 @@ export default function ProjectDetail({
   const [costModal, setCostModal] = useState(false);
   /** The project modal's Itemize rows — a different table from `costs`, shown in the same list. */
   const [items, setItems] = useState<TimeTrackerProjectItem[]>([]);
+  /** A failed note save, shown at the pad — never silent (08-06). */
+  const [noteError, setNoteError] = useState<string | null>(null);
   const [costLabel, setCostLabel] = useState("");
   const [costCategory, setCostCategory] = useState("");
   const [costAmount, setCostAmount] = useState("");
@@ -122,7 +124,12 @@ export default function ProjectDetail({
     void api.timetracker.financials
       .items(project.id)
       .then(setItems)
-      .catch(() => setItems([]));
+      .catch((e: unknown) => {
+        // Named, not swallowed — an empty costs list over a failed read is the exact confusion the
+        // three-state discipline exists to prevent. detailError already covers the visible state.
+        console.error("[timetracker] project items failed:", e);
+        setItems([]);
+      });
     void api.timetracker.projects
       .detail(project.id)
       .then(setDetail)
@@ -216,7 +223,17 @@ export default function ProjectDetail({
   };
   const saveNote = (value: string): void => {
     if (detail && value === detail.note) return; // unchanged — no write
-    void api.timetracker.notes.save(project.id, value).catch(() => {});
+    // NOT SILENT ANY MORE (08-06). This catch used to be empty — a failed save let the user type,
+    // see their text, and lose it with no sign anything went wrong. It was the leading candidate
+    // for the "can't add notes in Tracker" report: the failure now has a face and a console line,
+    // so if the save IS throwing, the reason surfaces instead of vanishing.
+    void api.timetracker.notes
+      .save(project.id, value)
+      .then(() => setNoteError(null))
+      .catch((e: unknown) => {
+        console.error("[timetracker] note save failed:", e);
+        setNoteError("This note could not be saved — your text is still in the box. Details are in the developer console.");
+      });
   };
 
   return (
@@ -385,6 +402,9 @@ export default function ProjectDetail({
               History{history.length > 0 ? ` (${history.length})` : ""}
             </button>
           </div>
+          {noteError && (
+            <div className="tt-reloaderror" role="alert" style={{ margin: "8px 0 0" }}>{noteError}</div>
+          )}
           <div className="tt-notesctl">
             {activeTab === "history" ? (
               <button

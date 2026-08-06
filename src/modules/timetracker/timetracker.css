@@ -571,3 +571,7 @@
 [data-theme="light"] .tt-btn.start, [data-theme="dark"] .tt-btn.start,
 [data-theme="light"] .tt-pillbtn.on, [data-theme="dark"] .tt-pillbtn.on,
 [data-theme="light"] .tt-btn.sm.start, [data-theme="dark"] .tt-btn.sm.start { color: #ffffff; }
+/* One-line degraded-state banner — a failed reload read is VISIBLE, never a silently stale panel. */
+.tt-reloaderror { margin: 8px 18px 0; padding: 7px 12px; border-radius: 7px; font-size: 12px;
+  color: var(--mc-text); overflow-wrap: anywhere;
+  background: color-mix(in srgb, #e0a53a 14%, var(--mc-panels)); border: 1px solid #e0a53a; }

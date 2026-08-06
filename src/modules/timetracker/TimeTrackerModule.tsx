@@ -76,12 +76,14 @@ export default function TimeTrackerModule() {
   const [license, setLicense] = useState<TimeTrackerLicenseState | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [miniOpen, setMiniOpen] = useState(false);
+  /** One line of truth when any reload read fails — a stale panel must never be silent (08-06). */
+  const [reloadError, setReloadError] = useState<string | null>(null);
 
   useEffect(() => {
-    void api.timetracker.mini.state().then((s) => setMiniOpen(s.open)).catch(() => {});
+    void api.timetracker.mini.state().then((s) => setMiniOpen(s.open)).catch((e: unknown) => console.error("[timetracker] mini state failed:", e));
   }, [api]);
   const toggleMini = (): void => {
-    void api.timetracker.mini.toggle().then((s) => setMiniOpen(s.open)).catch(() => {});
+    void api.timetracker.mini.toggle().then((s) => setMiniOpen(s.open)).catch((e: unknown) => console.error("[timetracker] mini toggle failed:", e));
   };
 
   // Warm the collapse state from app_settings on every mount (a renderer reload wipes the cache);
@@ -110,37 +112,50 @@ export default function TimeTrackerModule() {
 
   // One reload for everything the rail + detail render from. Called at mount and on every
   // timetracker:changed push (timer mutations move totals, so projects reload too).
+  //
+  // NO READ HERE SWALLOWS ANY MORE (08-06, closing the standing 08-01 finding). Every failure logs
+  // with its own name, and any failure raises ONE visible banner — because the silent version of
+  // this is exactly what a stale panel looks like: every total keeps its previous value and the
+  // user reports "nothing updates", which is indistinguishable from a broken write. The banner
+  // clears itself the moment a reload completes clean.
   const reload = useCallback((): void => {
-    void api.timetracker.projects
-      .list()
-      .then((p) => {
-        projectsCache = p;
-        setProjects(p);
-      })
-      .catch((e: unknown) => {
-        // NOT swallowed any more. A failure here leaves every total showing its previous value with
-        // no indication anything went wrong — which reads exactly like "the app stopped updating".
-        console.error("[timetracker] project list failed:", e);
-      });
-    void api.timetracker.groups.list().then(setGroups).catch(() => {});
-    void api.timetracker.projects.groupTotals().then(setTotals).catch(() => {});
-    void api.timetracker.sidebar.getSort().then(setSortDir).catch(() => {});
-    // SCOPED failure path (the wider swallowed-catch pattern is a reported finding, not refactored
-    // here): this read carries the running session AND its captured quick notes, so a silent failure
-    // renders the Session notes block empty over notes that exist. Ready is set either way, so the
-    // panel resolves to a real state instead of saying "Loading…" forever.
-    void api.timetracker.timer
-      .status()
-      .then((s) => {
-        setStatus(s);
-        setStatusReady(true);
-      })
-      .catch((e: unknown) => {
-        console.error("[timetracker] timer status failed:", e);
-        setStatusReady(true);
-      });
-    void api.timetracker.projects.grandTotals().then(setGrand).catch(() => {});
-    void api.timetracker.license.get().then(setLicense).catch(() => {});
+    let failures = 0;
+    const failed = (what: string) => (e: unknown): void => {
+      failures++;
+      console.error(`[timetracker] ${what} failed:`, e);
+      setReloadError(`A read failed (${what}) — some figures may be out of date. Details are in the developer console.`);
+    };
+    const settle = (): void => {
+      // All six reads land before this microtask-batched clear runs clean.
+      if (failures === 0) setReloadError(null);
+    };
+    const reads = [
+      api.timetracker.projects
+        .list()
+        .then((p) => {
+          projectsCache = p;
+          setProjects(p);
+        })
+        .catch(failed("project list")),
+      api.timetracker.groups.list().then(setGroups).catch(failed("group list")),
+      api.timetracker.projects.groupTotals().then(setTotals).catch(failed("group totals")),
+      api.timetracker.sidebar.getSort().then(setSortDir).catch(failed("sidebar sort")),
+      api.timetracker.timer
+        .status()
+        .then((s) => {
+          setStatus(s);
+          setStatusReady(true);
+        })
+        .catch((e: unknown) => {
+          // This read carries the running session AND its captured quick notes, so on top of the
+          // banner it must still resolve the panel to a real state instead of "Loading…" forever.
+          failed("timer status")(e);
+          setStatusReady(true);
+        }),
+      api.timetracker.projects.grandTotals().then(setGrand).catch(failed("grand totals")),
+      api.timetracker.license.get().then(setLicense).catch(failed("licence state")),
+    ];
+    void Promise.allSettled(reads).then(settle);
     setRefreshKey((k) => k + 1);
   }, [api]);
 
@@ -312,6 +327,9 @@ export default function TimeTrackerModule() {
             Mini timer
           </button>
         </div>
+        {reloadError && (
+          <div className="tt-reloaderror" role="alert">{reloadError}</div>
+        )}
         <div className="tt-tabbody">
           {tab === "tracker" && (
             <>

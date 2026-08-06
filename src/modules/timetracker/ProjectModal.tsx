@@ -669,9 +669,13 @@ export default function ProjectModal({
           <textarea className="tt-input tt-textarea" value={descDraft}
             onChange={(e) => setDescDraft(e.target.value)} />
           <div className="tt-inline">
-            <button className="tt-btn sm" disabled={descDraft.trim() === "" || descDraft === description}
+            {/* D12 (08-06): the old gate ALSO disabled on an empty draft, so an emptied
+                description could never be committed — Save then silently kept the previous text.
+                Emptiness is a legal value; only "no change" disables. The label says which act
+                this press is. */}
+            <button className="tt-btn sm" disabled={descDraft === description}
               onClick={() => setDescription(descDraft)}>
-              ＋ Add Entry
+              {descDraft.trim() === "" && description.trim() !== "" ? "Clear entry" : "＋ Add Entry"}
             </button>
             {description.trim() !== "" && descDraft === description && (
               <span className="tt-ok">✓ Saved with the project.</span>

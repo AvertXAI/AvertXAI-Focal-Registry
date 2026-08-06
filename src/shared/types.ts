@@ -462,6 +462,11 @@ export interface TimeTrackerProject {
   time_display_mode: TimeTrackerTimeDisplayMode | null;
   archived_at: string | null;
   archive_reason: string | null;
+  /** COMPLETION (08-06): when the job was completed; NULL = not completed. Separate from
+      archived_at — the two flags coexist and mean different things. */
+  completed_at: string | null;
+  /** INV-YYYY-NNNN, allocated on first invoice export; re-export reproduces it. */
+  invoice_number: string | null;
 }
 
 /** Project row joined with client + group info and computed totals for list/detail views. */
@@ -469,6 +474,8 @@ export interface TimeTrackerProjectListItem extends TimeTrackerProject {
   client_name: string;
   contact_phone: string | null;
   email: string | null;
+  client_company: string | null;
+  client_address: string | null;
   group_name: string | null;
   group_color: string | null;
   /** The group's emoji, shown BESIDE the colour dot. Null when ungrouped or not yet assigned. */
@@ -686,6 +693,9 @@ export interface TimeTrackerNewProjectInput {
   clientName: string;
   contactPhone: string;
   email: string;
+  /** The invoice bill-to block's two fields (08-06). Optional so older callers stay valid. */
+  clientCompany?: string | null;
+  clientAddress?: string | null;
   rateType: TimeTrackerRateType;
   hourlyRate: number | null;
   color: string;
@@ -708,6 +718,40 @@ export interface TimeTrackerNewProjectInput {
 
 export interface TimeTrackerUpdateProjectInput extends TimeTrackerNewProjectInput {
   id: number;
+}
+
+// ---- invoice (08-06) — renderer-safe copies of the invoice.ts service shapes.
+
+export interface TimeTrackerInvoiceLine {
+  description: string;
+  qty: number;
+  rate: number;
+  amount: number;
+}
+
+/** Everything the invoice document composes — assembled main-side; the renderer only renders. */
+export interface TimeTrackerInvoiceData {
+  number: string;
+  invoice_date: string;
+  completed_at: string | null;
+  business: {
+    name: string;
+    address: string;
+    phone: string;
+    email: string;
+    website: string;
+    payment_methods: string;
+    terms: string;
+  };
+  client: { name: string; company: string; address: string; phone: string; email: string };
+  project_name: string;
+  service_dates: { first: string | null; last: string | null };
+  lines: TimeTrackerInvoiceLine[];
+  subtotal: number;
+  tax_rate: number;
+  tax_amount: number;
+  total: number;
+  balance_due: number;
 }
 
 /** timetracker:break push — the attention engine fired a reminder (autopaused says whether it paused). */
@@ -765,6 +809,9 @@ export interface EmployeePerson {
   /** SOFT reference to a TimeTracker project — resolves to nothing if that project is purged. */
   default_project_id: number | null;
   default_project_name: string | null;
+  // ---- Employee Profile (08-06, "same for employee") — how they get paid, and what they are.
+  payment_method: string | null;
+  employment_type: "employee" | "contractor" | null;
   archived_at: string | null;
   archive_reason: string | null;
   created_at: string;
@@ -785,6 +832,8 @@ export interface EmployeePersonInput {
   defaultPayType: EmployeePayType | null;
   defaultProjectId: number | null;
   defaultProjectName: string | null;
+  paymentMethod?: string | null;
+  employmentType?: "employee" | "contractor" | null;
 }
 
 export interface EmployeeEntry {
@@ -926,6 +975,8 @@ export interface TimeTrackerProjectItem {
   qty: number;
   description: string;
   amount: number;
+  /** Per-line unit rate (08-06, for the invoice). NULL on legacy rows — derive amount ÷ qty. */
+  unit_rate: number | null;
   deleted_at: string | null;
   created_at: string;
 }
@@ -935,6 +986,8 @@ export interface TimeTrackerProjectItemInput {
   qty: number;
   description: string;
   amount: number;
+  /** Optional — captured going forward; legacy rows stay null and derive on read. */
+  unitRate?: number | null;
 }
 
 /** Someone ON a project — membership, which employee_entries cannot express because it only
@@ -1242,6 +1295,15 @@ export interface Api {
       detail: (id: number) => Promise<TimeTrackerProjectDetail>;
       grandTotals: () => Promise<TimeTrackerGrandTotals>;
       groupTotals: () => Promise<TimeTrackerGroupTotalRow[]>;
+      /** Completion (08-06): lock the job / unlock it. Both broadcast timetracker:changed. */
+      complete: (id: number) => Promise<void>;
+      reactivate: (id: number) => Promise<void>;
+    };
+    invoice: {
+      /** Allocates INV-YYYY-NNNN on first call; returns every field the invoice document needs. */
+      data: (projectId: number) => Promise<TimeTrackerInvoiceData>;
+      /** Renderer-composed HTML + stylesheet → hidden-window printToPDF; returns the saved path. */
+      exportPdf: (projectId: number, html: string, css: string) => Promise<string>;
     };
     groups: {
       list: () => Promise<TimeTrackerGroup[]>;

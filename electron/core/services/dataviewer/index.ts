@@ -75,12 +75,24 @@ export function getForeignKeys(table: unknown): DbForeignKey[] {
   return fks.map((f) => ({ table: f.table, from: f.from, to: f.to }));
 }
 
-// ---- dev-mode toggle (persisted in app_settings; writes -> shared read-write getDb()) ----
+// ---- dev-mode flag (persisted in app_settings; writes -> shared read-write getDb()) ----
+// EASTER-EGG UNLOCK (Jason ruled 08-06-2026, B6): the plain Settings toggle is GONE. Ten clicks on
+// the leaf glyph in Settings unlock developer mode; once unlocked it STAYS unlocked — the ONLY
+// thing that re-locks it is an app update. That rule is structural here: the stored value is the
+// APP VERSION at unlock time, and getDevMode() compares it to the running version. A version
+// mismatch = an update happened = locked again, with no timer, no counter, no second flag.
+// Legacy "true" values (the pre-egg toggle) never match a version string, so they read as locked.
+let runningVersion = "dev"; // injected at IPC registration; "dev" only in harnesses
+
+export function setRunningVersion(v: string): void {
+  runningVersion = v;
+}
+
 export function getDevMode(): boolean {
   const row = getDb().prepare(`SELECT value FROM app_settings WHERE key = 'dataviewer_dev_mode'`).get() as
     | { value: string }
     | undefined;
-  return row?.value === "true";
+  return row?.value === runningVersion;
 }
 
 export function setDevMode(on: boolean): void {
@@ -89,7 +101,7 @@ export function setDevMode(on: boolean): void {
       `INSERT INTO app_settings (key, value) VALUES ('dataviewer_dev_mode', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`
     )
-    .run(on ? "true" : "false");
+    .run(on ? runningVersion : "off");
 }
 
 // ---- DEVELOPER-MODE WRITES (A3, 08-06) — the modal's Edit/Delete stubs become real. ------------

@@ -160,12 +160,6 @@ export default function DataViewerModule() {
   };
   useEffect(() => fetchPage(), [fetchPage]);
 
-  const toggleDev = () => {
-    const next = !devMode;
-    setDevMode(next);
-    void window.api.dataviewer.setDevMode(next); // persist to app_settings
-  };
-
   const totalPages = page ? Math.max(1, Math.ceil(page.total / PAGE_SIZE)) : 1;
 
   // Display order = pinned-that-exist + the rest as received. Header AND body map this same
@@ -222,13 +216,11 @@ export default function DataViewerModule() {
               "Data Viewer"
             )}
           </div>
-          <button
-            className={`dv-mode ${devMode ? "dev" : ""}`}
-            onClick={toggleDev}
-            title="Toggle View (read-only) / Developer mode"
-          >
+          {/* B6 (08-06): the plain toggle is GONE — developer mode unlocks through the Settings-page
+              easter egg only, and re-locks on app update. This badge just SHOWS the current state. */}
+          <span className={`dv-mode ${devMode ? "dev" : ""}`} title={devMode ? "Developer mode (unlocked)" : "Read-only"}>
             {devMode ? "● Developer" : "View · read-only"}
-          </button>
+          </span>
           {/* DEMO DATA. Generate writes four projects, eight people, their time, corrections,
               itemized rows and costs through the REAL services. Purge removes exactly those rows by
               recorded id — it never empties a table, so real work beside it is untouched. */}

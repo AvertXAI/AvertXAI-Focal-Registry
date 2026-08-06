@@ -59,14 +59,6 @@ const fmtDate = (iso: string | null): string => {
   if (Number.isNaN(d.getTime())) return "—";
   return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
 };
-const fmtTime12 = (iso: string): string => {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  let h = d.getHours();
-  const ampm = h >= 12 ? "PM" : "AM";
-  h = h % 12 || 12;
-  return `${h}:${String(d.getMinutes()).padStart(2, "0")} ${ampm}`;
-};
 
 export default function ProjectDetail({
   project,
@@ -154,11 +146,24 @@ export default function ProjectDetail({
       .catch(() => {});
   }, [api]);
 
-  // Starting a timer opens the writing surface; stopping one shows what was just filed. DERIVED, so
-  // it is right on whatever frame the session data happens to land on — including a cold reload.
+  // HISTORY — every stopped session that carried notes, straight from time_entries. Sorting keys on
+  // started_at, so it is a pure view: nothing is rewritten to change the order. Derived HERE, above
+  // the tab default, because the default now depends on it (B7).
+  const history = (detail?.entries ?? [])
+    .filter((e) => (e.note ?? "").trim() !== "")
+    .map((e) => ({ id: e.id, started_at: e.started_at, lines: (e.note ?? "").split("\n") }))
+    .sort((a, b) =>
+      notesSort === "newest"
+        ? Date.parse(b.started_at) - Date.parse(a.started_at)
+        : Date.parse(a.started_at) - Date.parse(b.started_at)
+    );
+
+  // B7 (08-06): the default follows the RECORD, not the clock — History whenever any saved notes
+  // exist (so the user always sees that notes are there), Notes when there are none. Still DERIVED
+  // on every render, never assigned by an effect — the cold-reload lesson stands.
   const isLive = session !== null;
-  const activeTab = notesTab ?? (isLive ? "notes" : "history");
-  // A manual choice is dropped the moment the clock changes state, handing the default back.
+  const activeTab = notesTab ?? (history.length > 0 ? "history" : "notes");
+  // A manual choice is dropped when the clock changes state, handing the default back.
   useEffect(() => {
     setNotesTab(null);
   }, [isLive]);
@@ -195,16 +200,6 @@ export default function ProjectDetail({
   const invested = project.total_value + project.total_costs;
   // The live session's packed quick notes, split for display. firstAt drives the block's stamp.
   const sessionNotes = parseSessionNotes(session?.note ?? null);
-  // HISTORY — every stopped session that carried notes, straight from time_entries. Sorting keys on
-  // started_at, so it is a pure view: nothing is rewritten to change the order.
-  const history = (detail?.entries ?? [])
-    .filter((e) => (e.note ?? "").trim() !== "")
-    .map((e) => ({ id: e.id, started_at: e.started_at, lines: (e.note ?? "").split("\n") }))
-    .sort((a, b) =>
-      notesSort === "newest"
-        ? Date.parse(b.started_at) - Date.parse(a.started_at)
-        : Date.parse(a.started_at) - Date.parse(b.started_at)
-    );
 
   const addLedger = (): void => {
     const n = Number(ledgerAmount);
@@ -353,30 +348,7 @@ export default function ProjectDetail({
         <div className="tt-footnote">Face-value amounts — recurrence is informational in this phase (no annualization).</div>
       </div>
 
-      {/* ---- 3. TIME SESSIONS ---- */}
-      <div className="tt-sect">
-        <div className="tt-secthead"><span className="tt-secttitle">Time sessions</span></div>
-        {detail && detail.entries.length > 0 ? (
-          <table className="tt-table">
-            <thead><tr><th>Date</th><th>Start</th><th>Stop</th><th>Duration</th><th>Note</th></tr></thead>
-            <tbody>
-              {detail.entries.map((e) => (
-                <tr key={e.id}>
-                  <td className="mono dim">{fmtDate(e.started_at)}</td>
-                  <td className="mono">{fmtTime12(e.started_at)}</td>
-                  <td className="mono">{fmtTime12(e.ended_at)}</td>
-                  <td className="mono">{fmtDuration(e.duration_seconds)}</td>
-                  <td className="dim">{e.note ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="tt-emptyrow">{detail ? "No sessions yet — select this project in the timer bar and hit Start." : "Loading…"}</div>
-        )}
-      </div>
-
-      {/* ---- 4. NOTES — two TABS (Jason 08-02-2026). "Notes" is the working surface: a staging pad
+      {/* ---- 3. NOTES — two TABS (Jason 08-02-2026). "Notes" is the working surface: a staging pad
            plus, while a timer runs, the live Session notes block. "History" is the permanent record,
            rendered READ-ONLY from time_entries — which has one INSERT path and no UPDATE anywhere,
            so a filed block is immutable by construction, not by a UI that declines to edit it.
@@ -422,9 +394,7 @@ export default function ProjectDetail({
                 {notesSort === "newest" ? "Newest first" : "Oldest first"}
                 <b aria-hidden="true">{notesSort === "newest" ? "▾" : "▴"}</b>
               </button>
-            ) : (
-              <span className="tt-notesautosave">Autosaves when you click away</span>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -440,45 +410,18 @@ export default function ProjectDetail({
 
         {activeTab === "notes" ? (
           <>
-            {/* The pad's life IS the session's life (Jason 08-02-2026): it exists only while a timer
-                runs. No editor is rendered when idle, so nothing can be staged that would never be
-                filed — which, with the clear at start and the clear at stop, makes "the pad is empty
-                whenever no timer is running" true by construction rather than by tidying up after. */}
-            {!detail ? (
-              detailError ? (
-                // NEVER an empty editor on a failed read — that is what looked like erased notes.
-                <div className="tt-emptyrow">Couldn&apos;t load these notes. Reopen the project to try again.</div>
-              ) : (
-                <div className="tt-emptyrow">Loading…</div>
-              )
-            ) : !statusReady ? (
-              <div className="tt-emptyrow">Loading…</div>
-            ) : session ? (
-              <NotesEditor
-                key={`${project.id}:${refreshKey}`}
-                className="tt-input tt-textarea tt-notes"
-                placeholder="Notes for this session — saved into History when you stop the timer..."
-                defaultValue={detail.note}
-                ariaLabel="Project notes"
-                onCommit={saveNote}
-              />
-            ) : (
-              <div className="tt-emptyrow">
-                No timer running — start one to take notes for a session. They are saved into History
-                when you stop it.
-              </div>
-            )}
-
-            {/* SESSION NOTES — present only while this project's timer runs. Second editor, own store.
-                While the status read is still in flight we say so rather than rendering nothing: on a
-                cold reload the session arrives a round trip late, and silence looked like loss. */}
-            {!statusReady && !session ? (
+            {/* SESSION NOTES FIRST (B6, 08-06) — present only while this project's timer runs; the
+                "autosaves" hint lives HERE now. While the status read is in flight we say so rather
+                than rendering nothing: on a cold reload the session arrives a round trip late, and
+                silence looked like loss. */}
+            {!statusReady ? (
               <div className="tt-emptyrow">Loading session notes…</div>
             ) : session ? (
               <>
                 <div className="tt-notesdivider">
                   <span className="tt-notesdividerlabel">Session notes</span>
                   <i aria-hidden="true" />
+                  <span className="tt-notesautosave">Autosaves when you click away</span>
                   <span className="tt-pillbadge">Not saved yet</span>
                 </div>
                 {sessionNotes.firstAt && (
@@ -501,6 +444,31 @@ export default function ProjectDetail({
                 />
               </>
             ) : null}
+
+            {/* NOTES — the project's own pad, and ALWAYS editable once loaded (B6). It was gated on
+                a running session, which is exactly why the box could not be clicked into with no
+                timer going — the gate is gone; only a failed or in-flight read blocks it. */}
+            <div className="tt-notesdivider">
+              <span className="tt-notesdividerlabel">Notes</span>
+              <i aria-hidden="true" />
+            </div>
+            {!detail ? (
+              detailError ? (
+                // NEVER an empty editor on a failed read — that is what looked like erased notes.
+                <div className="tt-emptyrow">Couldn&apos;t load these notes. Reopen the project to try again.</div>
+              ) : (
+                <div className="tt-emptyrow">Loading…</div>
+              )
+            ) : (
+              <NotesEditor
+                key={`${project.id}:${refreshKey}`}
+                className="tt-input tt-textarea tt-notes"
+                placeholder="Notes for this project..."
+                defaultValue={detail.note}
+                ariaLabel="Project notes"
+                onCommit={saveNote}
+              />
+            )}
           </>
         ) : (
           // HISTORY — read-only by construction: plain elements, no editable control anywhere.

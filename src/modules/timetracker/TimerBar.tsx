@@ -177,7 +177,8 @@ export default function TimerBar({ projects, project, session, tickSession, onSe
                 <span>Quick note</span>
                 <input
                   className="tt-input tt-quicknote"
-                  placeholder="Type a note and press Enter…"
+                  placeholder="Type a note"
+                  title="Press Enter to add message below"
                   value={quick}
                   aria-label="Quick note"
                   onChange={(e) => setQuick(e.target.value)}
@@ -190,9 +191,6 @@ export default function TimerBar({ projects, project, session, tickSession, onSe
                     setQuick("");
                   }}
                 />
-                <span className="tt-quickhint">
-                  <span className="tt-kbd">Enter</span> files a bullet into Session notes below
-                </span>
               </label>
             )}
           </div>
@@ -223,13 +221,6 @@ export default function TimerBar({ projects, project, session, tickSession, onSe
           </div>
         )}
       </div>
-      {/* Mockup v3: the caption belongs to the LIVE state and is absent when idle. */}
-      {live && (
-        <div className="tt-barhint">
-          Live — nothing is written to the project until you hit Stop. Quick notes are held with the
-          running session and filed into Notes when it ends.
-        </div>
-      )}
     </div>
   );
 }

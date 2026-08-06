@@ -1,0 +1,171 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* Secured Vault module styles — shell tokens (--mc-*) read, never redefined; module tokens
+   --vault-* declared on .vault-shell (never :root), role names spelled in full. Built to the
+   approved mockup MOCKUP-vault-v3-8-options-08-02-2026. Tab strip follows the house standard
+   (Config-As-Data-SOP-electron §10) exactly — boxed tab joined to the panel beneath it. */
+
+.vault-shell {
+  --vault-rail-width: 232px;
+  --vault-selection-background: color-mix(in srgb, var(--mc-accent-primary) 12%, var(--mc-panels));
+  --vault-strong-color: var(--mc-green);
+  --vault-warn-color: #e0a53a; /* attention — NOT --mc-orange, which is the not-built glow */
+  --vault-danger-color: #e0574f;
+  --vault-masked-color: var(--mc-dimmer);
+  --vault-modal-width: 640px;
+  --vault-modal-scrim: color-mix(in srgb, var(--mc-base) 62%, transparent);
+  --vault-on-accent-ink: #07101f;
+  display: flex;
+  height: calc(100vh - 58px - var(--mc-footer-height, 0px));
+  background: var(--mc-base);
+  color: var(--mc-text);
+  overflow: hidden;
+  position: relative; /* anchors the modal scrim to the module, not the window */
+}
+/* ⚠ THE SPECIFICITY TRAP: globals.css has `.view.shown{display:block}` at 0,2,0, which BEATS a
+   single module class at 0,1,0 — the rail would stack ABOVE the content. Three classes (0,3,0)
+   reclaim the row. The compiler cannot see this; only a render can. */
+.view.shown.vault-shell { display: flex; }
+[data-theme="light"] .vault-shell,
+[data-theme="dark"] .vault-shell { --vault-on-accent-ink: #ffffff; }
+
+/* ---------- the lock screen ---------- */
+.vault-lock { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.vault-lockcard { width: 100%; max-width: 380px; background: var(--mc-panels); border: 1px solid var(--mc-border);
+  border-radius: 12px; padding: 26px 26px 22px; text-align: center; }
+.vault-lockglyph { font-size: 26px; line-height: 1; margin-bottom: 12px; }
+.vault-lockcard h2 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.vault-locksub { font-size: 12.5px; color: var(--mc-muted); line-height: 1.6; margin-bottom: 18px; }
+.vault-lockcard input { width: 100%; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 10px 12px; font-size: 13px; color: var(--mc-text); text-align: center; }
+.vault-lockcard input:focus { outline: none; border-color: var(--mc-accent-primary); }
+.vault-lockerror { margin-top: 10px; font-size: 12px; color: var(--vault-danger-color); }
+.vault-lockplaceholder { margin-top: 16px; font-size: 11px; color: var(--mc-dimmer); line-height: 1.6;
+  border-top: 1px solid var(--mc-border); padding-top: 12px; }
+
+/* ---------- rail ---------- */
+.vault-rail { width: var(--vault-rail-width); flex: none; display: flex; flex-direction: column;
+  background: var(--mc-panels); border-right: 1px solid var(--mc-border); min-height: 0; }
+.vault-railsearch { padding: 12px 12px 8px; }
+.vault-railsearch input { width: 100%; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 7px 11px; font-size: 12px; color: var(--mc-text); }
+.vault-railsearch input:focus { outline: none; border-color: var(--mc-accent-primary); }
+.vault-raillist { flex: 1; overflow-y: auto; min-height: 0; padding: 0 8px 12px; }
+.vault-railhead { font-size: 9.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--mc-muted);
+  margin: 14px 0 5px 9px; font-weight: 700; }
+.vault-railrow { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border-radius: 7px;
+  background: none; border: none; color: var(--mc-text); font-size: 12.5px; cursor: pointer; text-align: left;
+  position: relative; }
+.vault-railrow:hover { background: var(--mc-nested); }
+.vault-railrow.on { background: var(--vault-selection-background); font-weight: 600; }
+.vault-railrow.on::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px;
+  border-radius: 0 2px 2px 0; background: var(--mc-accent-primary); }
+.vault-raildot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.vault-railname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-railcount { flex: none; font-family: var(--mc-mono); font-size: 11px; color: var(--mc-dimmer); }
+
+/* ---------- main column + the house tab strip (SOP §10, verbatim) ---------- */
+.vault-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vault-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 12px 18px 0;
+  border-bottom: 1px solid var(--mc-border); flex: none; }
+.vault-tab { background: none; border: 1px solid transparent; border-radius: 7px 7px 0 0; padding: 7px 14px;
+  font-size: 12.5px; color: var(--mc-muted); cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+.vault-tab:hover { color: var(--mc-text); }
+.vault-tab.on { color: var(--mc-text); font-weight: 600; border-color: var(--mc-border);
+  border-bottom-color: var(--mc-base); background: var(--mc-base); }
+.vault-body { flex: 1; overflow-y: auto; min-height: 0; padding: 16px 18px 22px; }
+
+/* ---------- cards, states ---------- */
+.vault-card { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 10px;
+  padding: 15px 17px; margin-bottom: 14px; }
+.vault-cardhead { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 12px; flex-wrap: wrap; }
+.vault-cardtitle { font-size: 10.5px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700;
+  color: var(--mc-accent-primary); }
+.vault-hint { font-size: 12px; color: var(--mc-muted); line-height: 1.6; }
+/* Three states are three visibly different things — an empty list NEVER stands in for a failed read. */
+.vault-state { padding: 26px 18px; text-align: center; font-size: 12.5px; color: var(--mc-muted); }
+.vault-state.error { color: var(--vault-danger-color); }
+.vault-state button { margin-top: 10px; }
+
+/* ---------- buttons ---------- */
+.vault-btn { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 7px;
+  padding: 6px 12px; font-size: 12px; color: var(--mc-text); cursor: pointer; white-space: nowrap; }
+.vault-btn:hover { border-color: var(--mc-accent-primary); }
+.vault-btn.primary { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary);
+  color: var(--vault-on-accent-ink); font-weight: 600; }
+.vault-btn.danger { border-color: var(--vault-danger-color); color: var(--vault-danger-color); }
+.vault-btn:disabled { opacity: .5; cursor: default; }
+.vault-btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- table ---------- */
+.vault-table { width: 100%; border-collapse: collapse; }
+.vault-table th { text-align: left; font-size: 9.5px; letter-spacing: 1.3px; text-transform: uppercase;
+  color: var(--mc-muted); padding: 0 10px 9px 0; font-weight: 700; border-bottom: 1px solid var(--mc-border); }
+.vault-table td { padding: 10px 10px 10px 0; border-bottom: 1px solid var(--mc-border); font-size: 12.5px;
+  vertical-align: middle; }
+.vault-table tr:last-child td { border-bottom: 0; }
+.vault-kind { font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; border: 1px solid var(--mc-border);
+  border-radius: 5px; padding: 2px 7px; color: var(--mc-muted); white-space: nowrap; }
+.vault-masked { font-family: var(--mc-mono); color: var(--vault-masked-color); letter-spacing: 2px; }
+.vault-revealed { font-family: var(--mc-mono); color: var(--mc-text); background: var(--mc-nested);
+  padding: 2px 7px; border-radius: 5px; word-break: break-all; }
+.vault-mono { font-family: var(--mc-mono); font-size: 11.5px; }
+.vault-who { font-size: 11px; color: var(--mc-dimmer); }
+.vault-star { background: none; border: none; cursor: pointer; font-size: 13px; color: var(--mc-dimmer); padding: 0 4px; }
+.vault-star.on { color: var(--vault-warn-color); }
+.vault-acts { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* ---------- generator ---------- */
+.vault-genout { display: flex; align-items: center; gap: 12px; background: var(--mc-field);
+  border: 1px solid var(--mc-border); border-radius: 9px; padding: 13px 15px; flex-wrap: wrap; }
+.vault-genout .value { flex: 1; min-width: 180px; font-family: var(--mc-mono); font-size: 17px;
+  letter-spacing: .5px; word-break: break-all; }
+.vault-meter { height: 7px; border-radius: 4px; display: flex; gap: 3px; margin: 13px 0 7px; }
+.vault-meter i { display: block; flex: 1; background: var(--mc-nested); border-radius: 3px; }
+.vault-meter i.on { background: var(--vault-strong-color); }
+.vault-meter i.warn { background: var(--vault-warn-color); }
+.vault-meter i.bad { background: var(--vault-danger-color); }
+.vault-strengthrow { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  font-size: 12px; flex-wrap: wrap; }
+.vault-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 9px 20px;
+  margin-top: 15px; font-size: 12.5px; }
+.vault-opt { display: flex; align-items: center; gap: 9px; }
+.vault-opt input[type="range"] { flex: 1; accent-color: var(--mc-accent-primary); }
+.vault-opt input[type="checkbox"] { accent-color: var(--mc-accent-primary); }
+
+/* ---------- health ---------- */
+.vault-hgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;
+  margin-bottom: 14px; }
+.vault-hcard { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 9px;
+  padding: 12px 14px; }
+.vault-hlabel { display: block; font-size: 9px; letter-spacing: .8px; text-transform: uppercase;
+  color: var(--mc-muted); margin-bottom: 4px; }
+.vault-hvalue { display: block; font-family: var(--mc-mono); font-size: 22px; font-weight: 700; }
+.vault-score { font-family: var(--mc-mono); font-size: 12px; font-weight: 700; }
+.vault-reasons { margin: 3px 0 0; padding-left: 16px; color: var(--mc-muted); font-size: 11.5px; line-height: 1.6; }
+
+/* ---------- modal ---------- */
+.vault-modalback { position: absolute; inset: 0; background: var(--vault-modal-scrim); display: flex;
+  align-items: flex-start; justify-content: center; padding: 28px 18px; overflow-y: auto; z-index: 40; }
+.vault-modal { width: 100%; max-width: var(--vault-modal-width); background: var(--mc-panels);
+  border: 1px solid var(--mc-border); border-radius: 12px; padding: 20px 22px; }
+.vault-modal h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 3px; }
+.vault-modalsub { font-size: 12px; color: var(--mc-muted); margin-bottom: 15px; }
+.vault-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; }
+.vault-field label { font-size: 11px; color: var(--mc-muted); }
+.vault-field input, .vault-field select, .vault-field textarea { background: var(--mc-field);
+  border: 1px solid var(--mc-border); border-radius: 8px; padding: 9px 11px; font-size: 12.5px;
+  color: var(--mc-text); font-family: inherit; width: 100%; }
+.vault-field input:focus, .vault-field select:focus, .vault-field textarea:focus { outline: none;
+  border-color: var(--mc-accent-primary); }
+.vault-field textarea { resize: vertical; min-height: 58px; }
+.vault-two { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.vault-modalacts { display: flex; gap: 9px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+
+/* At the 740px floor the two-column rows would squeeze both fields below legibility — one column
+   is correct there, and the rail is the only other thing competing for the width. */
+@media (max-width: 860px) { .vault-two { grid-template-columns: 1fr; } }
+
+/* ---------- the not-built convention (§3.6: plain page, no orange glow, in THIS product) ---------- */
+.vault-soon { border: 1px dashed var(--mc-border); border-radius: 9px; padding: 22px 18px; text-align: center;
+  color: var(--mc-muted); font-size: 12.5px; line-height: 1.7; }

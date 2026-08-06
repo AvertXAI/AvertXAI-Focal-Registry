@@ -29,6 +29,7 @@ import * as costs from "./costs";
 import * as adjustments from "./adjustments";
 import * as eventLog from "./eventLog";
 import * as reports from "./reports";
+import { documentsExportsDir } from "../storage";
 import * as sounds from "./sounds";
 import * as settings from "./settings";
 import * as license from "./license";
@@ -358,13 +359,15 @@ export function registerTimeTrackerIpc(): void {
   });
 
   // reports — READ-ONLY analytics (SELECT-only service; charts are Phase 5's hand-rolled SVG)
-  safeHandle("timetracker:getReport", (_e, range: unknown, granularity: unknown) => {
+  safeHandle("timetracker:getReport", (_e, range: unknown, granularity: unknown, projectId: unknown) => {
     const { db, orgId } = ttCtx();
     return reports.getReport(
       db,
       orgId,
       vEnum(range, REPORT_RANGES, "range"),
-      vEnum(granularity, REPORT_GRANULARITIES, "granularity")
+      vEnum(granularity, REPORT_GRANULARITIES, "granularity"),
+      // C10: the rail selection, optional. Validated as an id when present; anything else = no filter.
+      typeof projectId === "number" && Number.isInteger(projectId) && projectId > 0 ? projectId : null
     );
   });
   // Export PDF (Phase 5) — Electron's built-in printToPDF on the LIVE renderer (rendered SVG charts
@@ -377,7 +380,11 @@ export function registerTimeTrackerIpc(): void {
     const pdf = await win.webContents.printToPDF({ pageSize: "Letter", landscape: true, printBackground: true });
     const d = new Date();
     const base = `TimeTracker-Analytics-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}-${d.getFullYear()}`;
-    const dir = app.getPath("downloads");
+    // C11 (08-06): lands beside the Scan exports, in a TimeTracker subfolder — the SAME
+    // documentsExportsDir the Scan handlers use, never a second constant, so a future move of the
+    // export root carries every module with it. Downloads is retired.
+    const dir = path.join(documentsExportsDir(), "TimeTracker");
+    fs.mkdirSync(dir, { recursive: true });
     let target = path.join(dir, `${base}.pdf`);
     for (let i = 2; fs.existsSync(target); i++) target = path.join(dir, `${base}-${String(i).padStart(2, "0")}.pdf`);
     fs.writeFileSync(target, pdf);

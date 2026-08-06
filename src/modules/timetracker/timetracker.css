@@ -575,3 +575,12 @@
 .tt-reloaderror { margin: 8px 18px 0; padding: 7px 12px; border-radius: 7px; font-size: 12px;
   color: var(--mc-text); overflow-wrap: anywhere;
   background: color-mix(in srgb, #e0a53a 14%, var(--mc-panels)); border: 1px solid #e0a53a; }
+/* C10: the analytics filter chip — a named filter with its own way out */
+.tt-filterchip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+  padding: 8px 12px; border-radius: 8px; font-size: 12px; color: var(--mc-text);
+  background: color-mix(in srgb, var(--mc-accent-primary) 10%, var(--mc-panels));
+  border: 1px solid var(--mc-accent-primary); }
+.tt-filterclear { margin-left: auto; flex: none; background: none; cursor: pointer;
+  border: 1px solid var(--mc-accent-primary); border-radius: 6px; color: var(--mc-accent-primary);
+  font-family: var(--mc-font); font-size: 11.5px; padding: 3px 10px; }
+.tt-filterclear:hover { background: var(--mc-accent-primary); color: #fff; }

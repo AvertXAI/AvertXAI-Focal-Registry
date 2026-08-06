@@ -39,11 +39,30 @@ function cutoffIso(range: ReportRange): string | null {
   return new Date(Date.now() - days * 86_400_000).toISOString();
 }
 
+/** The employee-pay expression the charts share — ENTRY_COST_SQL's rule, verbatim: donated is
+    free, hourly is hours x rate, flat types are their agreed amount. Employee pay is a COST to the
+    photographer, which is exactly how the project totals already count it (52a211b). */
+const EMP_COST = `CASE e.pay_type WHEN 'donated' THEN 0 WHEN 'hourly' THEN e.hours_worked * e.rate_at_entry ELSE COALESCE(e.flat_amount, 0) END`;
+
 /**
  * Totals mirror the grand-total bar exactly (same listProjects/grandTotals rollup),
  * plus donated hours (counted in time, excluded from $ value) and the group count.
+ * With a PROJECT FILTER (C10) the same rollup values are read off that one project's row — the
+ * numbers the rail itself shows — so a filtered card can never disagree with the rail.
  */
-function reportTotals(db: Db, orgId: string): ReportTotals {
+function reportTotals(db: Db, orgId: string, projectId?: number | null): ReportTotals {
+  if (projectId != null) {
+    const p = listProjects(db, orgId).find((x) => x.id === projectId);
+    return {
+      total_seconds: p?.total_seconds ?? 0,
+      total_value: p?.total_value ?? 0,
+      total_costs: p?.total_costs ?? 0,
+      total_invested: (p?.total_value ?? 0) + (p?.total_costs ?? 0),
+      donated_seconds: p && p.rate_type === "contract" && p.contract_kind === "donated" ? p.total_seconds : 0,
+      project_count: p ? 1 : 0,
+      group_count: p?.group_id != null ? 1 : 0,
+    };
+  }
   const gt = grandTotals(db, orgId);
   const projects = listProjects(db, orgId);
   const donated_seconds = projects
@@ -69,8 +88,12 @@ function reportTotals(db: Db, orgId: string): ReportTotals {
  *   this equals the grand-total bar's total_value.
  * - costs: costs.amount bucketed by created_at.
  */
-function timeSeries(db: Db, orgId: string, range: ReportRange, granularity: ReportGranularity): TimeSeriesPoint[] {
+function timeSeries(db: Db, orgId: string, range: ReportRange, granularity: ReportGranularity, projectId?: number | null): TimeSeriesPoint[] {
   const since = cutoffIso(range);
+  // worked_on is a plain YYYY-MM-DD; comparing it against a full ISO cutoff string-wise would drop
+  // the cutoff day itself, so date-typed columns get the date-only form of the same bound.
+  const sinceDate = since ? since.slice(0, 10) : null;
+  const pid = projectId ?? null;
   const bucket = BUCKET_EXPR[granularity];
   const points = new Map<string, TimeSeriesPoint>();
   const at = (key: string): TimeSeriesPoint => {
@@ -90,9 +113,12 @@ function timeSeries(db: Db, orgId: string, range: ReportRange, granularity: Repo
                     THEN te.duration_seconds / 3600.0 * p.hourly_rate ELSE 0 END) AS hourly_value
     FROM timetracker_time_entries te
     JOIN timetracker_projects p ON p.id = te.project_id
-    WHERE p.org_id = @orgId AND p.archived_at IS NULL ${since ? `AND te.started_at >= @since` : ``}
+    WHERE p.org_id = @orgId AND p.archived_at IS NULL ${since ? `AND te.started_at >= @since` : ``} ${pid != null ? `AND p.id = @pid` : ``}
     GROUP BY k`;
-  for (const r of db.prepare(sessionSql).all(since ? { orgId, since } : { orgId }) as {
+  const base: Record<string, unknown> = { orgId };
+  if (since) { base.since = since; base.sinceDate = sinceDate; }
+  if (pid != null) base.pid = pid;
+  for (const r of db.prepare(sessionSql).all(base) as {
     k: string;
     secs: number;
     hourly_value: number;
@@ -108,9 +134,9 @@ function timeSeries(db: Db, orgId: string, range: ReportRange, granularity: Repo
     SELECT ${bucket("created_at")} AS k, SUM(contract_amount) AS amt
     FROM timetracker_projects
     WHERE org_id = @orgId AND rate_type = 'contract' AND contract_kind = 'paid' AND contract_amount IS NOT NULL AND archived_at IS NULL
-    ${since ? `AND created_at >= @since` : ``}
+    ${since ? `AND created_at >= @since` : ``} ${pid != null ? `AND id = @pid` : ``}
     GROUP BY k`;
-  for (const r of db.prepare(paidSql).all(since ? { orgId, since } : { orgId }) as { k: string; amt: number }[]) {
+  for (const r of db.prepare(paidSql).all(base) as { k: string; amt: number }[]) {
     if (!r.k) continue;
     at(r.k).value += r.amt ?? 0;
   }
@@ -119,28 +145,58 @@ function timeSeries(db: Db, orgId: string, range: ReportRange, granularity: Repo
   const costSql = `
     SELECT ${bucket("c.created_at")} AS k, SUM(c.amount) AS amt
     FROM timetracker_costs c JOIN timetracker_projects p ON p.id = c.project_id
-    WHERE p.org_id = @orgId AND p.archived_at IS NULL ${since ? `AND c.created_at >= @since` : ``}
+    WHERE p.org_id = @orgId AND p.archived_at IS NULL ${since ? `AND c.created_at >= @since` : ``} ${pid != null ? `AND p.id = @pid` : ``}
     GROUP BY k`;
-  for (const r of db.prepare(costSql).all(since ? { orgId, since } : { orgId }) as { k: string; amt: number }[]) {
+  for (const r of db.prepare(costSql).all(base) as { k: string; amt: number }[]) {
     if (!r.k) continue;
     at(r.k).costs += r.amt ?? 0;
+  }
+
+  // EMPLOYEE WORK (C8 root cause, 08-06): the charts read only the user's own tracked sessions, so
+  // 88 seeded employee entries spread across the year rendered as nothing while the contract value
+  // all sat in today's created_at bucket — one point, which the chart layer honestly draws as a
+  // dot. Employee hours join the hours series and employee pay joins the costs series, bucketed by
+  // the day the WORK happened (worked_on), which is also what makes the range controls bite.
+  const empSql = `
+    SELECT ${bucket("e.worked_on")} AS k,
+           SUM(e.hours_worked) AS hrs,
+           SUM(${EMP_COST}) AS pay
+    FROM employee_entries e
+    WHERE e.org_id = @orgId AND e.project_id IS NOT NULL ${sinceDate ? `AND e.worked_on >= @sinceDate` : ``} ${pid != null ? `AND e.project_id = @pid` : ``}
+    GROUP BY k`;
+  for (const r of db.prepare(empSql).all(base) as { k: string; hrs: number; pay: number }[]) {
+    if (!r.k) continue;
+    const p = at(r.k);
+    p.hours += r.hrs ?? 0;
+    p.costs += r.pay ?? 0;
   }
 
   return [...points.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));
 }
 
 /** Hours per project (descending), top N with the remainder collapsed into "Others". */
-function hoursByProject(db: Db, orgId: string, range: ReportRange): HoursByProjectPoint[] {
+function hoursByProject(db: Db, orgId: string, range: ReportRange, projectId?: number | null): HoursByProjectPoint[] {
   const since = cutoffIso(range);
+  const sinceDate = since ? since.slice(0, 10) : null;
+  const pid = projectId ?? null;
+  const params: Record<string, unknown> = { orgId };
+  if (since) { params.since = since; params.sinceDate = sinceDate; }
+  if (pid != null) params.pid = pid;
+  // Own sessions AND employee entries, per project — the bar chart shows everyone's hours on the
+  // project, matching the rail totals (C8; canon: employee hours feed every chart).
   const rows = db
     .prepare(
-      `SELECT p.name AS name, SUM(te.duration_seconds) AS secs
-       FROM timetracker_time_entries te JOIN timetracker_projects p ON p.id = te.project_id
-       WHERE p.org_id = @orgId AND p.archived_at IS NULL ${since ? `AND te.started_at >= @since` : ``}
-       GROUP BY p.id ORDER BY secs DESC`
+      `SELECT p.name AS name,
+              COALESCE((SELECT SUM(te.duration_seconds) FROM timetracker_time_entries te
+                 WHERE te.project_id = p.id ${since ? `AND te.started_at >= @since` : ``}), 0) / 3600.0
+            + COALESCE((SELECT SUM(e.hours_worked) FROM employee_entries e
+                 WHERE e.project_id = p.id ${sinceDate ? `AND e.worked_on >= @sinceDate` : ``}), 0) AS hrs
+       FROM timetracker_projects p
+       WHERE p.org_id = @orgId AND p.archived_at IS NULL ${pid != null ? `AND p.id = @pid` : ``}
+       ORDER BY hrs DESC`
     )
-    .all(since ? { orgId, since } : { orgId }) as { name: string; secs: number }[];
-  const ranked = rows.map((r) => ({ name: r.name, hours: (r.secs ?? 0) / 3600 })).filter((r) => r.hours > 0);
+    .all(params) as { name: string; hrs: number }[];
+  const ranked = rows.map((r) => ({ name: r.name, hours: r.hrs ?? 0 })).filter((r) => r.hours > 0);
   if (ranked.length <= TOP_PROJECTS) return ranked;
   const top = ranked.slice(0, TOP_PROJECTS);
   const others = ranked.slice(TOP_PROJECTS).reduce((s, r) => s + r.hours, 0);
@@ -149,18 +205,35 @@ function hoursByProject(db: Db, orgId: string, range: ReportRange): HoursByProje
 }
 
 /** Costs grouped by category (empty category labelled "Uncategorized"), descending. */
-function costsByCategory(db: Db, orgId: string, range: ReportRange): CostsByCategoryPoint[] {
+function costsByCategory(db: Db, orgId: string, range: ReportRange, projectId?: number | null): CostsByCategoryPoint[] {
   const since = cutoffIso(range);
+  const sinceDate = since ? since.slice(0, 10) : null;
+  const pid = projectId ?? null;
+  const params: Record<string, unknown> = { orgId };
+  if (since) { params.since = since; params.sinceDate = sinceDate; }
+  if (pid != null) params.pid = pid;
   const rows = db
     .prepare(
       `SELECT CASE WHEN TRIM(COALESCE(category, '')) = '' THEN 'Uncategorized' ELSE category END AS category,
               SUM(amount) AS amount
        FROM timetracker_costs
-       WHERE org_id = @orgId ${since ? `AND created_at >= @since` : ``}
+       WHERE org_id = @orgId ${since ? `AND created_at >= @since` : ``} ${pid != null ? `AND project_id = @pid` : ``}
        GROUP BY category ORDER BY amount DESC`
     )
-    .all(since ? { orgId, since } : { orgId }) as CostsByCategoryPoint[];
-  return rows.filter((r) => r.amount > 0);
+    .all(params) as CostsByCategoryPoint[];
+  // Employee pay is a cost category of its own (C8) — same rule as the project totals, range by
+  // the day the work happened.
+  const emp = (
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(${EMP_COST}), 0) AS amount
+         FROM employee_entries e
+         WHERE e.org_id = @orgId AND e.project_id IS NOT NULL ${sinceDate ? `AND e.worked_on >= @sinceDate` : ``} ${pid != null ? `AND e.project_id = @pid` : ``}`
+      )
+      .get(params) as { amount: number }
+  ).amount;
+  if (emp > 0) rows.push({ category: "Employee pay", amount: emp });
+  return rows.filter((r) => r.amount > 0).sort((a, b) => b.amount - a.amount);
 }
 
 /**
@@ -208,12 +281,16 @@ function wastedMetric(db: Db, orgId: string): WastedMetric {
   };
 }
 
-export function getReport(db: Db, orgId: string, range: ReportRange, granularity: ReportGranularity): ReportData {
+export function getReport(db: Db, orgId: string, range: ReportRange, granularity: ReportGranularity, projectId?: number | null): ReportData {
   return {
-    totals: reportTotals(db, orgId),
-    timeSeries: timeSeries(db, orgId, range, granularity),
-    hoursByProject: hoursByProject(db, orgId, range),
-    costsByCategory: costsByCategory(db, orgId, range),
+    // C10: the rail selection filters EVERYTHING — cards read off the selected project's own rollup
+    // row (the rail's numbers), charts filter in SQL. No selection = the org-wide view, unchanged.
+    totals: reportTotals(db, orgId, projectId),
+    timeSeries: timeSeries(db, orgId, range, granularity, projectId),
+    hoursByProject: hoursByProject(db, orgId, range, projectId),
+    costsByCategory: costsByCategory(db, orgId, range, projectId),
+    // Wasted counts archived/purged work; a rail selection is an ACTIVE project, so under a filter
+    // these read zero by construction — stated in the view's caption rather than silently blank.
     wasted: wastedMetric(db, orgId),
   };
 }

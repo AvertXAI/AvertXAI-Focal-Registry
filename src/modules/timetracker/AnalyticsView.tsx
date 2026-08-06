@@ -5,7 +5,7 @@
 // SVG charts. Export PDF rides Electron's built-in printToPDF main-side (no dependency), lands in
 // Downloads with a MONTH-FIRST filename, and the success line reveals the file.
 import { useCallback, useEffect, useState } from "react";
-import type { TimeTrackerReportData, TimeTrackerReportGranularity, TimeTrackerReportRange } from "../../shared/types";
+import type { TimeTrackerProjectListItem, TimeTrackerReportData, TimeTrackerReportGranularity, TimeTrackerReportRange } from "../../shared/types";
 import { HBarChart, TimeSeriesChart, type SeriesPoint } from "./charts";
 import Tip from "../../components/Tip";
 
@@ -49,7 +49,13 @@ const bucketLabel = (bucket: string, g: TimeTrackerReportGranularity): string =>
   return mi >= 0 && mi < 12 ? `${MONTHS[mi]} ${y?.slice(2) ?? ""}`.trim() : bucket;
 };
 
-export default function AnalyticsView() {
+interface Props {
+  /** C10 (08-06): the rail selection. One project filters everything here to it; null shows all. */
+  project: TimeTrackerProjectListItem | null;
+  onClearSelection: () => void;
+}
+
+export default function AnalyticsView({ project, onClearSelection }: Props) {
   const api = window.api;
   const [range, setRange] = useState<TimeTrackerReportRange>("all");
   const [gran, setGran] = useState<TimeTrackerReportGranularity>("day");
@@ -59,8 +65,14 @@ export default function AnalyticsView() {
   const [exportError, setExportError] = useState<string | null>(null);
 
   const reload = useCallback((): void => {
-    void api.timetracker.reports.get(range, gran).then(setData).catch(() => setData(null));
-  }, [api, range, gran]);
+    void api.timetracker.reports
+      .get(range, gran, project?.id ?? null)
+      .then(setData)
+      .catch((e: unknown) => {
+        console.error("[timetracker] report read failed:", e);
+        setData(null);
+      });
+  }, [api, range, gran, project?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     reload();
   }, [reload]);
@@ -104,6 +116,15 @@ export default function AnalyticsView() {
         </div>
       )}
 
+      {/* C10: the active filter is NAMED, with its own way out — a silent filter reads as wrong data. */}
+      {project && (
+        <div className="tt-filterchip" role="status">
+          Filtered to <b>{project.name}</b> — cards and charts show this project only; wasted-time
+          reads zero here because an active selection cannot be archived.
+          <button className="tt-filterclear" onClick={onClearSelection} title="Show every project">✕ Show all</button>
+        </div>
+      )}
+
       {/* controls — range + granularity drive the CHARTS only */}
       <div className="tt-toolrow">
         <span className="tt-seg" role="group" aria-label="Range">
@@ -133,7 +154,7 @@ export default function AnalyticsView() {
         <div className="tt-card"><span className="tt-cardlabel">Projects</span><span className="tt-cardvalue">{t ? t.project_count : "—"}</span></div>
         <div className="tt-card"><span className="tt-cardlabel">Groups</span><span className="tt-cardvalue">{t ? t.group_count : "—"}</span></div>
       </div>
-      <div className="tt-crmseed">Summary cards are all-time and match the grand-total bar. Range &amp; granularity drive the charts below.</div>
+      <div className="tt-crmseed">{project ? "Summary cards are all-time for the selected project." : "Summary cards are all-time and match the grand-total bar."} Range &amp; granularity drive the charts below.</div>
 
       {/* wasted cards */}
       <div className="tt-wastedrow">

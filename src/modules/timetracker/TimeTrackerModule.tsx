@@ -367,7 +367,7 @@ export default function TimeTrackerModule() {
             </>
           )}
           {tab === "logbook" && <LogbookView projects={projects} groups={groups} />}
-          {tab === "analytics" && <AnalyticsView />}
+          {tab === "analytics" && <AnalyticsView project={selected} onClearSelection={() => select(null)} />}
           {tab === "adjust" && <AdjustmentsView projects={projects} onDataChanged={reload} />}
           {tab === "activity" && <ActivityView projects={projects} />}
           {tab === "archive" && <ArchiveView onDataChanged={reload} />}

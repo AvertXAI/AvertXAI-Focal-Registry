@@ -451,3 +451,8 @@ tbody tr:hover{background:var(--mc-nested)}
   50%{box-shadow:0 8px 30px rgba(0,0,0,.35),0 0 0 5px rgba(255,145,0,.34)}}
 .updatetoast.attention{animation:updatetoast-in .28s ease-out, updatetoast-pulse 1.2s ease-in-out .28s 2}
 @media (prefers-reduced-motion:reduce){.updatetoast.attention{animation:none}}
+/* Data Viewer seed-key prompt — inline in the header so no modal plumbing enters this module. */
+.dv-keyrow{display:flex;align-items:center;gap:8px;flex:none}
+.dv-keyinput{width:21ch;background:var(--mc-field);border:1px solid var(--mc-border);border-radius:7px;
+  color:var(--mc-text);font:12px var(--mc-mono);letter-spacing:1px;padding:5px 9px;outline:none}
+.dv-keyinput:focus{border-color:var(--mc-accent-primary)}

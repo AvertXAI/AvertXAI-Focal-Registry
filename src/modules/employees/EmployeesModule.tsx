@@ -262,6 +262,7 @@ export default function EmployeesModule() {
               personFilter={adjPerson}
               onPersonFilter={setAdjPerson}
               onDataChanged={refreshLedger}
+              refreshKey={refreshKey}
             />
           ) : tab !== "ledger" ? (
             <div className="emp-notbuilt">

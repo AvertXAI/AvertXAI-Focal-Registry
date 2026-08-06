@@ -29,6 +29,9 @@ interface Props {
   onPersonFilter: (id: number | null) => void;
   /** Bumped when a correction lands so the ledger and the balance cards refresh behind this tab. */
   onDataChanged: () => void;
+  /** The module bumps this on every timetracker:changed push — the tab re-reads while OPEN, so a
+      seed, a purge or a write on another surface shows here without switching tabs (08-06). */
+  refreshKey: number;
 }
 
 type Editor =
@@ -47,7 +50,7 @@ const fmtTs = (iso: string): string => {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
 };
 
-export default function AdjustmentsView({ people, personFilter, onPersonFilter, onDataChanged }: Props) {
+export default function AdjustmentsView({ people, personFilter, onPersonFilter, onDataChanged, refreshKey }: Props) {
   const api = window.api;
   const [rows, setRows] = useState<EmployeeAdjustment[] | null>(null);
   const [error, setError] = useState(false);
@@ -66,7 +69,7 @@ export default function AdjustmentsView({ people, personFilter, onPersonFilter, 
       console.error("[employees] adjustments read failed:", e);
       setError(true);
     });
-  }, [api, personFilter]);
+  }, [api, personFilter, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     load();

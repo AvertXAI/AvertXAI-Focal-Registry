@@ -36,6 +36,10 @@ export default function DataViewerModule() {
   const [demo, setDemo] = useState<{ present: boolean } | null>(null);
   const [demoBusy, setDemoBusy] = useState(false);
   const [demoMsg, setDemoMsg] = useState<string | null>(null);
+  /** The licence prompt (ruling 4): the seed never activates silently — the user pastes their key,
+      it goes through the supported setLicenseKey path in main, and a wrong key refuses plainly. */
+  const [keyPrompt, setKeyPrompt] = useState(false);
+  const [keyDraft, setKeyDraft] = useState("");
 
   // Config-as-Data: the width lives in app_settings, never localStorage, and is read back at mount
   // so a set width survives a restart. Key is whitelisted in RENDERER_KEYS.
@@ -87,6 +91,7 @@ export default function DataViewerModule() {
     void window.api.dataviewer.getDevMode().then(setDevMode);
   }, []);
 
+
   // select a table → load its columns + outgoing FKs (guard text) and jump to page 0
   const loadTable = useCallback((name: string) => {
     setSelected(name);
@@ -131,6 +136,21 @@ export default function DataViewerModule() {
   useEffect(() => {
     prevRowsRef.current = []; // reset the flash baseline whenever the table, page, or sort changes
   }, [selected, pageIndex, sort]);
+
+  // THE REFRESH CONTRACT (08-06). This module had no listener at all, which is why loading seed
+  // data left the table list stale until the view was revisited. Any write anywhere — a timer
+  // stop, an employee entry, the seed, the purge — re-reads the list, the open page's rows, and
+  // the seed status, with no click required.
+  useEffect(() => {
+    const onChanged = (): void => {
+      void window.api.db.tables().then(setTables).catch((e: unknown) => console.error("[data-viewer] tables re-read failed:", e));
+      void window.api.devseed.status().then(setDemo).catch(() => {});
+      fetchPage();
+    };
+    window.api.on<void>("timetracker:changed", onChanged);
+    return () => window.api.off<void>("timetracker:changed", onChanged);
+  }, [fetchPage]);
+
 
   const goToPage = () => {
     const n = parseInt(jump, 10);
@@ -213,34 +233,64 @@ export default function DataViewerModule() {
               recorded id — it never empties a table, so real work beside it is untouched. */}
           <button
             className="dv-btn"
-            disabled={demoBusy || demo?.present === true}
-            title={demo?.present ? "Demo data is already loaded — purge it first" : "Load four projects and eight employees"}
+            disabled={demoBusy || demo?.present === true || keyPrompt}
+            title={demo?.present ? "Seed data is already loaded — purge it first" : "Load 10 projects and 20 employees (needs your licence key)"}
             onClick={() => {
-              setDemoBusy(true);
               setDemoMsg(null);
-              void window.api.devseed
-                .generate()
-                .then((r) => {
-                  setDemoMsg(r.ok ? `Loaded ${r.projects} projects and ${r.people} people.` : r.error ?? "Failed.");
-                  return window.api.devseed.status().then(setDemo);
-                })
-                .catch((e: unknown) => setDemoMsg(e instanceof Error ? e.message : String(e)))
-                .finally(() => setDemoBusy(false));
+              setKeyDraft("");
+              setKeyPrompt(true);
             }}
           >
-            {demoBusy ? "…" : "Load demo data"}
+            {demoBusy ? "…" : "Load seed data"}
           </button>
+          {keyPrompt && (
+            <span className="dv-keyrow">
+              <input
+                className="dv-keyinput"
+                value={keyDraft}
+                autoFocus
+                spellCheck={false}
+                placeholder="XXXX-XXXX-XXXX-XXXX"
+                aria-label="Licence key"
+                onChange={(e) => setKeyDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.currentTarget.nextSibling as HTMLButtonElement | null)?.click();
+                  if (e.key === "Escape") setKeyPrompt(false);
+                }}
+              />
+              <button
+                className="dv-btn"
+                disabled={demoBusy || keyDraft.trim() === ""}
+                onClick={() => {
+                  setDemoBusy(true);
+                  setDemoMsg(null);
+                  void window.api.devseed
+                    .generate(keyDraft)
+                    .then((r) => {
+                      setDemoMsg(r.ok ? `Loaded ${r.projects} projects, ${r.people} people, ${r.entries} entries.` : r.error ?? "Failed.");
+                      if (r.ok) setKeyPrompt(false);
+                      return window.api.devseed.status().then(setDemo);
+                    })
+                    .catch((e: unknown) => setDemoMsg(e instanceof Error ? e.message : String(e)))
+                    .finally(() => setDemoBusy(false));
+                }}
+              >
+                Activate &amp; load
+              </button>
+              <button className="dv-btn" onClick={() => setKeyPrompt(false)}>Cancel</button>
+            </span>
+          )}
           <button
             className="dv-btn danger"
             disabled={demoBusy || demo?.present !== true}
-            title={demo?.present ? "Remove exactly the demo rows" : "No demo data is loaded"}
+            title={demo?.present ? "Remove exactly the seeded rows and restore the licence" : "No seed data is loaded"}
             onClick={() => {
               setDemoBusy(true);
               setDemoMsg(null);
               void window.api.devseed
                 .purge()
                 .then((r) => {
-                  setDemoMsg(r.ok ? `Removed ${r.removed} demo rows.` : r.error ?? "Failed.");
+                  setDemoMsg(r.ok ? `Removed ${r.removed} seeded rows and restored the licence.` : r.error ?? "Failed.");
                   return window.api.devseed.status().then(setDemo);
                 })
                 .catch((e: unknown) => setDemoMsg(e instanceof Error ? e.message : String(e)))

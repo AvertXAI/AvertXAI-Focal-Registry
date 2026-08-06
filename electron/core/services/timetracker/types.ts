@@ -96,6 +96,11 @@ export interface Project {
   time_display_mode: TimeDisplayMode | null;
   archived_at: string | null;
   archive_reason: string | null;
+  /** COMPLETION (08-06, ruling 1): when the job was completed; NULL = not completed. A SEPARATE
+      flag from archived_at by ruling 4 — the two coexist and mean different things. */
+  completed_at: string | null;
+  /** INV-YYYY-NNNN, allocated on first invoice export and never re-allocated. */
+  invoice_number: string | null;
 }
 
 export interface ArchiveAuditEntry {
@@ -118,6 +123,8 @@ export interface ProjectListItem extends Project {
   client_name: string;
   contact_phone: string | null;
   email: string | null;
+  client_company: string | null;
+  client_address: string | null;
   group_name: string | null;
   group_color: string | null;
   /** The group's emoji, shown BESIDE the colour dot. Null when ungrouped or not yet assigned. */
@@ -340,6 +347,9 @@ export interface NewProjectInput {
   clientName: string;
   contactPhone: string;
   email: string;
+  /** The invoice bill-to block's two fields (08-06). Optional: older callers omit them. */
+  clientCompany?: string | null;
+  clientAddress?: string | null;
   rateType: RateType;
   hourlyRate: number | null;
   color: string;
@@ -377,6 +387,9 @@ export interface ProjectItem {
   qty: number;
   description: string;
   amount: number;
+  /** Per-line unit rate (08-06, for the invoice's qty × rate = amount columns). NULL on legacy
+      rows — readers derive amount ÷ qty; amount stays the stored truth either way. */
+  unit_rate: number | null;
   deleted_at: string | null;
   created_at: string;
 }
@@ -386,6 +399,42 @@ export interface ProjectItemInput {
   qty: number;
   description: string;
   amount: number;
+  /** Optional — captured by the modal going forward; legacy rows stay null and derive on read. */
+  unitRate?: number | null;
+}
+
+// ---- invoice (08-06) --------------------------------------------------------------------
+
+export interface InvoiceLine {
+  description: string;
+  qty: number;
+  rate: number;
+  amount: number;
+}
+
+/** Everything the renderer's invoice document composes — assembled main-side in invoice.ts. */
+export interface InvoiceData {
+  number: string;
+  invoice_date: string;
+  completed_at: string | null;
+  business: {
+    name: string;
+    address: string;
+    phone: string;
+    email: string;
+    website: string;
+    payment_methods: string;
+    terms: string;
+  };
+  client: { name: string; company: string; address: string; phone: string; email: string };
+  project_name: string;
+  service_dates: { first: string | null; last: string | null };
+  lines: InvoiceLine[];
+  subtotal: number;
+  tax_rate: number;
+  tax_amount: number;
+  total: number;
+  balance_due: number;
 }
 
 /** Someone ON a project — membership, which employee_entries cannot express because it only

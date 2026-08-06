@@ -15,6 +15,7 @@ import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
 import { getPerson } from "./people";
+import { assertNotCompleted } from "../timetracker/completion";
 import type { Adjustment, AdjustmentKind, EmployeeAuditEntry } from "./types";
 import { vAmount, vDeltaAmount, vDeltaMinutes, vId, vNullableId, vNullableString, vString, vUuid } from "./validate";
 
@@ -89,6 +90,9 @@ function insert(
     note: string;
   }
 ): Adjustment {
+  // Completion lock (ruling 3): no corrections on a completed project — either kind. Adjustments
+  // stay exempt from CAPS, not from the lock. A null project (amount kind) passes.
+  assertNotCompleted(db, values.projectId);
   const person = getPerson(db, values.employeeId);
   const uuid = generateUUIDv7();
   const at = nowIso();
@@ -168,6 +172,7 @@ export function updateAdjustment(db: Db, uuid: string, deltaValue: number, note:
     | undefined;
   if (!existing) throw new Error(`Adjustment ${uuid} not found`);
   if (existing.deleted_at) throw new Error("Cannot edit a deleted adjustment");
+  assertNotCompleted(db, existing.project_id); // by-uuid path — parent resolved first
   const cleanNote = requireNote(note);
   const isHours = existing.kind === "hours";
   const nextMinutes = isHours ? vDeltaMinutes(deltaValue) : null;
@@ -201,6 +206,7 @@ export function restoreAdjustment(db: Db, orgId: string, uuid: string): Adjustme
     | undefined;
   if (!existing) throw new Error(`Adjustment ${uuid} not found`);
   if (!existing.deleted_at) return parse(existing);
+  assertNotCompleted(db, existing.project_id); // restoring a correction is a correction too
   const at = nowIso();
   const audit = JSON.parse(existing.audit_log) as EmployeeAuditEntry[];
   audit.push({ action: "restored", at });
@@ -226,6 +232,7 @@ export function softDeleteAdjustment(db: Db, orgId: string, uuid: string): void 
     | undefined;
   if (!existing) throw new Error(`Adjustment ${uuid} not found`);
   if (existing.deleted_at) return;
+  assertNotCompleted(db, existing.project_id); // by-uuid path — parent resolved first
   const at = nowIso();
   const audit = JSON.parse(existing.audit_log) as EmployeeAuditEntry[];
   audit.push({ action: "deleted", at });

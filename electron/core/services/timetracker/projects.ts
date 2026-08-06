@@ -18,6 +18,7 @@ import { createGroup, getGroup, setSidebarSort } from "./groups";
 import { listActive as listActiveAdjustments } from "./adjustments";
 import { classifyProjectType } from "./derive";
 import { enforceCap } from "./license";
+import { assertNotCompleted } from "./completion";
 import type {
   ArchiveAuditEntry,
   Cost,
@@ -43,6 +44,8 @@ SELECT
   c.name  AS client_name,
   c.contact_phone,
   c.email,
+  c.company AS client_company,
+  c.address AS client_address,
   g.name  AS group_name,
   g.color AS group_color,
   g.icon  AS group_icon,
@@ -155,27 +158,47 @@ export function groupTotals(db: Db, orgId: string): GroupTotalRow[] {
     .all(orgId) as GroupTotalRow[];
 }
 
-export function findOrCreateClient(db: Db, orgId: string, name: string, phone: string, email: string): number {
+export function findOrCreateClient(
+  db: Db,
+  orgId: string,
+  name: string,
+  phone: string,
+  email: string,
+  company = "",
+  address = ""
+): number {
   const existing = db
     .prepare(`SELECT id FROM timetracker_clients WHERE name = ? COLLATE NOCASE`)
     .get(name.trim()) as { id: number } | undefined;
   if (existing) {
-    if (phone.trim() || email.trim()) {
+    if (phone.trim() || email.trim() || company.trim() || address.trim()) {
+      // Create-path ENRICHMENT (the D12-adjacent semantics, receipted and kept): a non-empty value
+      // fills in; an empty one leaves what the matched client already has.
       db.prepare(
         `UPDATE timetracker_clients SET
            contact_phone = CASE WHEN ? <> '' THEN ? ELSE contact_phone END,
            email         = CASE WHEN ? <> '' THEN ? ELSE email END,
+           company       = CASE WHEN ? <> '' THEN ? ELSE company END,
+           address       = CASE WHEN ? <> '' THEN ? ELSE address END,
            updated_at    = CURRENT_TIMESTAMP
          WHERE id = ?`
-      ).run(phone.trim(), phone.trim(), email.trim(), email.trim(), existing.id);
+      ).run(
+        phone.trim(), phone.trim(), email.trim(), email.trim(),
+        company.trim(), company.trim(), address.trim(), address.trim(),
+        existing.id
+      );
     }
     return existing.id;
   }
   const res = db
     .prepare(
-      `INSERT INTO timetracker_clients (uuid, org_id, name, contact_phone, email, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO timetracker_clients (uuid, org_id, name, contact_phone, email, company, address, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(generateUUIDv7(), orgId, name.trim(), phone.trim() || null, email.trim() || null, nowIso());
+    .run(
+      generateUUIDv7(), orgId, name.trim(), phone.trim() || null, email.trim() || null,
+      company.trim() || null, address.trim() || null, nowIso()
+    );
   return Number(res.lastInsertRowid);
 }
 
@@ -217,7 +240,10 @@ export function contractFileAbsolutePath(db: Db, projectId: number): string | nu
 
 export function createProject(db: Db, orgId: string, input: NewProjectInput): ProjectListItem {
   enforceCap(db, "projects"); // MAIN-SIDE tier cap — the UI's disabled state is only a hint
-  const clientId = findOrCreateClient(db, orgId, input.clientName, input.contactPhone, input.email);
+  const clientId = findOrCreateClient(
+    db, orgId, input.clientName, input.contactPhone, input.email,
+    input.clientCompany ?? "", input.clientAddress ?? ""
+  );
   const groupId = resolveGroupId(db, orgId, input);
   const maxOrder = db.prepare(`SELECT COALESCE(MAX(priority_order), 0) AS m FROM timetracker_projects`).get() as {
     m: number;
@@ -257,6 +283,7 @@ export function createProject(db: Db, orgId: string, input: NewProjectInput): Pr
 }
 
 export function updateProject(db: Db, orgId: string, input: UpdateProjectInput): ProjectListItem {
+  assertNotCompleted(db, input.id); // completion lock — also covers the contract-file attach below
   const current = db.prepare(`SELECT client_id FROM timetracker_projects WHERE id = ?`).get(input.id) as
     | { client_id: number }
     | undefined;
@@ -264,10 +291,14 @@ export function updateProject(db: Db, orgId: string, input: UpdateProjectInput):
   const groupId = resolveGroupId(db, orgId, input);
   const isContract = input.rateType === "contract";
   const kind = isContract ? (input.contractKind ?? "paid") : null;
-  db.prepare(`UPDATE timetracker_clients SET name = ?, contact_phone = ?, email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
+  db.prepare(
+    `UPDATE timetracker_clients SET name = ?, contact_phone = ?, email = ?, company = ?, address = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+  ).run(
     input.clientName.trim(),
     input.contactPhone.trim() || null,
     input.email.trim() || null,
+    (input.clientCompany ?? "").trim() || null,
+    (input.clientAddress ?? "").trim() || null,
     current.client_id
   );
   // Writes ONLY its own columns — a rate/kind change must never touch time_entries.
@@ -300,11 +331,13 @@ export function updateProject(db: Db, orgId: string, input: UpdateProjectInput):
 }
 
 export function setProjectColor(db: Db, id: number, color: string): void {
+  assertNotCompleted(db, id);
   db.prepare(`UPDATE timetracker_projects SET color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(color, id);
 }
 
 /** Persist the elapsed/remaining flip (display-only; never touches time_entries). */
 export function setTimeDisplayMode(db: Db, id: number, mode: TimeDisplayMode): void {
+  assertNotCompleted(db, id);
   const res = db
     .prepare(`UPDATE timetracker_projects SET time_display_mode = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
     .run(mode, id);
@@ -313,6 +346,7 @@ export function setTimeDisplayMode(db: Db, id: number, mode: TimeDisplayMode): v
 
 /** Drag-to-regroup: sidebar drop updates the DB; every view re-reads from here. */
 export function setProjectGroup(db: Db, id: number, groupId: number | null): void {
+  assertNotCompleted(db, id);
   if (groupId != null && !getGroup(db, groupId)) throw new Error(`Group ${groupId} not found`);
   const res = db
     .prepare(`UPDATE timetracker_projects SET group_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
@@ -337,6 +371,7 @@ export function getProjectDetail(db: Db, id: number): ProjectDetail {
 }
 
 export function renameProject(db: Db, id: number, name: string): void {
+  assertNotCompleted(db, id);
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Project name is required");
   const res = db
@@ -350,6 +385,7 @@ export function renameProject(db: Db, id: number, name: string): void {
  * end when null), rewriting priority_order for that group's projects only.
  */
 export function reorderProject(db: Db, id: number, beforeProjectId: number | null): void {
+  assertNotCompleted(db, id);
   const me = db.prepare(`SELECT id, group_id FROM timetracker_projects WHERE id = ?`).get(id) as
     | { id: number; group_id: number | null }
     | undefined;
@@ -397,6 +433,7 @@ function cascadeDeleteProject(db: Db, id: number): void {
  * Refuses while a live session is running on the project.
  */
 export function deleteProject(db: Db, id: number): void {
+  assertNotCompleted(db, id); // a completed job cannot be destroyed by accident — reactivate first
   const exists = db.prepare(`SELECT id FROM timetracker_projects WHERE id = ?`).get(id);
   if (!exists) throw new Error(`Project ${id} not found`);
   const live = db.prepare(`SELECT id FROM timetracker_active_sessions WHERE project_id = ?`).get(id);
@@ -495,6 +532,7 @@ export function getNote(db: Db, projectId: number): string {
 }
 
 export function saveNote(db: Db, orgId: string, projectId: number, body: string): void {
+  assertNotCompleted(db, projectId);
   db.prepare(
     `INSERT INTO timetracker_notes (uuid, org_id, project_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(project_id) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at`

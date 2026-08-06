@@ -33,6 +33,13 @@ export function ensureTimeTrackerSchema(db: Db): void {
     "contact_phone TEXT",
     "email TEXT",
   ]);
+  // Client company + address — the two fields an invoice's bill-to block needs that the 08-06 recon
+  // marked NOT FOUND (and the fix pass left unpersisted). Additive, guarded, AFTER createTable.
+  {
+    const cols = (db.pragma("table_info(timetracker_clients)") as { name: string }[]).map((c) => c.name);
+    if (!cols.includes("company")) db.exec("ALTER TABLE timetracker_clients ADD COLUMN company TEXT;");
+    if (!cols.includes("address")) db.exec("ALTER TABLE timetracker_clients ADD COLUMN address TEXT;");
+  }
 
   createTable(db, "timetracker_groups", [
     "org_id TEXT NOT NULL",
@@ -81,6 +88,14 @@ export function ensureTimeTrackerSchema(db: Db): void {
     if (!cols.includes("spend_budget")) db.exec("ALTER TABLE timetracker_projects ADD COLUMN spend_budget REAL;");
     // Phone extension, its own field so the ten-digit cap on contact_phone stays a real cap.
     if (!cols.includes("phone_ext")) db.exec("ALTER TABLE timetracker_projects ADD COLUMN phone_ext TEXT;");
+    // COMPLETION (Jason ruled 08-06-2026, ruling 1: BOTH status='done' AND a timestamp). Nullable —
+    // NULL means not completed; the value is when. SEPARATE from archived_at by ruling 4: the two
+    // flags coexist and mean different things (archived hides and counts as wasted; completed
+    // locks, stays visible, and keeps counting in Analytics).
+    if (!cols.includes("completed_at")) db.exec("ALTER TABLE timetracker_projects ADD COLUMN completed_at TEXT;");
+    // INVOICE NUMBER — INV-YYYY-NNNN, allocated the FIRST time an invoice is exported for this
+    // project and stored here so a re-export reproduces the same number (never re-allocated).
+    if (!cols.includes("invoice_number")) db.exec("ALTER TABLE timetracker_projects ADD COLUMN invoice_number TEXT;");
   }
 
   // ITEMIZED COSTS — the qty/description/amount rows the project modal carries. Storage the
@@ -99,6 +114,12 @@ export function ensureTimeTrackerSchema(db: Db): void {
   db.exec(
     "CREATE INDEX IF NOT EXISTS idx_timetracker_project_items_project ON timetracker_project_items (project_id);"
   );
+  // UNIT RATE (Jason ruled 08-06-2026): the invoice's qty × rate = amount column set. Nullable —
+  // rows from before this column derive it as amount ÷ qty ON READ; amount stays the stored truth.
+  {
+    const cols = (db.pragma("table_info(timetracker_project_items)") as { name: string }[]).map((c) => c.name);
+    if (!cols.includes("unit_rate")) db.exec("ALTER TABLE timetracker_project_items ADD COLUMN unit_rate REAL;");
+  }
 
   // PROJECT MEMBERSHIP — who is ON this project, which employee_entries cannot express because it
   // only records work ALREADY DONE. The modal assigns people before any hours exist.

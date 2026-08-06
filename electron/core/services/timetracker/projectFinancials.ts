@@ -23,6 +23,7 @@
 //------------------------------------------------------------
 import { generateUUIDv7 } from "../utils/uuidv7";
 import { employeeCostForProject } from "../employees/reports";
+import { assertNotCompleted } from "./completion";
 import type { Db } from "./db";
 import type { ProjectItem, ProjectItemInput, ProjectMember, ProjectSpend } from "./types";
 import { vAmount, vId, vNullableString, vString } from "./validate";
@@ -48,11 +49,12 @@ function getItem(db: Db, id: number): ProjectItem {
 }
 
 export function addProjectItem(db: Db, orgId: string, input: ProjectItemInput): ProjectItem {
+  assertNotCompleted(db, vId(input?.projectId, "project id"));
   const at = nowIso();
   const res = db
     .prepare(
-      `INSERT INTO timetracker_project_items (uuid, org_id, project_id, qty, description, amount, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO timetracker_project_items (uuid, org_id, project_id, qty, description, amount, unit_rate, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       generateUUIDv7(),
@@ -63,6 +65,9 @@ export function addProjectItem(db: Db, orgId: string, input: ProjectItemInput): 
       // The LINE total, not a unit price. Deliberate: the mockup's rows read "2 · Battery rentals ·
       // $80.00" and the itemized total is the plain sum, so multiplying here would double-count.
       vAmount(input?.amount ?? 0, "amount"),
+      // Unit rate (08-06) — captured going forward for the invoice's qty × rate = amount columns;
+      // null is legal (legacy shape) and readers derive amount ÷ qty.
+      input?.unitRate == null ? null : vAmount(input.unitRate, "unit rate"),
       at
     );
   return getItem(db, Number(res.lastInsertRowid));
@@ -70,15 +75,18 @@ export function addProjectItem(db: Db, orgId: string, input: ProjectItemInput): 
 
 export function updateProjectItem(db: Db, id: number, input: ProjectItemInput): ProjectItem {
   const itemId = vId(id, "item id");
-  if (getItem(db, itemId).deleted_at) throw new Error("That row was removed and cannot be edited.");
+  const existing = getItem(db, itemId);
+  if (existing.deleted_at) throw new Error("That row was removed and cannot be edited.");
+  assertNotCompleted(db, existing.project_id); // by-item-id path — parent resolved first
   const res = db
     .prepare(
-      `UPDATE timetracker_project_items SET qty = ?, description = ?, amount = ?, updated_at = ? WHERE id = ?`
+      `UPDATE timetracker_project_items SET qty = ?, description = ?, amount = ?, unit_rate = ?, updated_at = ? WHERE id = ?`
     )
     .run(
       vAmount(input?.qty ?? 1, "quantity"),
       vString(input?.description, "description", 300, true).trim(),
       vAmount(input?.amount ?? 0, "amount"),
+      input?.unitRate == null ? null : vAmount(input.unitRate, "unit rate"),
       nowIso(),
       itemId
     );
@@ -91,6 +99,7 @@ export function updateProjectItem(db: Db, id: number, input: ProjectItemInput): 
 export function removeProjectItem(db: Db, id: number): void {
   const item = getItem(db, vId(id, "item id"));
   if (item.deleted_at) return;
+  assertNotCompleted(db, item.project_id); // by-item-id path — parent resolved first
   const at = nowIso();
   db.prepare(`UPDATE timetracker_project_items SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(at, at, item.id);
 }
@@ -134,6 +143,7 @@ export function listProjectEmployees(db: Db, projectId: number): ProjectMember[]
     than tripping the partial unique index. */
 export function addProjectEmployee(db: Db, orgId: string, projectId: number, personId: number): ProjectMember {
   const pid = vId(projectId, "project id");
+  assertNotCompleted(db, pid);
   const person = vId(personId, "person id");
   const live = db
     .prepare(
@@ -153,6 +163,7 @@ export function addProjectEmployee(db: Db, orgId: string, projectId: number, per
 
 /** SOFT removal — "who was on this in June" stays answerable. Idempotent. */
 export function removeProjectEmployee(db: Db, projectId: number, personId: number): void {
+  assertNotCompleted(db, vId(projectId, "project id"));
   db.prepare(
     `UPDATE timetracker_project_employees SET removed_at = ?, updated_at = ?
      WHERE project_id = ? AND person_id = ? AND removed_at IS NULL`

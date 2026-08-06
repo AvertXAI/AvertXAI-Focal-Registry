@@ -10,13 +10,23 @@
 //------------------------------------------------------------
 import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
+import { assertNotCompleted } from "./completion";
 import type { Cost, CostInput } from "./types";
+
+/** Completion lock for the by-cost-id paths: resolve the parent project FIRST, refuse there. */
+function assertCostProjectNotCompleted(db: Db, costId: number): void {
+  const row = db.prepare(`SELECT project_id FROM timetracker_costs WHERE id = ?`).get(costId) as
+    | { project_id: number }
+    | undefined;
+  if (row) assertNotCompleted(db, row.project_id);
+}
 
 export function list(db: Db, projectId: number): Cost[] {
   return db.prepare(`SELECT * FROM timetracker_costs WHERE project_id = ? ORDER BY id ASC`).all(projectId) as Cost[];
 }
 
 export function add(db: Db, orgId: string, projectId: number, input: CostInput): Cost {
+  assertNotCompleted(db, projectId);
   const res = db
     .prepare(
       `INSERT INTO timetracker_costs (uuid, org_id, project_id, label, category, amount, recurrence, url, created_at)
@@ -37,6 +47,7 @@ export function add(db: Db, orgId: string, projectId: number, input: CostInput):
 }
 
 export function update(db: Db, id: number, input: CostInput): Cost {
+  assertCostProjectNotCompleted(db, id);
   const res = db
     .prepare(
       `UPDATE timetracker_costs SET label = ?, category = ?, amount = ?, recurrence = ?, url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
@@ -47,6 +58,7 @@ export function update(db: Db, id: number, input: CostInput): Cost {
 }
 
 export function remove(db: Db, id: number): void {
+  assertCostProjectNotCompleted(db, id);
   db.prepare(`DELETE FROM timetracker_costs WHERE id = ?`).run(id);
 }
 

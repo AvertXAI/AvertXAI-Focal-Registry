@@ -10,6 +10,7 @@
 //------------------------------------------------------------
 import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
+import { assertNotCompleted } from "./completion";
 import type { LedgerEntry } from "./types";
 
 export function list(db: Db, projectId: number): LedgerEntry[] {
@@ -20,6 +21,7 @@ export function list(db: Db, projectId: number): LedgerEntry[] {
 
 /** Append-only: an update inserts a NEW row carrying previous_amount — history is never overwritten. */
 export function add(db: Db, orgId: string, projectId: number, amount: number, note: string | null): LedgerEntry {
+  assertNotCompleted(db, projectId);
   if (!Number.isFinite(amount) || amount < 0) throw new Error("Amount must be a non-negative number");
   const latest = db
     .prepare(`SELECT amount FROM timetracker_value_ledger WHERE project_id = ? ORDER BY id DESC LIMIT 1`)

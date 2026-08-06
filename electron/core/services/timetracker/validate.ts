@@ -109,6 +109,8 @@ export function vProjectInput(raw: unknown): NewProjectInput {
     clientName: vString(o.clientName, "client name", 200, true),
     contactPhone: vString(o.contactPhone ?? "", "contact phone", 50),
     email: vString(o.email ?? "", "email", 200),
+    clientCompany: vNullableString(o.clientCompany, "client company", 200),
+    clientAddress: vNullableString(o.clientAddress, "client address", 400),
     rateType,
     hourlyRate,
     color: vColor(o.color),

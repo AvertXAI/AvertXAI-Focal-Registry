@@ -56,6 +56,8 @@ const api: Api = {
   },
   dataviewer: {
     getDevMode: () => invoke("dataviewer:getDevMode"),
+    updateRow: (table: string, pkValue: unknown, changes: Record<string, unknown>) => invoke("dataviewer:updateRow", table, pkValue, changes),
+    deleteRow: (table: string, pkValue: unknown) => invoke("dataviewer:deleteRow", table, pkValue),
     setDevMode: (on: boolean) => invoke("dataviewer:setDevMode", on),
   },
   getFirstRunStatus: () => invoke("firstRun:get"),
@@ -239,7 +241,7 @@ const api: Api = {
       list: (opts?: { limit?: number; projectId?: number }) => invoke("timetracker:listActivity", opts ?? {}),
     },
     reports: {
-      get: (range: string, granularity: string) => invoke("timetracker:getReport", range, granularity),
+      get: (range: string, granularity: string, projectId?: number | null) => invoke("timetracker:getReport", range, granularity, projectId ?? null),
       exportPdf: () => invoke("timetracker:exportAnalyticsPdf"),
       revealExportedPdf: (p: string) => invoke("timetracker:revealExportedPdf", p),
     },

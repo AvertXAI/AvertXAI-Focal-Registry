@@ -91,3 +91,68 @@ export function setDevMode(on: boolean): void {
     )
     .run(on ? "true" : "false");
 }
+
+// ---- DEVELOPER-MODE WRITES (A3, 08-06) — the modal's Edit/Delete stubs become real. ------------
+// The safety pattern is the READ path's own, mirrored exactly: a renderer-supplied table name is
+// whitelisted via safeTable, COLUMN names are whitelisted against PRAGMA table_info, identifiers
+// are quoted only after verification, and every VALUE travels as a bound parameter — no
+// string-concatenated SQL anywhere. Both writes are gated on Developer mode IN THE SERVICE, so a
+// forged IPC call cannot write with the toggle off.
+//
+// THERE IS NO DATA VIEWER ACTION LOG — verified before building (grep for any dv/audit log:
+// NOT FOUND), and per the instruction none was invented. Edits and deletes here are deliberately
+// raw: they bypass every validator and money rule, which is exactly what the confirm says.
+
+function assertDevMode(): void {
+  if (!getDevMode()) throw new Error("Developer mode is off — switch it on in the Data Viewer to edit rows.");
+}
+
+/** The row's PK column + verified columns, shared by both writes. */
+function writeTarget(table: unknown): { t: string; cols: DbColumn[]; pk: DbColumn } {
+  const t = safeTable(table);
+  const cols = getColumns(t);
+  const pk = cols.find((c) => c.pk);
+  if (!pk) throw new Error(`"${t}" has no primary key — rows here cannot be addressed safely.`);
+  return { t, cols, pk };
+}
+
+/** Coerce a typed-in string by the column's DECLARED type, so a REAL column gets a number bound to
+    it rather than the string "42" silently changing the column's affinity story. A non-numeric
+    string aimed at a numeric column refuses rather than guessing. null passes through as null. */
+function coerce(col: DbColumn, value: unknown): unknown {
+  if (value === null) return null;
+  const declared = col.type.toUpperCase();
+  if (/INT|REAL|NUMERIC|DOUBLE|FLOAT/.test(declared)) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) throw new Error(`"${col.name}" is ${col.type || "numeric"} — "${String(value)}" is not a number.`);
+    return n;
+  }
+  return String(value);
+}
+
+/** Updates ONE row by primary key. Only columns that exist may be set; the PK itself may not. */
+export function updateRow(table: unknown, pkValue: unknown, changes: Record<string, unknown>): { changed: number } {
+  assertDevMode();
+  const { t, cols, pk } = writeTarget(table);
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  for (const [name, raw] of Object.entries(changes ?? {})) {
+    const col = cols.find((c) => c.name === name);
+    if (!col) throw new Error(`Unknown column "${name}" on "${t}".`);
+    if (col.pk) throw new Error("The primary key is the row's identity — it cannot be edited.");
+    sets.push(`"${col.name}" = ?`);
+    values.push(coerce(col, raw));
+  }
+  if (sets.length === 0) return { changed: 0 };
+  const res = db().prepare(`UPDATE "${t}" SET ${sets.join(", ")} WHERE "${pk.name}" = ?`).run(...values, pkValue);
+  return { changed: res.changes };
+}
+
+/** Deletes ONE row by primary key. The renderer's confirm names the table and key; this end just
+    refuses to touch more than one row's worth of identity. */
+export function deleteRow(table: unknown, pkValue: unknown): { changed: number } {
+  assertDevMode();
+  const { t, pk } = writeTarget(table);
+  const res = db().prepare(`DELETE FROM "${t}" WHERE "${pk.name}" = ?`).run(pkValue);
+  return { changed: res.changes };
+}

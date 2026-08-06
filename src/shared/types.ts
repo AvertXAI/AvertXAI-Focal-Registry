@@ -1058,6 +1058,9 @@ export interface Api {
   /** Data Viewer persisted View(false)/Developer(true) mode — app_settings 'dataviewer_dev_mode'. */
   dataviewer: {
     getDevMode: () => Promise<boolean>;
+    /** Developer mode only (service-enforced). Raw writes — every validator and money rule bypassed. */
+    updateRow: (table: string, pkValue: unknown, changes: Record<string, unknown>) => Promise<{ changed: number }>;
+    deleteRow: (table: string, pkValue: unknown) => Promise<{ changed: number }>;
     setDevMode: (on: boolean) => Promise<void>;
   };
   /** First-Run Setup Wizard — true once an active org exists in the platform registry. */
@@ -1291,7 +1294,8 @@ export interface Api {
       list: (opts?: { limit?: number; projectId?: number }) => Promise<TimeTrackerEventLogRow[]>;
     };
     reports: {
-      get: (range: TimeTrackerReportRange, granularity: TimeTrackerReportGranularity) => Promise<TimeTrackerReportData>;
+      /** C10: an optional rail-selection filter — one project, or null/omitted for all. */
+      get: (range: TimeTrackerReportRange, granularity: TimeTrackerReportGranularity, projectId?: number | null) => Promise<TimeTrackerReportData>;
       /** printToPDF of the live Analytics view → Downloads, month-first filename; returns the path. */
       exportPdf: () => Promise<string>;
       /** Reveals a path THIS session exported (main-side whitelist) in the OS file manager. */

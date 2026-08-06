@@ -119,8 +119,20 @@ const MODULE_COMPONENTS: Record<string, ComponentType> = {
 export type UpdateToastSignal =
   | { stage: "checking" }
   | { stage: "none"; version: string }
-  | { stage: "error" };
+  | { stage: "error" }
+  // Generic app notice (A2, 08-06) — the SAME toast, event and styling carry non-updater messages
+  // (the seed's refusals and summaries) instead of a second mechanism growing beside this one.
+  // ok-toned notices auto-dismiss like "you're on the latest"; err-toned ones stay until closed.
+  | { stage: "notice"; text: string; tone: "ok" | "err" };
 export const UPDATE_TOAST_EVENT = "focal:update-toast";
+
+/** Show a plain app message in the shell toast. Long refusal sentences belong here, not squeezed
+    into a header strip where they truncate (the device-gate finding that created this). */
+export function signalAppToast(text: string, tone: "ok" | "err"): void {
+  window.dispatchEvent(
+    new CustomEvent<UpdateToastSignal | null>(UPDATE_TOAST_EVENT, { detail: { stage: "notice", text, tone } })
+  );
+}
 export function signalUpdateToast(detail: UpdateToastSignal | null): void {
   // null clears the toast — used when a manual check finds an update and the dedicated Software
   // Update window takes over (the "Checking…" line must not linger under it).
@@ -138,10 +150,10 @@ function UpdateToast() {
     return () => window.removeEventListener(UPDATE_TOAST_EVENT, onManual);
   }, []);
 
-  // "You're on the latest" leaves on its own; error stays until dismissed; checking transitions.
+  // "You're on the latest" and ok-notices leave on their own; errors stay until dismissed.
   useEffect(() => {
-    if (state?.stage !== "none") return;
-    const t = setTimeout(() => setState(null), 4000);
+    if (!(state?.stage === "none" || (state?.stage === "notice" && state.tone === "ok"))) return;
+    const t = setTimeout(() => setState(null), 6000);
     return () => clearTimeout(t);
   }, [state]);
 
@@ -152,6 +164,7 @@ function UpdateToast() {
         {state.stage === "checking" && "Checking for updates…"}
         {state.stage === "none" && `You're on the latest version (${state.version})`}
         {state.stage === "error" && "Couldn't check for updates. Check your connection."}
+        {state.stage === "notice" && state.text}
       </span>
       <button className="updatetoast-close" aria-label="Dismiss" onClick={() => setDismissed(true)}>×</button>
     </div>

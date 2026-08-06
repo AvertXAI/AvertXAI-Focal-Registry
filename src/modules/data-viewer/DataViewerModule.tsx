@@ -10,6 +10,8 @@
 //------------------------------------------------------------
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DbColumn, DbForeignKey, DbRowsPage, DbTable } from "../../shared/types";
+// The one shell toast (Settings.tsx precedent) — long seed messages truncated in the header strip.
+import { signalAppToast } from "../../App";
 import RecordModal from "./components/RecordModal";
 
 const PAGE_SIZE = 50;
@@ -35,7 +37,6 @@ export default function DataViewerModule() {
   const [railWidth, setRailWidth] = useState(RAIL_DEFAULT);
   const [demo, setDemo] = useState<{ present: boolean } | null>(null);
   const [demoBusy, setDemoBusy] = useState(false);
-  const [demoMsg, setDemoMsg] = useState<string | null>(null);
   /** The licence prompt (ruling 4): the seed never activates silently — the user pastes their key,
       it goes through the supported setLicenseKey path in main, and a wrong key refuses plainly. */
   const [keyPrompt, setKeyPrompt] = useState(false);
@@ -236,7 +237,6 @@ export default function DataViewerModule() {
             disabled={demoBusy || demo?.present === true || keyPrompt}
             title={demo?.present ? "Seed data is already loaded — purge it first" : "Load 10 projects and 20 employees (needs your licence key)"}
             onClick={() => {
-              setDemoMsg(null);
               setKeyDraft("");
               setKeyPrompt(true);
             }}
@@ -263,15 +263,19 @@ export default function DataViewerModule() {
                 disabled={demoBusy || keyDraft.trim() === ""}
                 onClick={() => {
                   setDemoBusy(true);
-                  setDemoMsg(null);
                   void window.api.devseed
                     .generate(keyDraft)
                     .then((r) => {
-                      setDemoMsg(r.ok ? `Loaded ${r.projects} projects, ${r.people} people, ${r.entries} entries.` : r.error ?? "Failed.");
-                      if (r.ok) setKeyPrompt(false);
+                      // A2: refusals are full sentences — they go to the toast, never the header.
+                      if (r.ok) {
+                        signalAppToast(`Loaded ${r.projects} projects, ${r.people} people, ${r.entries} entries.`, "ok");
+                        setKeyPrompt(false);
+                      } else {
+                        signalAppToast(r.error ?? "The seed failed.", "err");
+                      }
                       return window.api.devseed.status().then(setDemo);
                     })
-                    .catch((e: unknown) => setDemoMsg(e instanceof Error ? e.message : String(e)))
+                    .catch((e: unknown) => signalAppToast(e instanceof Error ? e.message : String(e), "err"))
                     .finally(() => setDemoBusy(false));
                 }}
               >
@@ -286,20 +290,18 @@ export default function DataViewerModule() {
             title={demo?.present ? "Remove exactly the seeded rows and restore the licence" : "No seed data is loaded"}
             onClick={() => {
               setDemoBusy(true);
-              setDemoMsg(null);
               void window.api.devseed
                 .purge()
                 .then((r) => {
-                  setDemoMsg(r.ok ? `Removed ${r.removed} seeded rows and restored the licence.` : r.error ?? "Failed.");
+                  signalAppToast(r.ok ? `Removed ${r.removed} seeded rows and restored the licence.` : r.error ?? "The purge failed.", r.ok ? "ok" : "err");
                   return window.api.devseed.status().then(setDemo);
                 })
-                .catch((e: unknown) => setDemoMsg(e instanceof Error ? e.message : String(e)))
+                .catch((e: unknown) => signalAppToast(e instanceof Error ? e.message : String(e), "err"))
                 .finally(() => setDemoBusy(false));
             }}
           >
             Purge demo
           </button>
-          {demoMsg && <span className="dv-demomsg">{demoMsg}</span>}
         </div>
 
         {selected && page ? (
@@ -393,6 +395,10 @@ export default function DataViewerModule() {
           fks={fks}
           devMode={devMode}
           onClose={() => setRecord(null)}
+          onWrote={() => {
+            fetchPage();
+            void window.api.db.tables().then(setTables).catch(() => {});
+          }}
         />
       )}
     </div>

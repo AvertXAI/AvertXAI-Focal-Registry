@@ -244,6 +244,18 @@ export function registerIpcHandlers(): void {
   safeHandle("diag:enabled", () => process.env.DIAG === "1");
   safeHandle("db:fks", (_e, table: unknown) => dataviewer.getForeignKeys(table));
   safeHandle("dataviewer:getDevMode", () => dataviewer.getDevMode());
+  // Developer-mode row writes (A3). Gated in the SERVICE on dev mode; broadcast after, because a
+  // raw edit can move any figure any surface renders.
+  safeHandle("dataviewer:updateRow", (_e, table: unknown, pkValue: unknown, changes: unknown) => {
+    const r = dataviewer.updateRow(table, pkValue, (changes ?? {}) as Record<string, unknown>);
+    if (r.changed > 0) broadcastChanged();
+    return r;
+  });
+  safeHandle("dataviewer:deleteRow", (_e, table: unknown, pkValue: unknown) => {
+    const r = dataviewer.deleteRow(table, pkValue);
+    if (r.changed > 0) broadcastChanged();
+    return r;
+  });
   safeHandle("dataviewer:setDevMode", (_e, on: unknown) => dataviewer.setDevMode(on === true));
 
   // first-run wizard — service validates orgName, then seeds settings + modules in one transaction.

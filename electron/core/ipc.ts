@@ -205,6 +205,14 @@ function safeOn(channel: string, listener: Parameters<typeof ipcMain.on>[1]): vo
   }
 }
 
+/** Tell every window that data changed — the same "timetracker:changed" channel every listening
+    surface already invalidates on. One channel meaning "re-read", never two. */
+function broadcastChanged(): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send("timetracker:changed");
+  }
+}
+
 export function registerIpcHandlers(): void {
   // Scan service start — pre-org boot (first-run wizard) skips; lazy init covers post-wizard.
   try {
@@ -671,12 +679,22 @@ export function registerIpcHandlers(): void {
   // ---- DEMO DATA (Data Viewer). Writes through the real services; purge removes exactly what it
   // ---- created, by recorded id, and never empties a table.
   safeHandle("devseed:status", () => devseed.demoStatus(getDb()));
-  safeHandle("devseed:generate", () => {
+  // The key is the USER'S, typed into the prompt — validated and activated inside the service
+  // through the same setLicenseKey the Settings screen uses (ruling 4). After a successful write
+  // (either direction) every window is told to re-read: seed data has to appear everywhere without
+  // a single click into a module (ruling on the refresh contract, 08-05).
+  safeHandle("devseed:generate", (_e, rawKey: unknown) => {
     const org = getActiveOrg();
     if (!org) return { ok: false, error: "No workspace is open." };
-    return devseed.generateDemo(getDb(), org.org_id);
+    const result = devseed.generateDemo(getDb(), org.org_id, String(rawKey ?? ""));
+    if (result.ok) broadcastChanged();
+    return result;
   });
-  safeHandle("devseed:purge", () => devseed.purgeDemo(getDb()));
+  safeHandle("devseed:purge", () => {
+    const result = devseed.purgeDemo(getDb());
+    if (result.ok) broadcastChanged();
+    return result;
+  });
 
   safeHandle("scan:openReportsFolder", (_e, runId: unknown) => {
     const { db } = scanCtx();

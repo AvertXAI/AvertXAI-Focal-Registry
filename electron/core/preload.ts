@@ -355,7 +355,7 @@ const api: Api = {
   },
   devseed: {
     status: () => invoke("devseed:status"),
-    generate: () => invoke("devseed:generate"),
+    generate: (key: string) => invoke("devseed:generate", key),
     purge: () => invoke("devseed:purge"),
   },
   vault: {

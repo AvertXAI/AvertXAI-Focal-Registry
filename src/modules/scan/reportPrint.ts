@@ -128,14 +128,17 @@ export function renderReportPrintHtml(content: string): string {
     const boldEachSegment = (line: string | null): string =>
       !line ? "" : line.split(" · ").map((seg) => boldValue(seg)).join(" · ");
 
-    const line1 = [boldEachSegment(pick("Capture range")), boldValue(pick("Size"))]
-      .filter(Boolean)
-      .join(" · ");
-    // FORMATS BEFORE MEDIA FILES (ruled 08-05-2026), and every format's count is bold.
-    // Media files stays entirely unbold — it is the detail line, not a headline.
-    const line2 = [boldEachSegment(pick("Formats")), esc(pick("Media files") ?? "")]
-      .filter(Boolean)
-      .join(" · ");
+    // FOUR LINES (ruled 08-05-2026, replacing the two-line + two-column layout, which truncated).
+    //   1 Capture range   2 Top camera + Size   3 Formats   4 Media files
+    // Capture range arrives with "· Top camera: X" appended, so it is split back apart here.
+    const capture = pick("Capture range");
+    const captureOnly = capture ? capture.split(" · ").find((x) => /^capture range/i.test(x)) ?? null : null;
+    const cameraOnly = capture ? capture.split(" · ").find((x) => /^top camera/i.test(x)) ?? null : null;
+    const line1 = boldValue(captureOnly);
+    const line2 = [boldValue(cameraOnly), boldValue(pick("Size"))].filter(Boolean).join(" · ");
+    const line3 = boldEachSegment(pick("Formats"));
+    // Media files stays entirely unbold — the detail line, not a headline.
+    const line4 = esc(pick("Media files") ?? "");
     // Anything the two lines did not claim still prints, so a future stat cannot vanish silently.
     const claimed = ["capture range", "size", "media files", "formats"];
     const rest = stats.filter((l) => !claimed.some((c) => l.toLowerCase().startsWith(c)));
@@ -143,6 +146,8 @@ export function renderReportPrintHtml(content: string): string {
       `<div class="pr-folder"><div class="pr-path">${pathBreaks(p)}</div>` +
         (line1 ? `<p class="pr-stats">${line1}</p>` : "") +
         (line2 ? `<p class="pr-stats">${line2}</p>` : "") +
+        (line3 ? `<p class="pr-stats">${line3}</p>` : "") +
+        (line4 ? `<p class="pr-stats">${line4}</p>` : "") +
         rest.map((l) => `<p class="pr-stats">${esc(l)}</p>`).join("") +
         `</div>`
     );
@@ -181,5 +186,7 @@ export const PRINT_STYLESHEET = `
   .pr-stats span { margin-right: 12pt; white-space: nowrap; }
   /* Two columns for the folder list. column-fill:auto fills the first column before starting the
      second, which reads top-to-bottom like a list rather than balancing into two short stubs. */
-  .pr-folders { column-count: 2; column-gap: 18pt; column-rule: 1px solid #e2e2e2; column-fill: auto; }
+  /* ONE column (ruled 08-05-2026). Two columns halved the line length and wrapped nearly every
+     stat line mid-value, which read as truncation. Full width, four short lines per folder. */
+  .pr-folders { column-count: 1; }
 `;

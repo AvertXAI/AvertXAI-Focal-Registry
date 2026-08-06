@@ -577,7 +577,7 @@ export default function ScanModule() {
                   <span className="scan-export-label">Export:</span>
                   <button className="scan-btn" disabled={exporting !== null} onClick={() => void exportReport("pdf")}>{exporting === "pdf" ? "…" : "PDF"}</button>
                   <button className="scan-btn" disabled={exporting !== null} onClick={() => void exportReport("xlsx")}>{exporting === "xlsx" ? "…" : "XLSX"}</button>
-                  <button className="scan-btn" disabled={exporting !== null} onClick={() => void exportReport("csv")}>{exporting === "csv" ? "…" : "CSV"}</button>
+                  
                 </div>
               </div>
               <button className="scan-modal-close" aria-label="Close" style={{ marginLeft: 10 }} onClick={() => setReportModal(null)}>×</button>

@@ -4,8 +4,7 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import path from "node:path";
 import { getDb, initDb, openDb } from "./core/services/db";
-import { ensureTimeTrackerSchema } from "./core/services/timetracker/db";
-import { ensureEmployeesSchema } from "./core/services/employees/db";
+import { ensureAllModuleSchemas } from "./core/services/db/allSchemas";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
 import { getSetting, setSetting } from "./core/services/settings";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/crypto";
@@ -218,15 +217,14 @@ app.whenReady().then(async () => {
   if (org) {
     const userData = app.getPath("userData");
     initDb(path.join(userData, `${org.app_slug}_${org.org_id}.db`));
-    // TimeTracker schema at BOOT (not lazily on first IPC like Scan/Migrate): the timer engine's
-    // crash-recovery capture must run before any heartbeat write, and running timers outlive module
-    // navigation — so the tables must exist from second zero. Idempotent, guard-only, rerunnable.
-    ensureTimeTrackerSchema(getDb());
-    // Employees schema rides the SAME boot call site (Jason 08-01-2026). It has no ticker of its
-    // own, but the ensure is guard-only and idempotent, and payroll rows are read by surfaces that
-    // must not race a lazy first-IPC. The module's ipc ctx re-ensures defensively for an org minted
-    // by the first-run wizard mid-session, which never reaches this line.
-    ensureEmployeesSchema(getDb());
+    // EVERY module schema at boot, in one loop (ruled 08-05-2026; replaced the two individual
+    // ensures 08-06). A module's tables exist because an org exists, never because someone opened
+    // a module — the previous per-module arrangement shipped a real bug: an org minted by the
+    // first-run wizard got no ensures at all, and opening TimeTracker before Employees threw
+    // "no such table: employee_entries" on the project list (LIST_SQL joins Employees' tables).
+    // Databases created BEFORE this rule converge here on their next boot; org creation itself now
+    // ensures everything too (firstrun/createOrgDatabase), so both paths are covered. Idempotent.
+    ensureAllModuleSchemas(getDb());
     // Vault lockdown: safeStorage-wrapped secret → Argon2id → SQLCipher key. The file is
     // <org_id>.atd — deliberately dull (ruled 08-02-2026), obscurity only; SQLCipher is the control.
     const vaultKey = await deriveVaultKey(getOrCreateVaultSecret(org.org_id));

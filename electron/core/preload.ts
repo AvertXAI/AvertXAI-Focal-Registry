@@ -190,6 +190,16 @@ const api: Api = {
       detail: (id: number) => invoke("timetracker:projectDetail", id),
       grandTotals: () => invoke("timetracker:grandTotals"),
       groupTotals: () => invoke("timetracker:groupTotals"),
+      // completion (08-06) — the lock's two doors
+      complete: (id: number) => invoke("timetracker:completeProject", id),
+      reactivate: (id: number) => invoke("timetracker:reactivateProject", id),
+    },
+    invoice: {
+      // Allocates INV-YYYY-NNNN on first call and returns every field the document composes.
+      data: (projectId: number) => invoke("timetracker:invoiceData", projectId),
+      // Renderer-composed HTML + stylesheet → hidden-window printToPDF (the Scan machinery).
+      exportPdf: (projectId: number, html: string, css: string) =>
+        invoke("timetracker:exportInvoicePdf", projectId, html, css),
     },
     groups: {
       list: () => invoke("timetracker:listGroups"),

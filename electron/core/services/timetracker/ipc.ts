@@ -12,7 +12,7 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/timetracker/ipc.ts
 //------------------------------------------------------------
-import { app, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { getDb } from "../db";
@@ -21,6 +21,8 @@ import * as storage from "../storage";
 import { getMainWindow } from "../../windows";
 import { ensureTimeTrackerSchema, type Db } from "./db";
 import * as projects from "./projects";
+import * as completion from "./completion";
+import * as invoice from "./invoice";
 import * as financials from "./projectFinancials";
 import * as groups from "./groups";
 import * as timer from "./timer";
@@ -202,6 +204,67 @@ export function registerTimeTrackerIpc(): void {
   safeHandle("timetracker:purgeProject", (_e, id: unknown, reason: unknown) => {
     const { db, orgId } = ttCtx();
     return projects.purgeProject(db, orgId, vId(id, "project id"), vString(reason, "purge reason", 2000, true));
+  });
+
+  // completion (08-06) — the lock's two doors. Broadcast after both: every surface re-reads, and a
+  // completed project's controls have to flip to view-only without a manual refresh.
+  safeHandle("timetracker:completeProject", (_e, id: unknown) => {
+    const { db } = ttCtx();
+    completion.completeProject(db, vId(id, "project id"));
+    timerChanged();
+  });
+  safeHandle("timetracker:reactivateProject", (_e, id: unknown) => {
+    const { db } = ttCtx();
+    completion.reactivateProject(db, vId(id, "project id"));
+    timerChanged();
+  });
+
+  // invoice (08-06) — data first (ALLOCATES the number on first call), then the print. The print is
+  // the Scan exportReportPdf machinery verbatim: renderer-composed HTML + stylesheet loaded into a
+  // hidden, sandboxed, SCRIPT-DISABLED window, Letter PORTRAIT, saved beside the analytics export
+  // under Documents\Focal Registry\Scan\Exports\TimeTracker. Collision-free filename; the NUMBER
+  // never changes on re-export (stored on the project) — only the file suffix does.
+  safeHandle("timetracker:invoiceData", (_e, id: unknown) => {
+    const { db, orgId } = ttCtx();
+    return invoice.invoiceData(db, orgId, vId(id, "project id"));
+  });
+  safeHandle("timetracker:exportInvoicePdf", async (_e, id: unknown, html: unknown, css: unknown) => {
+    const { db } = ttCtx();
+    const projectId = vId(id, "project id");
+    const row = db.prepare(`SELECT invoice_number, name FROM timetracker_projects WHERE id = ?`).get(projectId) as
+      | { invoice_number: string | null; name: string }
+      | undefined;
+    if (!row?.invoice_number) throw new Error("Export the invoice data first — no invoice number is on file.");
+    const doc = `<!doctype html><html><head><meta charset="utf-8"><style>${String(css ?? "")}</style></head><body>${String(html ?? "")}</body></html>`;
+    const tmp = path.join(app.getPath("temp"), `focal-invoice-${projectId}-${Date.now()}.html`);
+    fs.writeFileSync(tmp, doc, "utf8");
+    try {
+      const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, javascript: false } });
+      try {
+        await win.webContents.loadFile(tmp);
+        const pdf = await win.webContents.printToPDF({
+          printBackground: true,
+          pageSize: "Letter",
+          margins: { top: 0.6, bottom: 0.7, left: 0.6, right: 0.6 },
+          displayHeaderFooter: true,
+          headerTemplate: `<div></div>`,
+          footerTemplate: `<div style="font-size:8px;width:100%;padding:0 0.6in;text-align:center;color:#888;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>`,
+        });
+        const dir = path.join(documentsExportsDir(), "TimeTracker");
+        fs.mkdirSync(dir, { recursive: true });
+        const safeName = row.name.replace(/[^A-Za-z0-9 _-]/g, "").trim().replace(/\s+/g, "-").slice(0, 60) || "Project";
+        const base = `Invoice-${row.invoice_number}-${safeName}`;
+        let target = path.join(dir, `${base}.pdf`);
+        for (let i = 2; fs.existsSync(target); i++) target = path.join(dir, `${base}-${String(i).padStart(2, "0")}.pdf`);
+        fs.writeFileSync(target, pdf);
+        exportedPdfPaths.add(target); // revealExportedPdf serves it — same session-only whitelist
+        return target;
+      } finally {
+        win.destroy();
+      }
+    } finally {
+      try { fs.unlinkSync(tmp); } catch { /* best-effort temp cleanup */ }
+    }
   });
   safeHandle("timetracker:projectDetail", (_e, id: unknown) => {
     const { db } = ttCtx();

@@ -37,6 +37,18 @@ const RENDERER_KEYS = new Set([
   // list: they write through validated timetracker:* channels only.
   "timetracker.rail_collapsed",
   "timetracker.notes_sort", // Notes pad block order ("newest" | "oldest") — a sticky view preference
+  // BUSINESS PROFILE (08-06, ruled with the invoice build) — the bill-from block, payment terms and
+  // the default tax rate every invoice reads. Config-as-Data rows, written from Settings through
+  // this sanctioned path. tax_rate is a percent as free text ("8.25"); the invoice parses it.
+  "business.name",
+  "business.address",
+  "business.phone",
+  "business.email",
+  "business.website",
+  "business.payment_methods",
+  "business.terms",
+  "business.tax_rate",
+  "business.logo_path",
 ]);
 
 function safeKey(key: unknown): string {

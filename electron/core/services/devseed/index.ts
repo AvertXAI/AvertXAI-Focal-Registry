@@ -58,6 +58,11 @@ interface Ledger {
   costs: number[];
   clients: number[];
   groups: number[];
+  /** Event-log rows the seed's services emitted as side effects (person_added, entry_logged, …).
+      Captured by id range like clients/groups — logEvent returns nothing — and PURGED with
+      everything else (A1, 08-06): an append-only audit trail earns its keep for real work, but
+      demo events about demo people are ghosts in the Activity feed once their subjects are gone. */
+  events: number[];
   /** The licence key held BEFORE the seed activated one — restored verbatim on purge. null = there
       was no key, and purge restores that too (clears). Symmetry is the point (ruling 5). */
   priorLicenseKey: string | null;
@@ -65,7 +70,7 @@ interface Ledger {
 
 const EMPTY: Omit<Ledger, "priorLicenseKey"> = {
   projects: [], people: [], entries: [], tasks: [], payments: [], adjustments: [],
-  items: [], members: [], costs: [], clients: [], groups: [],
+  items: [], members: [], costs: [], clients: [], groups: [], events: [],
 };
 
 function readLedger(db: Db): Ledger | null {
@@ -229,6 +234,7 @@ export function generateDemo(db: Db, orgId: string, rawKey: string): GenerateRes
   const before = {
     clients: (db.prepare("SELECT COALESCE(MAX(id), 0) AS m FROM timetracker_clients").get() as { m: number }).m,
     groups: (db.prepare("SELECT COALESCE(MAX(id), 0) AS m FROM timetracker_groups").get() as { m: number }).m,
+    events: (db.prepare("SELECT COALESCE(MAX(id), 0) AS m FROM employee_event_log").get() as { m: number }).m,
   };
 
   try {
@@ -393,6 +399,7 @@ export function generateDemo(db: Db, orgId: string, rawKey: string): GenerateRes
       // services do not return them.
       l.clients = (db.prepare("SELECT id FROM timetracker_clients WHERE id > ?").all(before.clients) as { id: number }[]).map((r) => r.id);
       l.groups = (db.prepare("SELECT id FROM timetracker_groups WHERE id > ?").all(before.groups) as { id: number }[]).map((r) => r.id);
+      l.events = (db.prepare("SELECT id FROM employee_event_log WHERE id > ?").all(before.events) as { id: number }[]).map((r) => r.id);
 
       writeLedger(db, l);
     })();
@@ -428,6 +435,7 @@ export function purgeDemo(db: Db): { ok: boolean; error?: string; removed?: numb
     let removed = 0;
     db.transaction(() => {
       // Children first — foreign keys are ON, so a project cannot go before what points at it.
+      removed += del("employee_event_log", l.events);
       removed += del("employee_adjustments", l.adjustments);
       removed += del("employee_payments", l.payments);
       removed += del("employee_entries", l.entries);

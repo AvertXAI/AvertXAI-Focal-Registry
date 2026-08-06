@@ -112,6 +112,10 @@ ok("purge succeeds", p.ok === true, p.error ?? "");
 ok("every seeded project is gone", count("timetracker_projects") === 0);
 ok("every seeded entry, task, payment, correction is gone",
   count("employee_entries") === 0 && count("employee_tasks") === 0 && count("employee_payments") === 0 && count("employee_adjustments") === 0);
+// A1 (device gate 08-06): 133 event-log ghosts survived the first purge. The one legitimate row
+// left is REAL PERSON's own person_added — everything the seed's services emitted must be gone.
+ok("seeded event-log rows are purged; only the real person's event remains", count("employee_event_log") === 1,
+  `${count("employee_event_log")} rows`);
 ok("THE REAL PERSON SURVIVED", count("employee_people") === 1 &&
   ((db as { prepare: (s: string) => { get: (id: number) => { name: string } | undefined } })
     .prepare("SELECT name FROM employee_people WHERE id = ?").get(real.id))?.name === "REAL PERSON");

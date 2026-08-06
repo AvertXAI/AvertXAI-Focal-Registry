@@ -2,10 +2,10 @@
 // Settings — 2-pane (left nav list / right content pane). Live sections: General (Skip Fast Boot) and
 // Appearance (3-state theme toggle). The theme STATE + persistence live in App ("Expose, Don't
 // Connect"); this pane only renders the control. "Coming surfaces" stay .nb.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DoorTheme, Gear, Mail, Vault, Webhook } from "../icons";
 import { bumpRender } from "../diag";
-import { signalUpdateToast, type ThemeMode } from "../App";
+import { signalAppToast, signalUpdateToast, type ThemeMode } from "../App";
 import { setTipsEnabled } from "../components/Tip";
 import TimeTrackerSettings from "../modules/timetracker/TimeTrackerSettings";
 import type { DeviceIdentityInfo, StorageLocations } from "../shared/types";
@@ -30,7 +30,21 @@ let deviceCache: DeviceIdentityInfo | null = null;
 // same-session remounts; app_settings "settings_active_section" (bare snake_case — shell-level
 // key, in RENDERER_KEYS) survives a restart. Unknown/stale values fall back to General.
 let sectionCache: string | null = null;
-const LIVE_SECTIONS = new Set(["General", "Appearance", "Storage", "Scan", "TimeTracker"]);
+const LIVE_SECTIONS = new Set(["General", "Appearance", "Storage", "Business Profile", "Scan", "TimeTracker"]);
+
+/** Business Profile keys (08-06) — the invoice's bill-from block, terms and default tax rate.
+    Config-as-Data rows in app_settings; every key is in RENDERER_KEYS. */
+const BIZ_FIELDS = [
+  { key: "business.name", label: "Business name", hint: "Shown at the top of every invoice." },
+  { key: "business.address", label: "Address", hint: "Street, city, state, zip — line breaks are kept.", multi: true },
+  { key: "business.phone", label: "Phone" },
+  { key: "business.email", label: "Email" },
+  { key: "business.website", label: "Website" },
+  { key: "business.payment_methods", label: "Payment methods", hint: "Free text — Zelle, Venmo, check payable-to…", multi: true },
+  { key: "business.terms", label: "Terms", hint: "Payment terms shown on the invoice, e.g. \"Due on receipt\".", multi: true },
+  { key: "business.tax_rate", label: "Default tax rate (%)", hint: "Sales tax percent, e.g. 8.25. Leave empty for no tax line." },
+  { key: "business.logo_path", label: "Logo path", hint: "Reserved for a later invoice revision — stored, not yet printed." },
+] as const;
 
 // Warm the toggle cache from app_settings. Called at APP BOOT (App.tsx) — not just on Settings
 // mount — because a renderer reload (Ctrl+R) wipes this module-level cache, and warming it only on
@@ -70,6 +84,23 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const [storageLoc, setStorageLoc] = useState<StorageLocations | null>(null);
   const [storageMsg, setStorageMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pendingRoot, setPendingRoot] = useState<string | null>(null);
+  // Business Profile (08-06) — nine app_settings values; loaded when the section opens, saved on blur.
+  const [biz, setBiz] = useState<Record<string, string>>({});
+  const saveBiz = (key: string, value: string): void => {
+    void window.api.settings.set(key, value).catch(() => {});
+  };
+  // B6 easter egg — ten clicks on the leaf unlock developer mode. NO counter is shown; the count
+  // lives in a ref so re-renders cannot reset it. Re-locks only on app update (service-side rule).
+  const leafClicks = useRef(0);
+  const onLeafClick = (): void => {
+    leafClicks.current += 1;
+    if (leafClicks.current >= 10) {
+      leafClicks.current = 0;
+      void window.api.dataviewer.setDevMode(true).then(() => {
+        signalAppToast("Developer mode unlocked — it stays unlocked until the next app update.", "ok");
+      }).catch(() => {});
+    }
+  };
 
   useEffect(() => {
     // Re-read all toggle values together, apply them, THEN (after the next paint) enable the knob
@@ -106,6 +137,13 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   useEffect(() => {
     if (activeSection === "Scan") { loadCleared(); setConfirmStep(0); setScanMsg(null); }
     if (activeSection === "Storage") { setStorageMsg(null); setPendingRoot(null); void window.api.storage.locations().then(setStorageLoc).catch(() => {}); }
+    if (activeSection === "Business Profile") {
+      void Promise.all(BIZ_FIELDS.map((f) => window.api.settings.get(f.key))).then((vals) => {
+        const next: Record<string, string> = {};
+        BIZ_FIELDS.forEach((f, i) => { next[f.key] = vals[i] ?? ""; });
+        setBiz(next);
+      }).catch(() => {});
+    }
   }, [activeSection]);
 
   const pickNewRoot = async () => {
@@ -202,6 +240,10 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
             <button className={nav("Storage")} onClick={() => openSection("Storage")}>
               <FolderIcon />
               Storage
+            </button>
+            <button className={nav("Business Profile")} onClick={() => openSection("Business Profile")}>
+              <BriefcaseIcon />
+              Business Profile
             </button>
             <div className="setsec">Access</div>
             <div className="setsec">Applications</div>
@@ -441,6 +483,40 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
               </>
             )}
 
+            {activeSection === "Business Profile" && (
+              <>
+                <h2>Business Profile</h2>
+                <p className="hint" style={{ marginBottom: 20 }}>
+                  Who the invoice comes from. Every field here prints on the invoice a completed job exports —
+                  saved as you leave each field.
+                </p>
+                {BIZ_FIELDS.map((f) => (
+                  <div className="field" key={f.key} style={{ marginBottom: 18 }}>
+                    <label htmlFor={f.key} style={{ display: "block", marginBottom: 6 }}>{f.label}</label>
+                    {"multi" in f && f.multi ? (
+                      <textarea
+                        id={f.key}
+                        className="settext settextarea"
+                        rows={3}
+                        value={biz[f.key] ?? ""}
+                        onChange={(e) => setBiz((b) => ({ ...b, [f.key]: e.target.value }))}
+                        onBlur={(e) => saveBiz(f.key, e.target.value)}
+                      />
+                    ) : (
+                      <input
+                        id={f.key}
+                        className="settext"
+                        value={biz[f.key] ?? ""}
+                        onChange={(e) => setBiz((b) => ({ ...b, [f.key]: e.target.value }))}
+                        onBlur={(e) => saveBiz(f.key, e.target.value)}
+                      />
+                    )}
+                    {"hint" in f && f.hint && <p className="hint" style={{ marginTop: 6 }}>{f.hint}</p>}
+                  </div>
+                ))}
+              </>
+            )}
+
             {activeSection === "TimeTracker" && <TimeTrackerSettings />}
 
             {activeSection === "Scan" && (
@@ -495,8 +571,33 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
             )}
           </div>
         </div>
+        {/* B6 (08-06): the leaf. Small, outlined, LOW CONTRAST, far bottom-right — no label, no
+            tooltip, no counter. Ten clicks unlock developer mode (toast confirms on the tenth). */}
+        <button className="setleaf" aria-label="decoration" onClick={onLeafClick}>
+          <LeafIcon />
+        </button>
       </div>
     </main>
+  );
+}
+
+// A small outlined leaf — deliberately quiet; the whole point is that it does not look like a control.
+function LeafIcon() {
+  return (
+    <svg width={14} height={14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13.2 2.8C8.4 3 4.6 5.2 3.4 8.6c-.9 2.6.2 4.6.2 4.6s2.2.5 4.6-.5c3.3-1.4 5.2-5.2 5-9.9Z" />
+      <path d="M3.8 13C6 10 9 7.4 11.6 5.8" />
+    </svg>
+  );
+}
+
+// Briefcase outline — Business Profile, same hand-rolled 16-grid the other nav icons use.
+function BriefcaseIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1.8" y="4.6" width="12.4" height="8.6" rx="1.3" />
+      <path d="M5.6 4.6V3.4A1.2 1.2 0 0 1 6.8 2.2h2.4a1.2 1.2 0 0 1 1.2 1.2v1.2M1.8 8h12.4" />
+    </svg>
   );
 }
 

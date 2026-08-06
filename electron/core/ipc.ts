@@ -243,6 +243,9 @@ export function registerIpcHandlers(): void {
   // of logging "No handler registered for 'diag:enabled'" on every boot — a red herring in the log.
   safeHandle("diag:enabled", () => process.env.DIAG === "1");
   safeHandle("db:fks", (_e, table: unknown) => dataviewer.getForeignKeys(table));
+  // B6 (08-06): dev mode re-locks on app update — the stored unlock is compared against THIS
+  // version, injected once here so the service stays electron-free.
+  dataviewer.setRunningVersion(app.getVersion());
   safeHandle("dataviewer:getDevMode", () => dataviewer.getDevMode());
   // Developer-mode row writes (A3). Gated in the SERVICE on dev mode; broadcast after, because a
   // raw edit can move any figure any surface renders.

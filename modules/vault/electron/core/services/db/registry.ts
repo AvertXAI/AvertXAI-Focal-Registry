@@ -8,4 +8,4 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: modules/vault/electron/core/services/db/registry.ts
 //------------------------------------------------------------
-export { getActiveOrg, initRegistry } from "../../../../../../electron/core/services/db/registry";
+export { addOrg, getActiveOrg, initRegistry } from "../../../../../../electron/core/services/db/registry";

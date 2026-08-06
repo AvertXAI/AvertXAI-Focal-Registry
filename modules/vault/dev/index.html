@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-theme="hybrid">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+<title>Secured Vault — dev host</title>
+<!-- the module's own stylesheet, emitted beside the renderer bundle by esbuild -->
+<link rel="stylesheet" href="./renderer.css" />
+<style>
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary
+   DEV HOST ONLY. The shell tokens the module reads, at their canon Hybrid / Dark / Light values,
+   so the module can be looked at in all three modes before it is mounted in the real shell. In the
+   app these come from src/globals.css; this file never ships. */
+:root {
+  --mc-base: #0d1320; --mc-panels: #121a2e; --mc-nested: #182238; --mc-border: #233149;
+  --mc-text: #e8edf7; --mc-muted: #8b9bb4; --mc-dimmer: #5b6b88; --mc-accent-primary: #4f8df0;
+  --mc-orange: #ff9100; --mc-green: #16a34a; --mc-field: #0d1320; --mc-topbar: #0d1320;
+  --mc-radius: 6px; --mc-footer-height: 0px;
+  --mc-font: 'Segoe UI', system-ui, sans-serif;
+  --mc-mono: 'Cascadia Mono', Consolas, monospace;
+}
+[data-theme="dark"] {
+  --mc-base: #1f1f1f; --mc-panels: #2c2c2a; --mc-nested: #2c2a26; --mc-border: #61615b;
+  --mc-text: #E5E5E5; --mc-muted: #A0A0A0; --mc-dimmer: #71716B; --mc-accent-primary: #d97757;
+  --mc-field: #424240; --mc-topbar: #262626;
+}
+[data-theme="light"] {
+  --mc-base: #FAFAFA; --mc-panels: #FFFFFF; --mc-nested: #F5F5F5; --mc-border: #E5E5E5;
+  --mc-text: #1A1A1A; --mc-muted: #737373; --mc-dimmer: #A3A3A2; --mc-accent-primary: #d97757;
+  --mc-field: #FFFFFF; --mc-topbar: #FFFFFF;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; background: var(--mc-base); }
+body { font-family: var(--mc-font); color: var(--mc-text); }
+/* The real shell's rule, reproduced so the three-class specificity trap behaves identically here. */
+.view { display: none; }
+.view.shown { display: block; }
+/* dev-host chrome only */
+.devbar { height: 58px; display: flex; align-items: center; gap: 14px; padding: 0 18px;
+  background: var(--mc-topbar); border-bottom: 1px solid var(--mc-border); }
+.devbar b { font-size: 13px; }
+.devbar span { font-size: 12px; color: var(--mc-muted); }
+.devbar .right { margin-left: auto; display: flex; gap: 8px; }
+.devbar button { background: var(--mc-nested); border: 1px solid var(--mc-border); color: var(--mc-text);
+  border-radius: 7px; padding: 5px 11px; font-size: 12px; cursor: pointer; font-family: inherit; }
+.devbar button.on { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
+</style>
+</head>
+<body>
+  <div class="devbar">
+    <b>AvertXAI · Focal Registry / Secured Vault 🔒</b>
+    <span>dev host — throwaway database, not your real vault</span>
+    <div class="right">
+      <button data-theme-btn="hybrid" class="on">Hybrid</button>
+      <button data-theme-btn="dark">Dark</button>
+      <button data-theme-btn="light">Light</button>
+    </div>
+  </div>
+  <div id="root"></div>
+  <script type="module" src="./renderer.js"></script>
+  <script>
+    document.querySelectorAll("[data-theme-btn]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        document.querySelectorAll("[data-theme-btn]").forEach(function (x) { x.classList.remove("on"); });
+        b.classList.add("on");
+        document.documentElement.setAttribute("data-theme", b.dataset.themeBtn);
+      });
+    });
+  </script>
+</body>
+</html>

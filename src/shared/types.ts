@@ -414,7 +414,8 @@ export type TimeTrackerTier = "free" | "pro" | "business";
 /** Licence state — hardcoded offline validation; the HIGHEST entitlement of the two stored values wins. */
 export interface TimeTrackerLicenseState {
   tier: TimeTrackerTier;
-  caps: { projects: number | null; timers: number | null; soundUploads: number | null };
+  /** null = unlimited. `people` joined 08-06 when the Employees cap became tier-aware. */
+  caps: { projects: number | null; timers: number | null; soundUploads: number | null; people: number | null };
   licenseKey: string | null;
   marketplaceId: string | null;
   keyTiers: { licenseKey: TimeTrackerTier | null; marketplaceId: TimeTrackerTier | null };
@@ -1418,7 +1419,8 @@ export interface Api {
   /** Demo data for the Data Viewer — generate a realistic set, or remove exactly that set. */
   devseed: {
     status: () => Promise<{ present: boolean; projects: number; people: number }>;
-    generate: () => Promise<{ ok: boolean; error?: string; projects?: number; people?: number }>;
+    /** `key` is the licence key the user typed — activated through the supported path first. */
+    generate: (key: string) => Promise<{ ok: boolean; error?: string; projects?: number; people?: number; entries?: number }>;
     purge: () => Promise<{ ok: boolean; error?: string; removed?: number }>;
   };
   /** Secured Vault — thin typed surface over vault:* IPC against the vault's OWN SQLCipher file.

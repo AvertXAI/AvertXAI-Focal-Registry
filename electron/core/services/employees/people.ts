@@ -12,7 +12,7 @@
 // File: electron/core/services/employees/people.ts
 //------------------------------------------------------------
 import { generateUUIDv7 } from "../utils/uuidv7";
-import { areCapsSuspended } from "../timetracker/license";
+import { CAPS, resolveTier, TIER_LABEL } from "../licensing";
 import { nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
 import type { Person, PersonInput } from "./types";
@@ -61,19 +61,8 @@ export function getPerson(db: Db, id: number): Person {
   return row;
 }
 
-/**
- * Free-tier ceiling on ACTIVE people — canon DECISIONS-51: "Free tier caps employees at 5".
- *
- * A named constant rather than a tier lookup, deliberately: Employees has no licence file yet, and
- * TimeTracker's resolveTier lives in ITS service layer — modules share a DATABASE, never each
- * other's services (the validate.ts doctrine). The Employees licence file replaces this constant
- * with a real CAPS[tier] read at its own phase. UNTIL THEN EVERY TIER SITS AT THE FREE CEILING,
- * which is the conservative direction to be wrong in and is flagged in the Phase 3B report.
- */
-const FREE_PERSON_CAP = 5;
-
-/** Live count, ACTIVE only — archiving frees a slot, exactly as TimeTracker counts projects
-    (license.ts:136-140). A live query so the refusal can never trust stale renderer state. */
+/** Live count, ACTIVE only — archiving frees a slot, exactly as TimeTracker counts projects.
+    A live query so the refusal can never trust stale renderer state. */
 function activePersonCount(db: Db, orgId: string): number {
   return (
     db
@@ -84,13 +73,21 @@ function activePersonCount(db: Db, orgId: string): number {
 
 export function createPerson(db: Db, orgId: string, input: PersonInput): Person {
   const p = clean(input);
-  // Cap BEFORE validation side effects reach the table. Error copy mirrors license.ts:159 so every
-  // cap in the product reads the same way, and it names the way out rather than just refusing.
-  // Same demo escape hatch as the project cap — see license.ts setCapsSuspended.
-  if (!areCapsSuspended() && activePersonCount(db, orgId) >= FREE_PERSON_CAP) {
+  // TIER-AWARE since 08-06 (previously a hardcoded FREE_PERSON_CAP = 5 that ignored every licence
+  // key — a BUSINESS key unlocked unlimited projects while the sixth employee still refused). The
+  // tier comes from core licensing, the same source TimeTracker's enforceCap reads, so one key now
+  // lifts every cap. Checked BEFORE anything reaches the table; copy mirrors the house cap shape
+  // and still names the no-money way out, because archiving frees a slot at every tier.
+  const tier = resolveTier(db);
+  const cap = CAPS[tier].people;
+  if (cap !== null && activePersonCount(db, orgId) >= cap) {
+    const lift =
+      tier === "free"
+        ? `The Pro tier raises this to ${CAPS.pro.people}; Business is unlimited.`
+        : `The Business tier is unlimited.`;
     throw new Error(
-      `Cap reached: the Free tier allows ${FREE_PERSON_CAP} people. ` +
-        `Archive someone you no longer work with to free a slot — their history and balance are kept.`
+      `Cap reached: the ${TIER_LABEL[tier]} tier allows ${cap} people. ` +
+        `Archive someone you no longer work with to free a slot — their history and balance are kept. ${lift}`
     );
   }
   const at = nowIso();

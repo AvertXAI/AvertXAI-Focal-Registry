@@ -68,6 +68,14 @@ export default function EmployeesCard() {
     load();
   }, [load]);
 
+  // Re-read on any employee/timer write from anywhere. Without this the card kept whatever it read
+  // at mount — which is why a person created on one tab did not appear in the picker on another.
+  useEffect(() => {
+    const onChanged = (): void => load();
+    api.on<void>("timetracker:changed", onChanged);
+    return () => api.off<void>("timetracker:changed", onChanged);
+  }, [api, load]);
+
   useEffect(() => {
     void api.timetracker.projects.list().then(setProjects).catch(() => setProjects([]));
     void api.timetracker.groups.list().then(setGroups).catch(() => setGroups([]));

@@ -12,7 +12,7 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/employees/ipc.ts
 //------------------------------------------------------------
-import { ipcMain } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 import { getDb } from "../db";
 import { getActiveOrg } from "../db/registry";
 import { ensureEmployeesSchema, type Db } from "./db";
@@ -30,6 +30,33 @@ import type { AmountAdjustmentInput, HoursAdjustmentInput } from "./adjustments"
 // Module-local copy of core/ipc.ts's resilient registrar (it is module-local there; a cross-import
 // would make core/ipc.ts and this file circular). Same semantics: one failed registration never
 // silently kills the rest, and the failure is logged LOUDLY with its channel name.
+/**
+ * THE CHANGE NOTIFICATION. Employee money and hours feed TimeTracker's project totals, its rail and
+ * its charts — but nothing here used to tell anyone, so those surfaces kept whatever they read at
+ * mount. Adding time to a person left the project card reading $0.00 until the module was
+ * remounted, which looked like the write had failed.
+ *
+ * It reuses the EXISTING "timetracker:changed" channel rather than inventing a second one: every
+ * listener that already invalidates on a timer mutation needs to invalidate on this for exactly the
+ * same reason, and two channels meaning "re-read" is how one of them ends up half-wired.
+ * Broadcast to every window so the mini timer and any future surface get it too.
+ */
+/** safeHandle for a WRITE: runs the handler, announces, and returns whatever it returned. Async
+    results are awaited first so the notification never races ahead of the data. */
+function mutHandle(channel: string, listener: (...a: never[]) => unknown): void {
+  safeHandle(channel, (async (...args: never[]) => {
+    const out = await (listener as (...a: never[]) => unknown)(...args);
+    announceChanged();
+    return out;
+  }) as Parameters<typeof ipcMain.handle>[1]);
+}
+
+function announceChanged(): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send("timetracker:changed");
+  }
+}
+
 function safeHandle(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
   try {
     ipcMain.handle(channel, listener);
@@ -68,24 +95,24 @@ export function registerEmployeesIpc(): void {
     return people.listArchivedPeople(db, orgId);
   });
   safeHandle("employees:getPerson", (_e, id: unknown) => people.getPerson(empCtx().db, id as number));
-  safeHandle("employees:createPerson", (_e, input: unknown) => {
+  mutHandle("employees:createPerson", (_e, input: unknown) => {
     const { db, orgId } = empCtx();
     return people.createPerson(db, orgId, input as PersonInput);
   });
-  safeHandle("employees:updatePerson", (_e, id: unknown, input: unknown) =>
+  mutHandle("employees:updatePerson", (_e, id: unknown, input: unknown) =>
     people.updatePerson(empCtx().db, id as number, input as PersonInput)
   );
-  safeHandle("employees:archivePerson", (_e, id: unknown, reason: unknown) => {
+  mutHandle("employees:archivePerson", (_e, id: unknown, reason: unknown) => {
     const { db, orgId } = empCtx();
     return people.archivePerson(db, orgId, id as number, reason as string);
   });
-  safeHandle("employees:restorePerson", (_e, id: unknown) => {
+  mutHandle("employees:restorePerson", (_e, id: unknown) => {
     const { db, orgId } = empCtx();
     return people.restorePerson(db, orgId, id as number);
   });
 
   // ---- entries (INSERT + read only — corrections are adjustments, by design) ----
-  safeHandle("employees:createEntry", (_e, input: unknown) => {
+  mutHandle("employees:createEntry", (_e, input: unknown) => {
     const { db, orgId } = empCtx();
     return entries.createEntry(db, orgId, input as EntryInput);
   });
@@ -107,15 +134,15 @@ export function registerEmployeesIpc(): void {
     const { db, orgId } = empCtx();
     return sessions.getActiveSessions(db, orgId);
   });
-  safeHandle("employees:startSession", (_e, input: unknown) => {
+  mutHandle("employees:startSession", (_e, input: unknown) => {
     const { db, orgId } = empCtx();
     return sessions.startSession(db, orgId, input as Parameters<typeof sessions.startSession>[2]);
   });
-  safeHandle("employees:stopSession", (_e, sessionId: unknown, note: unknown) => {
+  mutHandle("employees:stopSession", (_e, sessionId: unknown, note: unknown) => {
     const { db, orgId } = empCtx();
     return sessions.stopSession(db, orgId, sessionId as number, note);
   });
-  safeHandle("employees:cancelSession", (_e, sessionId: unknown) => {
+  mutHandle("employees:cancelSession", (_e, sessionId: unknown) => {
     return sessions.cancelSession(empCtx().db, sessionId as number);
   });
 
@@ -126,22 +153,22 @@ export function registerEmployeesIpc(): void {
   safeHandle("employees:listTasksForPerson", (_e, employeeId: unknown) =>
     tasks.listTasksForPerson(empCtx().db, employeeId as number)
   );
-  safeHandle("employees:createTask", (_e, input: unknown) => {
+  mutHandle("employees:createTask", (_e, input: unknown) => {
     const { db, orgId } = empCtx();
     return tasks.createTask(db, orgId, input as TaskInput);
   });
-  safeHandle("employees:updateTask", (_e, id: unknown, input: unknown) =>
+  mutHandle("employees:updateTask", (_e, id: unknown, input: unknown) =>
     tasks.updateTask(empCtx().db, id as number, input as TaskInput)
   );
-  safeHandle("employees:assignTask", (_e, id: unknown, employeeId: unknown) => {
+  mutHandle("employees:assignTask", (_e, id: unknown, employeeId: unknown) => {
     const { db, orgId } = empCtx();
     return tasks.assignTask(db, orgId, id as number, (employeeId ?? null) as number | null);
   });
-  safeHandle("employees:setTaskDone", (_e, id: unknown, done: unknown) => {
+  mutHandle("employees:setTaskDone", (_e, id: unknown, done: unknown) => {
     const { db, orgId } = empCtx();
     return tasks.setTaskDone(db, orgId, id as number, done === true);
   });
-  safeHandle("employees:removeTask", (_e, id: unknown) => {
+  mutHandle("employees:removeTask", (_e, id: unknown) => {
     tasks.removeTask(empCtx().db, id as number); // SOFT delete — the row and its title survive
   });
 
@@ -153,11 +180,11 @@ export function registerEmployeesIpc(): void {
     const { db, orgId } = empCtx();
     return payments.listPaymentsInRange(db, orgId, fromDate as string, toDate as string);
   });
-  safeHandle("employees:recordPayment", (_e, input: unknown) => {
+  mutHandle("employees:recordPayment", (_e, input: unknown) => {
     const { db, orgId } = empCtx();
     return payments.recordPayment(db, orgId, input as PaymentInput);
   });
-  safeHandle("employees:reversePayment", (_e, uuid: unknown, note: unknown) => {
+  mutHandle("employees:reversePayment", (_e, uuid: unknown, note: unknown) => {
     const { db, orgId } = empCtx();
     return payments.reversePayment(db, orgId, uuid as string, (note ?? null) as string | null);
   });
@@ -170,24 +197,24 @@ export function registerEmployeesIpc(): void {
     const { db, orgId } = empCtx();
     return adjustments.listAllAdjustments(db, orgId);
   });
-  safeHandle("employees:createHoursAdjustment", (_e, input: unknown) => {
+  mutHandle("employees:createHoursAdjustment", (_e, input: unknown) => {
     const { db, orgId } = empCtx();
     return adjustments.createHoursAdjustment(db, orgId, input as HoursAdjustmentInput);
   });
-  safeHandle("employees:createAmountAdjustment", (_e, input: unknown) => {
+  mutHandle("employees:createAmountAdjustment", (_e, input: unknown) => {
     const { db, orgId } = empCtx();
     return adjustments.createAmountAdjustment(db, orgId, input as AmountAdjustmentInput);
   });
-  safeHandle("employees:updateAdjustment", (_e, uuid: unknown, deltaValue: unknown, note: unknown) =>
+  mutHandle("employees:updateAdjustment", (_e, uuid: unknown, deltaValue: unknown, note: unknown) =>
     adjustments.updateAdjustment(empCtx().db, uuid as string, deltaValue as number, note as string)
   );
-  safeHandle("employees:softDeleteAdjustment", (_e, uuid: unknown) => {
+  mutHandle("employees:softDeleteAdjustment", (_e, uuid: unknown) => {
     const { db, orgId } = empCtx();
     adjustments.softDeleteAdjustment(db, orgId, uuid as string);
   });
   // Undoes a soft delete. Added 2026-08-04 with the Adjustments tab — the first surface that can
   // show a struck-through row, and therefore the first that needs a way back.
-  safeHandle("employees:restoreAdjustment", (_e, uuid: unknown) => {
+  mutHandle("employees:restoreAdjustment", (_e, uuid: unknown) => {
     const { db, orgId } = empCtx();
     return adjustments.restoreAdjustment(db, orgId, uuid as string);
   });

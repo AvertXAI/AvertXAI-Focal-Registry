@@ -104,6 +104,17 @@ export default function EmployeesModule() {
     load();
   }, [load]);
 
+  // Any write anywhere re-reads this module too — the roster, the ledger and the balance cards all
+  // derive from data another surface can change.
+  useEffect(() => {
+    const onChanged = (): void => {
+      load();
+      refreshLedger();
+    };
+    api.on<void>("timetracker:changed", onChanged);
+    return () => api.off<void>("timetracker:changed", onChanged);
+  }, [api, load]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // A sibling module asked for a specific tab and person (TimeTracker's Adjust button). Read ONCE,
   // on mount — a stale intent replayed later would drag the user somewhere they did not ask to go.
   useEffect(() => {

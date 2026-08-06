@@ -111,10 +111,17 @@ export default function TimeTrackerModule() {
   // One reload for everything the rail + detail render from. Called at mount and on every
   // timetracker:changed push (timer mutations move totals, so projects reload too).
   const reload = useCallback((): void => {
-    void api.timetracker.projects.list().then((p) => {
-      projectsCache = p;
-      setProjects(p);
-    }).catch(() => {});
+    void api.timetracker.projects
+      .list()
+      .then((p) => {
+        projectsCache = p;
+        setProjects(p);
+      })
+      .catch((e: unknown) => {
+        // NOT swallowed any more. A failure here leaves every total showing its previous value with
+        // no indication anything went wrong — which reads exactly like "the app stopped updating".
+        console.error("[timetracker] project list failed:", e);
+      });
     void api.timetracker.groups.list().then(setGroups).catch(() => {});
     void api.timetracker.projects.groupTotals().then(setTotals).catch(() => {});
     void api.timetracker.sidebar.getSort().then(setSortDir).catch(() => {});

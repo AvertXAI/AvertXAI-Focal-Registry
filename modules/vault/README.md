@@ -3,6 +3,23 @@
 Everything here is built **inside `modules/vault/`** and is copied into the app later. Nothing in
 this folder is wired into the running application yet.
 
+## SEE IT — run the module in its own window
+
+The module is not mounted in Focal Registry (that needs files outside this lane), so this lane
+carries its own dev host: one window, the real services, the real vault IPC, against a **throwaway**
+database under `dev/.userdata` — never your real vault. From the repo root:
+
+```bash
+node modules/vault/dev/build.mjs && npx electron modules/vault/dev/host.cjs
+```
+
+The vault opens **locked**. The master password is the placeholder one
+(`lurpz.bmt@gmail.com`). Then: **Vault settings → Load seed data** puts 46 entries in, and every
+screen has something to show. Three theme buttons in the dev bar switch Hybrid / Dark / Light.
+
+Delete `modules/vault/dev/.userdata` any time to start from nothing — it is gitignored, key file
+included.
+
 ## Run the engine proof
 
 The one command that says whether the vault engine works. It runs the whole engine — schema, lock

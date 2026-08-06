@@ -7,6 +7,7 @@
 // re-fetched when the module bumps refreshKey. Money writes ride the validating channels only.
 import { useEffect, useRef, useState } from "react";
 import type {
+  TimeTrackerProjectItem,
   TimeTrackerActiveSessionInfo,
   TimeTrackerProjectDetail,
   TimeTrackerProjectListItem,
@@ -90,6 +91,8 @@ export default function ProjectDetail({
   const [ledgerAmount, setLedgerAmount] = useState("");
   const [ledgerNote, setLedgerNote] = useState("");
   const [costModal, setCostModal] = useState(false);
+  /** The project modal's Itemize rows — a different table from `costs`, shown in the same list. */
+  const [items, setItems] = useState<TimeTrackerProjectItem[]>([]);
   const [costLabel, setCostLabel] = useState("");
   const [costCategory, setCostCategory] = useState("");
   const [costAmount, setCostAmount] = useState("");
@@ -116,6 +119,10 @@ export default function ProjectDetail({
     setDetailError(false);
     noteDraft.current = null;
     if (project === null) return;
+    void api.timetracker.financials
+      .items(project.id)
+      .then(setItems)
+      .catch(() => setItems([]));
     void api.timetracker.projects
       .detail(project.id)
       .then(setDetail)
@@ -248,7 +255,14 @@ export default function ProjectDetail({
 
       <div className="tt-cards">
         <div className="tt-card"><span className="tt-cardlabel">Total hours</span><span className="tt-cardvalue">{fmtDuration(project.total_seconds)}</span></div>
-        <div className="tt-card"><span className="tt-cardlabel">Invested value</span><span className="tt-cardvalue">{project.rate_type === "contract" && project.contract_kind === "donated" ? "Donated" : fmtMoney(project.total_value)}</span></div>
+        <div className="tt-card">
+          <span className="tt-cardlabel">Invested value</span>
+          <span className="tt-cardvalue">{project.rate_type === "contract" && project.contract_kind === "donated" ? "Donated" : fmtMoney(project.total_value)}</span>
+          {/* The money alone did not say WHERE it came from. total_seconds is everyone's time on
+              this project — the user's own tracked sessions plus employee hours — so the card now
+              reads as "this much money, over this much time". */}
+          <span className="tt-cardsub">{fmtDuration(project.total_seconds)} invested</span>
+        </div>
         <div className="tt-card">
           <span className="tt-cardlabel">Costs</span><span className="tt-cardvalue">{fmtMoney(project.total_costs)}</span>
           <span className="tt-cardsub">invested + costs = {fmtMoney(invested)}</span>
@@ -290,16 +304,28 @@ export default function ProjectDetail({
           <span className="tt-secttitle">Costs — hard line items</span>
           <button className="tt-iconbtn" onClick={() => { setModalError(null); setCostModal(true); }}>＋ Add cost</button>
         </div>
-        {detail && detail.costs.length > 0 ? (
+        {/* TWO SOURCES, one list. `costs` are the ad-hoc line items added here; `items` are the
+            Itemize rows entered on the project modal. They live in different tables but they are
+            the same thing to a user looking at what a project cost, so both are shown — with the
+            origin named so an itemized row can be traced back to where it is edited. */}
+        {detail && (detail.costs.length > 0 || items.length > 0) ? (
           <table className="tt-table">
             <thead><tr><th>Label</th><th>Category</th><th>Amount</th><th>Recurrence</th></tr></thead>
             <tbody>
               {detail.costs.map((c) => (
-                <tr key={c.id}>
+                <tr key={`cost-${c.id}`}>
                   <td>{c.label}</td>
                   <td className="dim">{c.category || "—"}</td>
                   <td className="mono">{fmtMoney(c.amount)}</td>
                   <td className="dim tt-cap">{c.recurrence}</td>
+                </tr>
+              ))}
+              {items.map((it) => (
+                <tr key={`item-${it.id}`}>
+                  <td>{it.qty > 1 ? `${it.qty} × ` : ""}{it.description}</td>
+                  <td className="dim">Itemized</td>
+                  <td className="mono">{fmtMoney(it.amount)}</td>
+                  <td className="dim">edit on the project</td>
                 </tr>
               ))}
             </tbody>

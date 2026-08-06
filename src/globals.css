@@ -31,6 +31,12 @@
   --mc-scrollbar-thumb:#2c3a58; /* hybrid default; dark/light override per-theme */
   --mc-font:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
   --mc-mono:ui-monospace,"SFMono-Regular",Consolas,monospace;
+  /* B4 (08-06): native <select> popups are separate compositor surfaces, and with NO declared
+     color-scheme Chromium initializes that surface with its own default — which cleared to a
+     full-height BLACK block for a frame before the option list painted, on every open. Declaring
+     the scheme per theme makes the popup surface born the right colour AND themes the option list
+     itself. Hybrid is a dark-surfaced theme. */
+  color-scheme:dark;
   /* MODAL EDGE — hybrid only (Jason 08-05-2026, revised same day). A dialog on hybrid's deep navy
      sat so close in value to the page behind it that it was easy to miss. Gold was tried and read
      as tacky; this is the accent blue already used for button hover, so the edge belongs to the
@@ -44,6 +50,7 @@
   --mc-topbar:#262626; --mc-sidebar:#262626; --mc-field:#424240; --mc-avatar:#313131; --mc-scrollbar-thumb:#7c7b75;
   --mc-toggle-on:#4f8df0; --mc-seg-on-background:#303539; --mc-seg-on-icon:#4773a6;
   --mc-modal-border:var(--mc-border); /* dark separates on its own — no gold */
+  color-scheme:dark;
 }
 [data-theme="light"]{ /* Claude Desktop crisp white (stash@{0} port); surface tokens kept from recon-024 */
   --mc-base:#FAFAFA; --mc-panels:#FFFFFF; --mc-nested:#F5F5F5; --mc-border:#E5E5E5;
@@ -52,6 +59,7 @@
   /* light-scope override: pale blue chip so the selected seg doesn't sit dark on white */
   --mc-toggle-on:#4f8df0; --mc-seg-on-background:#DCE8F5; --mc-seg-on-icon:#4773a6;
   --mc-modal-border:var(--mc-border); /* light separates on its own — no gold */
+  color-scheme:light;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body,#root{height:100%}
@@ -456,3 +464,17 @@ tbody tr:hover{background:var(--mc-nested)}
 .dv-keyinput{width:21ch;background:var(--mc-field);border:1px solid var(--mc-border);border-radius:7px;
   color:var(--mc-text);font:12px var(--mc-mono);letter-spacing:1px;padding:5px 9px;outline:none}
 .dv-keyinput:focus{border-color:var(--mc-accent-primary)}
+/* Data Viewer dev-mode editing (A3) */
+.dv-field-edit{display:flex;align-items:center;gap:6px}
+.dv-editinput{flex:1;min-width:0;background:var(--mc-field);border:1px solid var(--mc-border);
+  border-radius:6px;color:var(--mc-text);font:12px var(--mc-mono);padding:4px 8px;outline:none}
+.dv-editinput:focus{border-color:var(--mc-accent-primary)}
+.dv-editinput:disabled{opacity:.55}
+.dv-nullbtn{flex:none;background:none;border:1px dashed var(--mc-border);border-radius:6px;
+  color:var(--mc-dimmer);font:10.5px var(--mc-mono);padding:3px 7px;cursor:pointer}
+.dv-nullbtn.on{border-style:solid;border-color:var(--mc-accent-primary);color:var(--mc-accent-primary)}
+.dv-confirm{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dv-confirmtext{flex:1 1 260px;font-size:12px;line-height:1.5;color:var(--mc-text)}
+.dv-editerror{width:100%;font-size:12px;color:var(--mc-text);padding:8px 11px;border-radius:7px;
+  background:color-mix(in srgb,#e0574f 14%,var(--mc-panels));border:1px solid #e0574f;
+  overflow-wrap:anywhere;margin-bottom:8px}

@@ -146,7 +146,23 @@ function countOf(db: Db, kind: CapKind): number {
 }
 
 /** Throws a plain, tier-naming error when the cap is already met. null cap = unlimited = no-op. */
+/**
+ * DEMO-DATA ESCAPE HATCH. Tier caps are a PRODUCT rule (what a Free user may create), not a
+ * data-integrity rule, and the demo set is deliberately larger than Free allows because its whole
+ * purpose is to exercise surfaces that only show something with real volume behind them.
+ * Set ONLY by devseed.generateDemo, always restored in a finally. Everything else about the demo
+ * still goes through the real services, so every validator and CHECK constraint still applies.
+ */
+let capsSuspended = false;
+export function setCapsSuspended(v: boolean): void {
+  capsSuspended = v;
+}
+export function areCapsSuspended(): boolean {
+  return capsSuspended;
+}
+
 export function enforceCap(db: Db, kind: CapKind): void {
+  if (capsSuspended) return;
   const tier = resolveTier(db);
   const cap = CAPS[tier][kind];
   if (cap === null) return;

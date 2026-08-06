@@ -1415,6 +1415,12 @@ export interface Api {
       list: (opts?: { limit?: number; employeeId?: number }) => Promise<EmployeeEventRow[]>;
     };
   };
+  /** Demo data for the Data Viewer — generate a realistic set, or remove exactly that set. */
+  devseed: {
+    status: () => Promise<{ present: boolean; projects: number; people: number }>;
+    generate: () => Promise<{ ok: boolean; error?: string; projects?: number; people?: number }>;
+    purge: () => Promise<{ ok: boolean; error?: string; removed?: number }>;
+  };
   /** Secured Vault — thin typed surface over vault:* IPC against the vault's OWN SQLCipher file.
    *  A secret VALUE crosses this bridge on exactly ONE method: read(), which is access-logged
    *  main-side, misses included. list() is metadata-only by construction; create/supersede return

@@ -353,6 +353,11 @@ const api: Api = {
       list: (opts?: { limit?: number; employeeId?: number }) => invoke("employees:listActivity", opts ?? {}),
     },
   },
+  devseed: {
+    status: () => invoke("devseed:status"),
+    generate: () => invoke("devseed:generate"),
+    purge: () => invoke("devseed:purge"),
+  },
   vault: {
     // A secret VALUE crosses this bridge on exactly ONE method: read(). list() is metadata-only by
     // construction (the service never selects the value column), and create/supersede return

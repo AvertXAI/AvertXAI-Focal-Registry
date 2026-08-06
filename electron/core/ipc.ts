@@ -23,6 +23,7 @@ import { ensureMigrateSchema } from "./services/migrate/db";
 import { registerTimeTrackerIpc } from "./services/timetracker/ipc";
 import { registerEmployeesIpc } from "./services/employees/ipc";
 import { registerVaultIpc } from "./services/vault/ipc";
+import * as devseed from "./services/devseed";
 import { ASSET_CLASSES } from "./services/migrate/registry";
 import { readDeviceIdentity } from "./services/identity";
 import { ingestAll, startMindMerge, type IngestProgress, type MindMergeHandle } from "./services/mindmerge/engine";
@@ -667,6 +668,16 @@ export function registerIpcHandlers(): void {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
   });
+  // ---- DEMO DATA (Data Viewer). Writes through the real services; purge removes exactly what it
+  // ---- created, by recorded id, and never empties a table.
+  safeHandle("devseed:status", () => devseed.demoStatus(getDb()));
+  safeHandle("devseed:generate", () => {
+    const org = getActiveOrg();
+    if (!org) return { ok: false, error: "No workspace is open." };
+    return devseed.generateDemo(getDb(), org.org_id);
+  });
+  safeHandle("devseed:purge", () => devseed.purgeDemo(getDb()));
+
   safeHandle("scan:openReportsFolder", (_e, runId: unknown) => {
     const { db } = scanCtx();
     const run = scan.getRun(db, Number(runId));

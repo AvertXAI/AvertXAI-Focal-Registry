@@ -16,6 +16,7 @@ const RENDERER_KEYS = new Set([
   "launch_at_startup", // open at Windows login — DEFAULT OFF; "1" writes the OS login item (app.setLoginItemSettings)
   "rail_collapsed", // Mission Control sidebar collapse — persisted via app_settings, never localStorage
   "flyout_width", // shell sidebar drag-resize width (px, clamped renderer-side)
+  "dv_rail_width", // Data Viewer table-list drag-resize width (px, clamped renderer-side)
   "last_active_module", // boot-to-last-screen routing
   "nav_section_state", // sidebar grouped-section expand/collapse (JSON map) — never localStorage
   "theme_mode", // 3-state theme toggle (system/light/dark) — persisted, never localStorage

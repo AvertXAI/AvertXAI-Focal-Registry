@@ -12,6 +12,7 @@
 // File: electron/core/services/employees/people.ts
 //------------------------------------------------------------
 import { generateUUIDv7 } from "../utils/uuidv7";
+import { areCapsSuspended } from "../timetracker/license";
 import { nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
 import type { Person, PersonInput } from "./types";
@@ -85,7 +86,8 @@ export function createPerson(db: Db, orgId: string, input: PersonInput): Person 
   const p = clean(input);
   // Cap BEFORE validation side effects reach the table. Error copy mirrors license.ts:159 so every
   // cap in the product reads the same way, and it names the way out rather than just refusing.
-  if (activePersonCount(db, orgId) >= FREE_PERSON_CAP) {
+  // Same demo escape hatch as the project cap — see license.ts setCapsSuspended.
+  if (!areCapsSuspended() && activePersonCount(db, orgId) >= FREE_PERSON_CAP) {
     throw new Error(
       `Cap reached: the Free tier allows ${FREE_PERSON_CAP} people. ` +
         `Archive someone you no longer work with to free a slot — their history and balance are kept.`

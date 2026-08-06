@@ -287,7 +287,9 @@ tbody tr:hover{background:var(--mc-nested)}
 /* drag handle on the rail's right edge — 6px of grab area over a 1px visual line */
 .dv-railgrip{position:absolute;top:0;right:0;bottom:0;width:6px;cursor:col-resize;z-index:2}
 .dv-railgrip:hover{background:color-mix(in srgb,var(--mc-accent-primary) 40%,transparent)}
-.dv-rail-head{padding:12px 14px;font-weight:600;font-size:13px;color:var(--mc-muted);
+/* Both headers share ONE height so the rule under each lines up across the divider — they were
+   sized by their own content, so the two lines sat at different heights and read as crooked. */
+.dv-rail-head{height:46px;padding:0 14px;font-weight:600;font-size:13px;color:var(--mc-muted);
   border-bottom:1px solid var(--mc-border);display:flex;align-items:center;gap:8px}
 .dv-count{margin-left:auto;font:11px var(--mc-mono);color:var(--mc-muted);
   border:1px solid var(--mc-border);border-radius:999px;padding:0 7px}
@@ -299,7 +301,14 @@ tbody tr:hover{background:var(--mc-nested)}
 .dv-tname{font:13px var(--mc-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dv-trows{margin-left:auto;font:11px var(--mc-mono);color:var(--mc-muted)}
 .dv-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.dv-head{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--mc-border)}
+.dv-head{display:flex;align-items:center;gap:10px;height:46px;padding:0 16px;flex-wrap:nowrap;
+  border-bottom:1px solid var(--mc-border);overflow-x:auto}
+.dv-btn{flex:none;border:1px solid var(--mc-border);background:var(--mc-nested);color:var(--mc-text);
+  border-radius:7px;font-family:var(--mc-font);font-size:12px;padding:5px 11px;cursor:pointer;white-space:nowrap}
+.dv-btn:hover:not(:disabled){border-color:var(--mc-accent-primary)}
+.dv-btn:disabled{opacity:.45;cursor:default}
+.dv-btn.danger:hover:not(:disabled){border-color:#e0574f;color:#e0574f}
+.dv-demomsg{flex:none;font-size:11.5px;color:var(--mc-muted);white-space:nowrap}
 .dv-title{font-size:14px;color:var(--mc-muted)}
 .dv-title b{color:var(--mc-text);font:600 14px var(--mc-mono)}
 .dv-mode{margin-left:auto;padding:5px 12px;border-radius:999px;border:1px solid var(--mc-border);

@@ -33,6 +33,22 @@ const RAIL_MAX = 280;
 export default function DataViewerModule() {
   const [tables, setTables] = useState<DbTable[]>([]);
   const [railWidth, setRailWidth] = useState(RAIL_DEFAULT);
+  const [demo, setDemo] = useState<{ present: boolean } | null>(null);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoMsg, setDemoMsg] = useState<string | null>(null);
+
+  // Config-as-Data: the width lives in app_settings, never localStorage, and is read back at mount
+  // so a set width survives a restart. Key is whitelisted in RENDERER_KEYS.
+  useEffect(() => {
+    void window.api.settings
+      .get("dv_rail_width")
+      .then((v) => {
+        const n = Number(v);
+        if (Number.isFinite(n) && n > 0) setRailWidth(Math.min(RAIL_MAX, Math.max(RAIL_MIN, n)));
+      })
+      .catch(() => {});
+    void window.api.devseed.status().then(setDemo).catch(() => setDemo(null));
+  }, []);
 
   /** Pointer-driven resize. The rail is fixed at the module's left edge, so the pointer's clientX
       relative to the shell IS the width — no offset bookkeeping. Clamped hard at both ends. */
@@ -44,6 +60,11 @@ export default function DataViewerModule() {
     const onUp = (): void => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      // Commit on RELEASE, not per pixel — one settings write per drag, not two hundred.
+      setRailWidth((w) => {
+        void window.api.settings.set("dv_rail_width", String(w)).catch(() => {});
+        return w;
+      });
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -187,6 +208,48 @@ export default function DataViewerModule() {
           >
             {devMode ? "● Developer" : "View · read-only"}
           </button>
+          {/* DEMO DATA. Generate writes four projects, eight people, their time, corrections,
+              itemized rows and costs through the REAL services. Purge removes exactly those rows by
+              recorded id — it never empties a table, so real work beside it is untouched. */}
+          <button
+            className="dv-btn"
+            disabled={demoBusy || demo?.present === true}
+            title={demo?.present ? "Demo data is already loaded — purge it first" : "Load four projects and eight employees"}
+            onClick={() => {
+              setDemoBusy(true);
+              setDemoMsg(null);
+              void window.api.devseed
+                .generate()
+                .then((r) => {
+                  setDemoMsg(r.ok ? `Loaded ${r.projects} projects and ${r.people} people.` : r.error ?? "Failed.");
+                  return window.api.devseed.status().then(setDemo);
+                })
+                .catch((e: unknown) => setDemoMsg(e instanceof Error ? e.message : String(e)))
+                .finally(() => setDemoBusy(false));
+            }}
+          >
+            {demoBusy ? "…" : "Load demo data"}
+          </button>
+          <button
+            className="dv-btn danger"
+            disabled={demoBusy || demo?.present !== true}
+            title={demo?.present ? "Remove exactly the demo rows" : "No demo data is loaded"}
+            onClick={() => {
+              setDemoBusy(true);
+              setDemoMsg(null);
+              void window.api.devseed
+                .purge()
+                .then((r) => {
+                  setDemoMsg(r.ok ? `Removed ${r.removed} demo rows.` : r.error ?? "Failed.");
+                  return window.api.devseed.status().then(setDemo);
+                })
+                .catch((e: unknown) => setDemoMsg(e instanceof Error ? e.message : String(e)))
+                .finally(() => setDemoBusy(false));
+            }}
+          >
+            Purge demo
+          </button>
+          {demoMsg && <span className="dv-demomsg">{demoMsg}</span>}
         </div>
 
         {selected && page ? (

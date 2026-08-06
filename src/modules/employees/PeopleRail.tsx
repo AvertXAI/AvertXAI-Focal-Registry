@@ -6,6 +6,7 @@
 // PHASE 3B added the two controls Phase 3A deliberately withheld: "+ New Employee" in the header
 // (the mockup's placement), and a "Show archived" affordance — the FIRST consumer of the
 // people.listArchived bridge, which shipped in Phase 2 and had no surface until now.
+import { useState } from "react";
 import type { EmployeePerson } from "../../shared/types";
 
 interface Props {
@@ -57,11 +58,29 @@ export default function PeopleRail({
   onRestore,
   restoringId,
 }: Props) {
+  // E13 (08-06): the Projects rail's search idiom, mirrored — same live substring filter, no
+  // debounce (ProjectsRail has none; twenty local rows need none), same nothing-matches copy shape.
+  // Filters by NAME and ROLE.
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const filtered = q === ""
+    ? people
+    : people.filter((p) => p.name.toLowerCase().includes(q) || (p.role ?? "").toLowerCase().includes(q));
+
   return (
     <aside className="emp-rail" aria-label="People">
       <div className="emp-railhead">
         <span className="emp-railtitle">People</span>
         {!loading && !error && <span className="emp-railcount">{people.length}</span>}
+      </div>
+      <div className="emp-railsearch">
+        <input
+          className="emp-input"
+          placeholder="Search people or roles..."
+          value={query}
+          aria-label="Search people or roles"
+          onChange={(e) => setQuery(e.target.value)}
+        />
       </div>
       <button className="emp-railnew" onClick={onNew} disabled={loading || error}>
         + New Employee
@@ -78,8 +97,10 @@ export default function PeopleRail({
           <div className="emp-state">
             No people yet. Use <b>+ New Employee</b> above to add the first one.
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="emp-state">Nothing matches “{query.trim()}”.</div>
         ) : (
-          people.map((p) => (
+          filtered.map((p) => (
             <button
               key={p.id}
               className={"emp-personrow" + (p.id === selectedId ? " on" : "")}

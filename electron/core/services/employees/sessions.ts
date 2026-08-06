@@ -26,6 +26,7 @@ import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
 import { createEntry } from "./entries";
 import { getPerson } from "./people";
+import { assertNotCompleted } from "../timetracker/completion";
 import type { Entry, PayType, Session, SessionInput } from "./types";
 import { PAY_TYPES, vAmount, vEnum, vId, vNullableId, vNullableString, vString, vUuid } from "./validate";
 
@@ -72,6 +73,10 @@ export function startSession(db: Db, orgId: string, input: SessionInput): Sessio
   if (open) {
     throw new Error(`${person.name} already has a timer running. Stop it before starting another.`);
   }
+
+  // Completion lock — the employee timer cannot START against a completed project. (Its STOP is
+  // guarded inside createEntry, where a refusal leaves this session open rather than losing time.)
+  assertNotCompleted(db, vId(input?.projectId, "project id"));
 
   const payType = vEnum(input?.payType, PAY_TYPES, "pay type") as PayType;
   const at = nowIso();

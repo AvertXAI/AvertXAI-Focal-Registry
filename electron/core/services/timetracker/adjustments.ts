@@ -10,6 +10,7 @@
 //------------------------------------------------------------
 import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
+import { assertNotCompleted } from "./completion";
 import type { Adjustment, AdjustmentListItem, AuditEntry } from "./types";
 
 interface AdjustmentRow extends Omit<Adjustment, "audit_log"> {
@@ -73,6 +74,9 @@ function validate(deltaMinutes: number, note: string): { delta: number; note: st
 export function create(db: Db, orgId: string, projectId: number, deltaMinutes: number, note: string): AdjustmentListItem {
   if (!db.prepare(`SELECT id FROM timetracker_projects WHERE id = ?`).get(projectId))
     throw new Error(`Project ${projectId} not found`);
+  // Completion lock (ruling 3): NO corrections on a completed project — reactivate, correct,
+  // complete again. Adjustments are exempt from CAPS, not from the lock.
+  assertNotCompleted(db, projectId);
   const { delta, note: cleanNote } = validate(deltaMinutes, note);
   const uuid = generateUUIDv7();
   const at = nowIso();
@@ -91,6 +95,7 @@ export function update(db: Db, uuid: string, deltaMinutes: number, note: string)
     | undefined;
   if (!existing) throw new Error(`Adjustment ${uuid} not found`);
   if (existing.deleted_at) throw new Error("Cannot edit a deleted adjustment");
+  assertNotCompleted(db, existing.project_id); // by-uuid path — parent resolved first, refused here
   const { delta, note: cleanNote } = validate(deltaMinutes, note);
   const at = nowIso();
   const audit = JSON.parse(existing.audit_log) as AuditEntry[];
@@ -117,6 +122,7 @@ export function softDelete(db: Db, uuid: string): void {
     | undefined;
   if (!existing) throw new Error(`Adjustment ${uuid} not found`);
   if (existing.deleted_at) return;
+  assertNotCompleted(db, existing.project_id); // by-uuid path — parent resolved first, refused here
   const at = nowIso();
   const audit = JSON.parse(existing.audit_log) as AuditEntry[];
   audit.push({ action: "deleted", at });

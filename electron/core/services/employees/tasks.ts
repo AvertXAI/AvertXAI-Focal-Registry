@@ -13,6 +13,7 @@ import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
 import { getPerson } from "./people";
+import { assertNotCompleted } from "../timetracker/completion";
 import type { Task, TaskInput } from "./types";
 import { vId, vNullableId, vNullableString, vString } from "./validate";
 
@@ -53,6 +54,7 @@ export function listTasksForPerson(db: Db, employeeId: number): Task[] {
 
 export function createTask(db: Db, orgId: string, input: TaskInput): Task {
   const t = clean(input);
+  assertNotCompleted(db, t.projectId); // completion lock — no new work assigned to a completed job
   // An assignee is optional, but a named one must exist.
   const assignee = t.employeeId == null ? null : getPerson(db, t.employeeId);
   const res = db
@@ -73,8 +75,12 @@ export function createTask(db: Db, orgId: string, input: TaskInput): Task {
 
 export function updateTask(db: Db, id: number, input: TaskInput): Task {
   const taskId = vId(id, "task id");
-  if (getTask(db, taskId).deleted_at) throw new Error("Cannot edit a deleted task");
+  const before = getTask(db, taskId);
+  if (before.deleted_at) throw new Error("Cannot edit a deleted task");
   const t = clean(input);
+  // Both sides of the move are locked: off a completed project AND onto one.
+  assertNotCompleted(db, before.project_id);
+  assertNotCompleted(db, t.projectId);
   if (t.employeeId != null) getPerson(db, t.employeeId);
   const res = db
     .prepare(
@@ -91,6 +97,7 @@ export function updateTask(db: Db, id: number, input: TaskInput): Task {
 export function assignTask(db: Db, orgId: string, id: number, employeeId: number | null): Task {
   const task = getTask(db, id);
   if (task.deleted_at) throw new Error("Cannot assign a deleted task");
+  assertNotCompleted(db, task.project_id); // by-task-id path — parent resolved first
   const assignee = employeeId == null ? null : getPerson(db, vId(employeeId, "person id"));
   db.prepare(`UPDATE employee_tasks SET employee_id = ?, updated_at = ? WHERE id = ?`).run(
     assignee?.id ?? null,
@@ -110,6 +117,8 @@ export function assignTask(db: Db, orgId: string, id: number, employeeId: number
 export function setTaskDone(db: Db, orgId: string, id: number, done: boolean): Task {
   const task = getTask(db, id);
   if (task.deleted_at) throw new Error("Cannot complete a deleted task");
+  // Task completion is a MONEY event (flat-per-task pay keys off done_at) — locked both directions.
+  assertNotCompleted(db, task.project_id);
   if (done === (task.done_at !== null)) return task;
   const at = nowIso();
   db.prepare(`UPDATE employee_tasks SET done_at = ?, updated_at = ? WHERE id = ?`).run(done ? at : null, at, task.id);
@@ -132,6 +141,7 @@ export function setTaskDone(db: Db, orgId: string, id: number, done: boolean): T
 export function removeTask(db: Db, id: number): void {
   const task = getTask(db, id);
   if (task.deleted_at) return;
+  assertNotCompleted(db, task.project_id); // by-task-id path — parent resolved first
   const at = nowIso();
   db.prepare(`UPDATE employee_tasks SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(at, at, task.id);
 }

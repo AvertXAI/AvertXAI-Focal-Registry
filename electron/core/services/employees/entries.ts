@@ -14,6 +14,9 @@ import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
 import { getPerson } from "./people";
+// Cross-module completion lock — the reverse of projectFinancials → employees/reports, the standing
+// arrangement (one database, one connection). completion.ts imports only the Db type: no cycle.
+import { assertNotCompleted } from "../timetracker/completion";
 import type { Entry, EntryInput } from "./types";
 import {
   FLAT_PAY_TYPES,
@@ -66,6 +69,11 @@ function getEntry(db: Db, id: number): Entry {
 /** Logs a unit of work. The ONLY write path to employee_entries. */
 export function createEntry(db: Db, orgId: string, input: EntryInput): Entry {
   const e = clean(input);
+  // Completion lock (TimeTracker ruling 2, cross-module): a completed project takes no new work.
+  // This ONE check covers Add Time AND the employee timer's stop — stopSession files through here
+  // inside its transaction, so a refusal leaves the session OPEN and no time is lost (the 3B.2-B
+  // order guarantee). Null projectId passes: work not tied to a project is not locked by one.
+  assertNotCompleted(db, e.projectId);
   const person = getPerson(db, e.employeeId); // also proves the person exists before the insert
   const at = nowIso();
   const res = db

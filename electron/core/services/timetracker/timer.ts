@@ -14,6 +14,7 @@ import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
 import { enforceCap } from "./license";
+import { assertNotCompleted } from "./completion";
 import type {
   ActiveSessionInfo,
   EventType,
@@ -147,6 +148,7 @@ export function focus(db: Db, sessionId: number): MultiTimerStatus {
  * Tier caps (Phase 6) will gate THIS entry point; adjustments are never capped.
  */
 export function start(db: Db, orgId: string, projectId: number, note: string | null = null): MultiTimerStatus {
+  assertNotCompleted(db, projectId); // completion lock — no session can begin on a completed job
   const existing = db.prepare(`SELECT id FROM timetracker_active_sessions WHERE project_id = ?`).get(projectId) as
     | { id: number }
     | undefined;

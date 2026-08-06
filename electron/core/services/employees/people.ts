@@ -38,7 +38,18 @@ function clean(raw: PersonInput): PersonInput {
     defaultPayType: vNullablePayType(raw.defaultPayType),
     defaultProjectId: vNullableId(raw.defaultProjectId, "default project id"),
     defaultProjectName: vNullableString(raw.defaultProjectName, "default project name", 200),
+    // ---- Employee Profile (08-06, "same for employee"): how they get paid, and what they are.
+    paymentMethod: vNullableString(raw.paymentMethod, "payment method", 200),
+    employmentType: cleanEmploymentType(raw.employmentType),
   };
+}
+
+/** 'employee' | 'contractor' | null — the ALTER cannot carry a CHECK, so the sentence lives here. */
+function cleanEmploymentType(raw: string | null | undefined): "employee" | "contractor" | null {
+  const v = vNullableString(raw, "employment type", 20);
+  if (v === null) return null;
+  if (v === "employee" || v === "contractor") return v;
+  throw new Error(`Employment type must be "employee" or "contractor"`);
 }
 
 /** Active roster — archived people are hidden from every active surface. */
@@ -96,8 +107,8 @@ export function createPerson(db: Db, orgId: string, input: PersonInput): Person 
       `INSERT INTO employee_people
          (uuid, org_id, name, email, phone, role, default_rate, notes,
           street_address, city, state, zip, ssn, default_pay_type, default_project_id,
-          default_project_name, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          default_project_name, payment_method, employment_type, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       generateUUIDv7(),
@@ -116,6 +127,8 @@ export function createPerson(db: Db, orgId: string, input: PersonInput): Person 
       p.defaultPayType,
       p.defaultProjectId,
       p.defaultProjectName,
+      p.paymentMethod,
+      p.employmentType,
       at
     );
   const person = getPerson(db, Number(res.lastInsertRowid));
@@ -133,7 +146,8 @@ export function updatePerson(db: Db, id: number, input: PersonInput): Person {
       `UPDATE employee_people
        SET name = ?, email = ?, phone = ?, role = ?, default_rate = ?, notes = ?,
            street_address = ?, city = ?, state = ?, zip = ?, ssn = ?, default_pay_type = ?,
-           default_project_id = ?, default_project_name = ?, updated_at = ?
+           default_project_id = ?, default_project_name = ?, payment_method = ?, employment_type = ?,
+           updated_at = ?
        WHERE id = ?`
     )
     .run(
@@ -151,6 +165,8 @@ export function updatePerson(db: Db, id: number, input: PersonInput): Person {
       p.defaultPayType,
       p.defaultProjectId,
       p.defaultProjectName,
+      p.paymentMethod,
+      p.employmentType,
       nowIso(),
       personId
     );

@@ -50,6 +50,9 @@ export interface Person {
   /** SOFT reference to a TimeTracker project — no FK; resolves to nothing if the project is purged. */
   default_project_id: number | null;
   default_project_name: string | null;
+  // ---- Employee Profile (08-06). Both nullable; employment_type validated in the service.
+  payment_method: string | null;
+  employment_type: "employee" | "contractor" | null;
   archived_at: string | null;
   archive_reason: string | null;
   created_at: string;
@@ -70,6 +73,8 @@ export interface PersonInput {
   defaultPayType: PayType | null;
   defaultProjectId: number | null;
   defaultProjectName: string | null;
+  paymentMethod?: string | null;
+  employmentType?: "employee" | "contractor" | null;
 }
 
 export interface Entry {

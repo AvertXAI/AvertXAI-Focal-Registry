@@ -51,6 +51,7 @@ export default function EmployeesModule() {
   const [error, setError] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [hoursById, setHoursById] = useState<Record<number, number>>({});
+  const [projectsReady, setProjectsReady] = useState(false); // B7 — see loadProjectData
   // ---- write surfaces. One modal at a time; each closes by returning its state to null.
   const [personModal, setPersonModal] = useState<PersonModalState>(null);
   const [archiving, setArchiving] = useState<EmployeePerson | null>(null);
@@ -131,7 +132,10 @@ export default function EmployeesModule() {
       projects for its Project select, and the hosted ProjectModal needs groups. Reloaded after the
       wizard creates one so the new project is selectable immediately. */
   const loadProjectData = useCallback((): void => {
-    void api.timetracker.projects.list().then(setProjects).catch(() => setProjects([]));
+    // B7: readiness is TRACKED so the person form can show a spinner instead of an openable empty
+    // select (the receipted popup-flash cause). Failure also resolves to ready — an honestly empty
+    // list is a real answer; only "still fetching" hides the control.
+    void api.timetracker.projects.list().then(setProjects).catch(() => setProjects([])).finally(() => setProjectsReady(true));
     void api.timetracker.groups.list().then(setGroups).catch(() => setGroups([]));
   }, [api]);
 
@@ -318,6 +322,7 @@ export default function EmployeesModule() {
       )}
       {personModal && (
         <PersonModal
+          projectsReady={projectsReady}
           state={personModal}
           projects={projects}
           onClose={() => setPersonModal(null)}

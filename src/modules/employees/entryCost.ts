@@ -24,3 +24,16 @@ export function entryCost(e: CostInput): number {
   if (e.pay_type === "hourly") return e.hours_worked * e.rate_at_entry;
   return e.flat_amount ?? 0;
 }
+
+/** What one ADJUSTMENT is worth in dollars — the renderer echo of balanceFor's SQL (hours kind:
+    minutes/60 × its own rate; amount kind: the stated delta). Same doctrine as entryCost above:
+    the SQL is the authority, this exists because no per-row valuation crosses IPC. */
+export function adjustmentValue(a: {
+  kind: "hours" | "amount";
+  delta_minutes: number | null;
+  rate_at_entry: number | null;
+  delta_amount: number | null;
+}): number {
+  if (a.kind === "hours") return ((a.delta_minutes ?? 0) / 60) * (a.rate_at_entry ?? 0);
+  return a.delta_amount ?? 0;
+}

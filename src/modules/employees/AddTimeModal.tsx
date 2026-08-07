@@ -302,14 +302,22 @@ export default function AddTimeModal({ person, onClose, onSaved, onBack }: Props
           <span>
             Project {projectSel === "" && <b className="emp-req">· required</b>}
           </span>
+          {projects === null ? (
+            /* B7 (08-07): never an OPENABLE empty select while loading — an optionless native popup
+               is the receipted "black panel" flash. Disabled placeholder + spinner instead. */
+            <div className="emp-input emp-selectloading" aria-busy="true">
+              <span className="emp-spinner" aria-hidden="true" /> Loading projects…
+            </div>
+          ) : (
           <select className="emp-input" value={projectSel} onChange={(e) => setProjectSel(e.target.value)}>
-            <option value="">{projects === null ? "Loading…" : "Choose a project…"}</option>
+            <option value="">{"Choose a project…"}</option>
             {(projects ?? []).map((p) => (
               <option key={p.id} value={String(p.id)}>
                 {p.name}
               </option>
             ))}
           </select>
+          )}
           <em className="emp-hint">
             {person.default_project_id != null && projectSel === String(person.default_project_id)
               ? "This person's default project is already selected."

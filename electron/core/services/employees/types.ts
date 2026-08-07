@@ -184,6 +184,8 @@ export interface Adjustment {
   rate_at_entry: number | null;
   delta_amount: number | null;
   note: string;
+  /** 08-06: the ENTRY this corrects (soft reference), when it corrects one. */
+  entry_id: number | null;
   deleted_at: string | null;
   audit_log: EmployeeAuditEntry[];
   created_at: string;

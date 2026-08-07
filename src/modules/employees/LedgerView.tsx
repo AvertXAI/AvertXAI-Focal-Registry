@@ -7,11 +7,11 @@
 // confusion that made the notes editor look like data loss this session: "nothing here" and
 // "we couldn't ask" must never look alike.
 import { useEffect, useState } from "react";
-import type { EmployeeBalance, EmployeeEntry, EmployeePerson } from "../../shared/types";
+import type { EmployeeAdjustment, EmployeeBalance, EmployeeEntry, EmployeePerson } from "../../shared/types";
 import { avatarColor, initials } from "./PeopleRail";
 // ONE expression of the money rule, shared with the Add Time preview (Jason 08-03-2026). The
 // authority is still ENTRY_COST_SQL in the reports service — see the comment in ./entryCost.
-import { entryCost } from "./entryCost";
+import { adjustmentValue, entryCost } from "./entryCost";
 
 interface Props {
   person: EmployeePerson;
@@ -53,6 +53,10 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
       id resolves to nothing and the cell falls back to the em dash rather than inventing a name. */
   const [taskNames, setTaskNames] = useState<Record<number, string>>({});
   const [error, setError] = useState(false);
+  /** The person's LIVE adjustments, mapped per entry — the "it took longer" mechanic (08-06):
+      the entry's agreed rate and hours are never rewritten; Net = amount + its adjustments. */
+  const [adjustments, setAdjustments] = useState<EmployeeAdjustment[]>([]);
+  const [adjModal, setAdjModal] = useState<EmployeeEntry | null | false>(false); // false=closed, null=unlinked, entry=linked
 
   useEffect(() => {
     let live = true;
@@ -62,12 +66,14 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
       api.employees.entries.listForPerson(person.id),
       api.employees.reports.balance(person.id),
       api.employees.tasks.list(),
+      api.employees.adjustments.list(person.id),
     ])
-      .then(([rows, bal, tasks]) => {
+      .then(([rows, bal, tasks, adjs]) => {
         if (!live) return;
         setEntries(rows);
         setBalance(bal);
         setTaskNames(Object.fromEntries(tasks.map((t) => [t.id, t.title])));
+        setAdjustments(adjs.filter((a) => a.deleted_at === null));
         onHours(person.id, rows.reduce((s, e) => s + e.hours_worked, 0));
       })
       .catch((e: unknown) => {
@@ -85,6 +91,16 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
   const month = (entries ?? []).filter((e) => daysAgo(e.worked_on) <= 30);
   const year = (entries ?? []).filter((e) => new Date(e.worked_on).getFullYear() === new Date().getFullYear());
   const hoursOf = (list: EmployeeEntry[]): number => list.reduce((s, e) => s + e.hours_worked, 0);
+  /** Signed dollar sum of this entry's live adjustments; null when it has none ("—", not $0.00). */
+  const adjFor = (entryId: number): number | null => {
+    const mine = adjustments.filter((a) => a.entry_id === entryId);
+    return mine.length === 0 ? null : mine.reduce((s, a) => s + adjustmentValue(a), 0);
+  };
+  const reload = (): void => {
+    // Same fetch the mount effect runs — the module's refreshKey path also lands here.
+    void api.employees.adjustments.list(person.id).then((adjs) => setAdjustments(adjs.filter((a) => a.deleted_at === null))).catch(() => {});
+    void api.employees.reports.balance(person.id).then(setBalance).catch(() => {});
+  };
 
   return (
     <>
@@ -105,6 +121,7 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
           <button className="emp-btn" onClick={onEdit}>Edit</button>
           <button className="emp-btn" onClick={onArchive}>Archive</button>
           <button className="emp-btn primary" onClick={onAddTime}>+ Add Time</button>
+          <button className="emp-btn primary soft" onClick={() => setAdjModal(null)}>+ Add Adjustment</button>
         </div>
       </div>
 
@@ -153,26 +170,145 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
             <table className="emp-table">
               <thead>
                 <tr>
-                  <th>Date</th><th>Project</th><th>Task</th><th>Note</th><th>Pay type</th><th>Hours</th><th>Amount</th>
+                  <th>Date</th><th>Project</th><th>Task</th><th>Note</th><th>Pay type</th><th>Hours</th><th>Amount</th><th>Adjustment</th><th>Net</th>
                 </tr>
               </thead>
               <tbody>
-                {entries.map((e) => (
-                  <tr key={e.id}>
-                    <td className="num">{fmtDate(e.worked_on)}</td>
-                    <td>{e.project_name}</td>
-                    <td className="dim">{(e.task_id != null ? taskNames[e.task_id] : null) ?? "—"}</td>
-                    <td className="dim">{e.note ?? "—"}</td>
-                    <td><span className="emp-pill">{e.pay_type}</span></td>
-                    <td className="num">{e.hours_worked.toFixed(2)}</td>
-                    <td className="money">{fmtMoney(entryCost(e))}</td>
-                  </tr>
-                ))}
+                {entries.map((e) => {
+                  const adj = adjFor(e.id);
+                  const base = entryCost(e);
+                  return (
+                    <tr key={e.id}>
+                      <td className="num">{fmtDate(e.worked_on)}</td>
+                      <td>{e.project_name}</td>
+                      <td className="dim">{(e.task_id != null ? taskNames[e.task_id] : null) ?? "—"}</td>
+                      <td className="dim">{e.note ?? "—"}</td>
+                      <td>
+                        <span className="emp-pill">{e.pay_type}</span>
+                        <button className="emp-linkbtn sm" title="Adjust this entry — the agreed rate and hours stay untouched"
+                          onClick={() => setAdjModal(e)}>±</button>
+                      </td>
+                      <td className="num">{e.hours_worked.toFixed(2)}</td>
+                      <td className="money">{fmtMoney(base)}</td>
+                      {/* The "it took longer" mechanic: the adjustment is its OWN row against the
+                          entry — signed, reasoned — and Net is what actually gets paid. */}
+                      <td className={"money" + (adj == null ? " dim" : adj < 0 ? " emp-adjneg" : " emp-adjpos")}>
+                        {adj == null ? "—" : `${adj < 0 ? "−" : "+"}${fmtMoney(Math.abs(adj))}`}
+                      </td>
+                      <td className="money"><b>{fmtMoney(base + (adj ?? 0))}</b></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
         </>
       )}
+      {adjModal !== false && (
+        <AddAdjustmentModal person={person} entry={adjModal} entries={entries ?? []}
+          onClose={() => setAdjModal(false)}
+          onSaved={() => { setAdjModal(false); reload(); }} />
+      )}
     </>
+  );
+}
+
+/**
+ * ADD ADJUSTMENT (08-06, mockup scene 5) — a signed correction with a REQUIRED reason, optionally
+ * AGAINST one entry (the "it took longer" mechanic). Writes through the EXISTING adjustment
+ * services — amount kind against the entry's project; the entry link is the new nullable column.
+ * The entry itself is never rewritten.
+ */
+function AddAdjustmentModal({
+  person,
+  entry,
+  entries,
+  onClose,
+  onSaved,
+}: {
+  person: EmployeePerson;
+  entry: EmployeeEntry | null;
+  entries: EmployeeEntry[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const api = window.api;
+  const [entrySel, setEntrySel] = useState<string>(entry ? String(entry.id) : "");
+  const [amount, setAmount] = useState("");
+  const [sign, setSign] = useState<"+" | "-">("-");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const linked = entries.find((e) => String(e.id) === entrySel) ?? null;
+
+  const save = (): void => {
+    if (saving) return;
+    const n = Number(amount.replace(/,/g, ""));
+    if (!Number.isFinite(n) || n <= 0) { setError("The adjustment amount must be more than zero — pick + or − for its direction."); return; }
+    if (reason.trim() === "") { setError("A reason is required — it is the whole record of why the pay moved."); return; }
+    setSaving(true);
+    setError(null);
+    void api.employees.adjustments
+      .createAmount({
+        employeeId: person.id,
+        projectId: linked?.project_id ?? null,
+        projectName: linked?.project_name ?? null,
+        deltaAmount: sign === "-" ? -n : n,
+        note: reason.trim(),
+        entryId: linked?.id ?? null,
+      })
+      .then(onSaved)
+      .catch((e: unknown) => { setSaving(false); setError(e instanceof Error ? e.message : String(e)); });
+  };
+
+  return (
+    <div className="emp-modalback" onClick={onClose}>
+      <div className="emp-modal" role="dialog" aria-label="Add adjustment" onClick={(ev) => ev.stopPropagation()}>
+        <h2>Add adjustment</h2>
+        <p className="emp-hint" style={{ marginBottom: 12 }}>
+          {person.name} — a signed correction, its own row. The entry&apos;s agreed rate and hours are never rewritten.
+        </p>
+        <label className="emp-field">
+          <span>Against entry (optional)</span>
+          <select className="emp-input" value={entrySel} onChange={(e) => setEntrySel(e.target.value)}>
+            <option value="">— none (general correction) —</option>
+            {entries.map((e) => (
+              <option key={e.id} value={String(e.id)}>
+                {fmtDate(e.worked_on)} · {e.project_name} · {fmtMoney(entryCost(e))}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="emp-fieldrow">
+          <label className="emp-field narrow">
+            <span>Direction</span>
+            <div className="emp-pillset" role="radiogroup" aria-label="Direction">
+              <button type="button" role="radio" aria-checked={sign === "-"}
+                className={"emp-pillbtn" + (sign === "-" ? " on" : "")} onClick={() => setSign("-")}>− less</button>
+              <button type="button" role="radio" aria-checked={sign === "+"}
+                className={"emp-pillbtn" + (sign === "+" ? " on" : "")} onClick={() => setSign("+")}>+ more</button>
+            </div>
+          </label>
+          <label className="emp-field">
+            <span>Amount ($)</span>
+            <input className="emp-input mono" inputMode="decimal" autoFocus value={amount}
+              onChange={(e) => setAmount(e.target.value)} />
+          </label>
+        </div>
+        <label className="emp-field">
+          <span>Reason (required)</span>
+          <input className="emp-input" placeholder="editing ran three days over…" value={reason}
+            onChange={(e) => setReason(e.target.value)} />
+        </label>
+        {error && (
+          <div className="emp-error" role="alert"><span className="emp-error-plain">{error}</span></div>
+        )}
+        <div className="emp-modalacts">
+          <button className="emp-btn ghost" onClick={onClose}>Cancel</button>
+          <button className="emp-btn primary" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save adjustment"}</button>
+        </div>
+      </div>
+    </div>
   );
 }

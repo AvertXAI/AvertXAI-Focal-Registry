@@ -158,6 +158,15 @@ export function ensureEmployeesSchema(db: Db): void {
     "deleted_at TEXT", // soft delete — rows are never hard-removed
     "audit_log TEXT NOT NULL", // append-only JSON array; history is never rewritten
   ]);
+  // ENTRY-LINKED ADJUSTMENTS (ruled 08-06, "it took longer"): an adjustment can point at the entry
+  // it corrects. Soft reference (no FK — same doctrine as every Employees↔TimeTracker link), and
+  // NULLABLE: person-level and project-level corrections stay exactly as they were. The entry's
+  // agreed rate and hours are NEVER rewritten — the adjustment is its own row; Net is derived.
+  // Guard AFTER createTable, per the canon order — the harness caught the reversed order throwing
+  // "no such table" on a FRESH database, exactly the trap FR-RULES names.
+  if (!(db.pragma("table_info(employee_adjustments)") as { name: string }[]).some((c) => c.name === "entry_id")) {
+    db.exec("ALTER TABLE employee_adjustments ADD COLUMN entry_id INTEGER;");
+  }
 
   // OPEN WORK SESSIONS — the employee timer (3B.2-B). Deliberately THIN: this table holds only what
   // is needed to reconstruct an entry when the clock stops. It stores NO money and NO duration.

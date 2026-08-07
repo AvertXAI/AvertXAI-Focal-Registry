@@ -374,3 +374,17 @@
 /* Employee Profile block (08-06) — a labelled sub-block inside the Details form */
 .emp-profileblock { border: 1px solid var(--mc-border); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
 .emp-profiletitle { font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--mc-muted); font-weight: 700; margin-bottom: 10px; }
+
+/* ---- Profit build (08-07): adjustments column + the loading select (B7) ---- */
+.emp-adjneg { color: #e0574f; }
+.emp-adjpos { color: var(--mc-green); }
+.emp-btn.soft { background: color-mix(in srgb, var(--mc-accent-primary) 70%, transparent); border-color: transparent; color: #fff; }
+.emp-linkbtn.sm { font-size: 11px; padding: 0 4px; margin-left: 6px; }
+/* B7: the select's stand-in while its options load — DISABLED look, never an openable empty list. */
+.emp-selectloading { display: flex; align-items: center; gap: 8px; color: var(--mc-dimmer); cursor: default; }
+.emp-spinner {
+  width: 12px; height: 12px; border-radius: 50%; flex: none;
+  border: 2px solid var(--mc-border); border-top-color: var(--mc-accent-primary);
+  animation: emp-spin 0.8s linear infinite;
+}
+@keyframes emp-spin { to { transform: rotate(360deg); } }

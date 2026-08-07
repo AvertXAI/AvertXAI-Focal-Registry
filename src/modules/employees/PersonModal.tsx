@@ -28,6 +28,11 @@ export type PersonModalState =
 interface Props {
   state: Exclude<PersonModalState, null>;
   projects: TimeTrackerProjectListItem[];
+  /** B7 (08-07): false while the host is still fetching the list. An openable EMPTY native select
+      paints an optionless popup panel — the receipted cause of the "black panel" flash — so while
+      loading the control is a disabled placeholder with a spinner, never an open list. Optional:
+      hosts that pass a warm list omit it. */
+  projectsReady?: boolean;
   onClose: () => void;
   /** `addTime` is true when the user pressed "Add Employee + Add Time". */
   onSaved: (p: EmployeePerson, addTime: boolean) => void;
@@ -35,7 +40,8 @@ interface Props {
 
 type Tab = "details" | "history";
 
-export default function PersonModal({ state, projects, onClose, onSaved }: Props) {
+export default function PersonModal({
+  projectsReady, state, projects, onClose, onSaved }: Props) {
   const api = window.api;
   const editing = state.mode === "edit" ? state.person : null;
   const seedProject = state.mode === "new" ? state.project : null;
@@ -237,6 +243,11 @@ export default function PersonModal({ state, projects, onClose, onSaved }: Props
                 id resolves to nothing, which is why the name is stored beside it. */}
             <label className="emp-field">
               <span>Project</span>
+              {projectsReady === false ? (
+                <div className="emp-input emp-selectloading" aria-busy="true">
+                  <span className="emp-spinner" aria-hidden="true" /> Loading projects…
+                </div>
+              ) : (
               <select className="emp-input" value={projectSel} onChange={(e) => setProjectSel(e.target.value)}>
                 <option value="">No default project</option>
                 {projects.map((p) => (
@@ -245,6 +256,7 @@ export default function PersonModal({ state, projects, onClose, onSaved }: Props
                   </option>
                 ))}
               </select>
+              )}
               <em className="emp-hint">
                 {seedProject
                   ? "The project just created is selected — switch any time."

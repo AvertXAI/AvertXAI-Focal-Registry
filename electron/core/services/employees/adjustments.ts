@@ -59,6 +59,8 @@ export interface HoursAdjustmentInput {
   /** Mandatory: what the corrected hours are worth. Never re-derived later. */
   rateAtEntry: number;
   note: string;
+  /** 08-06: the ENTRY this corrects, when it corrects one — soft reference, nullable. */
+  entryId?: number | null;
 }
 
 export interface AmountAdjustmentInput {
@@ -68,6 +70,8 @@ export interface AmountAdjustmentInput {
   projectName: string | null;
   deltaAmount: number;
   note: string;
+  /** 08-06: the ENTRY this corrects, when it corrects one — soft reference, nullable. */
+  entryId?: number | null;
 }
 
 function requireNote(note: string): string {
@@ -88,6 +92,7 @@ function insert(
     rateAtEntry: number | null;
     deltaAmount: number | null;
     note: string;
+    entryId: number | null;
   }
 ): Adjustment {
   // Completion lock (ruling 3): no corrections on a completed project — either kind. Adjustments
@@ -109,8 +114,8 @@ function insert(
   db.prepare(
     `INSERT INTO employee_adjustments
        (uuid, org_id, employee_id, kind, project_id, project_name, delta_minutes, rate_at_entry,
-        delta_amount, note, deleted_at, audit_log, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`
+        delta_amount, note, entry_id, deleted_at, audit_log, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`
   ).run(
     uuid,
     orgId,
@@ -122,6 +127,7 @@ function insert(
     values.rateAtEntry,
     values.deltaAmount,
     values.note,
+    values.entryId,
     JSON.stringify(audit),
     at,
     at
@@ -145,6 +151,7 @@ export function createHoursAdjustment(db: Db, orgId: string, input: HoursAdjustm
     rateAtEntry: vAmount(input.rateAtEntry, "rate"),
     deltaAmount: null,
     note: requireNote(input.note),
+    entryId: vNullableId(input.entryId, "entry id"),
   });
 }
 
@@ -158,6 +165,7 @@ export function createAmountAdjustment(db: Db, orgId: string, input: AmountAdjus
     rateAtEntry: null,
     deltaAmount: vDeltaAmount(input.deltaAmount),
     note: requireNote(input.note),
+    entryId: vNullableId(input.entryId, "entry id"),
   });
 }
 

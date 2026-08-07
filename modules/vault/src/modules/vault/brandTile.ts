@@ -129,7 +129,7 @@ const SLUG_ALIASES: [RegExp, string][] = [
   [/^american express/i, "americanexpress"],
   [/^office 365/i, "microsoft-office"],
   [/^t-?mobile/i, "t-mobile"],
-  [/^at&?t/i, "att"],
+  [/^at&?t/i, "at-t"],
   [/^best buy/i, "bestbuy"],
 ];
 

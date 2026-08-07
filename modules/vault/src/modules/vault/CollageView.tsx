@@ -6,7 +6,7 @@
 // Clicking a tile opens the detail beside it — the same detail the three-pane view uses, so there
 // is one implementation of "what an entry looks like" and not three that drift apart.
 import { useMemo, useState } from "react";
-import { brandColour, inkFor, monogram } from "./brandTile";
+import BrandMark from "./BrandMark";
 import DetailPane from "./DetailPane";
 import type { VaultSecretMeta } from "./vaultApi";
 
@@ -70,7 +70,6 @@ export default function CollageView({ secrets, sort, onSort, onReload, onNew, on
         ) : (
           <div className="vault-collage">
             {ordered.map((s) => {
-              const colour = brandColour(s.label);
               return (
                 <button
                   key={s.uuid}
@@ -78,9 +77,10 @@ export default function CollageView({ secrets, sort, onSort, onReload, onNew, on
                   onClick={() => setSelected(selected === s.uuid ? null : s.uuid)}
                   title={s.username ? `${s.label} — ${s.username}` : s.label}
                 >
-                  <span className="vault-tilemark" style={{ background: colour, color: inkFor(colour) }}>
-                    {monogram(s.label)}
-                  </span>
+                  {/* BrandMark, not a hand-rolled monogram. The collage predated the icon layer and
+                      kept drawing its own tile, which is why the grid showed initials while the list
+                      showed logos — the exact defect Jason caught. ONE mark component, every view. */}
+                  <BrandMark label={s.label} size={44} />
                   <span className="vault-tilename">{s.label}</span>
                   {s.username && <span className="vault-tileuser">{s.username}</span>}
                   {s.favourite === 1 && <span className="vault-tilestar">★</span>}

@@ -8,6 +8,17 @@ import { vaultApi, type VaultAccessRow, type VaultGeneratorOptions, type VaultHe
 import { shortDate } from "./SecretsView";
 
 // ---------------------------------------------------------------- generator
+/** The mockup's six tabs. Each produces a different KIND of secret. */
+type GenMode = "random" | "advanced" | "memorable" | "passphrase" | "pin" | "bulk";
+const MODES: [GenMode, string][] = [
+  ["random", "Strong / random"],
+  ["advanced", "Advanced"],
+  ["memorable", "Memorable"],
+  ["passphrase", "Passphrase"],
+  ["pin", "PIN code"],
+  ["bulk", "Bulk"],
+];
+
 export function GeneratorView({ settings, onSetting }: { settings: Record<string, string>; onSetting: (k: string, v: string) => void }) {
   const api = vaultApi();
   const [opts, setOpts] = useState<VaultGeneratorOptions>({
@@ -25,14 +36,46 @@ export function GeneratorView({ settings, onSetting }: { settings: Record<string
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // The mockup's six tabs. Each is a different KIND of secret, not a skin on the same one —
+  // a passphrase and a PIN have nothing in common except that both come out of this box.
+  const [mode, setMode] = useState<GenMode>("random");
+  const [words, setWords] = useState(5);
+  const [pinDigits, setPinDigits] = useState(6);
+  const [bulkCount, setBulkCount] = useState(10);
+  const [bulk, setBulk] = useState<string[]>([]);
+
   const regenerate = useCallback(
-    (o: VaultGeneratorOptions): void => {
+    (o: VaultGeneratorOptions, m: GenMode = mode): void => {
       setError(null);
       setCopied(false);
-      void api
-        .generate(o)
+      setBulk([]);
+      const produce = (): Promise<string | string[]> => {
+        switch (m) {
+          case "passphrase":
+            return api.generatePassphrase({ words, separator: "-", capitalise: true, includeNumber: true });
+          case "memorable":
+            return api.generateMemorable(o.length);
+          case "pin":
+            return api.generatePin(pinDigits);
+          case "bulk":
+            return api.generateBulk(bulkCount, o);
+          default:
+            // "Advanced" is the same engine with every control exposed — the difference is what the
+            // screen offers, not what it computes, so it deliberately shares this path.
+            return api.generate(o);
+        }
+      };
+      void produce()
         .then((p) => {
+          if (Array.isArray(p)) {
+            setBulk(p);
+            setValue("");
+            setStrength(null);
+            return;
+          }
           setValue(p);
+          // The meter scores what was ACTUALLY produced. A memorable password or a PIN scores badly
+          // next to a random one of the same length, and it should — that is the honest trade.
           return api.strength(p).then(setStrength);
         })
         .catch((e: unknown) => {
@@ -41,7 +84,7 @@ export function GeneratorView({ settings, onSetting }: { settings: Record<string
           setStrength(null);
         });
     },
-    [api]
+    [api, mode, words, pinDigits, bulkCount]
   );
 
   useEffect(() => {
@@ -70,6 +113,20 @@ export function GeneratorView({ settings, onSetting }: { settings: Record<string
     <div className="vault-card">
       <div className="vault-cardhead">
         <span className="vault-cardtitle">Password generator</span>
+      </div>
+      <div className="vault-viewsw" style={{ marginBottom: 14 }}>
+        {MODES.map(([m, label]) => (
+          <button
+            key={m}
+            className={`vault-swbtn${mode === m ? " on" : ""}`}
+            onClick={() => {
+              setMode(m);
+              regenerate(opts, m);
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
       <div className="vault-genout">
         <span className="value">{value || "—"}</span>
@@ -100,24 +157,80 @@ export function GeneratorView({ settings, onSetting }: { settings: Record<string
           </div>
         </>
       )}
-      <div className="vault-opts">
-        <div className="vault-opt">
-          <span style={{ minWidth: 62 }}>Length {opts.length}</span>
-          <input
-            type="range"
-            min={8}
-            max={64}
-            value={opts.length}
-            onChange={(e) => change("length", Number(e.target.value), "generator.length")}
-          />
+      {/* Bulk prints a list rather than one value — copying all of them at once is the point. */}
+      {bulk.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div className="vault-btnrow" style={{ marginBottom: 8 }}>
+            <button className="vault-btn" onClick={() => void navigator.clipboard.writeText(bulk.join("\n")).then(() => setCopied(true))}>
+              {copied ? "Copied all" : `Copy all ${bulk.length}`}
+            </button>
+          </div>
+          <div className="vault-bulklist">
+            {bulk.map((p, i) => (
+              <code key={`${p}-${i}`}>{p}</code>
+            ))}
+          </div>
         </div>
-        {TOGGLES.map(([key, label, settingKey]) => (
-          <label key={key} className="vault-opt">
-            <input type="checkbox" checked={Boolean(opts[key])} onChange={(e) => change(key, e.target.checked as never, settingKey)} />
-            {label}
-          </label>
-        ))}
+      )}
+
+      {/* Each mode shows only the controls that mean anything to it. */}
+      <div className="vault-opts">
+        {mode === "passphrase" ? (
+          <div className="vault-opt">
+            <span style={{ minWidth: 92 }}>Words {words}</span>
+            <input type="range" min={3} max={10} value={words} onChange={(e) => { setWords(Number(e.target.value)); }} onMouseUp={() => regenerate(opts)} onKeyUp={() => regenerate(opts)} />
+          </div>
+        ) : mode === "pin" ? (
+          <div className="vault-opt">
+            <span style={{ minWidth: 92 }}>Digits {pinDigits}</span>
+            <input type="range" min={3} max={12} value={pinDigits} onChange={(e) => { setPinDigits(Number(e.target.value)); }} onMouseUp={() => regenerate(opts)} onKeyUp={() => regenerate(opts)} />
+          </div>
+        ) : (
+          <>
+            <div className="vault-opt">
+              <span style={{ minWidth: 92 }}>Length {opts.length}</span>
+              <input
+                type="range"
+                min={8}
+                max={64}
+                value={opts.length}
+                onChange={(e) => change("length", Number(e.target.value), "generator.length")}
+              />
+            </div>
+            {mode === "bulk" && (
+              <div className="vault-opt">
+                <span style={{ minWidth: 92 }}>How many {bulkCount}</span>
+                <input type="range" min={2} max={100} value={bulkCount} onChange={(e) => { setBulkCount(Number(e.target.value)); }} onMouseUp={() => regenerate(opts)} onKeyUp={() => regenerate(opts)} />
+              </div>
+            )}
+            {/* "Memorable" builds from syllables, so the character toggles do not apply to it. */}
+            {mode !== "memorable" &&
+              TOGGLES.map(([key, label, settingKey]) => (
+                <label key={key} className="vault-opt">
+                  <input type="checkbox" checked={Boolean(opts[key])} onChange={(e) => change(key, e.target.checked as never, settingKey)} />
+                  {label}
+                </label>
+              ))}
+          </>
+        )}
       </div>
+      {mode === "memorable" && (
+        <div className="vault-hint" style={{ marginTop: 10 }}>
+          Built from syllables so you can read it down a phone. It is <b>weaker than a random one of the same
+          length</b> — the meter above scores what it really is, not what its length suggests.
+        </div>
+      )}
+      {mode === "passphrase" && (
+        <div className="vault-hint" style={{ marginTop: 10 }}>
+          Words are easier to type and remember than symbols, and length does the work. Five words from a
+          256-word list is about 40 bits before the capital and the digit.
+        </div>
+      )}
+      {mode === "pin" && (
+        <div className="vault-hint" style={{ marginTop: 10 }}>
+          A PIN is short by nature — this is for a phone or a bank card, not for a website login.
+        </div>
+      )}
       <div className="vault-hint" style={{ marginTop: 14 }}>
         Generated on this machine. Nothing is sent anywhere, online or off.
       </div>

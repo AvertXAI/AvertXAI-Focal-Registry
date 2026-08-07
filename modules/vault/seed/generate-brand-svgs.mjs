@@ -48,7 +48,7 @@ const ALL = process.argv.includes("--all");
 
 /** The curated default: what a photographer's vault actually holds. --all overrides it. */
 const WANTED = [
-  "adobe", "amazon", "apple", "att", "backblaze", "bank-of-america", "bestbuy", "canon", "cloudflare",
+  "adobe", "amazon", "apple", "at-t", "backblaze", "bank-of-america", "bestbuy", "canon", "cloudflare",
   "costco", "dropbox", "ebay", "etsy", "facebook", "fedex", "github", "godaddy", "google", "gmail",
   "google-drive", "hetzner", "honeybook", "instagram", "intuit", "quickbooks", "chase", "linkedin",
   "mailchimp", "netflix", "microsoft-office", "paypal", "pixieset", "reddit", "resend", "smugmug",

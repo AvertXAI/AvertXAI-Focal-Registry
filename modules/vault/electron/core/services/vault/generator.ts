@@ -95,6 +95,106 @@ export function generatePassword(opts?: Partial<VaultGeneratorOptions>): string 
   return out.join("");
 }
 
+// ---------------------------------------------------------------- the other five modes
+// The mockup's generator has six tabs. Only "Strong / random" existed; these are the rest.
+
+/**
+ * A hand-written word list for passphrases. Deliberately NOT a vendored dictionary: the well-known
+ * lists carry their own licences, and a short list of ordinary English nouns needs none. 256 words
+ * is 8 bits per word, so the entropy maths below is exact rather than optimistic — six words is 48
+ * bits from the list plus whatever the separator and capitalisation add.
+ */
+const WORDS = (
+  "able acid acorn actor adapt admit adopt agent album alert alien alloy amber amble anchor angle " +
+  "ankle apple apron arbor arrow aspen atlas attic audio autumn awake bacon badge bagel baker balmy " +
+  "banjo barge basil basin batch beach beacon beam bean bear bench berry birch bison black blade " +
+  "blaze bloom board boat bolt bonus boost booth boulder brave bread brick bridge brisk broom brush " +
+  "bubble buddy bugle build bunch bundle cabin cable cacao camel candle canoe canvas canyon carbon " +
+  "cargo carrot castle cedar chalk charm chart cheese cherry chess chime cider cinder circle citrus " +
+  "clay clever cliff cloak clock cloud clover coast cobalt cocoa coffee comet coral cotton cove " +
+  "crane crate creek crisp crown crystal cube curve cycle dagger daisy dance dawn deck delta denim " +
+  "desert diamond diner ditch dock dolphin donut draft dragon dream drift drum dune eagle earth " +
+  "east echo eclipse elbow elder ember emerald engine ember fable falcon fancy fabric farm feather " +
+  "fern fiber field fig finch fjord flame flint float flour flute forest forge fossil fountain fox " +
+  "frost garden garlic gate gecko ginger glacier glass globe glove gold grain granite grape grass " +
+  "gravel green grove guitar hammer harbor harvest hazel heather hedge helm hickory hollow honey " +
+  "horizon hunter ice indigo iris island ivory jacket jade jasmine jetty jewel juniper kayak kettle " +
+  "kite koala lagoon lake lantern lark laurel lava leaf ledge lemon lentil level lilac lily linen " +
+  "lion lobby locket lotus lumber lunar lynx magnet maple marble marsh meadow melon mercy metal " +
+  "meteor mint mirror mist moss motion mountain muffin nectar needle nickel noble north nutmeg oak " +
+  "oasis ocean olive onion opal orbit orchard otter oxide oyster paddle palm pantry paper pastel " +
+  "pearl pebble pepper petal pewter pigeon pillar pine pixel planet plum pocket pollen pond poppy " +
+  "porch potato prairie prism puffin pumpkin quarry quartz quiver rabbit radish rain ranch raven " +
+  "reef ribbon ridge river robin rocket rose rowan ruby saddle sage salmon sand sapphire satin " +
+  "scarlet school seed shadow shell shore silk silver sketch sky slate sleet slope smoke snow " +
+  "socket solar sparrow spice spiral spring spruce squash stable stone storm stream sugar summit " +
+  "sunset swan sweater table talon teal temple thicket thistle thunder tiger timber toast topaz " +
+  "torch tower trail tulip tundra turtle twine umber valley vanilla velvet vine violet walnut " +
+  "willow window winter wolf wonder wren yarrow yellow zebra zenith"
+).split(/\s+/);
+
+const SYLLABLE_START = ["b", "c", "d", "f", "g", "h", "j", "k", "l", "m", "n", "p", "r", "s", "t", "v", "w", "z", "br", "cr", "dr", "fl", "gr", "pl", "st", "tr"];
+const SYLLABLE_END = ["a", "e", "i", "o", "u", "an", "en", "in", "on", "ar", "er", "or", "il", "el", "us", "is"];
+
+export type GeneratorMode = "random" | "advanced" | "memorable" | "passphrase" | "pin" | "bulk";
+
+export interface PassphraseOptions {
+  words: number;
+  separator: string;
+  capitalise: boolean;
+  includeNumber: boolean;
+}
+
+/** Words joined by a separator. Every word is drawn with the CSPRNG, never Math.random. */
+export function generatePassphrase(opts?: Partial<PassphraseOptions>): string {
+  const words = Math.min(Math.max(Math.floor(opts?.words ?? 5), 3), 12);
+  const separator = typeof opts?.separator === "string" ? opts.separator.slice(0, 3) : "-";
+  const picked: string[] = [];
+  for (let i = 0; i < words; i++) {
+    const w = WORDS[crypto.randomInt(0, WORDS.length)];
+    picked.push(opts?.capitalise ? w.charAt(0).toUpperCase() + w.slice(1) : w);
+  }
+  // A digit on a random word rather than always the last — a predictable position is a free hint.
+  if (opts?.includeNumber) {
+    const at = crypto.randomInt(0, picked.length);
+    picked[at] = picked[at] + crypto.randomInt(0, 100);
+  }
+  return picked.join(separator);
+}
+
+/**
+ * Pronounceable, so it can be read down a phone or copied off a screen without errors. HONEST
+ * ABOUT THE TRADE: alternating consonant-vowel syllables is a much smaller search space than random
+ * characters of the same length, and the strength meter scores what it actually is, not what its
+ * length suggests.
+ */
+export function generateMemorable(length = 14): string {
+  const target = Math.min(Math.max(Math.floor(length) || 14, 8), 64);
+  let out = "";
+  while (out.length < target) {
+    out += SYLLABLE_START[crypto.randomInt(0, SYLLABLE_START.length)] + SYLLABLE_END[crypto.randomInt(0, SYLLABLE_END.length)];
+  }
+  out = out.slice(0, target);
+  // One capital and one digit, because most sites demand them — placed randomly, not at the ends.
+  const capAt = crypto.randomInt(0, out.length);
+  out = out.slice(0, capAt) + out.charAt(capAt).toUpperCase() + out.slice(capAt + 1);
+  return out + crypto.randomInt(10, 100);
+}
+
+/** Digits only. Bank and phone PINs — short by nature, and the meter says so plainly. */
+export function generatePin(digits = 6): string {
+  const n = Math.min(Math.max(Math.floor(digits) || 6, 3), 12);
+  let out = "";
+  for (let i = 0; i < n; i++) out += crypto.randomInt(0, 10);
+  return out;
+}
+
+/** Many at once — for setting up a batch of accounts, or handing out one-time credentials. */
+export function generateBulk(count = 10, opts?: Partial<VaultGeneratorOptions>): string[] {
+  const n = Math.min(Math.max(Math.floor(count) || 10, 1), 200);
+  return Array.from({ length: n }, () => generatePassword(opts));
+}
+
 export interface StrengthVerdict {
   /** Estimated bits of entropy — the honest number the rest is derived from. */
   bits: number;

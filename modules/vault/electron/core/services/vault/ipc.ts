@@ -26,7 +26,7 @@ import * as breach from "./breach";
 import * as vaultSettings from "./settings";
 import * as seed from "./seed";
 import { analyseHealth } from "./health";
-import { estimateStrength, generatePassword } from "./generator";
+import { estimateStrength, generateBulk, generateMemorable, generatePassphrase, generatePassword, generatePin } from "./generator";
 import type { VaultGeneratorOptions, VaultSecretInput } from "./types";
 
 // Module-local copy of core/ipc.ts's resilient registrar (it is module-local there; a cross-import
@@ -224,6 +224,13 @@ export function registerVaultIpc(): void {
 
   // ---- generator: pure local computation, nothing stored, nothing logged per keystroke ----
   safeHandle("vault:generate", (_e, opts: unknown) => generatePassword((opts ?? {}) as Partial<VaultGeneratorOptions>));
+  // The mockup's other five generator tabs. All pure local computation — nothing stored, nothing sent.
+  safeHandle("vault:generatePassphrase", (_e, opts: unknown) => generatePassphrase((opts ?? {}) as never));
+  safeHandle("vault:generateMemorable", (_e, length: unknown) => generateMemorable(Number(length) || 14));
+  safeHandle("vault:generatePin", (_e, digits: unknown) => generatePin(Number(digits) || 6));
+  safeHandle("vault:generateBulk", (_e, count: unknown, opts: unknown) =>
+    generateBulk(Number(count) || 10, (opts ?? {}) as Partial<VaultGeneratorOptions>)
+  );
   safeHandle("vault:strength", (_e, value: unknown) => estimateStrength(typeof value === "string" ? value : ""));
 
   // ---- the vault's OWN settings (canon: never the application's Settings page) ----

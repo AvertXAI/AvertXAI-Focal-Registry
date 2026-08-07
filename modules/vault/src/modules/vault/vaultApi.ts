@@ -158,6 +158,11 @@ export interface VaultApi {
   deleteFolder: (id: number) => Promise<{ movedSecrets: number; movedFolders: number }>;
   health: () => Promise<VaultHealthReport>;
   generate: (opts?: Partial<VaultGeneratorOptions>) => Promise<string>;
+  /** The mockup's other five generator tabs — all local computation, nothing stored or sent. */
+  generatePassphrase: (opts?: { words?: number; separator?: string; capitalise?: boolean; includeNumber?: boolean }) => Promise<string>;
+  generateMemorable: (length?: number) => Promise<string>;
+  generatePin: (digits?: number) => Promise<string>;
+  generateBulk: (count?: number, opts?: Partial<VaultGeneratorOptions>) => Promise<string[]>;
   strength: (value: string) => Promise<VaultStrength>;
   getSettings: () => Promise<Record<string, string>>;
   setSetting: (key: string, value: string) => Promise<Record<string, string>>;

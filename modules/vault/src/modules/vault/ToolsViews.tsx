@@ -126,10 +126,42 @@ export function GeneratorView({ settings, onSetting }: { settings: Record<string
 }
 
 // ---------------------------------------------------------------- health
-export function HealthView() {
+export function HealthView({ settings, onSetting }: { settings: Record<string, string>; onSetting: (k: string, v: string) => void }) {
   const api = vaultApi();
   const [report, setReport] = useState<VaultHealthReport | null>(null);
   const [error, setError] = useState(false);
+  // ---- dark-web exposure. Separate state from the local health report on purpose: one is a
+  // computation on this machine, the other left the building, and the screen must not blur that.
+  const [breach, setBreach] = useState<{ checked: number; exposed: { uuid: string; label: string; count: number | null }[] } | null>(null);
+  const [breachError, setBreachError] = useState<string | null>(null);
+  const [sweeping, setSweeping] = useState(false);
+  const [email, setEmail] = useState("");
+  const [emailResult, setEmailResult] = useState<{ exposed: boolean; breaches: string[] } | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailBusy, setEmailBusy] = useState(false);
+  const breachOn = settings["breach.enabled"] === "1";
+
+  const sweep = useCallback((): void => {
+    setSweeping(true);
+    setBreachError(null);
+    setBreach(null);
+    void api
+      .breachSweep()
+      .then((r) => (r.ok ? setBreach({ checked: r.checked, exposed: r.exposed }) : setBreachError(r.error ?? "The check could not run.")))
+      .catch((e: unknown) => setBreachError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setSweeping(false));
+  }, [api]);
+
+  const checkEmail = useCallback((): void => {
+    setEmailBusy(true);
+    setEmailError(null);
+    setEmailResult(null);
+    void api
+      .breachEmail(email)
+      .then((r) => (r.ok ? setEmailResult({ exposed: r.exposed, breaches: r.breaches }) : setEmailError(r.error ?? "The check could not run.")))
+      .catch((e: unknown) => setEmailError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setEmailBusy(false));
+  }, [api, email]);
 
   const load = useCallback((): void => {
     setError(false);
@@ -158,6 +190,103 @@ export function HealthView() {
 
   return (
     <>
+      {/* ---- dark web. Its own card, above the local scoring, because it is the only thing here
+              that leaves the machine and the user should never be unsure which is which. ---- */}
+      <div className="vault-card">
+        <div className="vault-cardhead">
+          <span className="vault-cardtitle">Dark web</span>
+          <label className="vault-opt" style={{ margin: 0 }}>
+            <input type="checkbox" checked={breachOn} onChange={(e) => onSetting("breach.enabled", e.target.checked ? "1" : "0")} />
+            Allow checks over the internet
+          </label>
+        </div>
+        {!breachOn ? (
+          <div className="vault-hint">
+            Everything else in this vault happens on your computer. These two checks are the only ones that talk to the
+            internet, so they stay off until you switch them on.
+          </div>
+        ) : (
+          <>
+            <div className="vault-hint">
+              <b>Passwords.</b> Your password is scrambled here and only the first ten characters of the result are sent —
+              enough to ask "has anything like this been leaked?", never enough for anyone to work out what it was. Safe
+              to run across every entry.
+            </div>
+            <div className="vault-btnrow" style={{ marginTop: 10 }}>
+              <button className="vault-btn primary" disabled={sweeping} onClick={sweep}>
+                {sweeping ? "Checking…" : "Check every password"}
+              </button>
+            </div>
+            {breachError && <div className="vault-state error">{breachError}</div>}
+            {breach && (
+              <div style={{ marginTop: 12 }}>
+                {breach.exposed.length === 0 ? (
+                  <div className="vault-hint" style={{ color: "var(--vault-strong-color)" }}>
+                    {breach.checked} passwords checked — none of them turned up in a known leak.
+                  </div>
+                ) : (
+                  <table className="vault-table">
+                    <thead>
+                      <tr>
+                        <th>Found in a leak</th>
+                        <th>Times seen</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {breach.exposed.map((x) => (
+                        <tr key={x.uuid}>
+                          <td>
+                            <b>{x.label}</b>
+                          </td>
+                          <td className="vault-mono" style={{ color: "var(--vault-danger-color)" }}>
+                            {x.count?.toLocaleString() ?? "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
+            <div className="vault-hint" style={{ marginTop: 18 }}>
+              <b>Email addresses.</b> This one is different and you should know it: the address is sent as you typed it,
+              because that is the only way this check works. One address at a time, only when you press the button.
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="paul@example.com"
+                style={{ flex: 1, minWidth: 200, background: "var(--mc-field)", border: "1px solid var(--mc-border)", borderRadius: 8, padding: "9px 11px", color: "var(--mc-text)", fontSize: 12.5 }}
+              />
+              <button className="vault-btn" disabled={emailBusy || !email.includes("@")} onClick={checkEmail}>
+                {emailBusy ? "Checking…" : "Check this address"}
+              </button>
+            </div>
+            {emailError && <div className="vault-state error">{emailError}</div>}
+            {emailResult && (
+              <div className="vault-hint" style={{ marginTop: 10 }}>
+                {emailResult.exposed ? (
+                  <>
+                    <span style={{ color: "var(--vault-danger-color)", fontWeight: 600 }}>
+                      Found in {emailResult.breaches.length} known {emailResult.breaches.length === 1 ? "breach" : "breaches"}.
+                    </span>{" "}
+                    {emailResult.breaches.slice(0, 20).join(", ")}
+                    {emailResult.breaches.length > 20 ? ` and ${emailResult.breaches.length - 20} more.` : ""}
+                    <div style={{ marginTop: 6 }}>
+                      This does not mean a password here is known — change anything you reused on those sites.
+                    </div>
+                  </>
+                ) : (
+                  <span style={{ color: "var(--vault-strong-color)" }}>Not found in any known breach.</span>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
       <div className="vault-hgrid">
         <div className="vault-hcard">
           <span className="vault-hlabel">Overall</span>

@@ -43,6 +43,10 @@ export const VAULT_DEFAULTS = {
   // Health thresholds — a setting, never a constant, so "stale" can be tuned without a build.
   "health.stale_days": "90",
   "health.min_length": "12",
+  // Dark-web exposure checks (XposedOrNot). THE ONLY FEATURE IN THE VAULT THAT TOUCHES THE
+  // NETWORK, and therefore OFF until the user turns it on — see breach.ts for what each check
+  // does and does not send.
+  "breach.enabled": "0",
 } as const;
 
 export type VaultSettingKey = keyof typeof VAULT_DEFAULTS;

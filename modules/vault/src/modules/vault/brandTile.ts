@@ -18,9 +18,19 @@
 // without reading it. A user who wants their own artwork can attach an image later — their file,
 // their choice, no exposure for us.
 
-/** Published brand colours for the companies the seed ships with, plus common neighbours. Keys are
-    matched case-insensitively against the start of the entry's label, so "Google / Gmail" hits
-    "google". Anything unmatched falls to a deterministic hue from the name — never grey. */
+/** 3,301 OFFICIAL brand colours, vendored from the Simple Icons dataset (CC0) by
+    seed/generate-brand-icons.mjs. Fetched once on a developer machine and shipped in the bundle —
+    the application never makes that call, so no tile render ever tells anyone what is in the
+    vault. This is consulted FIRST; the hand-written table below covers what it misses. */
+import { GENERATED_BRAND_COLOURS } from "./brandIcons.generated";
+import { GENERATED_BRAND_SVGS } from "./brandSvgs.generated";
+
+/** Longest keys first, so "google cloud" cannot be swallowed by "google". */
+const GENERATED_SORTED = [...GENERATED_BRAND_COLOURS].sort((a, b) => b[0].length - a[0].length);
+
+/** Hand-written fallbacks: brands the dataset misses, and the seed's own composite labels
+    ("Google / Gmail", "X (Twitter)"). Keys are matched case-insensitively against the entry's
+    label. Anything unmatched falls to a deterministic hue from the name — never grey. */
 const BRAND_COLOURS: [string, string][] = [
   ["adobe", "#ED2224"],
   ["amazon", "#FF9900"],
@@ -93,6 +103,41 @@ export function iconPathFor(_label: string): string | null {
   return null;
 }
 
+/**
+ * THE REAL ICON, when we have one. Full-colour SVG markup vendored from dashboard-icons
+ * (Apache-2.0) at development time — see seed/generate-brand-svgs.mjs. Returns null for anything
+ * not in the set, and the tile falls back to the brand colour plus initials, which is why a missing
+ * icon is cosmetic and never a broken tile.
+ */
+const SVG_BY_SLUG = new Map(GENERATED_BRAND_SVGS);
+
+/** Vault labels are human ("Google / Gmail", "X (Twitter)"); icon slugs are not. Bridge the gap. */
+const SLUG_ALIASES: [RegExp, string][] = [
+  [/^google\s*\/\s*gmail/i, "gmail"],
+  [/^x \(twitter\)/i, "x"],
+  [/^intuit quickbooks/i, "quickbooks"],
+  [/^jpmorgan chase/i, "chase"],
+  [/^bank of america/i, "bank-of-america"],
+  [/^american express/i, "americanexpress"],
+  [/^office 365/i, "microsoft-office"],
+  [/^t-?mobile/i, "t-mobile"],
+  [/^at&?t/i, "att"],
+  [/^best buy/i, "bestbuy"],
+];
+
+export function brandSvg(label: string): string | null {
+  const raw = label.trim().toLowerCase();
+  for (const [pattern, slug] of SLUG_ALIASES) {
+    if (pattern.test(label)) {
+      const hit = SVG_BY_SLUG.get(slug);
+      if (hit) return hit;
+    }
+  }
+  // Straight slug: "Squarespace" → "squarespace"; "Google / Gmail" already handled above.
+  const slug = raw.replace(/\s*[/(].*$/, "").trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return SVG_BY_SLUG.get(slug) ?? SVG_BY_SLUG.get(slug.replace(/-/g, "")) ?? null;
+}
+
 /** Deterministic hue for anything not in the table — same name, same colour, forever. */
 function hashHue(name: string): number {
   let h = 0;
@@ -102,8 +147,18 @@ function hashHue(name: string): number {
 
 export function brandColour(label: string): string {
   const key = label.trim().toLowerCase();
+  // Hand-written first: it holds the seed's composite labels ("Google / Gmail") and deliberate
+  // overrides, which must beat a generic dataset match on a substring of the same name.
   for (const [needle, colour] of BRAND_COLOURS) {
     if (key.startsWith(needle) || key.includes(needle)) return colour;
+  }
+  // Then the 3,301 official colours. Exact match wins outright; otherwise the longest key that
+  // the label starts with — a prefix match only, so "Apple" cannot be claimed by "app".
+  for (const [needle, colour] of GENERATED_SORTED) {
+    if (key === needle) return colour;
+  }
+  for (const [needle, colour] of GENERATED_SORTED) {
+    if (needle.length >= 3 && key.startsWith(needle)) return colour;
   }
   // Fixed saturation and lightness keep every generated colour in the same family as the published
   // ones, so a mixed collage still reads as one set rather than a ransom note.

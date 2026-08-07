@@ -144,6 +144,11 @@ export interface VaultApi {
   listVersions: (uuid: string) => Promise<VaultVersionRow[]>;
   listAccessLog: (opts?: { limit?: number; secretUuid?: string }) => Promise<VaultAccessRow[]>;
   /** Folders are containers only — deleting one moves its contents to Unfiled, never deletes them. */
+  /** Dark-web exposure. The ONLY network calls in the vault; both are off until enabled.
+   *  The sweep is k-anonymous — no password or fragment leaves. The email check DOES send the
+   *  address, so it is one at a time, on an explicit press. */
+  breachSweep: () => Promise<{ ok: boolean; error?: string; checked: number; exposed: { uuid: string; label: string; count: number | null }[] }>;
+  breachEmail: (email: string) => Promise<{ ok: boolean; error?: string; exposed: boolean; breaches: string[] }>;
   listFolders: () => Promise<VaultFolder[]>;
   createFolder: (name: string, parentId?: number | null) => Promise<VaultFolder>;
   renameFolder: (id: number, name: string) => Promise<VaultFolder>;

@@ -22,6 +22,7 @@ import { ensureVaultSchema, type Db } from "./db";
 import * as secrets from "./store";
 import * as lock from "./lock";
 import * as folders from "./folders";
+import * as breach from "./breach";
 import * as vaultSettings from "./settings";
 import * as seed from "./seed";
 import { analyseHealth } from "./health";
@@ -204,6 +205,18 @@ export function registerVaultIpc(): void {
     const report = analyseHealth(db, orgId);
     secrets.logAccess(db, orgId, "health_scan", null, null, RENDERER_CALLER, true, `${report.total} entries analysed`);
     return report;
+  });
+
+  // ---- dark-web exposure. THE ONLY NETWORK CALLS IN THE VAULT, and both are off by default.
+  // The password sweep is k-anonymous (nothing identifying leaves); the email check sends the
+  // address, so it is one at a time and never swept. See breach.ts.
+  safeHandle("vault:breachSweep", async () => {
+    const { db, orgId } = await gated();
+    return breach.sweepPasswords(db, orgId);
+  });
+  safeHandle("vault:breachEmail", async (_e, email: unknown) => {
+    const { db, orgId } = await gated();
+    return breach.checkEmail(db, orgId, email);
   });
 
   // ---- generator: pure local computation, nothing stored, nothing logged per keystroke ----

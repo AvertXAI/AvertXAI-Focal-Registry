@@ -310,7 +310,7 @@ export default function VaultModule() {
             </>
           )}
           {tab === "generator" && <GeneratorView settings={settings} onSetting={setSetting} />}
-          {tab === "health" && <HealthView />}
+          {tab === "health" && <HealthView settings={settings} onSetting={setSetting} />}
           {tab === "log" && <AccessLogView />}
           {tab === "settings" && (
             <VaultSettingsView

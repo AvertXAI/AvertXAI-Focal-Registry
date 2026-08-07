@@ -126,7 +126,11 @@
 
 /* ---------- the brand mark, shared by every view ---------- */
 .vault-mark { flex: none; border-radius: 9px; display: inline-flex; align-items: center;
-  justify-content: center; font-weight: 800; letter-spacing: .3px; }
+  justify-content: center; font-weight: 800; letter-spacing: .3px; overflow: hidden; }
+/* A real full-colour logo carries its own colours, so it sits on a neutral plate — a light one in
+   every theme, because most brand marks are drawn to sit on white and vanish on a dark ground. */
+.vault-mark-icon { background: #ffffff; padding: 4px; }
+.vault-mark-icon svg { width: 100%; height: 100%; display: block; }
 
 /* ---------- collage ---------- */
 /* Tiles are sized so four fit at the 740px floor with the rail up: 740 − 232 rail − 36 padding

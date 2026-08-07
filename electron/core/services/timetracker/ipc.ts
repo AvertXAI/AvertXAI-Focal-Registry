@@ -235,7 +235,20 @@ export function registerTimeTrackerIpc(): void {
       | { invoice_number: string | null; name: string }
       | undefined;
     if (!row?.invoice_number) throw new Error("Export the invoice data first — no invoice number is on file.");
-    const doc = `<!doctype html><html><head><meta charset="utf-8"><style>${String(css ?? "")}</style></head><body>${String(html ?? "")}</body></html>`;
+    // Skill §2/§3: the approved face EMBEDDED, not hoped for. The bundled Inter variable font
+    // (assets/fonts/, SIL OFL) rides in as a data URI @font-face — Node's asar-patched fs reads it
+    // even packaged, and Chromium subsets it into the PDF. A failed read degrades to the CSS stack.
+    let fontFace = "";
+    try {
+      const fontB64 = fs
+        .readFileSync(path.join(app.getAppPath(), "assets", "fonts", "Inter-Variable.ttf"))
+        .toString("base64");
+      fontFace = `@font-face { font-family: Inter; src: url(data:font/ttf;base64,${fontB64}) format("truetype"); font-weight: 100 900; }`;
+    } catch (e) {
+      console.error("[timetracker] invoice font not bundled — falling back to the CSS stack:", e);
+    }
+    // §2: document title is the invoice number (Chromium carries <title> into the PDF metadata).
+    const doc = `<!doctype html><html><head><meta charset="utf-8"><title>${row.invoice_number}</title><style>${fontFace}${String(css ?? "")}</style></head><body>${String(html ?? "")}</body></html>`;
     const tmp = path.join(app.getPath("temp"), `focal-invoice-${projectId}-${Date.now()}.html`);
     fs.writeFileSync(tmp, doc, "utf8");
     try {
@@ -248,7 +261,8 @@ export function registerTimeTrackerIpc(): void {
           margins: { top: 0.6, bottom: 0.7, left: 0.6, right: 0.6 },
           displayHeaderFooter: true,
           headerTemplate: `<div></div>`,
-          footerTemplate: `<div style="font-size:8px;width:100%;padding:0 0.6in;text-align:center;color:#888;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>`,
+          // §5.4: the invoice number rides the running footer beside Page X of Y.
+          footerTemplate: `<div style="font-size:8px;width:100%;padding:0 0.6in;display:flex;justify-content:space-between;color:#888;"><span>${row.invoice_number}</span><span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span></div>`,
         });
         const dir = path.join(documentsExportsDir(), "TimeTracker");
         fs.mkdirSync(dir, { recursive: true });

@@ -42,6 +42,7 @@
       "dist-electron/mini-preload.cjs",
       "build/icon.ico",
       "assets/sounds/**",
+      "assets/fonts/**",
       "package.json"
     ],
     "asar": true,

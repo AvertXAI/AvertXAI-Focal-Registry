@@ -96,7 +96,34 @@ export function ensureTimeTrackerSchema(db: Db): void {
     // INVOICE NUMBER — INV-YYYY-NNNN, allocated the FIRST time an invoice is exported for this
     // project and stored here so a re-export reproduces the same number (never re-allocated).
     if (!cols.includes("invoice_number")) db.exec("ALTER TABLE timetracker_projects ADD COLUMN invoice_number TEXT;");
+    // CONTRACT DETAILS (Jason ruled 08-06, profit build): the date the client SIGNED is what puts
+    // revenue on a timeline — a project without one is excluded from the profit time series (still
+    // counted in all-time totals). signed_by and payment_terms complete the one-set-of-facts the
+    // Contract-details modal and the New-project block both edit (two doors, one answer).
+    if (!cols.includes("contract_date")) db.exec("ALTER TABLE timetracker_projects ADD COLUMN contract_date TEXT;");
+    if (!cols.includes("signed_by")) db.exec("ALTER TABLE timetracker_projects ADD COLUMN signed_by TEXT;");
+    if (!cols.includes("payment_terms")) db.exec("ALTER TABLE timetracker_projects ADD COLUMN payment_terms TEXT;");
   }
+
+  // PAYMENTS (Jason ruled 08-06 — closes the invoice's missing Deposit line and the recon's
+  // client-payments GAP). Append-only in spirit: corrections are new rows or soft deletes, never
+  // edits that erase history. Prefixed timetracker_ per canon (module tables are prefixed by slug;
+  // the build prompt's shorthand "project_payments" is honoured as the suffix).
+  // NOT completion-locked, deliberately: the completion toast ASKS to record payment after the job
+  // locks — money received is not an edit to the work.
+  createTable(db, "timetracker_project_payments", [
+    "org_id TEXT NOT NULL",
+    "project_id INTEGER NOT NULL REFERENCES timetracker_projects(id)",
+    "amount REAL NOT NULL CHECK (amount > 0)",
+    "received_on TEXT NOT NULL", // YYYY-MM-DD, the day the money landed
+    "method TEXT NOT NULL CHECK (method IN ('check','cash','wire','bank_transfer','zelle','venmo','card','other'))",
+    "reference TEXT", // check #, ACH confirmation, last 4…
+    "note TEXT",
+    "deleted_at TEXT", // soft delete — a mistaken row is voided, never erased
+  ]);
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_timetracker_project_payments_project ON timetracker_project_payments (project_id);"
+  );
 
   // ITEMIZED COSTS — the qty/description/amount rows the project modal carries. Storage the
   // 08-04 recon proved absent (no table, no service, no type anywhere in the tree).

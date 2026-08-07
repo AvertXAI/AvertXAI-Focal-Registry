@@ -101,6 +101,37 @@ export interface Project {
   completed_at: string | null;
   /** INV-YYYY-NNNN, allocated on first invoice export and never re-allocated. */
   invoice_number: string | null;
+  /** The day the client SIGNED (YYYY-MM-DD) — revenue's date on the profit timeline. NULL = the
+      project does not appear on the timeline (still counted in all-time totals). */
+  contract_date: string | null;
+  signed_by: string | null;
+  payment_terms: string | null;
+}
+
+// ---- payments (08-06 profit build) ------------------------------------------------------
+
+export type PaymentMethod = "check" | "cash" | "wire" | "bank_transfer" | "zelle" | "venmo" | "card" | "other";
+
+export interface ProjectPayment {
+  id: number;
+  uuid: string;
+  project_id: number;
+  amount: number;
+  received_on: string; // YYYY-MM-DD
+  method: PaymentMethod;
+  reference: string | null;
+  note: string | null;
+  deleted_at: string | null;
+  created_at: string;
+}
+
+export interface ProjectPaymentInput {
+  projectId: number;
+  amount: number;
+  receivedOn: string;
+  method: PaymentMethod;
+  reference?: string | null;
+  note?: string | null;
 }
 
 export interface ArchiveAuditEntry {
@@ -212,18 +243,32 @@ export interface GrandTotals {
 export type ReportRange = "all" | "7d" | "30d" | "90d";
 export type ReportGranularity = "day" | "week" | "month";
 
-/** Read-only analytics totals — mirrors GrandTotals (same composite as the grand-total bar). */
+/** Read-only analytics totals — the RULED vocabulary (08-06): revenue, spent, profit, margin.
+    The old total_invested (revenue ADDED to costs) is gone — it was the recon's naming collision. */
 export interface ReportTotals {
   total_seconds: number;
-  /** $ value: hourly = rate x hours, paid contract = contract_amount, donated excluded. */
-  total_value: number;
-  total_costs: number;
-  /** total_value + total_costs (the grand-total bar's composite). */
-  total_invested: number;
-  /** Hours logged against donated contracts — counted in time, never in $ value. */
+  /** hourly = rate x hours, paid contract = contract_amount, donated 0. */
+  revenue: number;
+  /** THE full spend composition: crew pay + itemized purchases + hard cost lines. */
+  spent: number;
+  /** revenue − spent. Negative when a project lost money. */
+  profit: number;
+  /** profit ÷ revenue as a percent; NULL when there is no revenue (not the same as 0%). */
+  margin: number | null;
+  /** Hours logged against donated contracts — counted in time, never in $ revenue. */
   donated_seconds: number;
   project_count: number;
   group_count: number;
+}
+
+export interface ProfitByProjectPoint {
+  name: string;
+  profit: number;
+}
+
+export interface MarginByProjectPoint {
+  name: string;
+  margin: number;
 }
 
 export interface TimeSeriesPoint {
@@ -263,6 +308,10 @@ export interface ReportData {
   timeSeries: TimeSeriesPoint[];
   hoursByProject: HoursByProjectPoint[];
   costsByCategory: CostsByCategoryPoint[];
+  profitByProject: ProfitByProjectPoint[];
+  marginByProject: MarginByProjectPoint[];
+  /** Contract-paid projects with no contract_date — off the timeline; the caption says why. */
+  timelineExcluded: number;
   wasted: WastedMetric;
 }
 
@@ -372,6 +421,10 @@ export interface NewProjectInput {
   contractKind: ContractKind | null;
   /** Donated-hours goal (e.g. 252.50) for donated contracts. */
   targetHours: number | null;
+  /** Contract details (08-06) — the New-project block's door; the modal is the other. */
+  contractDate?: string | null;
+  signedBy?: string | null;
+  paymentTerms?: string | null;
 }
 
 export interface UpdateProjectInput extends NewProjectInput {
@@ -437,6 +490,8 @@ export interface InvoiceData {
   subtotal: number;
   tax_rate: number;
   tax_amount: number;
+  /** Payments received to date — rendered negative in the totals stack; 0 = no Deposit line. */
+  deposit_paid: number;
   total: number;
   balance_due: number;
 }
@@ -463,7 +518,9 @@ export interface ProjectSpend {
   employee_cost: number;
   employee_hours: number;
   itemized_total: number;
-  /** employee_cost + itemized_total. Excludes timetracker_time_entries by ruling. */
+  /** Hard cost line items — joined 08-06 so SPENT means everything the project cost. */
+  hard_costs: number;
+  /** employee_cost + itemized_total + hard_costs. Excludes Jason's own time by ruling. */
   spent: number;
   /** What the user planned to SPEND hiring and buying. */
   spend_budget: number | null;

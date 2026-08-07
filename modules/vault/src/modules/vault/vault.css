@@ -115,6 +115,109 @@
 .vault-star.on { color: var(--vault-warn-color); }
 .vault-acts { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 
+/* ---------- view switcher (Grid / List / Panes / Folders) ---------- */
+.vault-modeswitch { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.vault-viewsw { display: flex; gap: 6px; flex-wrap: wrap; }
+.vault-swbtn { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 7px;
+  padding: 6px 12px; font-size: 12px; color: var(--mc-muted); cursor: pointer; white-space: nowrap; }
+.vault-swbtn:hover { color: var(--mc-text); }
+.vault-swbtn.on { color: var(--mc-seg-on-icon); background: var(--mc-seg-on-background);
+  border-color: var(--mc-seg-on-icon); font-weight: 600; }
+
+/* ---------- the brand mark, shared by every view ---------- */
+.vault-mark { flex: none; border-radius: 9px; display: inline-flex; align-items: center;
+  justify-content: center; font-weight: 800; letter-spacing: .3px; }
+
+/* ---------- collage ---------- */
+/* Tiles are sized so four fit at the 740px floor with the rail up: 740 − 232 rail − 36 padding
+   = 472 usable; minmax(112px) with a 12px gap gives 4 × 112 + 3 × 12 = 484 → wraps to 3, which is
+   the intended floor behaviour. At 1280 the same track yields 8-9 per row. */
+.vault-collage { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
+.vault-tile { position: relative; aspect-ratio: 1.15; border: 1px solid var(--mc-border);
+  border-radius: 11px; background: var(--mc-panels); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 7px; padding: 10px 8px; cursor: pointer;
+  color: var(--mc-text); font-family: inherit; }
+.vault-tile:hover { border-color: var(--mc-accent-primary); }
+.vault-tile.on { border-color: var(--mc-accent-primary);
+  box-shadow: 0 0 0 1px var(--mc-accent-primary) inset; }
+.vault-tile .vault-mark { width: 44px; height: 44px; font-size: 16px; }
+.vault-tilename { font-size: 11.5px; line-height: 1.25; text-align: center; color: var(--mc-text);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.vault-tileuser { font-size: 10px; color: var(--mc-dimmer); max-width: 100%; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.vault-tilestar { position: absolute; top: 6px; right: 8px; font-size: 11px; color: var(--vault-warn-color); }
+.vault-tile.add { border-style: dashed; color: var(--mc-muted); }
+.vault-tileplus { font-size: 22px; line-height: 1; color: var(--mc-muted); }
+/* Detail opens beside the grid; below 1100px it stacks under, because a 300px detail beside a
+   3-column grid leaves neither readable. */
+.vault-collagesplit { display: flex; gap: 14px; align-items: flex-start; }
+.vault-collagemain { flex: 1; min-width: 0; }
+.vault-collagedetail { width: 340px; flex: none; }
+@media (max-width: 1100px) {
+  .vault-collagesplit { flex-direction: column; }
+  .vault-collagedetail { width: 100%; }
+}
+
+/* ---------- three-pane ---------- */
+.vault-pane3 { display: flex; border: 1px solid var(--mc-border); border-radius: 11px;
+  overflow: hidden; background: var(--mc-panels); min-height: 520px; }
+.vault-pnav { width: 172px; flex: none; background: var(--mc-nested);
+  border-right: 1px solid var(--mc-border); padding: 10px 8px; overflow-y: auto; }
+.vault-plist { width: 268px; flex: none; border-right: 1px solid var(--mc-border); overflow-y: auto; }
+.vault-pdetail { flex: 1; min-width: 0; padding: 4px; overflow-y: auto; }
+.vault-prow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 9px;
+  border-radius: 7px; background: none; border: none; color: var(--mc-text); font-size: 12.5px;
+  cursor: pointer; text-align: left; }
+.vault-prow:hover { background: var(--mc-panels); }
+.vault-prow.on { background: var(--vault-selection-background); font-weight: 600; }
+.vault-irow { display: flex; align-items: center; gap: 11px; width: 100%; padding: 10px 13px;
+  border: none; border-bottom: 1px solid var(--mc-border); background: none; color: var(--mc-text);
+  cursor: pointer; text-align: left; position: relative; }
+.vault-irow:hover { background: var(--mc-nested); }
+.vault-irow.on { background: var(--vault-selection-background); }
+.vault-irow.on::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--mc-accent-primary); }
+.vault-irowtitle { display: block; font-size: 12.5px; font-weight: 600; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-irowsub { display: block; font-size: 11px; color: var(--mc-dimmer); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+/* Below 980px three panes cannot all stay legible — the nav collapses into the list column. */
+@media (max-width: 980px) {
+  .vault-pane3 { flex-direction: column; min-height: 0; }
+  .vault-pnav, .vault-plist { width: 100%; border-right: 0; border-bottom: 1px solid var(--mc-border); }
+  .vault-plist { max-height: 300px; }
+}
+
+/* ---------- detail pane (shared by collage + panes) ---------- */
+.vault-detail { padding: 14px 15px; }
+.vault-detailhead { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; flex-wrap: wrap; }
+.vault-detailhead h3 { font-size: 14.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.vault-detailacts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.vault-fbox { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 9px;
+  padding: 10px 12px; margin-bottom: 10px; }
+.vault-flabel { font-size: 10px; color: var(--mc-dimmer); margin-bottom: 5px; letter-spacing: .5px;
+  text-transform: uppercase; }
+.vault-fvalue { font-size: 12.5px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  word-break: break-word; }
+.vault-facts { margin-left: auto; display: flex; gap: 6px; }
+
+/* ---------- folder tree ---------- */
+.vault-folderwrap { display: flex; gap: 14px; align-items: flex-start; }
+.vault-foldertree { width: 300px; flex: none; margin-bottom: 0; }
+.vault-tnoderow { display: flex; align-items: center; gap: 4px; }
+.vault-tnode { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 7px 9px;
+  border-radius: 7px; background: none; border: none; color: var(--mc-text); font-size: 12.5px;
+  cursor: pointer; text-align: left; }
+.vault-tnode:hover { background: var(--mc-nested); }
+.vault-tnode.on { background: var(--vault-selection-background); font-weight: 600; }
+.vault-linkrow { display: flex; align-items: center; gap: 9px; background: none; border: none;
+  color: var(--mc-text); cursor: pointer; font-size: 12.5px; font-family: inherit; padding: 0; }
+.vault-linkrow:hover b { color: var(--mc-accent-primary); }
+@media (max-width: 980px) {
+  .vault-folderwrap { flex-direction: column; }
+  .vault-foldertree { width: 100%; }
+}
+
 /* ---------- generator ---------- */
 .vault-genout { display: flex; align-items: center; gap: 12px; background: var(--mc-field);
   border: 1px solid var(--mc-border); border-radius: 9px; padding: 13px 15px; flex-wrap: wrap; }

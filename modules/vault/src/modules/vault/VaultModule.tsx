@@ -10,11 +10,24 @@
 // globals.css's `.view.shown{display:block}` — without it the rail stacks above the content, and
 // the compiler cannot see it.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import SecretsView from "./SecretsView";
+import SecretsView, { EntryModal } from "./SecretsView";
+import CollageView, { type CollageSort } from "./CollageView";
+import { FoldersView, PanesView } from "./PanesView";
 import { AccessLogView, GeneratorView, HealthView } from "./ToolsViews";
 import VaultSettingsView from "./VaultSettingsView";
-import { vaultApi, type VaultLockState, type VaultSecretMeta } from "./vaultApi";
+import { vaultApi, type VaultFolder, type VaultLockState, type VaultSecretMeta } from "./vaultApi";
 import "./vault.css";
+
+/** How the Vault tab shows its entries. Grid is the main page (Jason 08-06-2026); the choice
+    persists to the vault's own settings, never localStorage. */
+type ViewMode = "grid" | "list" | "panes" | "folders";
+
+const VIEW_MODES: [ViewMode, string][] = [
+  ["grid", "▦ Grid"],
+  ["list", "☰ List"],
+  ["panes", "◫ Panes"],
+  ["folders", "🗀 Folders"],
+];
 
 type Tab = "vault" | "generator" | "health" | "log" | "settings";
 
@@ -42,12 +55,17 @@ export default function VaultModule() {
   const [unlocking, setUnlocking] = useState(false);
 
   const [secrets, setSecrets] = useState<VaultSecretMeta[]>([]);
+  const [folders, setFolders] = useState<VaultFolder[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState(false);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<Tab>("vault");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<VaultSecretMeta | null | "new">(null);
+  // Seeded from the persisted rows once they arrive; grid until then, because grid is the main page.
+  const viewMode = (settings["view.mode"] as ViewMode) ?? "grid";
+  const sort = (settings["view.sort"] as CollageSort) ?? "popular";
 
   // ---- the lock is the first question the module asks, before any data read.
   const readLock = useCallback((): void => {
@@ -79,6 +97,7 @@ export default function VaultModule() {
         setLoading(false);
       });
     void api.getSettings().then(setSettings).catch(() => setSettings({}));
+    void api.listFolders().then(setFolders).catch(() => setFolders([]));
   }, [api, open]);
 
   useEffect(() => {
@@ -112,6 +131,20 @@ export default function VaultModule() {
       .catch((e: unknown) => setUnlockError(e instanceof Error ? e.message : String(e)))
       .finally(() => setUnlocking(false));
   };
+
+  // What the rail's filter and the search box leave standing — the grid, panes and folder views all
+  // read the same filtered set, so the rail means the same thing whichever view is on screen.
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return secrets.filter((s) => {
+      if (filter === "favourites" && s.favourite !== 1) return false;
+      if (filter === "archived" && !s.archived_at) return false;
+      if (filter !== "archived" && s.archived_at) return false;
+      if (filter.startsWith("kind:") && s.kind !== filter.slice(5)) return false;
+      if (!q) return true;
+      return [s.label, s.username, s.url, s.full_name].some((v) => (v ?? "").toLowerCase().includes(q));
+    });
+  }, [secrets, filter, search]);
 
   const counts = useMemo(() => {
     const active = secrets.filter((s) => !s.archived_at);
@@ -229,7 +262,52 @@ export default function VaultModule() {
         </div>
         <div className="vault-body">
           {tab === "vault" && (
-            <SecretsView secrets={secrets} loading={loading} error={listError} filter={filter} search={search} onReload={loadData} />
+            <>
+              <div className="vault-modeswitch">
+                {VIEW_MODES.map(([m, label]) => (
+                  <button
+                    key={m}
+                    className={`vault-swbtn${viewMode === m ? " on" : ""}`}
+                    onClick={() => setSetting("view.mode", m)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {loading ? (
+                <div className="vault-state">Opening the vault…</div>
+              ) : listError ? (
+                <div className="vault-state error">
+                  The vault could not be read.
+                  <div>
+                    <button className="vault-btn" onClick={loadData}>
+                      Try again
+                    </button>
+                  </div>
+                </div>
+              ) : viewMode === "grid" ? (
+                <CollageView
+                  secrets={visible}
+                  sort={sort}
+                  onSort={(s) => setSetting("view.sort", s)}
+                  onReload={loadData}
+                  onNew={() => setEditing("new")}
+                  onEdit={setEditing}
+                />
+              ) : viewMode === "panes" ? (
+                <PanesView secrets={secrets} folders={folders} onReload={loadData} onNew={() => setEditing("new")} onEdit={setEditing} />
+              ) : viewMode === "folders" ? (
+                <FoldersView
+                  secrets={secrets}
+                  folders={folders}
+                  onReload={loadData}
+                  onFoldersChanged={() => void api.listFolders().then(setFolders)}
+                  onEdit={setEditing}
+                />
+              ) : (
+                <SecretsView secrets={secrets} loading={false} error={false} filter={filter} search={search} onReload={loadData} />
+              )}
+            </>
           )}
           {tab === "generator" && <GeneratorView settings={settings} onSetting={setSetting} />}
           {tab === "health" && <HealthView />}
@@ -245,6 +323,17 @@ export default function VaultModule() {
           )}
         </div>
       </div>
+
+      {editing !== null && (
+        <EntryModal
+          secret={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            loadData();
+          }}
+        />
+      )}
     </div>
   );
 }

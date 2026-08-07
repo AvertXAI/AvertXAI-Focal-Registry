@@ -119,6 +119,14 @@ export interface VaultLockState {
   autoLockMinutes: number;
 }
 
+export interface VaultFolder {
+  id: number;
+  uuid: string;
+  name: string;
+  parent_id: number | null;
+  sort_order: number;
+}
+
 export interface VaultApi {
   lockState: () => Promise<VaultLockState>;
   unlock: (password: string) => Promise<VaultLockState>;
@@ -135,6 +143,12 @@ export interface VaultApi {
   restore: (uuid: string) => Promise<VaultSecretMeta>;
   listVersions: (uuid: string) => Promise<VaultVersionRow[]>;
   listAccessLog: (opts?: { limit?: number; secretUuid?: string }) => Promise<VaultAccessRow[]>;
+  /** Folders are containers only — deleting one moves its contents to Unfiled, never deletes them. */
+  listFolders: () => Promise<VaultFolder[]>;
+  createFolder: (name: string, parentId?: number | null) => Promise<VaultFolder>;
+  renameFolder: (id: number, name: string) => Promise<VaultFolder>;
+  moveFolder: (id: number, parentId: number | null) => Promise<VaultFolder>;
+  deleteFolder: (id: number) => Promise<{ movedSecrets: number; movedFolders: number }>;
   health: () => Promise<VaultHealthReport>;
   generate: (opts?: Partial<VaultGeneratorOptions>) => Promise<string>;
   strength: (value: string) => Promise<VaultStrength>;

@@ -21,6 +21,7 @@ import { deriveVaultKey, getOrCreateVaultSecret } from "./crypto";
 import { ensureVaultSchema, type Db } from "./db";
 import * as secrets from "./store";
 import * as lock from "./lock";
+import * as folders from "./folders";
 import * as vaultSettings from "./settings";
 import * as seed from "./seed";
 import { analyseHealth } from "./health";
@@ -154,6 +155,47 @@ export function registerVaultIpc(): void {
   safeHandle("vault:listAccessLog", async (_e, opts: unknown) => {
     const { db, orgId } = await gated();
     return secrets.listAccessLog(db, orgId, (opts ?? {}) as { limit?: number; secretUuid?: string });
+  });
+
+  // ---- folders: containers only. Deleting one never deletes a secret (see folders.ts) ----
+  safeHandle("vault:listFolders", async () => {
+    const { db, orgId } = await gated();
+    return folders.listFolders(db, orgId);
+  });
+  safeHandle("vault:folderCounts", async () => {
+    const { db, orgId } = await gated();
+    return folders.folderCounts(db, orgId);
+  });
+  safeHandle("vault:createFolder", async (_e, name: unknown, parentId: unknown) => {
+    const { db, orgId } = await gated();
+    const made = folders.createFolder(db, orgId, name, parentId);
+    secrets.logAccess(db, orgId, "folder_create", null, null, RENDERER_CALLER, true, made.name);
+    return made;
+  });
+  safeHandle("vault:renameFolder", async (_e, id: unknown, name: unknown) => {
+    const { db, orgId } = await gated();
+    const row = folders.renameFolder(db, orgId, id, name);
+    secrets.logAccess(db, orgId, "folder_rename", null, null, RENDERER_CALLER, true, row.name);
+    return row;
+  });
+  safeHandle("vault:moveFolder", async (_e, id: unknown, parentId: unknown) => {
+    const { db, orgId } = await gated();
+    return folders.moveFolder(db, orgId, id, parentId);
+  });
+  safeHandle("vault:deleteFolder", async (_e, id: unknown) => {
+    const { db, orgId } = await gated();
+    const result = folders.deleteFolder(db, orgId, id);
+    secrets.logAccess(
+      db,
+      orgId,
+      "folder_delete",
+      null,
+      null,
+      RENDERER_CALLER,
+      true,
+      `${result.movedSecrets} entries moved to Unfiled`
+    );
+    return result;
   });
 
   // ---- health: verdicts cross the bridge, never the values they came from ----

@@ -632,3 +632,23 @@
 }
 .tt-docnotes { font-size: 13px; color: var(--mc-muted); white-space: pre-wrap; margin: 0; }
 .tt-net { color: var(--mc-green); }
+
+/* ---- Profit build (08-07): cards, charts, payments, contract ---- */
+/* Profit/loss card tint — token-composed, grayscale-safe (the sub-label still names the maths). */
+.tt-cardprofit .tt-cardvalue { color: var(--mc-green); }
+.tt-cardloss .tt-cardvalue { color: #e0574f; }
+/* Zero baseline — heavier than the grid so losses visibly hang below it. */
+.tt-chartzero { stroke: var(--mc-muted); stroke-width: 1.5; }
+.tt-chartbar.neg { fill: #e0574f; }
+.tt-chartaxis.neg { fill: #e0574f; }
+/* Chart cards are clickable (one modal for all) — the ⤢ names the affordance. */
+.tt-chartclick { cursor: pointer; position: relative; }
+.tt-chartclick:hover { border-color: var(--mc-accent-primary); }
+.tt-chartexpand { position: absolute; top: 10px; right: 12px; font-size: 12px; color: var(--mc-dimmer); }
+.tt-chartmodal { width: min(880px, 92vw); }
+.tt-chartmodalbody { margin-top: 8px; }
+/* Payments */
+.tt-paid { color: var(--mc-green); }
+.tt-paybadge { border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.tt-paybadge.paid { color: var(--mc-green); border: 1px solid var(--mc-green); }
+.tt-paybadge.awaiting { color: var(--mc-orange); border: 1px solid var(--mc-orange); }

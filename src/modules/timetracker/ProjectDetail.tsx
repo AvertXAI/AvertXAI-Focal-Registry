@@ -7,14 +7,38 @@
 // re-fetched when the module bumps refreshKey. Money writes ride the validating channels only.
 import { useEffect, useRef, useState } from "react";
 import type {
+  TimeTrackerPaymentMethod,
   TimeTrackerProjectItem,
   TimeTrackerActiveSessionInfo,
   TimeTrackerProjectDetail,
   TimeTrackerProjectListItem,
+  TimeTrackerProjectPayment,
 } from "../../shared/types";
 import Tip from "../../components/Tip";
 import NotesEditor from "./NotesEditor";
+import { signalAppAsk } from "../../App";
 import { formatBlockHeader, packSessionNotes, parseSessionNotes } from "../../shared/ttNotes";
+
+/** MM/DD/YYYY (the house month-first display) ⇄ the service's YYYY-MM-DD. Exported for the
+    ProjectModal's contract-date field (two doors, one format). */
+export const mdyToYmd = (s: string): string | null => {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s.trim());
+  return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : null;
+};
+export const ymdToMdy = (s: string | null): string => {
+  const m = s ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(s) : null;
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : "";
+};
+export const todayYmd = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+const PAYMENT_METHOD_LABELS: Array<[TimeTrackerPaymentMethod, string]> = [
+  ["check", "Check"], ["cash", "Cash"], ["wire", "Wire transfer"], ["bank_transfer", "Bank transfer / ACH"],
+  ["zelle", "Zelle"], ["venmo", "Venmo"], ["card", "Card"], ["other", "Other"],
+];
+const TERMS_PRESETS = ["Net 30", "Due on receipt", "50% deposit, balance on delivery"];
 
 interface Props {
   project: TimeTrackerProjectListItem | null;
@@ -83,6 +107,9 @@ export default function ProjectDetail({
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [completeFigures, setCompleteFigures] = useState<{ spent: number; people: number } | null>(null);
+  // Contract details + payments (08-06 profit build) — the two new doors on the project.
+  const [contractModal, setContractModal] = useState(false);
+  const [payModal, setPayModal] = useState(false);
   const [ledgerModal, setLedgerModal] = useState(false);
   const [ledgerAmount, setLedgerAmount] = useState("");
   const [ledgerNote, setLedgerNote] = useState("");
@@ -201,7 +228,8 @@ export default function ProjectDetail({
       : project.contract_kind === "donated"
         ? `Contract · donated${project.target_hours != null ? ` · ${project.target_hours}h goal` : ""}`
         : `Contract · paid${project.contract_amount != null ? ` · ${fmtMoney(project.contract_amount)}` : ""}`;
-  const invested = project.total_value + project.total_costs;
+  // RULED vocabulary (08-06): the `invested = value + costs` composite is DELETED — it added
+  // revenue to costs on a client-visible card, the exact collision the recon named.
   // The live session's packed quick notes, split for display. firstAt drives the block's stamp.
   const sessionNotes = parseSessionNotes(session?.note ?? null);
 
@@ -244,6 +272,10 @@ export default function ProjectDetail({
           <div className="tt-detailname">{project.name}</div>
           <div className="tt-detailsub">Client / project info</div>
         </div>
+        <button className="tt-btn ghost" onClick={() => setContractModal(true)} disabled={project.completed_at != null}
+          title={project.completed_at ? "Completed — view-only" : "Contract date, signed-by, terms — the facts the profit timeline reads"}>Contract</button>
+        <button className="tt-btn ghost" onClick={() => setPayModal(true)}
+          title="Record and review money received on this project">Payments</button>
         <button className="tt-btn ghost" onClick={onEdit} disabled={project.completed_at != null}
           title={project.completed_at ? "Completed — reactivate from the Completed tab to edit" : undefined}>Edit</button>
         <button className="tt-btn ghost" disabled={archiveBlocked}
@@ -290,17 +322,18 @@ export default function ProjectDetail({
 
       <div className="tt-cards">
         <div className="tt-card"><span className="tt-cardlabel">Total hours</span><span className="tt-cardvalue">{fmtDuration(project.total_seconds)}</span></div>
+        {/* RULED vocabulary (08-06): "Invested value" → CONTRACTED (it is revenue, not money put
+            in), "Costs" → SPENT (which since 08-06 is the FULL composition — crew + purchases +
+            hard lines), and the invested+costs composite line is gone. Profit deliberately does
+            NOT print here — Analytics only; this card row is client-facing. */}
         <div className="tt-card">
-          <span className="tt-cardlabel">Invested value</span>
+          <span className="tt-cardlabel">Contracted</span>
           <span className="tt-cardvalue">{project.rate_type === "contract" && project.contract_kind === "donated" ? "Donated" : fmtMoney(project.total_value)}</span>
-          {/* The money alone did not say WHERE it came from. total_seconds is everyone's time on
-              this project — the user's own tracked sessions plus employee hours — so the card now
-              reads as "this much money, over this much time". */}
-          <span className="tt-cardsub">{fmtDuration(project.total_seconds)} invested</span>
+          <span className="tt-cardsub">{fmtDuration(project.total_seconds)} worked</span>
         </div>
         <div className="tt-card">
-          <span className="tt-cardlabel">Costs</span><span className="tt-cardvalue">{fmtMoney(project.total_costs)}</span>
-          <span className="tt-cardsub">invested + costs = {fmtMoney(invested)}</span>
+          <span className="tt-cardlabel">Spent</span><span className="tt-cardvalue">{fmtMoney(project.total_costs)}</span>
+          <span className="tt-cardsub">crew + purchases + costs</span>
         </div>
         <div className="tt-card"><span className="tt-cardlabel">Last worked</span><span className="tt-cardvalue">{fmtDate(project.last_worked)}</span></div>
       </div>
@@ -522,6 +555,13 @@ export default function ProjectDetail({
       </div>
 
       {/* ---- modals ---- */}
+      {contractModal && (
+        <ContractDetailsModal project={project} onClose={() => setContractModal(false)}
+          onSaved={() => { setContractModal(false); onDataChanged(); }} />
+      )}
+      {payModal && (
+        <RecordPaymentModal project={project} onClose={() => setPayModal(false)} onChanged={onDataChanged} />
+      )}
       {completing && (
         <div className="tt-modalback" onClick={() => setCompleting(false)}>
           <div className="tt-modal" role="dialog" aria-label="Complete this job" onClick={(e) => e.stopPropagation()}>
@@ -549,7 +589,21 @@ export default function ProjectDetail({
               <button className="tt-btn ghost" onClick={() => setCompleting(false)}>Cancel</button>
               <button className="tt-btn done" onClick={() => {
                 void api.timetracker.projects.complete(project.id)
-                  .then(() => { setCompleting(false); onDataChanged(); })
+                  .then(() => {
+                    setCompleting(false);
+                    onDataChanged();
+                    // THE PAYMENT QUESTION (ruled 08-06, mockup scene 3) — the shell's ONE toast,
+                    // extended, never a second mechanism. "Not yet" is a real answer: the project
+                    // derives Awaiting payment until rows say otherwise; nothing needs storing.
+                    signalAppAsk(
+                      `✓ ${project.name} is complete`,
+                      "Did you actually get paid? A job isn't really finished until the money landed. Mark it now, or leave it and it will show as awaiting payment.",
+                      [
+                        { label: "Yes — record payment", primary: true, onClick: () => setPayModal(true) },
+                        { label: "Not yet", onClick: () => {} },
+                      ]
+                    );
+                  })
                   .catch((e: unknown) => setCompleteError(e instanceof Error ? e.message : String(e)));
               }}>Yes, complete it</button>
             </div>
@@ -623,6 +677,222 @@ export default function ProjectDetail({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * CONTRACT DETAILS (08-06, mockup scene 1) — one of the TWO DOORS onto the same project columns
+ * (the New-project block is the other; both pre-fill from the row, so the project only ever holds
+ * one answer). The contract date is what puts revenue on the profit timeline.
+ */
+function ContractDetailsModal({
+  project,
+  onClose,
+  onSaved,
+}: {
+  project: TimeTrackerProjectListItem;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const api = window.api;
+  const [date, setDate] = useState(ymdToMdy(project.contract_date));
+  const [amount, setAmount] = useState(project.contract_amount != null ? String(project.contract_amount) : "");
+  const [signedBy, setSignedBy] = useState(project.signed_by ?? "");
+  const isPreset = project.payment_terms == null || TERMS_PRESETS.includes(project.payment_terms);
+  const [termsSel, setTermsSel] = useState(isPreset ? (project.payment_terms ?? "") : "custom");
+  const [termsCustom, setTermsCustom] = useState(isPreset ? "" : (project.payment_terms ?? ""));
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const fileName = project.contract_file_path ? project.contract_file_path.split(/[\\/]/).pop() ?? "" : "";
+  const contractPaid = project.rate_type === "contract" && project.contract_kind === "paid";
+
+  const save = (): void => {
+    if (saving) return;
+    const ymd = date.trim() === "" ? null : mdyToYmd(date);
+    if (date.trim() !== "" && ymd === null) { setError("Contract date reads month-first — MM/DD/YYYY."); return; }
+    const amt = amount.trim() === "" ? null : Number(amount.replace(/,/g, ""));
+    if (amt !== null && (!Number.isFinite(amt) || amt < 0)) { setError("Contracted amount must be a number of zero or more."); return; }
+    setSaving(true);
+    setError(null);
+    void api.timetracker.projects
+      .setContractDetails(project.id, {
+        contractDate: ymd,
+        signedBy: signedBy.trim() || null,
+        paymentTerms: termsSel === "custom" ? termsCustom.trim() || null : termsSel || null,
+        contractAmount: amt,
+      })
+      .then(onSaved)
+      .catch((e: unknown) => { setSaving(false); setError(e instanceof Error ? e.message : String(e)); });
+  };
+
+  return (
+    <div className="tt-modalback" onClick={onClose}>
+      <div className="tt-modal" role="dialog" aria-label="Contract details" onClick={(e) => e.stopPropagation()}>
+        <div className="tt-modalhead">Contract details</div>
+        <div className="tt-fieldrow">
+          <label className="tt-field"><span>Contract date — the date the client signed</span>
+            <input className="tt-input mono" placeholder="MM/DD/YYYY" value={date} onChange={(e) => setDate(e.target.value)} autoFocus /></label>
+          <label className="tt-field"><span>Contracted amount</span>
+            <div className="tt-prefixed"><span className="tt-prefix">$</span>
+              <input className="tt-input mono" inputMode="decimal" value={amount} disabled={!contractPaid}
+                title={contractPaid ? undefined : "Only a paid contract carries a contracted amount"}
+                onChange={(e) => setAmount(e.target.value)} /></div></label>
+        </div>
+        <div className="tt-fieldrow">
+          <label className="tt-field"><span>Signed by</span>
+            <input className="tt-input" value={signedBy} onChange={(e) => setSignedBy(e.target.value)} /></label>
+          <label className="tt-field"><span>Payment terms</span>
+            <select className="tt-input" value={termsSel} onChange={(e) => setTermsSel(e.target.value)}>
+              <option value="">— none —</option>
+              {TERMS_PRESETS.map((t) => <option key={t} value={t}>{t}</option>)}
+              <option value="custom">Custom…</option>
+            </select></label>
+        </div>
+        {termsSel === "custom" && (
+          <label className="tt-field"><span>Custom terms</span>
+            <input className="tt-input" value={termsCustom} onChange={(e) => setTermsCustom(e.target.value)} /></label>
+        )}
+        <label className="tt-field"><span>Contract file</span>
+          <input className="tt-input" value={fileName || "— none attached (attach from Edit) —"} readOnly /></label>
+        <p className="tt-hint">
+          The contract date is when the money became real — it is the date profit lands on in
+          Analytics. Without it, this project&apos;s revenue has no place on the timeline.
+        </p>
+        {error && <div className="tt-error">{error}</div>}
+        <div className="tt-modalacts">
+          <button className="tt-btn ghost" onClick={onClose}>Cancel</button>
+          <button className="tt-btn start" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save contract details"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * RECORD PAYMENT (08-06, mockup scene 4) — money received, append-only in spirit; the list and the
+ * paid-in-full line live in the same modal. Awaiting vs Paid is DERIVED from these rows against the
+ * contracted amount — partials are normal. Deliberately available on a COMPLETED project (the
+ * completion lock's one sanctioned exception: receiving money is not editing the work).
+ */
+function RecordPaymentModal({
+  project,
+  onClose,
+  onChanged,
+}: {
+  project: TimeTrackerProjectListItem;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const api = window.api;
+  const [rows, setRows] = useState<TimeTrackerProjectPayment[] | null>(null);
+  const [readError, setReadError] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(ymdToMdy(todayYmd()));
+  const [method, setMethod] = useState<TimeTrackerPaymentMethod>("check");
+  const [reference, setReference] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = (): void => {
+    setReadError(false);
+    void api.timetracker.payments.list(project.id).then(setRows).catch(() => setReadError(true));
+  };
+  useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const total = (rows ?? []).reduce((s, r) => s + r.amount, 0);
+  const contracted = project.contract_amount;
+  const paidInFull = contracted != null && total >= contracted;
+  const remaining = contracted != null ? Math.max(0, contracted - total) : null;
+
+  const save = (): void => {
+    if (saving) return;
+    const amt = Number(amount.replace(/,/g, ""));
+    if (!Number.isFinite(amt) || amt <= 0) { setError("Amount received must be more than zero."); return; }
+    const ymd = mdyToYmd(date);
+    if (!ymd) { setError("Date received reads month-first — MM/DD/YYYY."); return; }
+    setSaving(true);
+    setError(null);
+    void api.timetracker.payments
+      .add({ projectId: project.id, amount: amt, receivedOn: ymd, method, reference: reference.trim() || null, note: note.trim() || null })
+      .then(() => { setSaving(false); setAmount(""); setReference(""); setNote(""); load(); onChanged(); })
+      .catch((e: unknown) => { setSaving(false); setError(e instanceof Error ? e.message : String(e)); });
+  };
+
+  const voidRow = (id: number): void => {
+    void api.timetracker.payments.void(id).then(() => { load(); onChanged(); }).catch(() => {});
+  };
+
+  return (
+    <div className="tt-modalback" onClick={onClose}>
+      <div className="tt-modal" role="dialog" aria-label="Record payment" onClick={(e) => e.stopPropagation()}>
+        <div className="tt-modalhead">Record payment</div>
+        <p className="tt-emptysub" style={{ marginBottom: 10 }}>
+          {project.name}{contracted != null ? ` — contracted ${fmtMoney(contracted)}` : ""}
+        </p>
+        <div className="tt-fieldrow">
+          <label className="tt-field"><span>Amount received</span>
+            <div className="tt-prefixed"><span className="tt-prefix">$</span>
+              <input className="tt-input mono" inputMode="decimal" autoFocus value={amount}
+                placeholder={remaining != null && remaining > 0 ? remaining.toFixed(2) : ""}
+                onChange={(e) => setAmount(e.target.value)} /></div></label>
+          <label className="tt-field"><span>Date received</span>
+            <input className="tt-input mono" placeholder="MM/DD/YYYY" value={date} onChange={(e) => setDate(e.target.value)} /></label>
+        </div>
+        <div className="tt-fieldrow">
+          <label className="tt-field"><span>How were you paid</span>
+            <select className="tt-input" value={method} onChange={(e) => setMethod(e.target.value as TimeTrackerPaymentMethod)}>
+              {PAYMENT_METHOD_LABELS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select></label>
+          <label className="tt-field"><span>Reference / transaction number</span>
+            <input className="tt-input mono" placeholder="check #, confirmation, last 4…" value={reference}
+              onChange={(e) => setReference(e.target.value)} /></label>
+        </div>
+        <label className="tt-field"><span>Note</span>
+          <input className="tt-input" placeholder="optional…" value={note} onChange={(e) => setNote(e.target.value)} /></label>
+
+        <div className="tt-blocksub" style={{ marginTop: 12 }}>Payments on this project</div>
+        {readError ? (
+          <div className="tt-error" role="alert">Couldn&apos;t load the payments — nothing is shown rather than an empty list.</div>
+        ) : rows === null ? (
+          <p className="tt-hint">Loading…</p>
+        ) : rows.length === 0 ? (
+          <p className="tt-hint">No payments recorded yet.</p>
+        ) : (
+          <table className="tt-table">
+            <thead><tr><th>Date</th><th>Method</th><th>Reference</th><th>Amount</th><th /></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="mono dim">{ymdToMdy(r.received_on)}</td>
+                  <td><span className="tt-badge">{PAYMENT_METHOD_LABELS.find(([k]) => k === r.method)?.[1] ?? r.method}</span></td>
+                  <td className="mono dim">{r.reference ?? "—"}</td>
+                  <td className="mono">{fmtMoney(r.amount)}</td>
+                  <td><button className="tt-itemx" title="Void this payment (kept on record, no longer counted)"
+                    aria-label="Void payment" onClick={() => voidRow(r.id)}>✕</button></td>
+                </tr>
+              ))}
+              <tr>
+                <td colSpan={3}><b>{paidInFull ? "Paid in full" : "Received to date"}</b>
+                  {!paidInFull && remaining != null && <span className="dim"> · {fmtMoney(remaining)} still due</span>}</td>
+                <td className={"mono" + (paidInFull ? " tt-paid" : "")}><b>{fmtMoney(total)}</b></td>
+                <td />
+              </tr>
+            </tbody>
+          </table>
+        )}
+        <p className="tt-hint">
+          Partial payments are normal — a deposit now and the balance later both land here. The
+          project reads <b>Awaiting payment</b> until the total matches the contract, then flips to <b>Paid</b>.
+        </p>
+        {error && <div className="tt-error">{error}</div>}
+        <div className="tt-modalacts">
+          <button className="tt-btn ghost" onClick={onClose}>Close</button>
+          <button className="tt-btn done" disabled={saving || amount.trim() === ""} onClick={save}>{saving ? "Saving…" : "Save payment"}</button>
+        </div>
+      </div>
     </div>
   );
 }

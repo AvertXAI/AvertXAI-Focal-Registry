@@ -4,9 +4,9 @@
 // service's reportTotals is all-time by construction), the two wasted cards, and four hand-rolled
 // SVG charts. Export PDF rides Electron's built-in printToPDF main-side (no dependency), lands in
 // Downloads with a MONTH-FIRST filename, and the success line reveals the file.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { TimeTrackerProjectListItem, TimeTrackerReportData, TimeTrackerReportGranularity, TimeTrackerReportRange } from "../../shared/types";
-import { HBarChart, TimeSeriesChart, type SeriesPoint } from "./charts";
+import { ChartModal, HBarChart, TimeSeriesChart, type SeriesPoint } from "./charts";
 import Tip from "../../components/Tip";
 
 const RANGES: Array<{ key: TimeTrackerReportRange; label: string }> = [
@@ -98,8 +98,52 @@ export default function AnalyticsView({ project, onClearSelection }: Props) {
   const seriesMoney: SeriesPoint[] = (data?.timeSeries ?? [])
     .filter((p) => p.value > 0 || p.costs > 0)
     .map((p) => ({ label: bucketLabel(p.bucket, gran), a: p.value, b: p.costs }));
+  // PROFIT per bucket = revenue − spend, straight off the same series (no fourth money rule):
+  // value already carries revenue on its ruled dates, costs carries every spend source.
+  const seriesProfit: SeriesPoint[] = (data?.timeSeries ?? [])
+    .filter((p) => p.value !== 0 || p.costs !== 0)
+    .map((p) => ({ label: bucketLabel(p.bucket, gran), a: p.value - p.costs }));
   const barsProjects = (data?.hoursByProject ?? []).map((r) => ({ label: r.name, value: r.hours }));
   const barsCosts = (data?.costsByCategory ?? []).map((r) => ({ label: r.category, value: r.amount }));
+  const barsProfit = (data?.profitByProject ?? []).map((r) => ({ label: r.name, value: r.profit }));
+  const barsMargin = (data?.marginByProject ?? []).map((r) => ({ label: r.name, value: r.margin }));
+  const excluded = data?.timelineExcluded ?? 0;
+
+  // ONE modal for every chart (ruled): the card click stores a key; the modal re-renders the SAME
+  // chart component at modal width (the charts measure their container, so nothing is duplicated).
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const fmtPctAxis = (n: number): string => `${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}%`;
+  const excludedNote =
+    excluded > 0
+      ? ` ${excluded} contract project${excluded === 1 ? " has" : "s have"} no contract date and ${excluded === 1 ? "is" : "are"} not on the timeline.`
+      : "";
+  const CHARTS: Array<{ key: string; title: string; caption?: string; node: ReactNode }> = [
+    { key: "hours", title: "Hours over time", node: <TimeSeriesChart points={seriesHours} mode="area" emptyText="No hours in this range" fmtY={fmtHoursAxis} /> },
+    {
+      key: "money",
+      title: "Revenue vs spent over time",
+      node: (
+        <>
+          <TimeSeriesChart points={seriesMoney} mode="dual" emptyText={`No revenue or spend in this range.${excludedNote}`} fmtY={fmtMoneyAxis} />
+          <div className="tt-legend">
+            <span className="tt-legenditem"><span className="tt-legendmark costs" />Spent</span>
+            <span className="tt-legenditem"><span className="tt-legendmark value" />Revenue</span>
+          </div>
+        </>
+      ),
+    },
+    {
+      key: "profit",
+      title: "Profit over time",
+      caption: `Revenue lands on the contract date; spend on the day it happened.${excludedNote}`,
+      node: <TimeSeriesChart points={seriesProfit} mode="area" emptyText={`No profit to draw in this range.${excludedNote}`} fmtY={fmtMoneyAxis} />,
+    },
+    { key: "hoursby", title: "Hours by project", node: <HBarChart rows={barsProjects} emptyText="No hours in this range" fmtV={fmtHoursAxis} /> },
+    { key: "profitby", title: "Profit by project", node: <HBarChart rows={barsProfit} emptyText="No projects with revenue or spend yet" fmtV={fmtMoneyAxis} /> },
+    { key: "marginby", title: "Margin by project", caption: "Projects with no revenue are excluded — no margin is not 0%.", node: <HBarChart rows={barsMargin} emptyText="No projects with revenue yet" fmtV={fmtPctAxis} /> },
+    { key: "costs", title: "Spend by category", node: <HBarChart rows={barsCosts} emptyText="No spend in this range" fmtV={fmtMoneyAxis} /> },
+  ];
+  const expandedChart = CHARTS.find((c) => c.key === expanded) ?? null;
 
   return (
     <div className="tt-analytics">
@@ -142,15 +186,25 @@ export default function AnalyticsView({ project, onClearSelection }: Props) {
         </button>
       </div>
 
-      {/* six ALL-TIME summary cards — must match the grand-total bar */}
+      {/* ALL-TIME summary cards — the RULED vocabulary: Revenue · Spent · Profit · Margin.
+          "Total invested" (revenue ADDED to costs) is gone — it was the naming collision. */}
       <div className="tt-cards tt-cards6">
         <div className="tt-card"><span className="tt-cardlabel">Total hours</span><span className="tt-cardvalue">{t ? fmtHM(t.total_seconds) : "—"}</span>
           <span className="tt-cardsub">incl. {t ? fmtHM(t.donated_seconds) : "—"} donated</span></div>
-        <div className="tt-card"><span className="tt-cardlabel">Total value</span><span className="tt-cardvalue">{t ? fmtMoney(t.total_value) : "—"}</span>
-          <span className="tt-cardsub">donated hours excluded</span></div>
-        <div className="tt-card"><span className="tt-cardlabel">Total costs</span><span className="tt-cardvalue">{t ? fmtMoney(t.total_costs) : "—"}</span></div>
-        <div className="tt-card"><span className="tt-cardlabel">Total invested</span><span className="tt-cardvalue">{t ? fmtMoney(t.total_invested) : "—"}</span>
-          <span className="tt-cardsub">value + costs</span></div>
+        <div className="tt-card"><span className="tt-cardlabel">Revenue</span><span className="tt-cardvalue">{t ? fmtMoney(t.revenue) : "—"}</span>
+          <span className="tt-cardsub">contracted + hourly earnings</span></div>
+        <div className="tt-card"><span className="tt-cardlabel">Spent</span><span className="tt-cardvalue">{t ? fmtMoney(t.spent) : "—"}</span>
+          <span className="tt-cardsub">crew + purchases + costs</span></div>
+        <div className={"tt-card" + (t && t.profit < 0 ? " tt-cardloss" : " tt-cardprofit")}>
+          <span className="tt-cardlabel">Profit</span>
+          <span className="tt-cardvalue">{t ? fmtMoney(t.profit) : "—"}</span>
+          <span className="tt-cardsub">revenue − spent</span>
+        </div>
+        <div className={"tt-card" + (t && t.margin != null && t.margin < 0 ? " tt-cardloss" : " tt-cardprofit")}>
+          <span className="tt-cardlabel">Margin</span>
+          <span className="tt-cardvalue">{t && t.margin != null ? `${t.margin.toFixed(1)}%` : "—"}</span>
+          <span className="tt-cardsub">profit ÷ revenue</span>
+        </div>
         <div className="tt-card"><span className="tt-cardlabel">Projects</span><span className="tt-cardvalue">{t ? t.project_count : "—"}</span></div>
         <div className="tt-card"><span className="tt-cardlabel">Groups</span><span className="tt-cardvalue">{t ? t.group_count : "—"}</span></div>
       </div>
@@ -178,29 +232,28 @@ export default function AnalyticsView({ project, onClearSelection }: Props) {
         non-profit). Archiving wastes a project's hours; restoring un-wastes them.
       </div>
 
-      {/* four charts — hand-rolled SVG, two per row (stacks below the computed breakpoint) */}
+      {/* Charts — hand-rolled SVG, two per row. Every card opens the SAME chart full-size in the
+          one ChartModal (ruled 08-06); the ⤢ affordance names the click. */}
       <div className="tt-chartsgrid">
-        <div className="tt-chartcard">
-          <div className="tt-secttitle">Hours over time</div>
-          <TimeSeriesChart points={seriesHours} mode="area" emptyText="No hours in this range" fmtY={fmtHoursAxis} />
-        </div>
-        <div className="tt-chartcard">
-          <div className="tt-secttitle">Value vs costs over time</div>
-          <TimeSeriesChart points={seriesMoney} mode="dual" emptyText="No value or costs in this range" fmtY={fmtMoneyAxis} />
-          <div className="tt-legend">
-            <span className="tt-legenditem"><span className="tt-legendmark costs" />Costs</span>
-            <span className="tt-legenditem"><span className="tt-legendmark value" />Value</span>
+        {CHARTS.map((c) => (
+          <div key={c.key} className="tt-chartcard tt-chartclick" role="button" tabIndex={0}
+            title={`Open ${c.title} full-size`}
+            onClick={() => setExpanded(c.key)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setExpanded(c.key); } }}>
+            <span className="tt-chartexpand" aria-hidden="true">⤢</span>
+            <div className="tt-secttitle">{c.title}</div>
+            {c.node}
+            {c.caption && <div className="tt-crmseed">{c.caption}</div>}
           </div>
-        </div>
-        <div className="tt-chartcard">
-          <div className="tt-secttitle">Hours by project</div>
-          <HBarChart rows={barsProjects} emptyText="No hours in this range" fmtV={fmtHoursAxis} />
-        </div>
-        <div className="tt-chartcard">
-          <div className="tt-secttitle">Costs by category</div>
-          <HBarChart rows={barsCosts} emptyText="No costs in this range" fmtV={fmtMoneyAxis} />
-        </div>
+        ))}
       </div>
+
+      {expandedChart && (
+        <ChartModal title={expandedChart.title} onClose={() => setExpanded(null)} onExport={exportPdf} exporting={exporting}>
+          {expandedChart.node}
+          {expandedChart.caption && <div className="tt-crmseed">{expandedChart.caption}</div>}
+        </ChartModal>
+      )}
 
       <Tip id="TIP-TT-004" />
     </div>

@@ -19,6 +19,7 @@
 // native window buttons.
 import { useCallback, useEffect, useState } from "react";
 import { explainTimeTrackerError, type TimeTrackerErrorExplanation } from "./ttErrors";
+import { mdyToYmd, todayYmd, ymdToMdy } from "./ProjectDetail";
 // The Employees create form, reused rather than duplicated. Its stylesheet is imported explicitly
 // for the same reason NewEmployeeWizard imports TimeTracker's — the single-bundle CSS is an
 // accident of static imports, not a guarantee.
@@ -116,6 +117,12 @@ export default function ProjectModal({
   const [zip, setZip] = useState(stored?.zip ?? "");
   const [amount, setAmount] = useState(editing?.contract_amount != null ? String(editing.contract_amount) : "");
   const [budget, setBudget] = useState(editing?.spend_budget != null ? String(editing.spend_budget) : "");
+  // Contract details (08-06) — the New-project door. Date defaults to TODAY on a new project
+  // (mockup scene 2's hint); an edit prefills from the row, so the two doors share one answer.
+  const [contractDate, setContractDate] = useState(
+    editing ? ymdToMdy(editing.contract_date) : ymdToMdy(todayYmd())
+  );
+  const [paymentTerms, setPaymentTerms] = useState(editing?.payment_terms ?? "");
   const [description, setDescription] = useState(editing?.contract_description ?? "");
   const [contract, setContract] = useState<{ path: string; name: string } | null>(null);
   const [groupSel, setGroupSel] = useState<string>(editing?.group_id != null ? String(editing.group_id) : "");
@@ -229,6 +236,12 @@ export default function ProjectModal({
     targetHours: editing?.target_hours ?? null,
     spendBudget: num(budget),
     phoneExt: ext.trim() === "" ? null : ext,
+    // Contract details — an unparseable typed date is sent as null rather than blocking the save
+    // (the modal door validates loudly; this door is the quick one). signed_by only lives on the
+    // Contract-details modal; an edit here must not erase it.
+    contractDate: mdyToYmd(contractDate),
+    signedBy: editing?.signed_by ?? null,
+    paymentTerms: paymentTerms || null,
   });
 
   /**
@@ -373,6 +386,26 @@ export default function ProjectModal({
                     <input className="tt-input mono" inputMode="decimal" value={budget}
                       onChange={(e) => setBudget(e.target.value)} /></div>
                   <p className="tt-hint">What you plan to spend hiring and buying for this project.</p>
+                </label>
+              </div>
+
+              {/* CONTRACT DETAILS (08-06, mockup scene 2) — the New-project DOOR onto the same
+                  columns the Contract-details modal edits. One set of facts, two doors. */}
+              <div className="tt-fieldrow">
+                <label className="tt-field">
+                  <span>Contract date</span>
+                  <input className="tt-input mono" placeholder="MM/DD/YYYY" value={contractDate}
+                    onChange={(e) => setContractDate(e.target.value)} />
+                  <p className="tt-hint">Defaults to today; change it to the day it was signed. It is the date profit lands on in Analytics.</p>
+                </label>
+                <label className="tt-field">
+                  <span>Payment terms</span>
+                  <select className="tt-input" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)}>
+                    <option value="">— none —</option>
+                    <option value="Net 30">Net 30</option>
+                    <option value="Due on receipt">Due on receipt</option>
+                    <option value="50% deposit, balance on delivery">50% deposit, balance on delivery</option>
+                  </select>
                 </label>
               </div>
 

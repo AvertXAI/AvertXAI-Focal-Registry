@@ -1,0 +1,492 @@
+{
+  "_source": "https://github.com/homarr-labs/dashboard-icons/tree/0d6481f2a87cf611e2bf25adcf8fb07351ed2440",
+  "_license": "Apache-2.0 (files). Marks remain trademarks of their owners.",
+  "_note": "Rendered via <img> so each icon keeps its own styles — inlining collides ids and classes.",
+  "icons": [
+    {
+      "slug": "1password",
+      "file": "1password.svg",
+      "format": "svg",
+      "variants": {
+        "dark": "1password-dark.svg"
+      }
+    },
+    {
+      "slug": "adobe",
+      "file": "adobe.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "amazon",
+      "file": "amazon.svg",
+      "format": "svg",
+      "variants": {
+        "light": "amazon-light.svg"
+      },
+      "aliases": [
+        "online-marketplace",
+        "shopping-website"
+      ]
+    },
+    {
+      "slug": "apple",
+      "file": "apple.svg",
+      "format": "svg",
+      "variants": {
+        "dark": "apple-light.svg"
+      }
+    },
+    {
+      "slug": "asana",
+      "file": "asana.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "aws",
+      "file": "aws.svg",
+      "format": "svg",
+      "variants": {
+        "light": "aws-light.svg"
+      }
+    },
+    {
+      "slug": "azure",
+      "file": "azure.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "backblaze",
+      "file": "backblaze.svg",
+      "format": "svg",
+      "aliases": [
+        "Cloud Backup"
+      ]
+    },
+    {
+      "slug": "bitbucket",
+      "file": "bitbucket.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "bitwarden",
+      "file": "bitwarden.svg",
+      "format": "svg",
+      "aliases": [
+        "Password Manager"
+      ]
+    },
+    {
+      "slug": "cloudflare",
+      "file": "cloudflare.svg",
+      "format": "svg",
+      "aliases": [
+        "content-delivery-network",
+        "ddos-protection"
+      ]
+    },
+    {
+      "slug": "costco",
+      "file": "costco.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "discord",
+      "file": "discord.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "docker",
+      "file": "docker.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "dropbox",
+      "file": "dropbox.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "ebay",
+      "file": "ebay.svg",
+      "format": "svg",
+      "aliases": [
+        "online-auction",
+        "shopping-website"
+      ]
+    },
+    {
+      "slug": "facebook",
+      "file": "facebook.svg",
+      "format": "svg",
+      "aliases": [
+        "social-network",
+        "meta-platform"
+      ]
+    },
+    {
+      "slug": "figma",
+      "file": "figma.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "github",
+      "file": "github.svg",
+      "format": "svg",
+      "variants": {
+        "light": "github-light.svg"
+      },
+      "aliases": [
+        "git-hosting",
+        "code-repository"
+      ]
+    },
+    {
+      "slug": "gitlab",
+      "file": "gitlab.svg",
+      "format": "svg",
+      "aliases": [
+        "Code Hosting"
+      ]
+    },
+    {
+      "slug": "gmail",
+      "file": "gmail.svg",
+      "format": "svg",
+      "aliases": [
+        "google-mail",
+        "webmail-service"
+      ]
+    },
+    {
+      "slug": "godaddy",
+      "file": "godaddy.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "google",
+      "file": "google.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "google-drive",
+      "file": "google-drive.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "hetzner",
+      "file": "hetzner.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "hulu",
+      "file": "hulu.svg",
+      "format": "svg",
+      "aliases": [
+        "Streaming Service"
+      ]
+    },
+    {
+      "slug": "icloud",
+      "file": "icloud.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "instagram",
+      "file": "instagram.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "jellyfin",
+      "file": "jellyfin.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "keepass",
+      "file": "keepass.svg",
+      "format": "svg",
+      "aliases": [
+        "keepass-password-manager"
+      ]
+    },
+    {
+      "slug": "lastpass",
+      "file": "lastpass.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "linkedin",
+      "file": "linkedin.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "linode",
+      "file": "linode.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "mailchimp",
+      "file": "mailchimp.svg",
+      "format": "svg",
+      "variants": {
+        "light": "mailchimp-light.svg"
+      }
+    },
+    {
+      "slug": "microsoft",
+      "file": "microsoft.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "microsoft-office",
+      "file": "microsoft-office.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "namecheap",
+      "file": "namecheap.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "netflix",
+      "file": "netflix.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "netlify",
+      "file": "netlify.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "nextcloud",
+      "file": "nextcloud.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "nodejs",
+      "file": "nodejs.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "notion",
+      "file": "notion.svg",
+      "format": "svg",
+      "variants": {
+        "light": "notion-light.svg"
+      }
+    },
+    {
+      "slug": "npm",
+      "file": "npm.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "paypal",
+      "file": "paypal.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "pinterest",
+      "file": "pinterest.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "playstation",
+      "file": "playstation.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "plex",
+      "file": "plex.svg",
+      "format": "svg",
+      "variants": {
+        "light": "plex-light.svg"
+      }
+    },
+    {
+      "slug": "porkbun",
+      "file": "porkbun.webp",
+      "format": "webp",
+      "aliases": [
+        "Domain Registrar"
+      ]
+    },
+    {
+      "slug": "proton",
+      "file": "proton.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "reddit",
+      "file": "reddit.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "robinhood",
+      "file": "robinhood.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "shopify",
+      "file": "shopify.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "signal",
+      "file": "signal.svg",
+      "format": "svg",
+      "aliases": [
+        "Messaging App"
+      ]
+    },
+    {
+      "slug": "slack",
+      "file": "slack.svg",
+      "format": "svg",
+      "aliases": [
+        "Team Communication"
+      ]
+    },
+    {
+      "slug": "snapchat",
+      "file": "snapchat.svg",
+      "format": "svg",
+      "variants": {
+        "dark": "snapchat-dark.svg"
+      },
+      "aliases": [
+        "photo-sharing-app",
+        "messaging-app"
+      ]
+    },
+    {
+      "slug": "spotify",
+      "file": "spotify.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "squarespace",
+      "file": "squarespace.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "steam",
+      "file": "steam.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "stripe",
+      "file": "stripe.svg",
+      "format": "svg",
+      "variants": {
+        "light": "stripe-light.svg",
+        "dark": "stripe-dark.svg"
+      }
+    },
+    {
+      "slug": "synology",
+      "file": "synology.svg",
+      "format": "svg",
+      "variants": {
+        "light": "synology-light.svg"
+      }
+    },
+    {
+      "slug": "telegram",
+      "file": "telegram.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "tiktok",
+      "file": "tiktok.svg",
+      "format": "svg",
+      "variants": {
+        "light": "tiktok-light.svg"
+      }
+    },
+    {
+      "slug": "twitch",
+      "file": "twitch.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "twitter",
+      "file": "twitter.svg",
+      "format": "svg",
+      "aliases": [
+        "x-platform",
+        "microblogging"
+      ]
+    },
+    {
+      "slug": "ups",
+      "file": "ups.svg",
+      "format": "svg",
+      "aliases": [
+        "shipping-company",
+        "package-delivery"
+      ]
+    },
+    {
+      "slug": "venmo",
+      "file": "venmo.webp",
+      "format": "webp"
+    },
+    {
+      "slug": "vercel",
+      "file": "vercel.svg",
+      "format": "svg",
+      "variants": {
+        "light": "vercel-light.svg"
+      }
+    },
+    {
+      "slug": "verizon",
+      "file": "verizon.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "wetransfer",
+      "file": "wetransfer.svg",
+      "format": "svg",
+      "variants": {
+        "light": "wetransfer-light.svg"
+      }
+    },
+    {
+      "slug": "whatsapp",
+      "file": "whatsapp.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "wordpress",
+      "file": "wordpress.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "x",
+      "file": "x.webp",
+      "format": "webp"
+    },
+    {
+      "slug": "xbox",
+      "file": "xbox.svg",
+      "format": "svg"
+    },
+    {
+      "slug": "youtube",
+      "file": "youtube.svg",
+      "format": "svg",
+      "aliases": [
+        "video-sharing-site",
+        "google-video"
+      ]
+    },
+    {
+      "slug": "zoom",
+      "file": "zoom.svg",
+      "format": "svg",
+      "aliases": [
+        "Video Conferencing"
+      ]
+    }
+  ]
+}

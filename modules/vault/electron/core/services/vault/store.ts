@@ -386,14 +386,14 @@ export function listAccessLog(db: Db, orgId: string, opts?: { limit?: number; se
  * data travelling to the analysis: health.ts consumes it in-process and returns verdicts, and
  * nothing here is reachable from IPC. Do not export it through a channel, ever.
  */
-export function readAllForAnalysis(db: Db, orgId: string): { uuid: string; label: string; username: string | null; value: string; created_at: string }[] {
+export function readAllForAnalysis(db: Db, orgId: string): { uuid: string; label: string; username: string | null; url: string | null; value: string; created_at: string }[] {
   return db
     .prepare(
-      `SELECT s.uuid, s.label, s.username,
+      `SELECT s.uuid, s.label, s.username, s.url,
               (SELECT v.value FROM vault_secret_versions v WHERE v.secret_id = s.id ORDER BY v.version DESC LIMIT 1) AS value,
               (SELECT v.created_at FROM vault_secret_versions v WHERE v.secret_id = s.id ORDER BY v.version DESC LIMIT 1) AS created_at
          FROM vault_secrets s
         WHERE s.org_id = ? AND s.archived_at IS NULL`
     )
-    .all(orgId) as { uuid: string; label: string; username: string | null; value: string; created_at: string }[];
+    .all(orgId) as { uuid: string; label: string; username: string | null; url: string | null; value: string; created_at: string }[];
 }

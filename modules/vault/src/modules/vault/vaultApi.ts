@@ -147,7 +147,9 @@ export interface VaultApi {
   /** Dark-web exposure. The ONLY network calls in the vault; both are off until enabled.
    *  The sweep is k-anonymous — no password or fragment leaves. The email check DOES send the
    *  address, so it is one at a time, on an explicit press. */
-  breachSweep: () => Promise<{ ok: boolean; error?: string; checked: number; exposed: { uuid: string; label: string; count: number | null }[] }>;
+  breachSweep: () => Promise<{ ok: boolean; error?: string; checked: number; exposed: { uuid: string; label: string; site: string | null; count: number | null }[] }>;
+  /** Polled while a sweep runs, so the screen shows "14 of 46" instead of a frozen button. */
+  breachProgress: () => Promise<{ running: boolean; done: number; total: number; found: number }>;
   breachEmail: (email: string) => Promise<{ ok: boolean; error?: string; exposed: boolean; breaches: string[] }>;
   listFolders: () => Promise<VaultFolder[]>;
   createFolder: (name: string, parentId?: number | null) => Promise<VaultFolder>;

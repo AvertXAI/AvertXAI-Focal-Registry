@@ -23,7 +23,7 @@
     the application never makes that call, so no tile render ever tells anyone what is in the
     vault. This is consulted FIRST; the hand-written table below covers what it misses. */
 import { GENERATED_BRAND_COLOURS } from "./brandIcons.generated";
-import { GENERATED_BRAND_SVGS } from "./brandSvgs.generated";
+import MANIFEST from "./brandIcons.manifest.json";
 
 /** Longest keys first, so "google cloud" cannot be swallowed by "google". */
 const GENERATED_SORTED = [...GENERATED_BRAND_COLOURS].sort((a, b) => b[0].length - a[0].length);
@@ -104,12 +104,20 @@ export function iconPathFor(_label: string): string | null {
 }
 
 /**
- * THE REAL ICON, when we have one. Full-colour SVG markup vendored from dashboard-icons
- * (Apache-2.0) at development time — see seed/generate-brand-svgs.mjs. Returns null for anything
- * not in the set, and the tile falls back to the brand colour plus initials, which is why a missing
- * icon is cosmetic and never a broken tile.
+ * THE REAL ICON, when we have one — a FILE PATH, not markup (see BrandMark for why inlining was
+ * wrong). Vendored from dashboard-icons (Apache-2.0) at development time by
+ * seed/generate-brand-svgs.mjs. Returns null for anything not in the set, and the tile falls back
+ * to the brand colour plus initials, so a missing icon is cosmetic and never a broken tile.
+ *
+ * ICON_BASE is the ONE place the asset location lives. The dev host copies the assets beside its
+ * own index.html; on copy-back into the shell this single constant changes and nothing else does.
  */
-const SVG_BY_SLUG = new Map(GENERATED_BRAND_SVGS);
+const ICON_BASE = "./brand-icons/";
+const FILE_BY_SLUG = new Map(MANIFEST.icons.map((i) => [i.slug, i.file] as const));
+/** Aliases the upstream catalogue publishes — "gmail" reaching "google-gmail" and so on. */
+for (const icon of MANIFEST.icons) {
+  for (const alias of icon.aliases ?? []) if (!FILE_BY_SLUG.has(alias)) FILE_BY_SLUG.set(alias, icon.file);
+}
 
 /** Vault labels are human ("Google / Gmail", "X (Twitter)"); icon slugs are not. Bridge the gap. */
 const SLUG_ALIASES: [RegExp, string][] = [
@@ -125,17 +133,18 @@ const SLUG_ALIASES: [RegExp, string][] = [
   [/^best buy/i, "bestbuy"],
 ];
 
-export function brandSvg(label: string): string | null {
+export function iconFile(label: string): string | null {
   const raw = label.trim().toLowerCase();
   for (const [pattern, slug] of SLUG_ALIASES) {
     if (pattern.test(label)) {
-      const hit = SVG_BY_SLUG.get(slug);
-      if (hit) return hit;
+      const hit = FILE_BY_SLUG.get(slug);
+      if (hit) return ICON_BASE + hit;
     }
   }
-  // Straight slug: "Squarespace" → "squarespace"; "Google / Gmail" already handled above.
+  // Straight slug: "Squarespace" → "squarespace"; composites are handled by the aliases above.
   const slug = raw.replace(/\s*[/(].*$/, "").trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return SVG_BY_SLUG.get(slug) ?? SVG_BY_SLUG.get(slug.replace(/-/g, "")) ?? null;
+  const hit = FILE_BY_SLUG.get(slug) ?? FILE_BY_SLUG.get(slug.replace(/-/g, ""));
+  return hit ? ICON_BASE + hit : null;
 }
 
 /** Deterministic hue for anything not in the table — same name, same colour, forever. */

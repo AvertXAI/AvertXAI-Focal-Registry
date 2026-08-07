@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld("api", {
     listVersions: (uuid: string) => invoke("vault:listVersions", uuid),
     listAccessLog: (opts?: unknown) => invoke("vault:listAccessLog", opts ?? {}),
     breachSweep: () => invoke("vault:breachSweep"),
+    breachProgress: () => invoke("vault:breachProgress"),
     breachEmail: (email: string) => invoke("vault:breachEmail", email),
     listFolders: () => invoke("vault:listFolders"),
     createFolder: (name: string, parentId?: number | null) => invoke("vault:createFolder", name, parentId ?? null),

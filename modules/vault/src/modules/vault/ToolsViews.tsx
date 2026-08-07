@@ -132,7 +132,7 @@ export function HealthView({ settings, onSetting }: { settings: Record<string, s
   const [error, setError] = useState(false);
   // ---- dark-web exposure. Separate state from the local health report on purpose: one is a
   // computation on this machine, the other left the building, and the screen must not blur that.
-  const [breach, setBreach] = useState<{ checked: number; exposed: { uuid: string; label: string; count: number | null }[] } | null>(null);
+  const [breach, setBreach] = useState<{ checked: number; exposed: { uuid: string; label: string; site: string | null; count: number | null }[] } | null>(null);
   const [breachError, setBreachError] = useState<string | null>(null);
   const [sweeping, setSweeping] = useState(false);
   const [email, setEmail] = useState("");
@@ -141,15 +141,57 @@ export function HealthView({ settings, onSetting }: { settings: Record<string, s
   const [emailBusy, setEmailBusy] = useState(false);
   const breachOn = settings["breach.enabled"] === "1";
 
+  // Polled while the sweep runs — 46 entries at the service's own rate limit is roughly half a
+  // minute, and a button that just says "Checking…" for that long reads as a frozen application.
+  const [progress, setProgress] = useState<{ done: number; total: number; found: number } | null>(null);
+  useEffect(() => {
+    if (!sweeping) return;
+    const timer = setInterval(() => {
+      void api
+        .breachProgress()
+        .then((p) => setProgress({ done: p.done, total: p.total, found: p.found }))
+        .catch(() => undefined);
+    }, 500);
+    return () => clearInterval(timer);
+  }, [api, sweeping]);
+
+  // ---- "now what": one press generates a strong replacement, SUPERSEDES the entry (the old value
+  // is kept, as always), and copies the new one ready to paste into the site. The vault cannot
+  // change a password on a website — nothing can — so the honest job is to make the human's next
+  // two minutes as short as possible.
+  const [fixMessage, setFixMessage] = useState<string | null>(null);
+  const onFixEntry = useCallback(
+    async (uuid: string, label: string): Promise<void> => {
+      setFixMessage(null);
+      try {
+        const fresh = await api.generate({ length: 20 });
+        await api.supersede(uuid, fresh);
+        await navigator.clipboard.writeText(fresh);
+        setFixMessage(`New password saved for ${label} and copied — paste it on the site to finish. The old one is kept in its history.`);
+      } catch (e) {
+        setFixMessage(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [api]
+  );
+  const openSite = useCallback(async (site: string): Promise<void> => {
+    // The vault never navigates anywhere itself; this hands the address to the system browser.
+    window.open(site.startsWith("http") ? site : `https://${site}`, "_blank", "noopener");
+  }, []);
+
   const sweep = useCallback((): void => {
     setSweeping(true);
     setBreachError(null);
     setBreach(null);
+    setProgress({ done: 0, total: 0, found: 0 });
     void api
       .breachSweep()
       .then((r) => (r.ok ? setBreach({ checked: r.checked, exposed: r.exposed }) : setBreachError(r.error ?? "The check could not run.")))
       .catch((e: unknown) => setBreachError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setSweeping(false));
+      .finally(() => {
+        setSweeping(false);
+        setProgress(null);
+      });
   }, [api]);
 
   const checkEmail = useCallback((): void => {
@@ -212,11 +254,29 @@ export function HealthView({ settings, onSetting }: { settings: Record<string, s
               enough to ask "has anything like this been leaked?", never enough for anyone to work out what it was. Safe
               to run across every entry.
             </div>
-            <div className="vault-btnrow" style={{ marginTop: 10 }}>
+            <div className="vault-btnrow" style={{ marginTop: 10, alignItems: "center" }}>
               <button className="vault-btn primary" disabled={sweeping} onClick={sweep}>
                 {sweeping ? "Checking…" : "Check every password"}
               </button>
+              {sweeping && progress && (
+                <span style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 200 }}>
+                  <span className="vault-spinner" aria-hidden="true" />
+                  <span className="vault-progbar">
+                    <i style={{ width: progress.total ? `${Math.round((progress.done / progress.total) * 100)}%` : "4%" }} />
+                  </span>
+                  <span className="vault-mono vault-who" style={{ whiteSpace: "nowrap" }}>
+                    {progress.total ? `${progress.done} of ${progress.total}` : "starting…"}
+                    {progress.found > 0 ? ` · ${progress.found} found` : ""}
+                  </span>
+                </span>
+              )}
             </div>
+            {sweeping && (
+              <div className="vault-hint" style={{ marginTop: 8 }}>
+                Each password is checked one at a time on purpose — the service allows two a second, and going faster
+                would get us turned away. About half a minute for a full vault.
+              </div>
+            )}
             {breachError && <div className="vault-state error">{breachError}</div>}
             {breach && (
               <div style={{ marginTop: 12 }}>
@@ -225,26 +285,62 @@ export function HealthView({ settings, onSetting }: { settings: Record<string, s
                     {breach.checked} passwords checked — none of them turned up in a known leak.
                   </div>
                 ) : (
-                  <table className="vault-table">
-                    <thead>
-                      <tr>
-                        <th>Found in a leak</th>
-                        <th>Times seen</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {breach.exposed.map((x) => (
-                        <tr key={x.uuid}>
-                          <td>
-                            <b>{x.label}</b>
-                          </td>
-                          <td className="vault-mono" style={{ color: "var(--vault-danger-color)" }}>
-                            {x.count?.toLocaleString() ?? "—"}
-                          </td>
+                  <>
+                    {/* The answer to "now what". A list of problems with no next step is just
+                        anxiety; each row gets the one action that fixes it, in place. */}
+                    <div className="vault-hint" style={{ marginBottom: 10 }}>
+                      <b>What this means.</b> These exact passwords appear in leaked data that anyone can download. It
+                      does not mean these accounts were broken into — it means the password is on a list attackers try
+                      first. <b>Change each one, starting at the top.</b>
+                    </div>
+                    <table className="vault-table">
+                      <thead>
+                        <tr>
+                          <th>Found in a leak</th>
+                          <th>Times seen</th>
+                          <th>Fix it</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {breach.exposed.map((x) => (
+                          <tr key={x.uuid}>
+                            <td>
+                              <b>{x.label}</b>
+                            </td>
+                            <td className="vault-mono" style={{ color: "var(--vault-danger-color)" }}>
+                              {x.count?.toLocaleString() ?? "—"}
+                            </td>
+                            <td>
+                              <div className="vault-acts" style={{ justifyContent: "flex-start" }}>
+                                <button
+                                  className="vault-btn"
+                                  title="Make a strong replacement and copy it, ready to paste into the site"
+                                  onClick={() => void onFixEntry(x.uuid, x.label)}
+                                >
+                                  New password → clipboard
+                                </button>
+                                {x.site && (
+                                  <button className="vault-btn" onClick={() => void openSite(x.site!)}>
+                                    Open {x.site}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {fixMessage && (
+                      <div className="vault-hint" style={{ marginTop: 10, color: "var(--vault-strong-color)" }}>
+                        {fixMessage}
+                      </div>
+                    )}
+                    <div className="vault-hint" style={{ marginTop: 10 }}>
+                      The button generates a strong password, saves it here as a new version (the old one is kept), and
+                      puts it on your clipboard. Then change it on the site itself and paste — <b>a password manager
+                      cannot change it for you</b>, only remember the new one.
+                    </div>
+                  </>
                 )}
               </div>
             )}
@@ -274,8 +370,33 @@ export function HealthView({ settings, onSetting }: { settings: Record<string, s
                     </span>{" "}
                     {emailResult.breaches.slice(0, 20).join(", ")}
                     {emailResult.breaches.length > 20 ? ` and ${emailResult.breaches.length - 20} more.` : ""}
-                    <div style={{ marginTop: 6 }}>
-                      This does not mean a password here is known — change anything you reused on those sites.
+                    {/* The answer to "now what". Being told you are in a breach and nothing else is
+                        useless — this is the actual, ordered list of what a person can do. */}
+                    <div style={{ marginTop: 10, color: "var(--mc-text)" }}>
+                      <b>What to do about it — in this order:</b>
+                      <ol className="vault-reasons" style={{ listStyle: "decimal", marginTop: 6 }}>
+                        <li>
+                          <b>Do not change your email address.</b> A breach list is public and permanent; a new address
+                          does not remove you from it and costs you every account tied to the old one. This is almost
+                          never the right move.
+                        </li>
+                        <li>
+                          <b>Run the password check above.</b> It is the one that actually matters. A leaked address is
+                          only dangerous when the password beside it still works somewhere.
+                        </li>
+                        <li>
+                          <b>Change any password you reused</b>, starting with email, banking, and anything holding a
+                          card. The Health list below is already sorted worst-first.
+                        </li>
+                        <li>
+                          <b>Turn on two-step sign-in</b> for the accounts named above. It is what makes a leaked
+                          password stop being enough on its own.
+                        </li>
+                        <li>
+                          <b>Expect more spam and better-aimed scams.</b> Anyone quoting one of those company names at
+                          you now may simply have bought the list — treat unexpected contact from them as unproven.
+                        </li>
+                      </ol>
                     </div>
                   </>
                 ) : (

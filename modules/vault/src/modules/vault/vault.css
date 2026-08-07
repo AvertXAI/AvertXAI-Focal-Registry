@@ -130,7 +130,20 @@
 /* A real full-colour logo carries its own colours, so it sits on a neutral plate — a light one in
    every theme, because most brand marks are drawn to sit on white and vanish on a dark ground. */
 .vault-mark-icon { background: #ffffff; padding: 4px; }
-.vault-mark-icon svg { width: 100%; height: 100%; display: block; }
+.vault-mark-icon img { width: 100%; height: 100%; display: block; object-fit: contain; }
+
+/* ---------- work in progress: a long job must never look like a frozen application ---------- */
+.vault-spinner { flex: none; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--mc-border); border-top-color: var(--mc-accent-primary);
+  animation: vault-spin .7s linear infinite; }
+@keyframes vault-spin { to { transform: rotate(360deg); } }
+.vault-progbar { flex: 1; min-width: 80px; height: 6px; border-radius: 4px; background: var(--mc-nested);
+  overflow: hidden; }
+.vault-progbar i { display: block; height: 100%; background: var(--mc-accent-primary);
+  border-radius: 4px; transition: width .3s ease; }
+/* Someone who has asked not to see motion still needs to know the job is running — the bar and the
+   counter carry that on their own, so only the spin is dropped. */
+@media (prefers-reduced-motion: reduce) { .vault-spinner { animation: none; } }
 
 /* ---------- collage ---------- */
 /* Tiles are sized so four fit at the 740px floor with the rail up: 740 − 232 rail − 36 padding

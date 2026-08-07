@@ -214,6 +214,9 @@ export function registerVaultIpc(): void {
     const { db, orgId } = await gated();
     return breach.sweepPasswords(db, orgId);
   });
+  // Polled, not pushed — a push channel would mean joining the shell's whitelist in two root files,
+  // which is outside this module's lane. The renderer reads this while a sweep runs.
+  safeHandle("vault:breachProgress", () => breach.sweepStatus());
   safeHandle("vault:breachEmail", async (_e, email: unknown) => {
     const { db, orgId } = await gated();
     return breach.checkEmail(db, orgId, email);

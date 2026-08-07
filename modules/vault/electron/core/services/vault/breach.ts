@@ -38,6 +38,8 @@ const TIMEOUT_MS = 12_000;
 export interface PasswordExposure {
   uuid: string;
   label: string;
+  /** The entry's website, so the screen can offer to open it — metadata, never a credential. */
+  site: string | null;
   /** True when the bucket contained this exact digest. */
   exposed: boolean;
   /** How many times the service has seen it, when it says. */
@@ -134,6 +136,23 @@ export async function checkPassword(password: string): Promise<{ ok: boolean; ex
  * no password and no identifying fragment leaves the machine. Sequential with a small pause: the
  * free tier allows 2 requests a second, and a vault with forty entries must not trip it.
  */
+/**
+ * Live progress for the sweep, POLLED rather than pushed. A push channel would mean joining the
+ * shell's PUSH_CHANNELS whitelist in two root files, which is outside this module's lane — and a
+ * poll is honest for a job measured in seconds. The renderer reads this every half-second so the
+ * user sees "14 of 46" instead of a frozen button.
+ */
+let sweepProgress: { running: boolean; done: number; total: number; found: number } = {
+  running: false,
+  done: 0,
+  total: 0,
+  found: 0,
+};
+
+export function sweepStatus(): { running: boolean; done: number; total: number; found: number } {
+  return { ...sweepProgress };
+}
+
 export async function sweepPasswords(db: Db, orgId: string): Promise<PasswordSweepResult> {
   if (!getBool(db, orgId, "breach.enabled")) {
     return { ok: false, error: "Breach checking is turned off. Turn it on in Vault settings first.", checked: 0, exposed: [] };
@@ -141,15 +160,22 @@ export async function sweepPasswords(db: Db, orgId: string): Promise<PasswordSwe
   const rows = readAllForAnalysis(db, orgId);
   const exposed: PasswordExposure[] = [];
   let checked = 0;
-  for (const row of rows) {
-    const result = await checkPassword(row.value);
-    if (!result.ok) {
-      logAccess(db, orgId, "breach_check", null, null, "renderer", false, result.error ?? "unreachable");
-      return { ok: false, error: result.error, checked, exposed };
+  sweepProgress = { running: true, done: 0, total: rows.length, found: 0 };
+  try {
+    for (const row of rows) {
+      const result = await checkPassword(row.value);
+      if (!result.ok) {
+        logAccess(db, orgId, "breach_check", null, null, "renderer", false, result.error ?? "unreachable");
+        return { ok: false, error: result.error, checked, exposed };
+      }
+      checked += 1;
+      if (result.exposed) exposed.push({ uuid: row.uuid, label: row.label, site: row.url ?? null, exposed: true, count: result.count });
+      sweepProgress = { running: true, done: checked, total: rows.length, found: exposed.length };
+      await new Promise((r) => setTimeout(r, 600)); // stay under the published 2/second
     }
-    checked += 1;
-    if (result.exposed) exposed.push({ uuid: row.uuid, label: row.label, exposed: true, count: result.count });
-    await new Promise((r) => setTimeout(r, 600)); // stay under the published 2/second
+  } finally {
+    // Cleared on every exit — a crash mid-sweep must not leave the button spinning forever.
+    sweepProgress = { running: false, done: checked, total: rows.length, found: exposed.length };
   }
   logAccess(db, orgId, "breach_check", null, null, "renderer", true, `${checked} passwords checked, ${exposed.length} exposed`);
   return { ok: true, checked, exposed };

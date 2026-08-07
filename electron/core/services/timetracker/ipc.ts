@@ -23,6 +23,7 @@ import { ensureTimeTrackerSchema, type Db } from "./db";
 import * as projects from "./projects";
 import * as completion from "./completion";
 import * as invoice from "./invoice";
+import * as payments from "./payments";
 import * as financials from "./projectFinancials";
 import * as groups from "./groups";
 import * as timer from "./timer";
@@ -51,6 +52,7 @@ import {
   vDeltaMinutes,
   vEnum,
   vId,
+  vNullableContractDate,
   vNullableId,
   vNullableString,
   vProjectInput,
@@ -204,6 +206,42 @@ export function registerTimeTrackerIpc(): void {
   safeHandle("timetracker:purgeProject", (_e, id: unknown, reason: unknown) => {
     const { db, orgId } = ttCtx();
     return projects.purgeProject(db, orgId, vId(id, "project id"), vString(reason, "purge reason", 2000, true));
+  });
+
+  // contract details (08-06 profit build) — the modal's targeted save; the New-project block is
+  // the other door onto the same columns (through create/updateProject).
+  safeHandle("timetracker:setContractDetails", (_e, id: unknown, input: unknown) => {
+    const { db } = ttCtx();
+    const o = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
+    projects.setContractDetails(db, vId(id, "project id"), {
+      contractDate: vNullableContractDate(o.contractDate),
+      signedBy: vNullableString(o.signedBy, "signed by", 200),
+      paymentTerms: vNullableString(o.paymentTerms, "payment terms", 200),
+      contractAmount: o.contractAmount == null ? null : vAmount(o.contractAmount, "contracted amount"),
+    });
+    timerChanged();
+  });
+
+  // payments (08-06) — money RECEIVED. Deliberately NOT completion-locked (see payments.ts header);
+  // every write broadcasts so Awaiting/Paid flips everywhere at once.
+  safeHandle("timetracker:listPayments", (_e, projectId: unknown) => {
+    const { db } = ttCtx();
+    return payments.list(db, vId(projectId, "project id"));
+  });
+  safeHandle("timetracker:paymentsTotal", (_e, projectId: unknown) => {
+    const { db } = ttCtx();
+    return payments.totalFor(db, vId(projectId, "project id"));
+  });
+  safeHandle("timetracker:addPayment", (_e, input: unknown) => {
+    const { db, orgId } = ttCtx();
+    const row = payments.add(db, orgId, input as Parameters<typeof payments.add>[2]);
+    timerChanged();
+    return row;
+  });
+  safeHandle("timetracker:voidPayment", (_e, id: unknown) => {
+    const { db } = ttCtx();
+    payments.softDelete(db, vId(id, "payment id"));
+    timerChanged();
   });
 
   // completion (08-06) — the lock's two doors. Broadcast after both: every surface re-reads, and a

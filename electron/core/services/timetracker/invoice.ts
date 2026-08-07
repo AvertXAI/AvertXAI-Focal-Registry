@@ -24,6 +24,7 @@ import path from "node:path";
 import { getSetting } from "../settings";
 import { nowIso, type Db } from "./db";
 import { getProject } from "./projects";
+import { totalFor as paymentsTotalFor } from "./payments";
 import type { InvoiceData, InvoiceLine } from "./types";
 import { vId } from "./validate";
 
@@ -146,6 +147,10 @@ export function invoiceData(db: Db, _orgId: string, projectId: number): InvoiceD
   const taxRateRaw = Number.parseFloat(getSetting("business.tax_rate") ?? "");
   const taxRate = Number.isFinite(taxRateRaw) && taxRateRaw > 0 ? taxRateRaw : 0;
   const taxAmount = round2(subtotal * (taxRate / 100));
+  // DEPOSIT from REAL payment rows (08-06 — the payments model closed this gap). Shown negative in
+  // the totals stack per the skill (§5.5); Balance Due is what is still owed.
+  const deposit = round2(paymentsTotalFor(db, id));
+  const total = round2(subtotal + taxAmount);
 
   const invoiceDate = nowIso();
   const terms = getSetting("business.terms") ?? "";
@@ -178,7 +183,8 @@ export function invoiceData(db: Db, _orgId: string, projectId: number): InvoiceD
     subtotal,
     tax_rate: taxRate,
     tax_amount: taxAmount,
-    total: round2(subtotal + taxAmount),
-    balance_due: round2(subtotal + taxAmount), // no client-payments model (ruled out of scope)
+    deposit_paid: deposit,
+    total,
+    balance_due: round2(Math.max(0, total - deposit)),
   };
 }

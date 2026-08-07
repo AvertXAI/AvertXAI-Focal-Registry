@@ -193,6 +193,14 @@ const api: Api = {
       // completion (08-06) — the lock's two doors
       complete: (id: number) => invoke("timetracker:completeProject", id),
       reactivate: (id: number) => invoke("timetracker:reactivateProject", id),
+      // contract details (08-06 profit build) — the modal's targeted save
+      setContractDetails: (id: number, input: unknown) => invoke("timetracker:setContractDetails", id, input),
+    },
+    payments: {
+      list: (projectId: number) => invoke("timetracker:listPayments", projectId),
+      total: (projectId: number) => invoke("timetracker:paymentsTotal", projectId),
+      add: (input: unknown) => invoke("timetracker:addPayment", input),
+      void: (id: number) => invoke("timetracker:voidPayment", id),
     },
     invoice: {
       // Allocates INV-YYYY-NNNN on first call and returns every field the document composes.

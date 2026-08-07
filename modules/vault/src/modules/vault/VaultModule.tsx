@@ -12,7 +12,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import SecretsView, { EntryModal } from "./SecretsView";
 import CollageView, { type CollageSort } from "./CollageView";
-import { FoldersView, PanesView } from "./PanesView";
+import { PanesView } from "./PanesView";
+import FolderRail from "./FolderRail";
+import ImportExportView from "./ImportExportView";
 import { AccessLogView, GeneratorView, HealthView } from "./ToolsViews";
 import VaultSettingsView from "./VaultSettingsView";
 import { vaultApi, type VaultFolder, type VaultLockState, type VaultSecretMeta } from "./vaultApi";
@@ -20,22 +22,24 @@ import "./vault.css";
 
 /** How the Vault tab shows its entries. Grid is the main page (Jason 08-06-2026); the choice
     persists to the vault's own settings, never localStorage. */
-type ViewMode = "grid" | "list" | "panes" | "folders";
+type ViewMode = "grid" | "list" | "panes";
 
 const VIEW_MODES: [ViewMode, string][] = [
   ["grid", "▦ Grid"],
   ["list", "☰ List"],
   ["panes", "◫ Panes"],
-  ["folders", "🗀 Folders"],
 ];
 
-type Tab = "vault" | "generator" | "health" | "log" | "settings";
+// The mockup's tab strip, in its order: Vault · Generator · Health · Access log · Import / Export
+// · Vault settings. Import/Export is its OWN tab there, not a card buried in settings.
+type Tab = "vault" | "generator" | "health" | "log" | "importexport" | "settings";
 
 const TABS: [Tab, string][] = [
   ["vault", "Vault"],
   ["generator", "Generator"],
   ["health", "Health"],
   ["log", "Access log"],
+  ["importexport", "Import / Export"],
   ["settings", "Vault settings"],
 ];
 
@@ -212,8 +216,28 @@ export default function VaultModule() {
       <div className="vault-rail">
         <div className="vault-railsearch">
           <input placeholder="Search secrets" value={search} onChange={(e) => setSearch(e.target.value)} />
+          {/* The mockup's big green New entry, at the top of the rail where it belongs — one
+              obvious way in, reachable from every view rather than only from the grid. */}
+          <button className="vault-newentry" onClick={() => setEditing("new")}>
+            + New entry
+          </button>
         </div>
         <div className="vault-raillist">
+          {/* Folders sit directly under the search box (Jason 08-07-2026) — that is where a drop
+              target has to be for dragging a row onto one to feel like anything. */}
+          <FolderRail
+            folders={folders}
+            secrets={secrets}
+            selected={filter}
+            onSelect={(f) => {
+              setFilter(f);
+              setTab("vault");
+            }}
+            onChanged={() => {
+              void api.listFolders().then(setFolders);
+              loadData();
+            }}
+          />
           <div className="vault-railhead">Vault</div>
           <button className={`vault-railrow${filter === "all" ? " on" : ""}`} onClick={() => { setFilter("all"); setTab("vault"); }}>
             <span className="vault-raildot" style={{ background: "var(--mc-accent-primary)" }} />
@@ -296,22 +320,15 @@ export default function VaultModule() {
                 />
               ) : viewMode === "panes" ? (
                 <PanesView secrets={secrets} folders={folders} onReload={loadData} onNew={() => setEditing("new")} onEdit={setEditing} />
-              ) : viewMode === "folders" ? (
-                <FoldersView
-                  secrets={secrets}
-                  folders={folders}
-                  onReload={loadData}
-                  onFoldersChanged={() => void api.listFolders().then(setFolders)}
-                  onEdit={setEditing}
-                />
               ) : (
-                <SecretsView secrets={secrets} loading={false} error={false} filter={filter} search={search} onReload={loadData} />
+                <SecretsView secrets={visible} folders={folders} loading={false} error={false} filter={filter} search={search} onReload={loadData} />
               )}
             </>
           )}
           {tab === "generator" && <GeneratorView settings={settings} onSetting={setSetting} />}
           {tab === "health" && <HealthView settings={settings} onSetting={setSetting} />}
           {tab === "log" && <AccessLogView />}
+          {tab === "importexport" && <ImportExportView onImported={loadData} />}
           {tab === "settings" && (
             <VaultSettingsView
               settings={settings}

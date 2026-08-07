@@ -43,7 +43,14 @@ export default function CollageView({ secrets, sort, onSort, onReload, onNew, on
   ];
 
   return (
+    // Detail on the LEFT, grid on the right (Jason 08-07-2026). Reading order puts the thing you
+    // just picked where the eye already is, instead of throwing it across the window.
     <div className={current ? "vault-collagesplit" : ""}>
+      {current && (
+        <div className="vault-collagedetail">
+          <DetailPane secret={current} onReload={onReload} onEdit={onEdit} onClose={() => setSelected(null)} />
+        </div>
+      )}
       <div className="vault-collagemain">
         <div className="vault-cardhead">
           <div className="vault-viewsw">
@@ -95,11 +102,6 @@ export default function CollageView({ secrets, sort, onSort, onReload, onNew, on
         )}
       </div>
 
-      {current && (
-        <div className="vault-collagedetail">
-          <DetailPane secret={current} onReload={onReload} onEdit={onEdit} onClose={() => setSelected(null)} />
-        </div>
-      )}
     </div>
   );
 }

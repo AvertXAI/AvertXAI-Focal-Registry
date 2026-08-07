@@ -294,3 +294,54 @@
 .vault-bulklist { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
 .vault-bulklist code { font-family: var(--mc-mono); font-size: 12px; background: var(--mc-field);
   border: 1px solid var(--mc-border); border-radius: 6px; padding: 6px 9px; word-break: break-all; }
+
+/* ---------- rail: New entry, folders, drop targets ---------- */
+.vault-newentry { width: 100%; margin-top: 9px; background: var(--vault-strong-color); border: 1px solid var(--vault-strong-color);
+  color: #fff; font-weight: 600; font-size: 12.5px; border-radius: 8px; padding: 9px 12px; cursor: pointer; }
+.vault-newentry:hover { filter: brightness(1.08); }
+.vault-railhead { display: flex; align-items: center; }
+.vault-railadd { margin-left: auto; background: none; border: none; color: var(--mc-muted); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 4px; }
+.vault-railadd:hover { color: var(--mc-accent-primary); }
+/* A folder lights up when a row is dragged over it — without this, dropping is a guess. */
+.vault-railrow.drop { background: var(--vault-selection-background); box-shadow: inset 0 0 0 1px var(--mc-accent-primary); }
+.vault-folderadd { display: flex; gap: 6px; padding: 4px 9px 8px; }
+.vault-folderadd input { flex: 1; min-width: 0; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 7px; padding: 6px 9px; font-size: 12px; color: var(--mc-text); }
+.vault-folderadd input:focus { outline: none; border-color: var(--mc-accent-primary); }
+/* The nudge only appears when there is something to file — see FolderRail. */
+.vault-foldernudge { display: block; width: calc(100% - 18px); margin: 2px 9px 6px; text-align: left;
+  background: color-mix(in srgb, var(--mc-accent-primary) 10%, var(--mc-panels));
+  border: 1px solid var(--mc-accent-primary); border-radius: 8px; padding: 9px 11px; cursor: pointer;
+  color: var(--mc-text); font-family: inherit; }
+.vault-foldernudge b { display: block; font-size: 12px; margin-bottom: 3px; }
+.vault-foldernudge span { display: block; font-size: 11px; color: var(--mc-muted); line-height: 1.5; }
+
+/* ---------- right-click filing menu ---------- */
+.vault-ctxmenu { position: fixed; z-index: 60; min-width: 190px; max-height: 60vh; overflow-y: auto;
+  background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 9px; padding: 5px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .28); }
+.vault-ctxhead { font-size: 10px; letter-spacing: .6px; text-transform: uppercase; color: var(--mc-muted);
+  padding: 5px 9px 7px; }
+.vault-ctxitem { display: block; width: 100%; text-align: left; background: none; border: none;
+  color: var(--mc-text); font-size: 12.5px; padding: 7px 9px; border-radius: 6px; cursor: pointer; font-family: inherit; }
+.vault-ctxitem:hover { background: var(--mc-nested); }
+.vault-ctxempty { font-size: 11.5px; color: var(--mc-dimmer); padding: 7px 9px; }
+/* A draggable row should say so before it is dragged. */
+.vault-table tbody tr[draggable="true"] { cursor: grab; }
+.vault-table tbody tr[draggable="true"]:active { cursor: grabbing; }
+
+/* ---------- import sources ---------- */
+.vault-sourcegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 9px; }
+.vault-source { display: flex; align-items: center; justify-content: center; padding: 14px 8px;
+  background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 9px; cursor: pointer;
+  color: var(--mc-text); font-family: inherit; }
+.vault-source:hover { border-color: var(--mc-accent-primary); }
+.vault-source.on { border-color: var(--mc-accent-primary); background: var(--vault-selection-background); font-weight: 600; }
+.vault-sourcename { font-size: 12px; }
+
+/* ---------- inline generator inside the entry form ---------- */
+.vault-inlinegen { margin-top: 8px; background: var(--mc-nested); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 10px 11px; }
+.vault-inlinegen .row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.vault-inlinegen .suggestion { flex: 1; min-width: 150px; font-family: var(--mc-mono); font-size: 13px; word-break: break-all; }

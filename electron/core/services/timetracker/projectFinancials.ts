@@ -193,7 +193,16 @@ export function projectSpend(db: Db, orgId: string, projectId: number): ProjectS
 
   const employee = employeeCostForProject(db, orgId, id);
   const items = itemizedTotal(db, id);
-  const spent = employee.employee_cost + items;
+  // HARD COST LINES joined 08-06 (vocabulary ruling 1): SPENT now means EVERYTHING the project
+  // cost — crew pay + itemized purchases + hard cost lines. The recon proved "Costs" and "Spent"
+  // were different overlapping sets; this is the composition that ends it, and it equals the
+  // LIST_SQL total_costs rollup by construction (harness-asserted).
+  const hardCosts = (
+    db.prepare(`SELECT COALESCE(SUM(amount), 0) AS t FROM timetracker_costs WHERE project_id = ?`).get(id) as {
+      t: number;
+    }
+  ).t;
+  const spent = employee.employee_cost + items + hardCosts;
 
   return {
     project_id: id,
@@ -201,6 +210,7 @@ export function projectSpend(db: Db, orgId: string, projectId: number): ProjectS
     employee_cost: employee.employee_cost,
     employee_hours: employee.employee_hours,
     itemized_total: items,
+    hard_costs: hardCosts,
     spent,
     spend_budget: row.spend_budget,
     budget_left: row.spend_budget == null ? null : row.spend_budget - spent,

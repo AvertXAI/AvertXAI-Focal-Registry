@@ -29,6 +29,16 @@ export const TIME_MODES: TimeDisplayMode[] = ["elapsed", "remaining"];
 export const REPORT_RANGES: ReportRange[] = ["all", "7d", "30d", "90d"];
 export const REPORT_GRANULARITIES: ReportGranularity[] = ["day", "week", "month"];
 export const RECURRENCES: CostRecurrence[] = ["once", "monthly", "yearly"];
+/** Payment methods (08-06) — mirrors the table's CHECK so refusals are sentences, not SQL errors. */
+export const PAYMENT_METHODS = ["check", "cash", "wire", "bank_transfer", "zelle", "venmo", "card", "other"] as const;
+
+/** Contract date: YYYY-MM-DD or null. The renderer types month-first; the bridge converts. */
+export function vNullableContractDate(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.trim()))
+    throw new Error("Contract date must be a date (YYYY-MM-DD)");
+  return value.trim();
+}
 
 export function vId(value: unknown, label = "id"): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
@@ -111,6 +121,9 @@ export function vProjectInput(raw: unknown): NewProjectInput {
     email: vString(o.email ?? "", "email", 200),
     clientCompany: vNullableString(o.clientCompany, "client company", 200),
     clientAddress: vNullableString(o.clientAddress, "client address", 400),
+    contractDate: vNullableContractDate(o.contractDate),
+    signedBy: vNullableString(o.signedBy, "signed by", 200),
+    paymentTerms: vNullableString(o.paymentTerms, "payment terms", 200),
     rateType,
     hourlyRate,
     color: vColor(o.color),

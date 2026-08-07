@@ -14,6 +14,8 @@ import { classifyProjectType, isForProfit } from "./derive";
 import type {
   CostsByCategoryPoint,
   HoursByProjectPoint,
+  MarginByProjectPoint,
+  ProfitByProjectPoint,
   ProjectType,
   ReportData,
   ReportGranularity,
@@ -51,17 +53,30 @@ const EMP_COST = `CASE e.pay_type WHEN 'donated' THEN 0 WHEN 'hourly' THEN e.hou
  * numbers the rail itself shows — so a filtered card can never disagree with the rail.
  */
 function reportTotals(db: Db, orgId: string, projectId?: number | null): ReportTotals {
+  // PROFIT (ruled 08-06): three words, one meaning each. revenue = total_value (the contracted
+  // amount for contract-paid; hourly earnings for hourly; 0 donated). spent = total_costs, which
+  // since 08-06 IS the full composition (crew + itemized + hard lines). profit = revenue − spent;
+  // margin = profit ÷ revenue, null when there is no revenue ("no margin" ≠ "0% margin").
+  const withProfit = (seconds: number, value: number, costs: number, donated: number, projects: number, groups: number): ReportTotals => ({
+    total_seconds: seconds,
+    revenue: value,
+    spent: costs,
+    profit: value - costs,
+    margin: value > 0 ? ((value - costs) / value) * 100 : null,
+    donated_seconds: donated,
+    project_count: projects,
+    group_count: groups,
+  });
   if (projectId != null) {
     const p = listProjects(db, orgId).find((x) => x.id === projectId);
-    return {
-      total_seconds: p?.total_seconds ?? 0,
-      total_value: p?.total_value ?? 0,
-      total_costs: p?.total_costs ?? 0,
-      total_invested: (p?.total_value ?? 0) + (p?.total_costs ?? 0),
-      donated_seconds: p && p.rate_type === "contract" && p.contract_kind === "donated" ? p.total_seconds : 0,
-      project_count: p ? 1 : 0,
-      group_count: p?.group_id != null ? 1 : 0,
-    };
+    return withProfit(
+      p?.total_seconds ?? 0,
+      p?.total_value ?? 0,
+      p?.total_costs ?? 0,
+      p && p.rate_type === "contract" && p.contract_kind === "donated" ? p.total_seconds : 0,
+      p ? 1 : 0,
+      p?.group_id != null ? 1 : 0
+    );
   }
   const gt = grandTotals(db, orgId);
   const projects = listProjects(db, orgId);
@@ -69,15 +84,7 @@ function reportTotals(db: Db, orgId: string, projectId?: number | null): ReportT
     .filter((p) => p.rate_type === "contract" && p.contract_kind === "donated")
     .reduce((s, p) => s + p.total_seconds, 0);
   const group_count = (db.prepare(`SELECT COUNT(*) AS c FROM timetracker_groups WHERE org_id = ?`).get(orgId) as { c: number }).c;
-  return {
-    total_seconds: gt.total_seconds,
-    total_value: gt.total_value,
-    total_costs: gt.total_costs,
-    total_invested: gt.total_value + gt.total_costs,
-    donated_seconds,
-    project_count: gt.project_count,
-    group_count,
-  };
+  return withProfit(gt.total_seconds, gt.total_value, gt.total_costs, donated_seconds, gt.project_count, group_count);
 }
 
 /**
@@ -129,16 +136,34 @@ function timeSeries(db: Db, orgId: string, range: ReportRange, granularity: Repo
     p.value += r.hourly_value ?? 0;
   }
 
-  // paid-contract $ value attributed to the project's created_at bucket
+  // paid-contract revenue attributed to the CONTRACT DATE (ruled 08-06 — the day the client
+  // signed is when the money became real). This replaces the old created_at attribution and its
+  // documented one-dot distortion. A contract project with NO contract_date does not appear on the
+  // timeline at all — the caller reads timelineExcludedCount and says why. Hourly revenue keeps its
+  // session dates in the block above: money earned by the hour is dated by the work itself.
   const paidSql = `
-    SELECT ${bucket("created_at")} AS k, SUM(contract_amount) AS amt
+    SELECT ${bucket("contract_date")} AS k, SUM(contract_amount) AS amt
     FROM timetracker_projects
-    WHERE org_id = @orgId AND rate_type = 'contract' AND contract_kind = 'paid' AND contract_amount IS NOT NULL AND archived_at IS NULL
-    ${since ? `AND created_at >= @since` : ``} ${pid != null ? `AND id = @pid` : ``}
+    WHERE org_id = @orgId AND rate_type = 'contract' AND contract_kind = 'paid' AND contract_amount IS NOT NULL
+      AND contract_date IS NOT NULL AND archived_at IS NULL
+    ${since ? `AND contract_date >= @sinceDate` : ``} ${pid != null ? `AND id = @pid` : ``}
     GROUP BY k`;
   for (const r of db.prepare(paidSql).all(base) as { k: string; amt: number }[]) {
     if (!r.k) continue;
     at(r.k).value += r.amt ?? 0;
+  }
+
+  // ITEMIZED PURCHASES join the costs series (ruled 08-06 — the recon proved they were in no
+  // analytics read; profit would have inherited the under-report).
+  const itemSql = `
+    SELECT ${bucket("i.created_at")} AS k, SUM(i.amount) AS amt
+    FROM timetracker_project_items i JOIN timetracker_projects p ON p.id = i.project_id
+    WHERE p.org_id = @orgId AND i.deleted_at IS NULL AND p.archived_at IS NULL
+    ${since ? `AND i.created_at >= @since` : ``} ${pid != null ? `AND p.id = @pid` : ``}
+    GROUP BY k`;
+  for (const r of db.prepare(itemSql).all(base) as { k: string; amt: number }[]) {
+    if (!r.k) continue;
+    at(r.k).costs += r.amt ?? 0;
   }
 
   // costs by created_at bucket
@@ -233,7 +258,61 @@ function costsByCategory(db: Db, orgId: string, range: ReportRange, projectId?: 
       .get(params) as { amount: number }
   ).amount;
   if (emp > 0) rows.push({ category: "Employee pay", amount: emp });
+  // Itemized purchases join here too (ruled 08-06) — same synthetic-category shape as Employee pay.
+  const items = (
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(i.amount), 0) AS amount
+         FROM timetracker_project_items i
+         WHERE i.org_id = @orgId AND i.deleted_at IS NULL ${since ? `AND i.created_at >= @since` : ``} ${pid != null ? `AND i.project_id = @pid` : ``}`
+      )
+      .get(params) as { amount: number }
+  ).amount;
+  if (items > 0) rows.push({ category: "Itemized purchases", amount: items });
   return rows.filter((r) => r.amount > 0).sort((a, b) => b.amount - a.amount);
+}
+
+/** Profit per project (revenue − spent, both from the ONE rollup) — negatives included; top N by
+    absolute contribution with the remainder in "Others" so a big loss can never hide in the tail. */
+function profitByProject(db: Db, orgId: string, projectId?: number | null): ProfitByProjectPoint[] {
+  const rows = listProjects(db, orgId)
+    .filter((p) => (projectId == null ? true : p.id === projectId))
+    .map((p) => ({ name: p.name, profit: p.total_value - p.total_costs, revenue: p.total_value }))
+    .filter((r) => r.profit !== 0 || r.revenue > 0)
+    .sort((a, b) => b.profit - a.profit);
+  if (rows.length <= TOP_PROJECTS) return rows.map(({ name, profit }) => ({ name, profit }));
+  const byAbs = [...rows].sort((a, b) => Math.abs(b.profit) - Math.abs(a.profit));
+  const keep = new Set(byAbs.slice(0, TOP_PROJECTS).map((r) => r.name));
+  const kept = rows.filter((r) => keep.has(r.name));
+  const others = rows.filter((r) => !keep.has(r.name)).reduce((s, r) => s + r.profit, 0);
+  const out = kept.map(({ name, profit }) => ({ name, profit }));
+  if (others !== 0) out.push({ name: "Others", profit: others });
+  return out;
+}
+
+/** Margin per project — profit ÷ revenue as a percent. Projects with no revenue are EXCLUDED
+    (no margin is not 0% margin), and margins are never averaged into an "Others" row. */
+function marginByProject(db: Db, orgId: string, projectId?: number | null): MarginByProjectPoint[] {
+  return listProjects(db, orgId)
+    .filter((p) => (projectId == null ? true : p.id === projectId))
+    .filter((p) => p.total_value > 0)
+    .map((p) => ({ name: p.name, margin: ((p.total_value - p.total_costs) / p.total_value) * 100 }))
+    .sort((a, b) => b.margin - a.margin)
+    .slice(0, 12);
+}
+
+/** Contract-paid projects that CANNOT sit on the profit timeline: no contract_date. The empty
+    state and the caption both read this so the absence is explained, never silent. */
+function timelineExcludedCount(db: Db, orgId: string, projectId?: number | null): number {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM timetracker_projects
+         WHERE org_id = ? AND archived_at IS NULL AND rate_type = 'contract' AND contract_kind = 'paid'
+           AND contract_amount IS NOT NULL AND contract_date IS NULL ${projectId != null ? `AND id = ${Number(projectId)}` : ``}`
+      )
+      .get(orgId) as { c: number }
+  ).c;
 }
 
 /**
@@ -289,6 +368,9 @@ export function getReport(db: Db, orgId: string, range: ReportRange, granularity
     timeSeries: timeSeries(db, orgId, range, granularity, projectId),
     hoursByProject: hoursByProject(db, orgId, range, projectId),
     costsByCategory: costsByCategory(db, orgId, range, projectId),
+    profitByProject: profitByProject(db, orgId, projectId),
+    marginByProject: marginByProject(db, orgId, projectId),
+    timelineExcluded: timelineExcludedCount(db, orgId, projectId),
     // Wasted counts archived/purged work; a rail selection is an ACTIVE project, so under a filter
     // these read zero by construction — stated in the view's caption rather than silently blank.
     wasted: wastedMetric(db, orgId),

@@ -70,6 +70,11 @@ SELECT
   + COALESCE((SELECT SUM(ea.delta_amount)
       FROM employee_adjustments ea
       WHERE ea.project_id = p.id AND ea.kind = 'amount' AND ea.deleted_at IS NULL), 0)
+  -- ITEMIZED PURCHASES (ruled 08-06, profit build): the recon proved these rows were in NO
+  -- analytics read — "Costs" and "Spent" were different, overlapping sets. This term ends that:
+  -- total_costs IS the ruled SPENT — crew pay + itemized purchases + hard cost lines.
+  + COALESCE((SELECT SUM(i.amount) FROM timetracker_project_items i
+      WHERE i.project_id = p.id AND i.deleted_at IS NULL), 0)
   AS total_costs,
   -- total time = clamp(session seconds + non-deleted adjustment minutes, 0). Adjustments live in
   -- their own table; time_entries is never modified. Display clamps at 0; the raw deltas stay honest.
@@ -255,8 +260,8 @@ export function createProject(db: Db, orgId: string, input: NewProjectInput): Pr
       `INSERT INTO timetracker_projects
          (uuid, org_id, client_id, name, color, status, rate_type, hourly_rate, priority_order, created_at,
           group_id, contract_amount, contract_description, contract_kind, target_hours,
-          spend_budget, phone_ext)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          spend_budget, phone_ext, contract_date, signed_by, payment_terms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       generateUUIDv7(),
@@ -275,7 +280,10 @@ export function createProject(db: Db, orgId: string, input: NewProjectInput): Pr
       kind,
       kind === "donated" ? input.targetHours : null,
       input.spendBudget ?? null,
-      input.phoneExt ?? null
+      input.phoneExt ?? null,
+      input.contractDate ?? null,
+      input.signedBy ?? null,
+      input.paymentTerms ?? null
     );
   const projectId = Number(res.lastInsertRowid);
   if (isContract && input.contractSourcePath) attachContractFile(db, projectId, input.contractSourcePath);
@@ -307,6 +315,7 @@ export function updateProject(db: Db, orgId: string, input: UpdateProjectInput):
        name = ?, color = ?, status = ?, rate_type = ?, hourly_rate = ?,
        group_id = ?, contract_amount = ?, contract_description = ?,
        contract_kind = ?, target_hours = ?, spend_budget = ?, phone_ext = ?,
+       contract_date = ?, signed_by = ?, payment_terms = ?,
        contract_file_path = CASE WHEN ? THEN contract_file_path ELSE NULL END,
        updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`
@@ -323,6 +332,9 @@ export function updateProject(db: Db, orgId: string, input: UpdateProjectInput):
     kind === "donated" ? input.targetHours : null,
     input.spendBudget ?? null,
     input.phoneExt ?? null,
+    input.contractDate ?? null,
+    input.signedBy ?? null,
+    input.paymentTerms ?? null,
     isContract ? 1 : 0,
     input.id
   );
@@ -522,6 +534,29 @@ export function purgeProject(db: Db, orgId: string, id: number, reason: string):
   );
   cascadeDeleteProject(db, id);
   return tombstone;
+}
+
+/**
+ * The Contract-details modal's targeted save (two doors, one answer — the other door is the
+ * New-project block writing the same columns through createProject/updateProject). Completion-
+ * locked like every project edit.
+ */
+export function setContractDetails(
+  db: Db,
+  id: number,
+  input: { contractDate: string | null; signedBy: string | null; paymentTerms: string | null; contractAmount: number | null }
+): void {
+  assertNotCompleted(db, id);
+  const res = db
+    .prepare(
+      `UPDATE timetracker_projects SET
+         contract_date = ?, signed_by = ?, payment_terms = ?,
+         contract_amount = CASE WHEN rate_type = 'contract' AND contract_kind = 'paid' THEN ? ELSE contract_amount END,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    )
+    .run(input.contractDate, input.signedBy, input.paymentTerms, input.contractAmount, id);
+  if (res.changes === 0) throw new Error(`Project ${id} not found`);
 }
 
 export function getNote(db: Db, projectId: number): string {

@@ -65,14 +65,20 @@ export function TimeSeriesChart({ points, mode, emptyText, fmtY }: TimeSeriesPro
     const iw = Math.max(10, width - M.left - M.right);
     const ih = H - M.top - M.bottom;
     const maxVal = Math.max(...points.map((p) => Math.max(p.a, p.b ?? 0)));
-    const yMax = niceCeil(maxVal);
+    // BELOW-ZERO (ruled 08-06): a losing bucket draws BELOW a visible zero baseline — the old
+    // Math.max(0, v) clamp flattened losses onto the axis. The domain is [-niceCeil(-min), niceCeil(max)],
+    // zero included always, and this one mapping is shared by every series and the modal render.
+    const minVal = Math.min(0, ...points.map((p) => Math.min(p.a, p.b ?? 0)));
+    const yMax = niceCeil(Math.max(0, maxVal));
+    const yMin = minVal < 0 ? -niceCeil(-minVal) : 0;
     const x = (i: number): number =>
       points.length === 1 ? M.left + iw / 2 : M.left + (i * iw) / (points.length - 1);
-    const y = (v: number): number => M.top + ih - (Math.max(0, v) / yMax) * ih;
+    const y = (v: number): number => M.top + ih - ((v - yMin) / (yMax - yMin)) * ih;
 
     const linePath = (pick: (p: SeriesPoint) => number): string =>
       points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(pick(p)).toFixed(1)}`).join(" ");
-    const areaPath = `${linePath((p) => p.a)} L${x(points.length - 1).toFixed(1)},${(M.top + ih).toFixed(1)} L${x(0).toFixed(1)},${(M.top + ih).toFixed(1)} Z`;
+    // The area closes to the ZERO baseline, not the chart floor — negative areas hang below it.
+    const areaPath = `${linePath((p) => p.a)} L${x(points.length - 1).toFixed(1)},${y(0).toFixed(1)} L${x(0).toFixed(1)},${y(0).toFixed(1)} Z`;
 
     // ≤6 x labels, evenly stepped, always including the last point.
     const step = Math.max(1, Math.ceil(points.length / 6));
@@ -81,7 +87,7 @@ export function TimeSeriesChart({ points, mode, emptyText, fmtY }: TimeSeriesPro
     body = (
       <svg width={width} height={H} viewBox={`0 0 ${width} ${H}`} role="img" aria-label="chart">
         {[0, 1, 2, 3, 4].map((t) => {
-          const v = (yMax * t) / 4;
+          const v = yMin + ((yMax - yMin) * t) / 4;
           const gy = y(v);
           return (
             <g key={t}>
@@ -90,6 +96,10 @@ export function TimeSeriesChart({ points, mode, emptyText, fmtY }: TimeSeriesPro
             </g>
           );
         })}
+        {yMin < 0 && (
+          // The zero line, drawn heavier than the grid — losses hang under it.
+          <line className="tt-chartzero" x1={M.left} y1={y(0)} x2={width - M.right} y2={y(0)} />
+        )}
         {points.length === 1 ? (
           <>
             <circle className={`tt-chartdot ${mode === "area" ? "hours" : "value"}`} cx={x(0)} cy={y(points[0].a)} r={4} />
@@ -129,37 +139,46 @@ interface HBarProps {
   fmtV: (v: number) => string;
 }
 
-/** Horizontal bars, descending order expected from the caller; shared by HOURS BY PROJECT and
-    COSTS BY CATEGORY (the latter's chart type is a flagged reversible assumption). */
+/** Horizontal bars, descending order expected from the caller; shared by HOURS BY PROJECT, COSTS
+    BY CATEGORY, and (since 08-06) the SIGNED profit/margin charts: a negative value draws LEFT of
+    a visible zero axis in the negative class — a loss can never render as an empty track. */
 export function HBarChart({ rows, emptyText, fmtV }: HBarProps) {
   const { ref, width } = useMeasuredWidth();
   const ROW = 24;
   const LEFT = 120;
-  const RIGHT = 56;
+  const RIGHT = 64;
   const AXIS = 18;
   const height = rows.length * ROW + AXIS + 6;
 
   let body: ReactNode = null;
   if (rows.length > 0 && width > 0) {
     const iw = Math.max(10, width - LEFT - RIGHT);
-    const barMax = niceCeil(Math.max(...rows.map((r) => r.value)));
+    const posMax = niceCeil(Math.max(0, ...rows.map((r) => r.value)));
+    const rawMin = Math.min(0, ...rows.map((r) => r.value));
+    const negMax = rawMin < 0 ? niceCeil(-rawMin) : 0;
+    // Zero sits proportionally between the negative and positive extents (at LEFT when no negatives).
+    const zeroX = LEFT + (negMax / (negMax + posMax)) * iw;
+    const scale = iw / (negMax + posMax);
     body = (
       <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="bar chart">
         {rows.map((r, i) => {
-          const w = r.value > 0 ? Math.max(2, (r.value / barMax) * iw) : 0;
+          const w = Math.abs(r.value) > 0 ? Math.max(2, Math.abs(r.value) * scale) : 0;
           const cy = i * ROW;
+          const bx = r.value >= 0 ? zeroX : zeroX - w;
           return (
             <g key={`${r.label}:${i}`}>
               <text className="tt-chartaxis" x={LEFT - 8} y={cy + ROW / 2 + 3} textAnchor="end">{truncate(r.label)}</text>
               <rect className="tt-chartbartrack" x={LEFT} y={cy + 5} width={iw} height={ROW - 10} rx={3} />
-              {w > 0 && <rect className="tt-chartbar" x={LEFT} y={cy + 5} width={w} height={ROW - 10} rx={3} />}
-              <text className="tt-chartaxis strong" x={LEFT + iw + 6} y={cy + ROW / 2 + 3}>{fmtV(r.value)}</text>
+              {w > 0 && <rect className={"tt-chartbar" + (r.value < 0 ? " neg" : "")} x={bx} y={cy + 5} width={w} height={ROW - 10} rx={3} />}
+              <text className={"tt-chartaxis strong" + (r.value < 0 ? " neg" : "")} x={LEFT + iw + 6} y={cy + ROW / 2 + 3}>{fmtV(r.value)}</text>
             </g>
           );
         })}
+        {negMax > 0 && <line className="tt-chartzero" x1={zeroX} y1={0} x2={zeroX} y2={rows.length * ROW + 2} />}
         <line className="tt-chartgrid" x1={LEFT} y1={rows.length * ROW + 2} x2={LEFT + iw} y2={rows.length * ROW + 2} />
-        <text className="tt-chartaxis" x={LEFT} y={height - 4} textAnchor="start">0</text>
-        <text className="tt-chartaxis" x={LEFT + iw} y={height - 4} textAnchor="end">{fmtV(barMax)}</text>
+        <text className="tt-chartaxis" x={LEFT} y={height - 4} textAnchor="start">{negMax > 0 ? fmtV(-negMax) : "0"}</text>
+        {negMax > 0 && <text className="tt-chartaxis" x={zeroX} y={height - 4} textAnchor="middle">0</text>}
+        <text className="tt-chartaxis" x={LEFT + iw} y={height - 4} textAnchor="end">{fmtV(posMax)}</text>
       </svg>
     );
   }
@@ -167,6 +186,40 @@ export function HBarChart({ rows, emptyText, fmtV }: HBarProps) {
   return (
     <div ref={ref} className="tt-chartbox">
       {rows.length > 0 ? body : <div className="tt-chartempty">{emptyText}</div>}
+    </div>
+  );
+}
+
+/**
+ * ONE chart modal (ruled 08-06): every chart card opens its own chart full-size here — same
+ * component re-rendered wide, a Close, and an Export control (the existing live-window print,
+ * which captures the open modal). No second chart path, no screenshotting.
+ */
+export function ChartModal({
+  title,
+  onClose,
+  onExport,
+  exporting,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  onExport: () => void;
+  exporting: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="tt-modalback" onClick={onClose}>
+      <div className="tt-modal tt-chartmodal" role="dialog" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <div className="tt-modalhead">{title}</div>
+        <div className="tt-chartmodalbody">{children}</div>
+        <div className="tt-modalacts">
+          <button className="tt-btn ghost" onClick={onClose}>Close</button>
+          <button className="tt-btn start" disabled={exporting} onClick={onExport}>
+            {exporting ? "Exporting…" : "Export PDF"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -123,7 +123,11 @@ export type UpdateToastSignal =
   // Generic app notice (A2, 08-06) — the SAME toast, event and styling carry non-updater messages
   // (the seed's refusals and summaries) instead of a second mechanism growing beside this one.
   // ok-toned notices auto-dismiss like "you're on the latest"; err-toned ones stay until closed.
-  | { stage: "notice"; text: string; tone: "ok" | "err" };
+  | { stage: "notice"; text: string; tone: "ok" | "err" }
+  // A QUESTION toast (08-06 profit build — "did you actually get paid?"). Same one mechanism,
+  // extended: a title, a body, and buttons whose callbacks ride the same-window event detail.
+  // Sticky until answered or dismissed — an unanswered question must not fade away.
+  | { stage: "ask"; title: string; text: string; actions: Array<{ label: string; primary?: boolean; onClick: () => void }> };
 export const UPDATE_TOAST_EVENT = "focal:update-toast";
 
 /** Show a plain app message in the shell toast. Long refusal sentences belong here, not squeezed
@@ -131,6 +135,17 @@ export const UPDATE_TOAST_EVENT = "focal:update-toast";
 export function signalAppToast(text: string, tone: "ok" | "err"): void {
   window.dispatchEvent(
     new CustomEvent<UpdateToastSignal | null>(UPDATE_TOAST_EVENT, { detail: { stage: "notice", text, tone } })
+  );
+}
+
+/** Ask a question through the SAME shell toast — buttons run their callback and dismiss. */
+export function signalAppAsk(
+  title: string,
+  text: string,
+  actions: Array<{ label: string; primary?: boolean; onClick: () => void }>
+): void {
+  window.dispatchEvent(
+    new CustomEvent<UpdateToastSignal | null>(UPDATE_TOAST_EVENT, { detail: { stage: "ask", title, text, actions } })
   );
 }
 export function signalUpdateToast(detail: UpdateToastSignal | null): void {
@@ -158,6 +173,25 @@ function UpdateToast() {
   }, [state]);
 
   if (!state || dismissed) return null;
+  if (state.stage === "ask") {
+    return (
+      <div className="updatetoast ask" role="alertdialog" aria-label={state.title}>
+        <div className="updatetoast-ask">
+          <b>{state.title}</b>
+          <span className="updatetoast-line">{state.text}</span>
+          <div className="updatetoast-actions">
+            {state.actions.map((a) => (
+              <button key={a.label} className={"btn" + (a.primary ? " updatetoast-primary" : "")}
+                onClick={() => { setState(null); a.onClick(); }}>
+                {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button className="updatetoast-close" aria-label="Dismiss" onClick={() => setDismissed(true)}>×</button>
+      </div>
+    );
+  }
   return (
     <div className="updatetoast" role="status">
       <span className="updatetoast-line">

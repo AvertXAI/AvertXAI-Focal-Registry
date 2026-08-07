@@ -15,6 +15,9 @@ import type {
   TimeTrackerProjectSpend,
 } from "../../shared/types";
 import { INVOICE_CSS, renderInvoiceHtml } from "./invoicePrint";
+// ONE expression of the entry money rule (ruled 08-06 — the local copy this file briefly carried
+// is ABSORBED; entryCost.ts is the sanctioned renderer echo of ENTRY_COST_SQL, the authority).
+import { entryCost } from "../employees/entryCost";
 
 interface Props {
   /** The module's already-loaded ACTIVE list — completed projects still ride it (read paths are
@@ -48,11 +51,6 @@ const fmtDate = (iso: string | null): string => {
   return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
 };
 
-/** One entry's pay — the ENTRY_COST_SQL rule, applied renderer-side for the per-person rollup:
-    donated 0, hourly h × rate, else the flat amount. */
-const entryCost = (e: EmployeeEntry): number =>
-  e.pay_type === "donated" ? 0 : e.pay_type === "hourly" ? e.hours_worked * e.rate_at_entry : (e.flat_amount ?? 0);
-
 export default function CompletedView({ projects, onDataChanged }: Props) {
   const api = window.api;
   const completed = projects.filter((p) => p.completed_at != null);
@@ -60,6 +58,17 @@ export default function CompletedView({ projects, onDataChanged }: Props) {
   const [doc, setDoc] = useState<DocData | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [exportLine, setExportLine] = useState<{ text: string; path: string | null; err: boolean } | null>(null);
+  /** Payments received per completed project — drives the DERIVED Awaiting payment / Paid badge
+      ("Not yet" on the completion toast is a real answer; this is where it shows). */
+  const [paidById, setPaidById] = useState<Record<number, number>>({});
+  useEffect(() => {
+    let dead = false;
+    void Promise.all(completed.map((p) => api.timetracker.payments.total(p.id).then((t) => [p.id, t] as const)))
+      .then((pairs) => { if (!dead) setPaidById(Object.fromEntries(pairs)); })
+      .catch(() => {});
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, api]);
 
   // The expanded row's document data — five existing reads, composed here (recon B5).
   useEffect(() => {
@@ -145,6 +154,12 @@ export default function CompletedView({ projects, onDataChanged }: Props) {
               </span>
               <span className="tt-cfig">{fmtMoney(p.total_value)} · {fmtDuration(p.total_seconds)}</span>
               <span className="tt-cwhen">completed {fmtDate(p.completed_at)}</span>
+              {/* Awaiting/Paid — DERIVED from payment rows vs the contract; partials stay Awaiting. */}
+              {p.contract_amount != null && (
+                (paidById[p.id] ?? 0) >= p.contract_amount
+                  ? <span className="tt-paybadge paid">Paid</span>
+                  : <span className="tt-paybadge awaiting">Awaiting payment</span>
+              )}
               <span className="tt-crowacts" onClick={(e) => e.stopPropagation()}>
                 <button className="tt-btn ghost sm" disabled={busy === p.id} onClick={() => exportPdf(p)}>
                   {busy === p.id ? "…" : "Export PDF"}

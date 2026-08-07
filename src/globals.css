@@ -494,3 +494,10 @@ tbody tr:hover{background:var(--mc-nested)}
   color: var(--mc-border); cursor: default; line-height: 0;
 }
 .setleaf:focus { outline: none; }
+
+/* ---- The ask-toast (08-07): the ONE shell toast, extended with a question + buttons ---- */
+.updatetoast.ask { border-left: 4px solid var(--mc-green); }
+.updatetoast-ask { display: flex; flex-direction: column; gap: 4px; }
+.updatetoast-ask b { font-size: 13.5px; }
+.updatetoast-actions { display: flex; gap: 8px; margin-top: 8px; }
+.updatetoast-primary { background: var(--mc-green); border-color: var(--mc-green); color: #fff; font-weight: 600; }

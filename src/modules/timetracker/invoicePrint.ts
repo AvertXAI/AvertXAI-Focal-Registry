@@ -33,41 +33,49 @@ const dateFmt = (iso: string | null): string => {
 /** Multi-line free text (addresses, payment methods, terms) → escaped lines. */
 const lines = (s: string): string => esc(s).split(/\r?\n/).filter(Boolean).join("<br>");
 
+// The export handler prepends an @font-face for the BUNDLED Inter variable font (assets/fonts/,
+// SIL OFL — skill §3's approved list) as a data URI, so the face is EMBEDDED in the PDF (§2) on
+// every machine. The stacks below fall through to the other approved families only if that load
+// ever fails. Spacing sits on the skill's 8-point system (4 as the half step); sizes per §3.
 export const INVOICE_CSS = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: Inter, "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
-    color: #111; font-size: 10.5pt; line-height: 1.45;
+    font-family: Inter, "IBM Plex Sans", "Source Sans 3", Roboto, sans-serif;
+    color: #111; font-size: 10.5pt; line-height: 1.35; /* §3: 1.3–1.4×; relative so headings scale */
     font-variant-numeric: tabular-nums lining-nums; font-feature-settings: "tnum" 1, "lnum" 1;
   }
-  .head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22pt; }
-  .biz .name { font-size: 16pt; font-weight: 700; letter-spacing: 0.2pt; }
-  .biz .meta { color: #444; font-size: 9.5pt; margin-top: 3pt; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24pt; }
+  .biz { display: flex; gap: 12pt; align-items: flex-start; }
+  .logo { max-height: 72pt; max-width: 144pt; }
+  .biz .name { font-size: 18pt; font-weight: 700; letter-spacing: 0.2pt; }
+  .biz .meta { color: #444; font-size: 9.5pt; margin-top: 4pt; }
   .stamp { text-align: right; }
   .stamp .word { font-size: 20pt; font-weight: 700; letter-spacing: 3pt; color: #111; }
-  .stamp .num { font-size: 11pt; margin-top: 3pt; }
+  .stamp .num { font-size: 11pt; margin-top: 4pt; }
   .stamp .date { color: #444; font-size: 9.5pt; margin-top: 2pt; }
-  .parties { display: flex; gap: 36pt; margin-bottom: 20pt; }
-  .party .label { font-size: 8pt; letter-spacing: 1.5pt; text-transform: uppercase; color: #666; font-weight: 700; margin-bottom: 3pt; }
+  .parties { display: flex; gap: 32pt; margin-bottom: 24pt; }
+  .party .label { font-size: 8pt; letter-spacing: 1.5pt; text-transform: uppercase; color: #666; font-weight: 700; margin-bottom: 4pt; }
   .party .who { font-weight: 600; }
   .party .meta { color: #444; font-size: 9.5pt; }
-  table.lines { width: 100%; border-collapse: collapse; margin-bottom: 14pt; }
+  table.lines { width: 100%; border-collapse: collapse; margin-bottom: 16pt; }
+  table.lines thead { display: table-header-group; } /* header row REPEATS on every page (skill §5.4) */
   table.lines th {
-    font-size: 8pt; letter-spacing: 1.2pt; text-transform: uppercase; color: #444; font-weight: 700;
-    text-align: left; padding: 5pt 6pt; border-bottom: 1.5pt solid #111;
+    font-size: 9pt; letter-spacing: 1.2pt; text-transform: uppercase; color: #444; font-weight: 700;
+    text-align: left; padding: 4pt 8pt; border-bottom: 1.5pt solid #111;
   }
-  table.lines td { padding: 6pt; border-bottom: 0.75pt solid #ccc; vertical-align: top; }
+  table.lines td { padding: 8pt; border-bottom: 0.75pt solid #ccc; vertical-align: top; }
   th.desc, td.desc { width: 50%; }
   th.num, td.num { text-align: right; white-space: nowrap; }
-  .totals { display: flex; justify-content: flex-end; margin-bottom: 20pt; }
-  .totals table { border-collapse: collapse; min-width: 220pt; }
-  .totals td { padding: 3.5pt 6pt; text-align: right; }
+  .totals { display: flex; justify-content: flex-end; margin-bottom: 24pt; break-inside: avoid; }
+  .totals table { border-collapse: collapse; min-width: 224pt; }
+  .totals td { padding: 4pt 8pt; text-align: right; }
   .totals td.k { color: #444; }
   .totals tr.total td { border-top: 1pt solid #111; font-weight: 600; }
-  .totals tr.due td { font-size: 14pt; font-weight: 700; padding-top: 6pt; }
-  .footblock { display: flex; gap: 36pt; border-top: 0.75pt solid #ccc; padding-top: 12pt; }
-  .footblock .label { font-size: 8pt; letter-spacing: 1.5pt; text-transform: uppercase; color: #666; font-weight: 700; margin-bottom: 3pt; }
+  .totals tr.due td { font-size: 14pt; font-weight: 700; padding-top: 8pt; }
+  .footblock { display: flex; gap: 32pt; border-top: 0.75pt solid #ccc; padding-top: 12pt; break-inside: avoid; }
+  .footblock .label { font-size: 8pt; letter-spacing: 1.5pt; text-transform: uppercase; color: #666; font-weight: 700; margin-bottom: 4pt; }
   .footblock .body { color: #333; font-size: 9.5pt; }
+  .thanks { color: #444; font-size: 9.5pt; margin-top: 12pt; }
 `;
 
 export function renderInvoiceHtml(inv: TimeTrackerInvoiceData): string {
@@ -100,13 +108,18 @@ export function renderInvoiceHtml(inv: TimeTrackerInvoiceData): string {
   return `
   <div class="head">
     <div class="biz">
-      <div class="name">${esc(inv.business.name || "—")}</div>
-      <div class="meta">${bizMeta}</div>
+      ${inv.logo_data_uri ? `<img class="logo" src="${inv.logo_data_uri}" alt="">` : ""}
+      <div>
+        <div class="name">${esc(inv.business.name || "—")}</div>
+        <div class="meta">${bizMeta}</div>
+      </div>
     </div>
     <div class="stamp">
       <div class="word">INVOICE</div>
       <div class="num">${esc(inv.number)}</div>
-      <div class="date">Issued ${dateFmt(inv.invoice_date)}${inv.completed_at ? ` · Job completed ${dateFmt(inv.completed_at)}` : ""}</div>
+      <div class="date">Issued ${dateFmt(inv.invoice_date)}</div>
+      <div class="date">Due ${inv.due_date ? dateFmt(inv.due_date) : "on receipt"}</div>
+      ${inv.completed_at ? `<div class="date">Job completed ${dateFmt(inv.completed_at)}</div>` : ""}
     </div>
   </div>
   <div class="parties">
@@ -136,5 +149,6 @@ export function renderInvoiceHtml(inv: TimeTrackerInvoiceData): string {
   <div class="footblock">
     ${inv.business.payment_methods ? `<div><div class="label">Payment</div><div class="body">${lines(inv.business.payment_methods)}</div></div>` : ""}
     ${inv.business.terms ? `<div><div class="label">Terms</div><div class="body">${lines(inv.business.terms)}</div></div>` : ""}
-  </div>`;
+  </div>
+  <p class="thanks">Thank you for your business.</p>`;
 }

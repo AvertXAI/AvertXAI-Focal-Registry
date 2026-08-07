@@ -416,7 +416,11 @@ export interface InvoiceLine {
 export interface InvoiceData {
   number: string;
   invoice_date: string;
+  /** From the profile's terms ("Net 30" → +30 days); null renders as "Due on receipt". */
+  due_date: string | null;
   completed_at: string | null;
+  /** The stored logo embedded as a data URI (skill §2: embed, never link); null when unset. */
+  logo_data_uri: string | null;
   business: {
     name: string;
     address: string;

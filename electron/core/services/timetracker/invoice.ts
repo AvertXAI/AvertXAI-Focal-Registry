@@ -19,6 +19,8 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/timetracker/invoice.ts
 //------------------------------------------------------------
+import fs from "node:fs";
+import path from "node:path";
 import { getSetting } from "../settings";
 import { nowIso, type Db } from "./db";
 import { getProject } from "./projects";
@@ -60,6 +62,30 @@ export function allocateInvoiceNumber(db: Db, projectId: number): string {
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** Due date from the profile's terms (skill §5.2/§6: an invoice carries one): "Net 30" → invoice
+    date + 30 days; anything else (or nothing) → null, which the document prints as "Due on receipt". */
+function dueDateFrom(terms: string, invoiceIso: string): string | null {
+  const m = /net\s*(\d{1,3})/i.exec(terms);
+  if (!m) return null;
+  const d = new Date(invoiceIso);
+  d.setDate(d.getDate() + Number(m[1]));
+  return d.toISOString();
+}
+
+/** The stored logo as an embedded data URI (skill §2: embed, never link) — null when unset,
+    unreadable, or not a printable raster format. Read via Node fs, so an asar path also works. */
+function logoDataUri(logoPath: string): string | null {
+  const mime = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg" }[
+    path.extname(logoPath).toLowerCase()
+  ];
+  if (!mime) return null;
+  try {
+    return `data:${mime};base64,${fs.readFileSync(logoPath).toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
 
 /** Everything the invoice document needs, in one read. Allocates the number as a side effect —
     this is the "first exported" moment the ruling names. */
@@ -121,10 +147,15 @@ export function invoiceData(db: Db, _orgId: string, projectId: number): InvoiceD
   const taxRate = Number.isFinite(taxRateRaw) && taxRateRaw > 0 ? taxRateRaw : 0;
   const taxAmount = round2(subtotal * (taxRate / 100));
 
+  const invoiceDate = nowIso();
+  const terms = getSetting("business.terms") ?? "";
+  const logoPath = getSetting("business.logo_path") ?? "";
   return {
     number,
-    invoice_date: nowIso(),
+    invoice_date: invoiceDate,
+    due_date: dueDateFrom(terms, invoiceDate),
     completed_at: project.completed_at ?? null,
+    logo_data_uri: logoPath.trim() ? logoDataUri(logoPath.trim()) : null,
     business: {
       name: getSetting("business.name") ?? "",
       address: getSetting("business.address") ?? "",

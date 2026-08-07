@@ -318,14 +318,28 @@ export function HealthView({ settings, onSetting }: { settings: Record<string, s
       .finally(() => setEmailBusy(false));
   }, [api, email]);
 
-  const load = useCallback((): void => {
-    setError(false);
-    setReport(null);
-    void api.health().then(setReport).catch(() => setError(true));
-  }, [api]);
+  // ⚠ A RE-CHECK MUST NOT BLANK THE SCREEN. The first version set the report to null before
+  // fetching, which unmounted the score cards and the table and then remounted them with the same
+  // numbers — pressing Re-check looked like a flash and nothing else, which is exactly how Jason
+  // described it. The old figures stay put while the new ones are computed; only the button says
+  // work is happening.
+  const [rechecking, setRechecking] = useState(false);
+  const load = useCallback(
+    (initial = false): void => {
+      setError(false);
+      if (initial) setReport(null);
+      setRechecking(true);
+      void api
+        .health()
+        .then(setReport)
+        .catch(() => setError(true))
+        .finally(() => setRechecking(false));
+    },
+    [api]
+  );
 
   useEffect(() => {
-    load();
+    load(true);
   }, [load]);
 
   if (error) {
@@ -333,7 +347,7 @@ export function HealthView({ settings, onSetting }: { settings: Record<string, s
       <div className="vault-state error">
         The health check could not run.
         <div>
-          <button className="vault-btn" onClick={load}>
+          <button className="vault-btn" onClick={() => load()}>
             Try again
           </button>
         </div>
@@ -546,9 +560,12 @@ export function HealthView({ settings, onSetting }: { settings: Record<string, s
       <div className="vault-card">
         <div className="vault-cardhead">
           <span className="vault-cardtitle">Worst first</span>
-          <button className="vault-btn" onClick={load}>
-            Re-check
-          </button>
+          <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            {rechecking && <span className="vault-spinner" aria-hidden="true" />}
+            <button className="vault-btn" disabled={rechecking} onClick={() => load()}>
+              {rechecking ? "Checking…" : "Re-check"}
+            </button>
+          </span>
         </div>
         <table className="vault-table">
           <thead>
@@ -613,7 +630,7 @@ export function AccessLogView() {
       <div className="vault-state error">
         The access log could not be read.
         <div>
-          <button className="vault-btn" onClick={load}>
+          <button className="vault-btn" onClick={() => load()}>
             Try again
           </button>
         </div>

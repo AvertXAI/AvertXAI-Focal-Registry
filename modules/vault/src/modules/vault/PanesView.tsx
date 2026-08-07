@@ -4,6 +4,7 @@
 // differs, and splitting that into two files would duplicate the two that matter.
 import { useMemo, useState } from "react";
 import BrandMark from "./BrandMark";
+import { FolderContextMenu, useRowFiling } from "./FolderMenu";
 import DetailPane from "./DetailPane";
 import { vaultApi, type VaultFolder, type VaultSecretMeta } from "./vaultApi";
 
@@ -24,8 +25,11 @@ const KINDS: [string, string][] = [
 ];
 
 export function PanesView({ secrets, folders, onReload, onNew, onEdit }: PanesViewProps) {
+  const api = vaultApi();
   const [scope, setScope] = useState("all");
   const [selected, setSelected] = useState<string | null>(null);
+  // Same two gestures as the list view — drag a row onto a folder in the rail, or right-click it.
+  const { menu, setMenu, rowProps } = useRowFiling(onReload);
 
   const rows = useMemo(() => {
     return secrets.filter((s) => {
@@ -51,6 +55,17 @@ export function PanesView({ secrets, folders, onReload, onNew, onEdit }: PanesVi
 
   return (
     <div className="vault-pane3">
+      {menu && (
+        <FolderContextMenu
+          state={menu}
+          folders={folders}
+          onPick={(uuid, folderId) => {
+            setMenu(null);
+            void api.updateMeta(uuid, { folderId }).then(onReload).catch(() => undefined);
+          }}
+          onClose={() => setMenu(null)}
+        />
+      )}
       <div className="vault-pnav">
         {navRow("all", "All items", active.length)}
         {navRow("favourites", "Favourites", active.filter((s) => s.favourite === 1).length)}
@@ -70,7 +85,12 @@ export function PanesView({ secrets, folders, onReload, onNew, onEdit }: PanesVi
           <div className="vault-state">Nothing here.</div>
         ) : (
           rows.map((s) => (
-            <button key={s.uuid} className={`vault-irow${selected === s.uuid ? " on" : ""}`} onClick={() => setSelected(s.uuid)}>
+            <button
+              key={s.uuid}
+              className={`vault-irow${selected === s.uuid ? " on" : ""}`}
+              onClick={() => setSelected(s.uuid)}
+              {...rowProps(s.uuid, s.label)}
+            >
               <BrandMark label={s.label} size={32} />
               <span style={{ minWidth: 0 }}>
                 <span className="vault-irowtitle">{s.label}</span>

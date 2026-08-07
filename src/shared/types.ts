@@ -467,6 +467,33 @@ export interface TimeTrackerProject {
   completed_at: string | null;
   /** INV-YYYY-NNNN, allocated on first invoice export; re-export reproduces it. */
   invoice_number: string | null;
+  /** The day the client SIGNED (YYYY-MM-DD) — revenue's date on the profit timeline. */
+  contract_date: string | null;
+  signed_by: string | null;
+  payment_terms: string | null;
+}
+
+// ---- payments (08-06 profit build) ----
+export type TimeTrackerPaymentMethod = "check" | "cash" | "wire" | "bank_transfer" | "zelle" | "venmo" | "card" | "other";
+export interface TimeTrackerProjectPayment {
+  id: number;
+  uuid: string;
+  project_id: number;
+  amount: number;
+  received_on: string;
+  method: TimeTrackerPaymentMethod;
+  reference: string | null;
+  note: string | null;
+  deleted_at: string | null;
+  created_at: string;
+}
+export interface TimeTrackerProjectPaymentInput {
+  projectId: number;
+  amount: number;
+  receivedOn: string;
+  method: TimeTrackerPaymentMethod;
+  reference?: string | null;
+  note?: string | null;
 }
 
 /** Project row joined with client + group info and computed totals for list/detail views. */
@@ -575,9 +602,12 @@ export interface TimeTrackerGrandTotals {
 
 export interface TimeTrackerReportTotals {
   total_seconds: number;
-  total_value: number;
-  total_costs: number;
-  total_invested: number;
+  /** RULED vocabulary (08-06): revenue / spent / profit / margin — total_invested is gone. */
+  revenue: number;
+  spent: number;
+  profit: number;
+  /** Percent; NULL when there is no revenue (not the same as 0%). */
+  margin: number | null;
   donated_seconds: number;
   project_count: number;
   group_count: number;
@@ -604,6 +634,10 @@ export interface TimeTrackerReportData {
   timeSeries: TimeTrackerTimeSeriesPoint[];
   hoursByProject: Array<{ name: string; hours: number }>;
   costsByCategory: Array<{ category: string; amount: number }>;
+  profitByProject: Array<{ name: string; profit: number }>;
+  marginByProject: Array<{ name: string; margin: number }>;
+  /** Contract-paid projects with no contract_date — off the timeline; the caption says why. */
+  timelineExcluded: number;
   wasted: TimeTrackerWastedMetric;
 }
 
@@ -714,6 +748,10 @@ export interface TimeTrackerNewProjectInput {
   contractSourcePath: string | null;
   contractKind: TimeTrackerContractKind | null;
   targetHours: number | null;
+  /** Contract details (08-06) — the New-project block's door; the modal is the other. */
+  contractDate?: string | null;
+  signedBy?: string | null;
+  paymentTerms?: string | null;
 }
 
 export interface TimeTrackerUpdateProjectInput extends TimeTrackerNewProjectInput {
@@ -754,6 +792,8 @@ export interface TimeTrackerInvoiceData {
   subtotal: number;
   tax_rate: number;
   tax_amount: number;
+  /** Payments received to date — rendered negative in the totals stack; 0 = no Deposit line. */
+  deposit_paid: number;
   total: number;
   balance_due: number;
 }
@@ -934,6 +974,8 @@ export type EmployeeAuditEntry =
   | { action: "restored"; at: string };
 
 export interface EmployeeAdjustment {
+  /** 08-06: the ENTRY this corrects (soft reference), when it corrects one. */
+  entry_id: number | null;
   id: number;
   uuid: string;
   employee_id: number;
@@ -951,6 +993,7 @@ export interface EmployeeAdjustment {
 
 /** Project is REQUIRED on an hours correction, and it carries its own mandatory rate. */
 export interface EmployeeHoursAdjustmentInput {
+  entryId?: number | null;
   employeeId: number;
   projectId: number;
   projectName: string;
@@ -961,6 +1004,7 @@ export interface EmployeeHoursAdjustmentInput {
 
 /** Project is OPTIONAL on an amount correction, and no rate applies. */
 export interface EmployeeAmountAdjustmentInput {
+  entryId?: number | null;
   employeeId: number;
   projectId: number | null;
   projectName: string | null;
@@ -1302,6 +1346,17 @@ export interface Api {
       /** Completion (08-06): lock the job / unlock it. Both broadcast timetracker:changed. */
       complete: (id: number) => Promise<void>;
       reactivate: (id: number) => Promise<void>;
+      /** Contract details (08-06 profit build) — the modal's targeted save; completion-locked. */
+      setContractDetails: (
+        id: number,
+        input: { contractDate: string | null; signedBy: string | null; paymentTerms: string | null; contractAmount: number | null }
+      ) => Promise<void>;
+    };
+    payments: {
+      list: (projectId: number) => Promise<TimeTrackerProjectPayment[]>;
+      total: (projectId: number) => Promise<number>;
+      add: (input: TimeTrackerProjectPaymentInput) => Promise<TimeTrackerProjectPayment>;
+      void: (id: number) => Promise<void>;
     };
     invoice: {
       /** Allocates INV-YYYY-NNNN on first call; returns every field the invoice document needs. */

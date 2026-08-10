@@ -490,8 +490,12 @@ tbody tr:hover{background:var(--mc-nested)}
 
 /* ---- B6: the leaf (08-06) — low contrast by design; it must not read as a control ---- */
 .setleaf {
-  position: fixed; right: 18px; bottom: 14px; background: none; border: none; padding: 6px;
-  color: var(--mc-border); cursor: default; line-height: 0;
+  /* F4 (08-10): bottom clears the FIXED shell footer (--mc-footer-height, 65px) — at bottom:14px
+     the leaf rendered BEHIND it, which is why it "did not exist" on device. Still low-contrast by
+     ruling; z-index only lifts it above the footer surface. */
+  position: fixed; right: 18px; bottom: calc(var(--mc-footer-height, 65px) + 10px);
+  background: none; border: none; padding: 6px;
+  color: var(--mc-border); cursor: default; line-height: 0; z-index: 30;
 }
 .setleaf:focus { outline: none; }
 
@@ -501,3 +505,15 @@ tbody tr:hover{background:var(--mc-nested)}
 .updatetoast-ask b { font-size: 13.5px; }
 .updatetoast-actions { display: flex; gap: 8px; margin-top: 8px; }
 .updatetoast-primary { background: var(--mc-green); border-color: var(--mc-green); color: #fff; font-weight: 600; }
+
+/* F1/F6 (08-10): the purge dry-run line and the reset dialog */
+.dv-purgecount { font-size: 12px; color: var(--mc-text); max-width: 460px; line-height: 1.5; }
+.dv-reset { max-width: 560px; }
+.dv-resetwarn {
+  background: var(--mc-nested); border-left: 4px solid #e0574f; border-radius: 8px;
+  padding: 12px 14px; margin-bottom: 12px; font-size: 13px; line-height: 1.55;
+}
+.dv-resetwarn b { display: block; color: #e0574f; margin-bottom: 4px; }
+.dv-resetbody { font-size: 13px; color: var(--mc-muted); line-height: 1.6; margin: 8px 0; }
+.dv-resetconfirm { display: flex; align-items: center; gap: 10px; margin: 14px 0; font-size: 13px; }
+.dv-resetconfirm .dv-keyinput { width: 120px; }

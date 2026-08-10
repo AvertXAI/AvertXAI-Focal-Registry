@@ -417,41 +417,207 @@ export function generateDemo(db: Db, orgId: string, rawKey: string): GenerateRes
 }
 
 /**
- * Removes exactly what generateDemo created, in dependency order, then restores the licence to what
- * it was before seeding. HARD deletes — this is seed data, and leaving soft-deleted rows behind
- * would keep polluting the totals the seed exists to test. Anything not in the ledger is untouched.
+ * THE PURGE PLAN (08-10 rewrite — the FOREIGN KEY failure Jason hit on device).
+ *
+ * WHAT WENT WRONG: the old purge deleted the LEDGER's rows only. Two things defeat that:
+ *   1. Tables added AFTER the purge was written were never covered — timetracker_project_payments
+ *      (08-07) references timetracker_projects with foreign keys ON, so one recorded payment on a
+ *      seeded project makes `DELETE FROM timetracker_projects` throw.
+ *   2. Rows JASON created ON seeded parents while testing (a payment, a note, his own timer run, a
+ *      value-ledger amount, an adjustment) reference seeded rows and are in no ledger. They CANNOT
+ *      survive their parent's deletion — pretending otherwise is exactly the constraint failure.
+ *
+ * THE RULE NOW: seeded rows go by ledger id; rows ATTACHED to a seeded parent go WITH the parent,
+ *   counted separately and SURFACED FIRST by previewPurge (the dry run) so nothing is deleted that
+ *   was not announced. Real work not touching a seeded parent is never touched. Tasks Jason
+ *   assigned to a seeded person are UNASSIGNED, not deleted — the person is leaving, his task is
+ *   his. Clients/groups the seed created are removed only if nothing else still uses them.
+ *
+ * The transaction saved Jason's database on device: the failed purge ROLLED BACK whole. Everything
+ * below stays inside one transaction for the same reason.
+ */
+interface PurgeStep {
+  table: string;
+  /** "DELETE FROM table WHERE <col> IN (…ids)" — ids resolved at plan time. */
+  col: "id" | "project_id" | "employee_id";
+  ids: number[];
+  /** Rows the ledger recorded vs rows merely ATTACHED to seeded parents (announced separately). */
+  attached: number;
+}
+
+function planPurge(db: Db, l: Ledger): { steps: PurgeStep[]; unassignTasks: number[]; skippedClients: number; skippedGroups: number } {
+  const inList = (ids: number[]): string => ids.map(() => "?").join(",");
+  const attachedIds = (table: string, col: string, parents: number[], exclude: number[]): number[] => {
+    if (parents.length === 0) return [];
+    const rows = db
+      .prepare(`SELECT id FROM ${table} WHERE ${col} IN (${inList(parents)})`)
+      .all(...parents) as { id: number }[];
+    const ex = new Set(exclude);
+    return rows.map((r) => r.id).filter((id) => !ex.has(id));
+  };
+  const steps: PurgeStep[] = [];
+  const push = (table: string, ledgerIds: number[], extra: number[]): void => {
+    const ids = [...new Set([...ledgerIds, ...extra])];
+    if (ids.length > 0) steps.push({ table, col: "id", ids, attached: extra.length });
+  };
+
+  // ---- children of seeded PROJECTS — every table with a REFERENCES timetracker_projects(id).
+  push("timetracker_project_payments", [], attachedIds("timetracker_project_payments", "project_id", l.projects, []));
+  push("timetracker_value_ledger", [], attachedIds("timetracker_value_ledger", "project_id", l.projects, []));
+  push("timetracker_time_entries", [], attachedIds("timetracker_time_entries", "project_id", l.projects, []));
+  push("timetracker_active_sessions", [], attachedIds("timetracker_active_sessions", "project_id", l.projects, []));
+  push("timetracker_notes", [], attachedIds("timetracker_notes", "project_id", l.projects, []));
+  push("timetracker_adjustments", [], attachedIds("timetracker_adjustments", "project_id", l.projects, []));
+  push("timetracker_project_items", l.items, attachedIds("timetracker_project_items", "project_id", l.projects, l.items));
+  push("timetracker_project_employees", l.members, attachedIds("timetracker_project_employees", "project_id", l.projects, l.members));
+  push("timetracker_costs", l.costs, attachedIds("timetracker_costs", "project_id", l.projects, l.costs));
+
+  // ---- children of seeded PEOPLE — every table with a REFERENCES employee_people(id).
+  push("employee_entries", l.entries, attachedIds("employee_entries", "employee_id", l.people, l.entries));
+  push("employee_sessions", [], attachedIds("employee_sessions", "employee_id", l.people, []));
+  push("employee_payments", l.payments, attachedIds("employee_payments", "employee_id", l.people, l.payments));
+  push("employee_adjustments", l.adjustments, attachedIds("employee_adjustments", "employee_id", l.people, l.adjustments));
+  // Seeded tasks are deleted; JASON's tasks merely ASSIGNED to a seeded person are unassigned.
+  push("employee_tasks", l.tasks, []);
+  const unassignTasks = attachedIds("employee_tasks", "employee_id", l.people, l.tasks);
+
+  // ---- no-FK rows and the parents themselves.
+  push("employee_event_log", l.events, []);
+  push("employee_people", l.people, []);
+  push("timetracker_projects", l.projects, []);
+
+  // Seeded groups/clients are removed only when NO project OUTSIDE the seed still points at them —
+  // Jason's own project may have matched a seed client by name (findOrCreateClient) or moved into
+  // a seed group. Counted here for the preview; execution re-derives after projects are deleted.
+  const nonSeedUses = (col: "group_id" | "client_id", id: number): number =>
+    l.projects.length === 0
+      ? (db.prepare(`SELECT COUNT(*) AS c FROM timetracker_projects WHERE ${col} = ?`).get(id) as { c: number }).c
+      : (db.prepare(`SELECT COUNT(*) AS c FROM timetracker_projects WHERE ${col} = ? AND id NOT IN (${inList(l.projects)})`)
+          .get(id, ...l.projects) as { c: number }).c;
+  const groupsToDelete = l.groups.filter((g) => nonSeedUses("group_id", g) === 0);
+  const clientsToDelete = l.clients.filter((c) => nonSeedUses("client_id", c) === 0);
+  // NOTE the order: these counts run AT EXECUTION TIME inside the transaction too (see purgeDemo) —
+  // the plan's counts are for the preview; execution re-derives them after projects are gone.
+  push("timetracker_groups", groupsToDelete, []);
+  push("timetracker_clients", clientsToDelete, []);
+
+  return { steps, unassignTasks, skippedClients: l.clients.length - clientsToDelete.length, skippedGroups: l.groups.length - groupsToDelete.length };
+}
+
+/** THE DRY RUN — what purge WOULD delete, per table, seeded vs attached, surfaced BEFORE anything
+    runs. Read-only: nothing here writes. */
+export function previewPurge(db: Db): {
+  ok: boolean;
+  error?: string;
+  tables?: Array<{ table: string; rows: number; attached: number }>;
+  total?: number;
+  attachedTotal?: number;
+  unassignedTasks?: number;
+} {
+  const l = readLedger(db);
+  if (!l || !demoStatus(db).present) return { ok: false, error: "There is no seed data recorded to remove." };
+  // The plan runs project-children counts BEFORE parents are gone, so preview === what execution
+  // deletes (groups/clients excepted: preview counts them as deletable only if ALREADY unused;
+  // execution re-checks after the seeded projects are removed, so it can only delete MORE of the
+  // seed's own leftovers, never anything extra).
+  const plan = planPurge(db, l);
+  const tables = plan.steps.map((s) => ({ table: s.table, rows: s.ids.length, attached: s.attached }));
+  return {
+    ok: true,
+    tables,
+    total: tables.reduce((n, t) => n + t.rows, 0),
+    attachedTotal: tables.reduce((n, t) => n + t.attached, 0),
+    unassignedTasks: plan.unassignTasks.length,
+  };
+}
+
+/**
+ * Removes what generateDemo created PLUS anything attached to it (announced by previewPurge), in
+ * dependency order, inside ONE transaction — a failure anywhere leaves the database exactly as it
+ * was (proven on device 08-10: the old purge's failure rolled back whole). Then restores the
+ * licence held before seeding. Anything not seeded and not attached to a seeded parent is untouched.
  */
 export function purgeDemo(db: Db): { ok: boolean; error?: string; removed?: number } {
   const l = readLedger(db);
   if (!l || !demoStatus(db).present) return { ok: false, error: "There is no seed data recorded to remove." };
-  const del = (table: string, ids: number[]): number => {
-    if (ids.length === 0) return 0;
-    const stmt = db.prepare(`DELETE FROM ${table} WHERE id = ?`);
-    let n = 0;
-    for (const id of ids) n += stmt.run(id).changes;
-    return n;
-  };
   try {
     let removed = 0;
     db.transaction(() => {
-      // Children first — foreign keys are ON, so a project cannot go before what points at it.
-      removed += del("employee_event_log", l.events);
-      removed += del("employee_adjustments", l.adjustments);
-      removed += del("employee_payments", l.payments);
-      removed += del("employee_entries", l.entries);
-      removed += del("employee_tasks", l.tasks);
-      removed += del("timetracker_project_items", l.items);
-      removed += del("timetracker_project_employees", l.members);
-      removed += del("timetracker_costs", l.costs);
-      removed += del("employee_people", l.people);
-      removed += del("timetracker_projects", l.projects);
-      removed += del("timetracker_groups", l.groups);
-      removed += del("timetracker_clients", l.clients);
+      const plan = planPurge(db, l);
+      // Jason's tasks lose their seeded assignee, keep their life.
+      if (plan.unassignTasks.length > 0) {
+        const un = db.prepare("UPDATE employee_tasks SET employee_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?");
+        for (const id of plan.unassignTasks) un.run(id);
+      }
+      for (const step of plan.steps) {
+        if (step.table === "timetracker_groups" || step.table === "timetracker_clients") continue; // re-derived below
+        const stmt = db.prepare(`DELETE FROM ${step.table} WHERE id = ?`);
+        for (const id of step.ids) removed += stmt.run(id).changes;
+      }
+      // Groups/clients last, RE-CHECKED now the seeded projects are gone: delete each seeded one
+      // only if nothing (real) still points at it.
+      for (const g of l.groups) {
+        const used = (db.prepare("SELECT COUNT(*) AS c FROM timetracker_projects WHERE group_id = ?").get(g) as { c: number }).c;
+        if (used === 0) removed += db.prepare("DELETE FROM timetracker_groups WHERE id = ?").run(g).changes;
+      }
+      for (const c of l.clients) {
+        const used = (db.prepare("SELECT COUNT(*) AS c FROM timetracker_projects WHERE client_id = ?").get(c) as { c: number }).c;
+        if (used === 0) removed += db.prepare("DELETE FROM timetracker_clients WHERE id = ?").run(c).changes;
+      }
       db.prepare("DELETE FROM app_settings WHERE key = ?").run(DEMO_KEY);
     })();
     // Licence symmetry (ruling 5): whatever was held before the seed comes back — including
     // "no key at all", which restores as a clear, never as a literal string.
     setLicenseKey(db, l.priorLicenseKey ?? "");
+    return { ok: true, removed };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * F6 (08-10) — RESET THIS ORGANISATION'S DATA. Developer-mode only (gated at the IPC handler),
+ * behind a typed confirmation in the renderer. Empties every TimeTracker and Employees table in
+ * dependency order inside ONE transaction — children first, foreign keys stay ON and honest.
+ * DELIBERATELY KEPT: Scan/Rename/Migrate history, MindMerge, every app_settings row (licence,
+ * theme, business profile), and the Vault — the dialog names this boundary so nothing is a
+ * surprise. The seed ledger goes with the data it indexed.
+ */
+export function resetOrgData(db: Db): { ok: boolean; error?: string; removed?: number } {
+  const TABLES_IN_ORDER = [
+    // TimeTracker children → parents
+    "timetracker_project_payments",
+    "timetracker_value_ledger",
+    "timetracker_time_entries",
+    "timetracker_active_sessions",
+    "timetracker_notes",
+    "timetracker_adjustments",
+    "timetracker_project_items",
+    "timetracker_project_employees",
+    "timetracker_costs",
+    "timetracker_event_log",
+    "timetracker_deletion_log",
+    // Employees children → parents
+    "employee_event_log",
+    "employee_adjustments",
+    "employee_payments",
+    "employee_sessions",
+    "employee_entries",
+    "employee_tasks",
+    "employee_people",
+    // TimeTracker parents last
+    "timetracker_projects",
+    "timetracker_groups",
+    "timetracker_clients",
+  ];
+  try {
+    let removed = 0;
+    db.transaction(() => {
+      for (const t of TABLES_IN_ORDER) {
+        removed += db.prepare(`DELETE FROM ${t}`).run().changes;
+      }
+      db.prepare("DELETE FROM app_settings WHERE key = ?").run(DEMO_KEY);
+    })();
     return { ok: true, removed };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

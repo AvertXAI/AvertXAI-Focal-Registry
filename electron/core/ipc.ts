@@ -710,6 +710,18 @@ export function registerIpcHandlers(): void {
     if (result.ok) broadcastChanged();
     return result;
   });
+  // F1 (08-10): the DRY RUN — what purge WOULD delete, per table, seeded vs attached. Read-only.
+  safeHandle("devseed:previewPurge", () => devseed.previewPurge(getDb()));
+  // F6 (08-10): reset this organisation's data. DEVELOPER MODE ONLY, service-checked here so a
+  // forged renderer call cannot reach it with the flag off; the renderer adds a typed confirm.
+  safeHandle("devseed:resetOrg", () => {
+    if (!dataviewer.getDevMode()) {
+      return { ok: false, error: "Developer mode is off — the reset is a developer-mode tool." };
+    }
+    const result = devseed.resetOrgData(getDb());
+    if (result.ok) broadcastChanged();
+    return result;
+  });
 
   safeHandle("scan:openReportsFolder", (_e, runId: unknown) => {
     const { db } = scanCtx();

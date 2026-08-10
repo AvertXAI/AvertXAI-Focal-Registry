@@ -1547,6 +1547,17 @@ export interface Api {
     /** `key` is the licence key the user typed — activated through the supported path first. */
     generate: (key: string) => Promise<{ ok: boolean; error?: string; projects?: number; people?: number; entries?: number }>;
     purge: () => Promise<{ ok: boolean; error?: string; removed?: number }>;
+    /** F1 dry run — what purge WOULD delete, per table, seeded vs merely-attached. Read-only. */
+    previewPurge: () => Promise<{
+      ok: boolean;
+      error?: string;
+      tables?: Array<{ table: string; rows: number; attached: number }>;
+      total?: number;
+      attachedTotal?: number;
+      unassignedTasks?: number;
+    }>;
+    /** F6 — developer-mode-only wipe of every TimeTracker + Employees row. */
+    resetOrg: () => Promise<{ ok: boolean; error?: string; removed?: number }>;
   };
   /** Secured Vault — thin typed surface over vault:* IPC against the vault's OWN SQLCipher file.
    *  A secret VALUE crosses this bridge on exactly ONE method: read(), which is access-logged

@@ -377,6 +377,8 @@ const api: Api = {
     status: () => invoke("devseed:status"),
     generate: (key: string) => invoke("devseed:generate", key),
     purge: () => invoke("devseed:purge"),
+    previewPurge: () => invoke("devseed:previewPurge"),
+    resetOrg: () => invoke("devseed:resetOrg"),
   },
   vault: {
     // A secret VALUE crosses this bridge on exactly ONE method: read(). list() is metadata-only by

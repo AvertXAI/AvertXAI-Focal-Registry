@@ -388,6 +388,14 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                   </div>
                   <span className="dtag">Not built</span>
                 </div>
+                {/* B6 leaf, THIRD placement (Jason 08-10): IN the General section, bottom right —
+                    in normal page flow, so no footer, chat bubble, or scroll position can hide it.
+                    Ten clicks unlock developer mode; still no label, no tooltip, faint by ruling. */}
+                <div className="setleaf-row">
+                  <button className="setleaf" aria-label="decoration" onClick={onLeafClick}>
+                    <LeafIcon />
+                  </button>
+                </div>
               </>
             )}
 
@@ -571,11 +579,6 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
             )}
           </div>
         </div>
-        {/* B6 (08-06): the leaf. Small, outlined, LOW CONTRAST, far bottom-right — no label, no
-            tooltip, no counter. Ten clicks unlock developer mode (toast confirms on the tenth). */}
-        <button className="setleaf" aria-label="decoration" onClick={onLeafClick}>
-          <LeafIcon />
-        </button>
       </div>
     </main>
   );

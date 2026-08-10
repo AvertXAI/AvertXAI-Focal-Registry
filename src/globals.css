@@ -490,15 +490,13 @@ tbody tr:hover{background:var(--mc-nested)}
 .settextarea { resize: vertical; min-height: 64px; line-height: 1.5; }
 
 /* ---- B6: the leaf (08-06) — low contrast by design; it must not read as a control ---- */
+.setleaf-row { display: flex; justify-content: flex-end; margin-top: 32px; }
 .setleaf {
-  /* F4 (08-10): bottom clears the FIXED shell footer (--mc-footer-height, 65px) — at bottom:14px
-     the leaf rendered BEHIND it, which is why it "did not exist" on device. Still low-contrast by
-     ruling; z-index only lifts it above the footer surface. */
-  /* 08-10: raised further — an AI chat bubble overlays the bottom-right corner on Jason's
-     machine, so the footer clearance alone still hid it. Sits well above the corner now. */
-  position: fixed; right: 18px; bottom: calc(var(--mc-footer-height, 65px) + 130px);
+  /* Third placement (Jason 08-10): IN the General section's flow, bottom right — a fixed corner
+     position lost twice, to the 65px shell footer and then to an AI chat bubble overlaying the
+     corner. In-flow, nothing can sit on top of it. Faint by the easter-egg ruling. */
   background: none; border: none; padding: 6px;
-  color: var(--mc-border); cursor: default; line-height: 0; z-index: 30;
+  color: var(--mc-dimmer); cursor: default; line-height: 0;
 }
 .setleaf:focus { outline: none; }
 

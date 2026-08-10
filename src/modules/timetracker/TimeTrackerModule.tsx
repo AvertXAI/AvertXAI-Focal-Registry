@@ -185,6 +185,10 @@ export default function TimeTrackerModule() {
 
   const selected = projects.find((p) => p.id === selectedId) ?? null;
   const session = selected ? status.sessions.find((s) => s.projectId === selected.id) ?? null : null;
+  // F5 (08-10): completion is VISIBLE, not just enforced. The rail's active list and the timer
+  // bar's project select exclude completed jobs — they live in the Completed tab. Logbook,
+  // Adjustments, Activity, Analytics and Completed keep the full list: history stays readable.
+  const activeProjects = projects.filter((p) => p.completed_at == null);
   const tickSession = session ? tick?.sessions.find((t) => t.id === session.id) ?? null : null;
 
   // ---- rail callbacks (drag semantics: same group → reorder before target; cross-group → regroup) ----
@@ -293,7 +297,7 @@ export default function TimeTrackerModule() {
   return (
     <main className="view shown tt-shell">
       <ProjectsRail
-        projects={projects}
+        projects={activeProjects}
         groups={groups}
         totals={totals}
         sortDir={sortDir}
@@ -338,7 +342,7 @@ export default function TimeTrackerModule() {
           {tab === "tracker" && (
             <>
               <TimerBar
-                projects={projects}
+                projects={activeProjects}
                 project={selected}
                 session={session}
                 tickSession={tickSession}

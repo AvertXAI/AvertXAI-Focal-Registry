@@ -205,7 +205,9 @@ export default function TimerBar({ projects, project, session, tickSession, onSe
 
           <div className="tt-barbtns">
             {!live && (
-              <button className="tt-btn start" disabled={!project} onClick={onStart}>Start</button>
+              <button className="tt-btn start" disabled={!project || project.completed_at != null}
+                title={project?.completed_at ? "This job is completed — reactivate it from the Completed tab to track more time" : undefined}
+                onClick={onStart}>Start</button>
             )}
             {running && <button className="tt-btn pause" onClick={onPause}>Pause</button>}
             {paused && <button className="tt-btn start" onClick={onResume}>Resume</button>}

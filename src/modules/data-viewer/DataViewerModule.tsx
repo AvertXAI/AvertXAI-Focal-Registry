@@ -41,6 +41,10 @@ export default function DataViewerModule() {
       it goes through the supported setLicenseKey path in main, and a wrong key refuses plainly. */
   const [keyPrompt, setKeyPrompt] = useState(false);
   const [keyDraft, setKeyDraft] = useState("");
+  /** F1 dry run: purge asks first — counts per table, seeded vs attached, then a real confirm. */
+  const [purgePreview, setPurgePreview] = useState<{ total: number; attachedTotal: number; unassignedTasks: number } | null>(null);
+  /** F6: the typed-confirmation reset dialog. */
+  const [resetOpen, setResetOpen] = useState(false);
 
   // Config-as-Data: the width lives in app_settings, never localStorage, and is read back at mount
   // so a set width survives a restart. Key is whitelisted in RENDERER_KEYS.
@@ -221,20 +225,28 @@ export default function DataViewerModule() {
           <span className={`dv-mode ${devMode ? "dev" : ""}`} title={devMode ? "Developer mode (unlocked)" : "Read-only"}>
             {devMode ? "● Developer" : "View · read-only"}
           </span>
-          {/* DEMO DATA. Generate writes four projects, eight people, their time, corrections,
-              itemized rows and costs through the REAL services. Purge removes exactly those rows by
-              recorded id — it never empties a table, so real work beside it is untouched. */}
+          {/* DEMO DATA — DEVELOPER MODE ONLY (F3, 08-10; the leaf in Settings unlocks it).
+              Generate writes ten projects, twenty people, their time, corrections, itemized rows
+              and costs through the REAL services. The Load button no longer disables into
+              invisibility when seed is present — it refuses out loud with the reason (Jason read
+              the grayed button as "not offered"). */}
+          {devMode && (
           <button
             className="dv-btn"
-            disabled={demoBusy || demo?.present === true || keyPrompt}
-            title={demo?.present ? "Seed data is already loaded — purge it first" : "Load 10 projects and 20 employees (needs your licence key)"}
+            disabled={demoBusy || keyPrompt}
+            title="Load 10 projects and 20 employees (needs your licence key)"
             onClick={() => {
+              if (demo?.present === true) {
+                signalAppToast("Seed data is already loaded — purge it first. Loading twice would double every figure the seed exists to test.", "err");
+                return;
+              }
               setKeyDraft("");
               setKeyPrompt(true);
             }}
           >
             {demoBusy ? "…" : "Load seed data"}
           </button>
+          )}
           {keyPrompt && (
             <span className="dv-keyrow">
               <input
@@ -276,24 +288,55 @@ export default function DataViewerModule() {
               <button className="dv-btn" onClick={() => setKeyPrompt(false)}>Cancel</button>
             </span>
           )}
+          {devMode && purgePreview === null && (
           <button
             className="dv-btn danger"
-            disabled={demoBusy || demo?.present !== true}
-            title={demo?.present ? "Remove exactly the seeded rows and restore the licence" : "No seed data is loaded"}
+            disabled={demoBusy}
+            title="Counts what would be deleted first — nothing is removed until you confirm"
             onClick={() => {
-              setDemoBusy(true);
-              void window.api.devseed
-                .purge()
-                .then((r) => {
-                  signalAppToast(r.ok ? `Removed ${r.removed} seeded rows and restored the licence.` : r.error ?? "The purge failed.", r.ok ? "ok" : "err");
-                  return window.api.devseed.status().then(setDemo);
-                })
-                .catch((e: unknown) => signalAppToast(e instanceof Error ? e.message : String(e), "err"))
-                .finally(() => setDemoBusy(false));
+              if (demo?.present !== true) {
+                signalAppToast("There is no seed data recorded to remove.", "err");
+                return;
+              }
+              // F1: the DRY RUN comes first — the delete never runs unannounced.
+              void window.api.devseed.previewPurge().then((p) => {
+                if (!p.ok) { signalAppToast(p.error ?? "Could not count the seed data.", "err"); return; }
+                setPurgePreview({ total: p.total ?? 0, attachedTotal: p.attachedTotal ?? 0, unassignedTasks: p.unassignedTasks ?? 0 });
+              }).catch((e: unknown) => signalAppToast(e instanceof Error ? e.message : String(e), "err"));
             }}
           >
             Purge demo
           </button>
+          )}
+          {devMode && purgePreview !== null && (
+            <span className="dv-keyrow" role="alertdialog" aria-label="Confirm purge">
+              <span className="dv-purgecount">
+                {purgePreview.total} rows will be deleted
+                {purgePreview.attachedTotal > 0 && <> — {purgePreview.attachedTotal} of them are YOURS, attached to seeded projects or people (payments, notes, time), and cannot outlive their parents</>}
+                {purgePreview.unassignedTasks > 0 && <>; {purgePreview.unassignedTasks} of your tasks will be unassigned, not deleted</>}.
+              </span>
+              <button className="dv-btn danger" disabled={demoBusy} onClick={() => {
+                setDemoBusy(true);
+                setPurgePreview(null);
+                void window.api.devseed
+                  .purge()
+                  .then((r) => {
+                    signalAppToast(r.ok ? `Removed ${r.removed} rows and restored the licence.` : r.error ?? "The purge failed — nothing was changed (it runs in one transaction).", r.ok ? "ok" : "err");
+                    return window.api.devseed.status().then(setDemo);
+                  })
+                  .catch((e: unknown) => signalAppToast(e instanceof Error ? e.message : String(e), "err"))
+                  .finally(() => setDemoBusy(false));
+              }}>Delete them</button>
+              <button className="dv-btn" onClick={() => setPurgePreview(null)}>Cancel</button>
+            </span>
+          )}
+          {/* F6: reset — developer mode only, typed confirmation, warning first. */}
+          {devMode && (
+            <button className="dv-btn danger" title="Wipe every TimeTracker and Employees row in this organisation"
+              onClick={() => setResetOpen(true)}>
+              Reset organisation…
+            </button>
+          )}
         </div>
 
         {selected && page ? (
@@ -393,6 +436,78 @@ export default function DataViewerModule() {
           }}
         />
       )}
+      {resetOpen && (
+        <ResetOrgModal
+          onClose={() => setResetOpen(false)}
+          onDone={() => {
+            setResetOpen(false);
+            fetchPage();
+            void window.api.db.tables().then(setTables).catch(() => {});
+            void window.api.devseed.status().then(setDemo).catch(() => {});
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * F6 (08-10) — RESET THIS ORGANISATION'S DATA. Developer mode only (the button that opens this is
+ * dev-gated AND the service re-checks the flag), typed confirmation, the warning FIRST. Names
+ * exactly what is destroyed and what is kept, and tells Jason to back up before pulling.
+ */
+function ResetOrgModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const run = (): void => {
+    if (busy || typed !== "RESET") return;
+    setBusy(true);
+    setError(null);
+    void window.api.devseed
+      .resetOrg()
+      .then((r) => {
+        if (r.ok) {
+          signalAppToast(`Organisation data reset — ${r.removed} rows removed. Scan history, settings and the Vault were kept.`, "ok");
+          onDone();
+        } else {
+          setBusy(false);
+          setError(r.error ?? "The reset failed — nothing was changed.");
+        }
+      })
+      .catch((e: unknown) => { setBusy(false); setError(e instanceof Error ? e.message : String(e)); });
+  };
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal dv-reset" role="alertdialog" aria-label="Reset this organisation's data" onClick={(e) => e.stopPropagation()}>
+        {/* Destructive-action warning FIRST, before anything else — house rule. */}
+        <div className="dv-resetwarn" role="alert">
+          <b>⚠ This deletes real data and cannot be undone.</b>
+          Take a backup of <code>%APPDATA%\Focal Registry</code> first — copy the whole folder while the app is closed.
+        </div>
+        <h3>Reset this organisation&apos;s data</h3>
+        <p className="dv-resetbody">
+          <b>Destroyed:</b> every TimeTracker project, client, group, timer session, time entry,
+          cost, itemized row, value-ledger row, payment, adjustment and note — and every Employees
+          person, entry, task, payment, adjustment and their activity log. The seed ledger goes with them.
+        </p>
+        <p className="dv-resetbody">
+          <b>Kept:</b> Scan, Rename and Migrate history, MindMerge, the Vault, your licence key,
+          the Business Profile, and every setting.
+        </p>
+        <label className="dv-resetconfirm">
+          Type <b>RESET</b> to confirm
+          <input className="dv-keyinput" value={typed} autoFocus spellCheck={false}
+            onChange={(e) => setTyped(e.target.value.toUpperCase())} />
+        </label>
+        {error && <div className="dv-editerror" role="alert">{error}</div>}
+        <div className="dv-record-actions">
+          <button className="btn" disabled={busy} onClick={onClose}>Cancel</button>
+          <button className="btn stop" disabled={busy || typed !== "RESET"} onClick={run}>
+            {busy ? "…" : "Reset everything named above"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

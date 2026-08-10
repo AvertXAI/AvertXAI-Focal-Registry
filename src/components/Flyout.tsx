@@ -129,11 +129,15 @@ export default function Flyout({
                   </div>
                 )
               )}
-          <hr className="navdiv" />
-          <button className={cls("settings")} onClick={() => onSelect("settings")}>
-            <GearIcon />
-            <span className="navlbl">Settings</span>
-          </button>
+          {/* Settings is PINNED to the rail's far bottom (Jason 08-10) — margin-top:auto inside the
+              flex-column nav pushes this block down; with an overflowing list it rides the end. */}
+          <div className="nav-bottom">
+            <hr className="navdiv" />
+            <button className={cls("settings")} onClick={() => onSelect("settings")}>
+              <GearIcon />
+              <span className="navlbl">Settings</span>
+            </button>
+          </div>
         </nav>
         {/* right-edge drag handle — expanded only; pointer capture keeps the drag on this element */}
         {!collapsed && (

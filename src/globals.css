@@ -162,7 +162,8 @@ body.rail-collapsed{padding-left:58px} /* content area expands when the rail col
 .flyout.collapsed .brandmark{display:none} /* the A mark can't share a 58px strip with the toggle */
 .flyout.collapsed .flyout-head{justify-content:center} /* lone «/» toggle centers in the strip */
 .flyout-head{display:flex;align-items:center;justify-content:space-between;padding:16px}
-.flyout nav{padding:0 8px 16px}
+.flyout nav{padding:0 8px 16px;display:flex;flex-direction:column;flex:1}
+.nav-bottom{margin-top:auto} /* Settings pinned to the rail's far bottom (08-10) */
 .navitem{display:flex;align-items:center;gap:12px;width:100%;padding:8px 10px;border-radius:var(--mc-radius);
   color:var(--mc-text);font-size:14px;position:relative;text-align:left}
 .navitem:hover{background:var(--mc-nested)}
@@ -493,7 +494,9 @@ tbody tr:hover{background:var(--mc-nested)}
   /* F4 (08-10): bottom clears the FIXED shell footer (--mc-footer-height, 65px) — at bottom:14px
      the leaf rendered BEHIND it, which is why it "did not exist" on device. Still low-contrast by
      ruling; z-index only lifts it above the footer surface. */
-  position: fixed; right: 18px; bottom: calc(var(--mc-footer-height, 65px) + 10px);
+  /* 08-10: raised further — an AI chat bubble overlays the bottom-right corner on Jason's
+     machine, so the footer clearance alone still hid it. Sits well above the corner now. */
+  position: fixed; right: 18px; bottom: calc(var(--mc-footer-height, 65px) + 130px);
   background: none; border: none; padding: 6px;
   color: var(--mc-border); cursor: default; line-height: 0; z-index: 30;
 }

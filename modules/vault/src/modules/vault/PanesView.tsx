@@ -4,7 +4,7 @@
 // differs, and splitting that into two files would duplicate the two that matter.
 import { useMemo, useState } from "react";
 import BrandMark from "./BrandMark";
-import { FolderContextMenu, useRowFiling } from "./FolderMenu";
+import { FolderContextMenu, useFolderDrop, useRowFiling } from "./FolderMenu";
 import DetailPane from "./DetailPane";
 import { vaultApi, type VaultFolder, type VaultSecretMeta } from "./vaultApi";
 
@@ -29,13 +29,17 @@ export function PanesView({ secrets, folders, onReload, onNew, onEdit }: PanesVi
   const [scope, setScope] = useState("all");
   const [selected, setSelected] = useState<string | null>(null);
   // Same two gestures as the list view — drag a row onto a folder in the rail, or right-click it.
-  const { menu, setMenu, rowProps } = useRowFiling(onReload);
+  const { menu, setMenu, rowProps } = useRowFiling();
+  // …and this pane's OWN folder rows accept the drop, because they are the folders sitting right
+  // beside the row being dragged. Same hook as the outer rail.
+  const { over, dropProps } = useFolderDrop(onReload);
 
   const rows = useMemo(() => {
     return secrets.filter((s) => {
       if (scope === "all") return !s.archived_at;
       if (scope === "favourites") return !s.archived_at && s.favourite === 1;
       if (scope === "archived") return Boolean(s.archived_at);
+      if (scope === "unfiled") return !s.archived_at && s.folder_id == null;
       if (scope.startsWith("kind:")) return !s.archived_at && s.kind === scope.slice(5);
       if (scope.startsWith("folder:")) return !s.archived_at && s.folder_id === Number(scope.slice(7));
       return !s.archived_at;
@@ -44,8 +48,16 @@ export function PanesView({ secrets, folders, onReload, onNew, onEdit }: PanesVi
 
   const current = rows.find((s) => s.uuid === selected) ?? null;
 
-  const navRow = (key: string, label: string, count: number) => (
-    <button key={key} className={`vault-prow${scope === key ? " on" : ""}`} onClick={() => { setScope(key); setSelected(null); }}>
+  /** `folderId` undefined = an ordinary nav row. null = Unfiled, which IS a drop target — that is
+      how an entry comes back out of a folder. */
+  const navRow = (key: string, label: string, count: number, folderId?: number | null) => (
+    <button
+      key={key}
+      className={`vault-prow${scope === key ? " on" : ""}${folderId !== undefined && over === folderId ? " drop" : ""}`}
+      onClick={() => { setScope(key); setSelected(null); }}
+      {...(folderId === undefined ? {} : dropProps(folderId))}
+      title={folderId === undefined ? undefined : "Drop an entry here to file it"}
+    >
       <span className="vault-railname">{label}</span>
       <span className="vault-railcount">{count}</span>
     </button>
@@ -72,12 +84,11 @@ export function PanesView({ secrets, folders, onReload, onNew, onEdit }: PanesVi
         {navRow("archived", "Archived", secrets.filter((s) => s.archived_at).length)}
         <div className="vault-railhead">Types</div>
         {KINDS.map(([k, label]) => navRow(`kind:${k}`, label, active.filter((s) => s.kind === k).length))}
-        {folders.length > 0 && (
-          <>
-            <div className="vault-railhead">Folders</div>
-            {folders.map((f) => navRow(`folder:${f.id}`, f.name, active.filter((s) => s.folder_id === f.id).length))}
-          </>
-        )}
+        {/* Unfiled is always here, folders or not: it is where everything starts, and an entry
+            filed into a folder LEAVES this list — which is the whole point of filing it. */}
+        <div className="vault-railhead">Folders</div>
+        {navRow("unfiled", "Unfiled", active.filter((s) => s.folder_id == null).length, null)}
+        {folders.map((f) => navRow(`folder:${f.id}`, f.name, active.filter((s) => s.folder_id === f.id).length, f.id))}
       </div>
 
       <div className="vault-plist">

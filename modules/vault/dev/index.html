@@ -37,17 +37,27 @@
   --mc-seg-on-background: #DCE8F5;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html, body, #root { height: 100%; background: var(--mc-base); }
-body { font-family: var(--mc-font); color: var(--mc-text); }
+/* THE OUTER HEIGHT CHAIN, and it is why the whole window scrolled (Jason 08-12-2026: "everything
+   moves when i try scrolling down… check passwords, secured notes, infrastructure and repos").
+   ONE cause behind all four: #root was height:100% AND had a 58px .devbar SIBLING, so the body came
+   to 100% + 58px, overflowed, and the document scrolled the title bar and the tabs off the top.
+   Body is now a flex column — the bar is a fixed row, #root takes what is left, and nothing
+   overflows, so every pane scrolls inside itself instead. */
+html, body { height: 100%; background: var(--mc-base); overflow: hidden; }
+body { display: flex; flex-direction: column; font-family: var(--mc-font); color: var(--mc-text); }
+#root { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 /* The real shell's rule, reproduced so the three-class specificity trap behaves identically here. */
 .view { display: none; }
 .view.shown { display: block; }
 /* dev-host chrome only */
-.devbar { height: 58px; display: flex; align-items: center; gap: 14px; padding: 0 18px;
+.devbar { height: 58px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 18px;
   background: var(--mc-topbar); border-bottom: 1px solid var(--mc-border); }
 .devbar b { font-size: 13px; }
 .devbar span { font-size: 12px; color: var(--mc-muted); }
 .devbar .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+/* The slot the module's search portals into — it must be allowed to shrink, or a long brand pushes
+   the theme control off the bar at the 740 floor. */
+.devsearch { flex: 1; min-width: 0; max-width: 640px; }
 
 /* ── the shell's OWN 3-state theme segmented control, copied verbatim from globals.css:118-126
    so what is judged here is the real control, not a dev-host imitation. ── */
@@ -64,7 +74,13 @@ body { font-family: var(--mc-font); color: var(--mc-text); }
 <body>
   <div class="devbar">
     <b>AvertXAI · Focal Registry / Secured Vault 🔒</b>
-    <span>dev host — throwaway database, not your real vault</span>
+    <!-- THE SEARCH MOUNT POINT (Jason 08-11-2026). The strip that lived here said "dev host —
+         throwaway database"; Jason asked for the search in this slot. The search COMPONENT stays
+         module-owned so it copies back — only the mount point is host-provided, which is exactly
+         how it will work in the real shell: Mission Control supplies this slot, the module fills
+         it. VaultModule portals into #vault-topbar-search when it exists and falls back to its own
+         first row when it does not. -->
+    <div id="vault-topbar-search" class="devsearch"></div>
     <div class="right">
       <div class="themeseg" role="group" aria-label="Theme">
         <button class="segbtn" data-theme-btn="system" title="System theme" aria-label="System theme">

@@ -20,6 +20,9 @@ export interface VaultSecretExtras {
   backupCodes?: string[];
   /** Question → answer. The ANSWER is a credential; that is why this is not metadata. */
   securityQuestions?: { question: string; answer: string }[];
+  /** SSH key passphrase — a SECOND credential on the same entry, versioned with the private key it
+   *  unlocks (rotating one without the other is how a key stops opening). ssh_key kind only. */
+  passphrase?: string;
 }
 
 export interface VaultSecretInput {
@@ -31,6 +34,9 @@ export interface VaultSecretInput {
   url?: string | null;
   notes?: string | null;
   folderId?: number | null;
+  /** SSH public key — NOT a secret (it is designed to be handed out), so it is metadata; the
+   *  fingerprint and randomart derive from it without a logged read. */
+  publicKey?: string | null;
   extras?: VaultSecretExtras | null;
 }
 
@@ -47,6 +53,7 @@ export interface VaultSecretMeta {
   notes: string | null;
   favourite: number;
   folder_id: number | null;
+  public_key: string | null; // ssh_key kind; not a secret — see VaultSecretInput.publicKey
   version: number; // DERIVED — the history's highest version; nothing stores it on the secret row
   archived_at: string | null;
   archive_reason: string | null;

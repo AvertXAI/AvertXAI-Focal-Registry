@@ -3,7 +3,7 @@
 // Replaces the per-row dropdown, which Jason rejected on sight and was right to: a select box in
 // a table cell reads as data entry, not as an action you take on the thing.
 import { useEffect, useState } from "react";
-import type { VaultFolder } from "./vaultApi";
+import { vaultApi, type VaultFolder } from "./vaultApi";
 
 export interface FolderMenuState {
   uuid: string;
@@ -63,7 +63,7 @@ export function FolderContextMenu({
 }
 
 /** Hook wiring a list row up to both gestures: drag it, or right-click it. */
-export function useRowFiling(onMoved: () => void) {
+export function useRowFiling() {
   const [menu, setMenu] = useState<FolderMenuState | null>(null);
 
   const rowProps = (uuid: string, label: string) => ({
@@ -81,5 +81,40 @@ export function useRowFiling(onMoved: () => void) {
     title: "Drag onto a folder, or right-click to file it",
   });
 
-  return { menu, setMenu, rowProps, onMoved };
+  return { menu, setMenu, rowProps };
+}
+
+/**
+ * The other half of the gesture: a folder row that ACCEPTS a dragged entry. One implementation
+ * for both folder lists — the outer rail and the three-pane nav. The pane nav had none at all,
+ * which is why dragging a row onto the folder sitting right beside it did nothing: the only drop
+ * targets in the product were two panes away. `null` means Unfiled, so a drop there un-files.
+ */
+export function useFolderDrop(onMoved: () => void) {
+  // "none" rather than null, because null is a real target (Unfiled).
+  const [over, setOver] = useState<number | null | "none">("none");
+
+  const dropProps = (folderId: number | null) => ({
+    onDragEnter: (e: React.DragEvent): void => {
+      if (e.dataTransfer.types.includes("text/vault-secret")) e.preventDefault();
+    },
+    onDragOver: (e: React.DragEvent): void => {
+      // Only claim the drop when it is one of OUR rows — otherwise a file dragged in from the
+      // desktop would look droppable and then do nothing.
+      if (!e.dataTransfer.types.includes("text/vault-secret")) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      setOver(folderId);
+    },
+    onDragLeave: (): void => setOver("none"),
+    onDrop: (e: React.DragEvent): void => {
+      e.preventDefault();
+      setOver("none");
+      const uuid = e.dataTransfer.getData("text/vault-secret");
+      if (!uuid) return;
+      void vaultApi().updateMeta(uuid, { folderId }).then(onMoved).catch(() => undefined);
+    },
+  });
+
+  return { over, dropProps };
 }

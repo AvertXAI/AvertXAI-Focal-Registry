@@ -9,7 +9,7 @@
 // second way out even if this component asked for one.
 import { useCallback, useEffect, useState } from "react";
 import BrandMark from "./BrandMark";
-import { shortDate } from "./SecretsView";
+import { shortDate } from "./EntriesView";
 import { vaultApi, type VaultSecretExtras, type VaultSecretMeta, type VaultVersionRow } from "./vaultApi";
 
 export interface DetailPaneProps {
@@ -84,15 +84,13 @@ export default function DetailPane({ secret, onReload, onEdit, onClose }: Detail
           <h3>{secret.label}</h3>
           {secret.full_name && <div className="vault-who">{secret.full_name}</div>}
         </div>
-        {/* Reveal and Copy live UP HERE beside Edit and Archive (Jason 08-07-2026) — they are the
-            two things you actually came to this pane to do, and burying them mid-page under the
-            fields put the least-used action highest. */}
+        {/* Reveal lives UP HERE beside Edit and Archive (Jason 08-07-2026) — it acts on the whole
+            entry, so the header is where it belongs. COPY DOES NOT: it copies one field, and a
+            Copy button floating above a record of five fields cannot say which. It sits on the
+            password (Jason 08-07-2026, second pass). */}
         <div className="vault-detailacts">
           <button className="vault-btn primary" disabled={busy} onClick={() => (value ? setValue(null) : reveal())}>
             {value ? "Hide" : "Reveal"}
-          </button>
-          <button className="vault-btn" disabled={busy} onClick={copy}>
-            {copied ? "Copied" : "Copy"}
           </button>
           <button className="vault-btn" onClick={() => onEdit(secret)}>
             Edit
@@ -125,6 +123,13 @@ export default function DetailPane({ secret, onReload, onEdit, onClose }: Detail
         <div className="vault-flabel">Password</div>
         <div className="vault-fvalue">
           <span className={value ? "vault-revealed" : "vault-masked"}>{value ?? "••••••••••••"}</span>
+          {/* Beside the thing it copies, so there is no question what lands on the clipboard.
+              Still the same logged read — the value never comes from what is on screen. */}
+          <span className="vault-facts">
+            <button className="vault-btn" disabled={busy} onClick={copy}>
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </span>
         </div>
       </div>
 

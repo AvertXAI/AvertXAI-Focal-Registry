@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Secured Vault — v3 · 8 options · 08-02-2026</title>
+<style>
+:root{
+  --win:#f4f6fa; --bar:#ffffff; --side:#eef1f7; --panel:#ffffff; --panel2:#f3f6fb;
+  --field:#ffffff; --sel:#fdf2e9; --bd:#dde4ee; --bd2:#c2ccdb;
+  --txt:#111a2b; --dim:#586a86; --dimmer:#8492a8; --lock:#a9b4c5;
+  --green:#128a4b; --greenbtn:#1f9d44; --purple:#6355d8; --red:#cf3b45;
+  --orange:#d2691e; --blue:#2f6fd0; --amber:#c9821a; --teal:#17838f;
+  --tipbg:#fdf6ee; --shadow:rgba(23,38,64,.13);
+  --mono:'Cascadia Mono','Consolas',monospace; --sans:'Segoe UI',system-ui,sans-serif;
+}
+body.dark{
+  --win:#0a0e17; --bar:#0d1320; --side:#0b1019; --panel:#0e1626; --panel2:#111d31;
+  --field:#15233b; --sel:#1d1710; --bd:#1b2942; --bd2:#24365a;
+  --txt:#e9eef7; --dim:#7e92b0; --dimmer:#54678a; --lock:#3a465f;
+  --green:#38d982; --orange:#e08a3a; --blue:#4f8df0; --amber:#e0a93a; --teal:#2bb5c4;
+  --tipbg:#171a1c; --shadow:rgba(0,0,0,.55);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#e7ebf2;font-family:var(--sans);color:var(--txt);padding:24px 20px 60px}
+body.dark{background:#05080f}
+
+.optbar{max-width:1600px;margin:0 auto 16px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.optbar .lead{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--dimmer);margin-right:6px}
+.obtn{background:var(--panel);border:1px solid var(--bd);color:var(--dim);font-size:12px;padding:8px 13px;
+  border-radius:8px;cursor:pointer;font-family:var(--sans)}
+.obtn.on{background:var(--sel);border-color:var(--orange);color:var(--txt)}
+.obtn b{font-family:var(--mono);color:var(--dimmer);margin-right:6px}
+.obtn.on b{color:var(--orange)}
+.obtn.theme{margin-left:auto}
+
+.app{max-width:1600px;margin:0 auto;background:var(--win);border-radius:12px;
+  box-shadow:0 18px 50px var(--shadow);overflow:hidden;border:1px solid var(--bd)}
+.top{display:flex;align-items:center;gap:14px;background:var(--bar);padding:13px 22px;border-bottom:1px solid var(--bd)}
+.burger{font-size:17px;color:var(--dim)}
+.logo{width:32px;height:32px;border-radius:50%;background:var(--txt);color:var(--bar);font-weight:800;
+  display:flex;align-items:center;justify-content:center;font-size:15px;flex:0 0 32px}
+.crumb{font-size:13px;color:var(--dim);white-space:nowrap} .crumb b{color:var(--txt)} .crumb .lk{color:var(--lock)}
+.search{flex:1;max-width:500px;background:var(--field);border:1px solid var(--bd);border-radius:8px;
+  padding:7px 12px;font-size:12px;color:var(--dimmer)}
+.right{margin-left:auto;display:flex;align-items:center;gap:14px;color:var(--dim);font-size:14px}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--purple);color:#fff;font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;flex:0 0 30px}
+.wctl{color:var(--dimmer);letter-spacing:6px;font-size:12px;white-space:nowrap}
+
+.shellbody{display:flex;min-height:720px}
+.rail{width:250px;flex:0 0 250px;background:var(--side);border-right:1px solid var(--bd);padding:16px 13px}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.tabs{display:flex;gap:22px;padding:14px 26px 0;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.tab{font-size:13px;color:var(--dim);padding-bottom:11px;white-space:nowrap}
+.tab.on{color:var(--txt);box-shadow:inset 0 -2px 0 var(--orange)}
+.content{padding:20px 26px;display:flex;flex-direction:column;gap:16px;flex:1;min-width:0}
+
+.card{display:block;background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:17px 19px}
+.mlabel{display:block;font-size:11px;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange);font-weight:700}
+.mlabel.quiet{color:var(--dimmer);font-weight:400;letter-spacing:1.5px}
+.mono{font-family:var(--mono)}
+.hint{font-size:12px;color:var(--dimmer);line-height:1.55}
+.sectitle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.btn{border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;border:1px solid var(--bd2);
+  background:var(--panel2);color:var(--txt);font-family:var(--sans);cursor:pointer;white-space:nowrap}
+.btn.go{background:var(--greenbtn);border-color:var(--greenbtn);color:#fff}
+.btn.sm{padding:5px 10px;font-size:11.5px;font-weight:500}
+.srch{background:var(--field);border:1px solid var(--bd);border-radius:8px;padding:8px 11px;font-size:12px;color:var(--dimmer)}
+.nb{border-color:var(--orange)!important;box-shadow:0 0 0 1px rgba(210,105,30,.13)}
+.nbadge{display:inline-block;color:var(--orange);border:1px solid var(--orange);font-size:10px;font-weight:700;
+  letter-spacing:1px;padding:2px 8px;border-radius:6px;text-transform:uppercase;white-space:nowrap}
+.note{font-size:12px;color:var(--dim);line-height:1.6;margin-top:12px}
+
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--dimmer);
+  padding:0 12px 10px 0;font-weight:600;border-bottom:1px solid var(--bd)}
+td{padding:12px 12px 12px 0;border-bottom:1px solid var(--bd);font-size:13px;vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.kind{font-size:10px;letter-spacing:1px;text-transform:uppercase;border:1px solid var(--bd2);border-radius:5px;
+  padding:2px 7px;color:var(--dim);white-space:nowrap}
+.masked{font-family:var(--mono);color:var(--dimmer);letter-spacing:2px}
+.revealed{font-family:var(--mono);color:var(--txt);background:var(--sel);padding:2px 7px;border-radius:5px}
+.acts{display:flex;gap:6px;justify-content:flex-end}
+.who{font-size:11px;color:var(--dimmer)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--orange);flex:0 0 8px}
+
+/* three pane */
+.pane3{display:flex;gap:0;border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:var(--panel);min-height:600px}
+.p-nav{width:190px;flex:0 0 190px;background:var(--panel2);border-right:1px solid var(--bd);padding:12px 10px}
+.p-list{width:310px;flex:0 0 310px;border-right:1px solid var(--bd);overflow:hidden}
+.p-detail{flex:1;min-width:0;padding:18px 20px;background:var(--panel2)}
+.nrow{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:7px;font-size:12.5px;color:var(--dim);cursor:pointer}
+.nrow.on{background:var(--sel);color:var(--txt);box-shadow:inset 3px 0 0 var(--orange)}
+.nhead{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--dimmer);margin:16px 0 6px 9px}
+.irow{display:flex;align-items:center;gap:11px;padding:11px 14px;border-bottom:1px solid var(--bd);cursor:pointer}
+.irow:last-child{border-bottom:0}
+.irow.on{background:var(--sel);box-shadow:inset 3px 0 0 var(--orange)}
+.irow .t{font-size:13px;font-weight:600;line-height:1.3}
+.irow .s{font-size:11.5px;color:var(--dimmer)}
+.mono-tile{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:13px;color:#fff;flex:0 0 32px}
+.fbox{background:var(--panel);border:1px solid var(--bd);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.fbox .l{font-size:11px;color:var(--dimmer);margin-bottom:5px}
+.fbox .v{font-size:13.5px;display:flex;align-items:center;gap:10px}
+.fbox .v .i{margin-left:auto;display:flex;gap:9px;color:var(--blue);font-size:14px;cursor:pointer}
+.totp{font-family:var(--mono);font-size:19px;color:var(--red);letter-spacing:3px;font-weight:700}
+.ring{width:26px;height:26px;border-radius:50%;border:2px solid var(--red);display:flex;align-items:center;
+  justify-content:center;font-size:11px;color:var(--red);font-weight:700;flex:0 0 26px}
+
+/* collage */
+.collage{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:12px}
+.tile{aspect-ratio:1.35;border-radius:11px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:7px;border:1px solid var(--bd);background:var(--panel);cursor:pointer;padding:8px}
+.tile:hover{border-color:var(--orange)}
+.tile .mg{width:44px;height:44px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:17px;color:#fff}
+.tile .n{font-size:11.5px;color:var(--dim);text-align:center;line-height:1.25}
+.tile.add{border-style:dashed;color:var(--dimmer);justify-content:center;font-size:22px}
+.viewsw{display:flex;gap:18px;font-size:12.5px;color:var(--dim)}
+.viewsw span.on{color:var(--txt);font-weight:600;box-shadow:inset 0 -2px 0 var(--orange);padding-bottom:5px}
+
+/* folder tree */
+.tree{font-size:13px}
+.tnode{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:7px;color:var(--dim);cursor:pointer}
+.tnode.on{background:var(--sel);color:var(--txt)}
+.tnode .n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--dimmer)}
+.d1{padding-left:26px} .d2{padding-left:44px}
+
+/* generator */
+.gentabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.gentab{border:1px solid var(--bd);background:var(--panel2);border-radius:8px;padding:7px 13px;font-size:12.5px;color:var(--dim);cursor:pointer}
+.gentab.on{background:var(--sel);border-color:var(--orange);color:var(--txt);font-weight:600}
+.genout{display:flex;align-items:center;gap:12px;background:var(--field);border:1px solid var(--bd2);border-radius:10px;padding:14px 16px}
+.genout .p{flex:1;font-family:var(--mono);font-size:19px;letter-spacing:1px;word-break:break-all}
+.meter{height:8px;border-radius:5px;background:var(--panel2);overflow:hidden;display:flex;gap:3px;margin:14px 0 8px}
+.meter i{display:block;flex:1;background:var(--bd2);border-radius:3px}
+.meter i.f{background:var(--green)}
+.meter i.w{background:var(--amber)}
+.strengthrow{display:flex;align-items:center;justify-content:space-between;font-size:12.5px}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:11px 22px;margin-top:16px;font-size:13px}
+.opt-r{display:flex;align-items:center;gap:10px}
+.chk{width:15px;height:15px;border-radius:4px;border:1px solid var(--bd2);flex:0 0 15px}
+.chk.on{background:var(--blue);border-color:var(--blue)}
+.slider{height:6px;border-radius:4px;background:var(--panel2);position:relative;margin:12px 0 6px}
+.slider i{position:absolute;left:0;top:0;bottom:0;width:62%;background:var(--orange);border-radius:4px}
+.slider b{position:absolute;left:62%;top:-6px;width:18px;height:18px;border-radius:50%;background:var(--panel);
+  border:2px solid var(--orange);transform:translateX(-50%)}
+.segs{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dimmer);letter-spacing:.5px}
+
+/* health */
+.hgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+.hcard{background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:17px 18px}
+.hcard .n{font-family:var(--mono);font-size:32px;font-weight:700;line-height:1;margin:8px 0 4px}
+.donut{width:112px;height:112px;border-radius:50%;flex:0 0 112px;
+  background:conic-gradient(var(--green) 0 62%,var(--amber) 62% 84%,var(--red) 84% 100%);
+  display:flex;align-items:center;justify-content:center}
+.donut span{width:76px;height:76px;border-radius:50%;background:var(--panel);display:flex;align-items:center;
+  justify-content:center;font-family:var(--mono);font-weight:700;font-size:19px}
+
+/* modal */
+.scrim{background:rgba(16,24,40,.32);border-radius:12px;padding:24px;display:flex;justify-content:center}
+body.dark .scrim{background:rgba(0,0,0,.5)}
+.modal{width:640px;background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:22px 24px;
+  box-shadow:0 20px 50px var(--shadow)}
+.modal h3{font-size:17px;margin-bottom:4px}
+.modal .sub{font-size:12px;color:var(--dimmer);margin-bottom:16px}
+.f{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.inp{background:var(--field);border:1px solid var(--bd);border-radius:8px;padding:10px 13px;font-size:13px;color:var(--txt)}
+.inp.ph{color:var(--dimmer)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mrow{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
+.tip{background:var(--tipbg);border:1px solid var(--bd);border-left:3px solid var(--orange);border-radius:8px;padding:13px 16px}
+.tip h5{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--orange);margin-bottom:6px}
+.tip p{font-size:12.5px;line-height:1.6;color:var(--dim)}
+.foot{padding:14px;text-align:center;border-top:1px solid var(--bd);font-size:12px;color:var(--dimmer)}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+
+<div class="optbar">
+  <span class="lead">Secured Vault v3</span>
+  <button class="obtn on" data-o="1"><b>1</b>Ledger table</button>
+  <button class="obtn" data-o="2"><b>2</b>Three-pane</button>
+  <button class="obtn" data-o="3"><b>3</b>Collage</button>
+  <button class="obtn" data-o="4"><b>4</b>Folder tree</button>
+  <button class="obtn" data-o="5"><b>5</b>Generator</button>
+  <button class="obtn" data-o="6"><b>6</b>Health</button>
+  <button class="obtn" data-o="7"><b>7</b>Entry modal</button>
+  <button class="obtn" data-o="8"><b>8</b>Vault settings</button>
+  <button class="obtn theme" id="themeBtn">◐ Dark</button>
+</div>
+
+<div class="app">
+  <div class="top">
+    <span class="burger">☰</span>
+    <div class="logo">A</div>
+    <div class="crumb">AvertXAI · Focal Registry / <b>Secured Vault</b> <span class="lk">🔒</span></div>
+    <div class="search">🔍 Search vault</div>
+    <div class="right"><span>＋</span><span>🗄</span><span>🔔</span>
+      <div class="avatar">JC</div><span class="wctl">— ▢ ✕</span></div>
+  </div>
+
+  <div class="shellbody">
+    <div class="rail">
+      <div class="srch">🔍 Search secrets</div>
+      <button class="btn go" style="width:100%;margin-top:11px">＋ New entry</button>
+      <div class="nhead">Vault</div>
+      <div class="nrow on"><span class="dot"></span>All items<span style="margin-left:auto" class="mono who">12</span></div>
+      <div class="nrow"><span class="dot" style="background:var(--amber)"></span>Favourites<span style="margin-left:auto" class="mono who">3</span></div>
+      <div class="nrow"><span class="dot" style="background:var(--lock)"></span>Archived<span style="margin-left:auto" class="mono who">1</span></div>
+      <div class="nhead">Types</div>
+      <div class="nrow"><span class="dot" style="background:var(--green)"></span>Logins</div>
+      <div class="nrow"><span class="dot" style="background:var(--blue)"></span>Taxpayer IDs</div>
+      <div class="nrow"><span class="dot" style="background:var(--purple)"></span>API keys</div>
+      <div class="nrow"><span class="dot" style="background:var(--teal)"></span>Cards <span class="nbadge" style="margin-left:auto">Soon</span></div>
+      <div class="nhead">Tools</div>
+      <div class="nrow">Generator</div>
+      <div class="nrow">Health</div>
+      <div class="nrow">Access log</div>
+      <div class="nrow">Import / Export</div>
+      <div class="nrow">Vault settings</div>
+    </div>
+
+    <div class="main">
+      <div class="tabs">
+        <span class="tab on">Vault</span><span class="tab">Generator</span><span class="tab">Health</span>
+        <span class="tab">Access log</span><span class="tab">Import / Export</span><span class="tab">Vault settings</span>
+      </div>
+      <div class="content">
+
+        <!-- 1 — LEDGER TABLE -->
+        <div class="opt" id="o1">
+          <div class="card">
+            <div class="sectitle"><span class="mlabel">Stored secrets</span>
+              <div style="display:flex;gap:9px"><button class="btn sm">⭳ Import</button><button class="btn sm">⭱ Export</button><button class="btn sm">Show archived</button><button class="btn go">＋ New secret</button></div></div>
+            <table>
+              <tr><th>Label</th><th>Kind</th><th>Value</th><th>Ver</th><th>Last read</th><th></th></tr>
+              <tr><td><b>Paul Cruz — taxpayer ID</b></td><td><span class="kind">Taxpayer ID</span></td>
+                <td><span class="masked">••••••••••</span></td><td class="mono">1</td><td class="who">Employees · 2 h ago</td>
+                <td><div class="acts"><button class="btn sm">Reveal</button><button class="btn sm">Copy</button><button class="btn sm">⋯</button></div></td></tr>
+              <tr><td><b>Hetzner — avert-core-01 root</b></td><td><span class="kind">Password</span></td>
+                <td><span class="revealed">n7Q$ka2!vX9m</span></td><td class="mono">3</td><td class="who">You · just now</td>
+                <td><div class="acts"><button class="btn sm">Hide</button><button class="btn sm">Copy</button><button class="btn sm">⋯</button></div></td></tr>
+              <tr><td><b>Resend — sending key</b></td><td><span class="kind">API key</span></td>
+                <td><span class="masked">••••••••••</span></td><td class="mono">2</td><td class="who">You · Jul 28</td>
+                <td><div class="acts"><button class="btn sm">Reveal</button><button class="btn sm">Copy</button><button class="btn sm">⋯</button></div></td></tr>
+              <tr><td><b>Cloudflare — DNS token</b></td><td><span class="kind">API key</span></td>
+                <td><span class="masked">••••••••••</span></td><td class="mono">1</td><td class="who">Never read</td>
+                <td><div class="acts"><button class="btn sm">Reveal</button><button class="btn sm">Copy</button><button class="btn sm">⋯</button></div></td></tr>
+            </table>
+          </div>
+          <div class="card" style="margin-top:16px">
+            <div class="sectitle"><span class="mlabel">Access log</span><span class="hint">Every reveal and copy, permanently</span></div>
+            <table>
+              <tr><th>When</th><th>Secret</th><th>Caller</th><th>Action</th><th>Result</th></tr>
+              <tr><td class="mono" style="font-size:12px">08/02/2026 12:31 AM</td><td>Hetzner — root</td><td class="who">renderer</td><td>Read</td><td style="color:var(--green)">Granted</td></tr>
+              <tr><td class="mono" style="font-size:12px">08/01/2026 10:14 PM</td><td>Paul Cruz — taxpayer ID</td><td class="who">employees</td><td>Read</td><td style="color:var(--green)">Granted</td></tr>
+              <tr><td class="mono" style="font-size:12px">08/01/2026 9:02 PM</td><td>Old Stripe key</td><td class="who">renderer</td><td>Supersede</td><td style="color:var(--red)">Refused — archived</td></tr>
+            </table>
+          </div>
+          <div class="note">Everything the Phase 1 schema holds, in one place. Buildable today, no schema change.</div>
+        </div>
+
+        <!-- 2 — THREE PANE -->
+        <div class="opt hide" id="o2">
+          <div class="pane3">
+            <div class="p-nav">
+              <div class="nrow on">All items</div>
+              <div class="nrow">Favourites</div>
+              <div class="nrow">Archived</div>
+              <div class="nhead">Types</div>
+              <div class="nrow">Login</div>
+              <div class="nrow">Card <span class="nbadge" style="margin-left:auto">Soon</span></div>
+              <div class="nrow">Identity <span class="nbadge" style="margin-left:auto">Soon</span></div>
+              <div class="nrow">Secure note <span class="nbadge" style="margin-left:auto">Soon</span></div>
+              <div class="nhead">Folders</div>
+              <div class="nrow">Personal</div>
+              <div class="nrow">Infrastructure</div>
+              <div class="nrow">Clients</div>
+            </div>
+            <div class="p-list">
+              <div class="irow on"><div class="mono-tile" style="background:var(--red)">H</div>
+                <div><div class="t">Hetzner — root</div><div class="s">avert-core-01</div></div></div>
+              <div class="irow"><div class="mono-tile" style="background:var(--blue)">PC</div>
+                <div><div class="t">Paul Cruz</div><div class="s">taxpayer ID</div></div></div>
+              <div class="irow"><div class="mono-tile" style="background:var(--purple)">R</div>
+                <div><div class="t">Resend</div><div class="s">sending key</div></div></div>
+              <div class="irow"><div class="mono-tile" style="background:var(--teal)">CF</div>
+                <div><div class="t">Cloudflare</div><div class="s">DNS token</div></div></div>
+              <div class="irow"><div class="mono-tile" style="background:var(--green)">GH</div>
+                <div><div class="t">GitHub</div><div class="s">AvertXAI org</div></div></div>
+              <div class="irow" style="opacity:.55"><div class="mono-tile" style="background:var(--lock)">S</div>
+                <div><div class="t">Old Stripe key</div><div class="s">archived</div></div></div>
+            </div>
+            <div class="p-detail">
+              <div class="sectitle"><span class="mlabel">Item information</span>
+                <div style="display:flex;gap:8px"><button class="btn sm">Supersede</button><button class="btn sm">Archive</button></div></div>
+              <div class="fbox"><div class="l">Name</div><div class="v">Hetzner — avert-core-01 root</div></div>
+              <div class="fbox nb"><div class="l">Username <span class="nbadge">Not in schema</span></div><div class="v">root<span class="i">⧉</span></div></div>
+              <div class="fbox"><div class="l">Value</div><div class="v"><span class="masked">•••••••••••••</span><span class="i">✓ 👁 ⧉</span></div></div>
+              <div class="fbox nb"><div class="l">Verification code (TOTP) <span class="nbadge">Not built</span></div>
+                <div class="v"><span class="totp">908 136</span><span class="ring">7</span><span class="i">⧉</span></div></div>
+              <div class="fbox nb"><div class="l">Website <span class="nbadge">Not in schema</span></div><div class="v">console.hetzner.cloud<span class="i">↗ ⧉</span></div></div>
+              <div class="fbox"><div class="l">Version history — append-only</div>
+                <div class="v" style="flex-direction:column;align-items:stretch;gap:7px;font-size:12.5px">
+                  <div style="display:flex;gap:12px"><b class="mono" style="color:var(--green)">v3</b><span class="mono">08/01/2026 11:20 PM</span><span class="who" style="margin-left:auto">current</span></div>
+                  <div style="display:flex;gap:12px"><span class="mono who">v2</span><span class="mono who">07/26/2026 9:14 AM</span><span class="who" style="margin-left:auto">superseded</span></div>
+                  <div style="display:flex;gap:12px"><span class="mono who">v1</span><span class="mono who">07/21/2026 8:50 AM</span><span class="who" style="margin-left:auto">superseded</span></div>
+                </div></div>
+              <div class="fbox"><div class="l">Notes</div><div class="v" style="color:var(--dim);font-size:13px">Root only — use the deploy user for Coolify.</div></div>
+            </div>
+          </div>
+          <div class="note">The Bitwarden shape: navigation, list, detail. Everything orange is a field the current schema has no column for — the honest gap between this and Phase 1.</div>
+        </div>
+
+        <!-- 3 — COLLAGE -->
+        <div class="opt hide" id="o3">
+          <div class="sectitle">
+            <div class="viewsw"><span class="on">Popular</span><span>Recently used</span><span>A–Z</span></div>
+            <div style="display:flex;gap:9px"><button class="btn sm">⭳ Import</button><button class="btn sm">⭱ Export</button><button class="btn sm">▦ Grid</button><button class="btn sm">☰ List</button><button class="btn go">＋ New entry</button></div>
+          </div>
+          <div class="collage">
+            <div class="tile"><div class="mg" style="background:#c0392b">H</div><div class="n">Hetzner</div></div>
+            <div class="tile"><div class="mg" style="background:var(--purple)">R</div><div class="n">Resend</div></div>
+            <div class="tile"><div class="mg" style="background:var(--teal)">CF</div><div class="n">Cloudflare</div></div>
+            <div class="tile"><div class="mg" style="background:#1f2933">GH</div><div class="n">GitHub</div></div>
+            <div class="tile"><div class="mg" style="background:var(--blue)">PC</div><div class="n">Paul Cruz<br>taxpayer ID</div></div>
+            <div class="tile"><div class="mg" style="background:#2b7a4b">CO</div><div class="n">Coolify</div></div>
+            <div class="tile"><div class="mg" style="background:#7b3fa0">ST</div><div class="n">Stripe</div></div>
+            <div class="tile"><div class="mg" style="background:#b8862a">NT</div><div class="n">Ntfy</div></div>
+            <div class="tile add">＋</div>
+          </div>
+          <div class="tip nb" style="margin-top:16px">
+            <h5>Why monograms and not brand logos</h5>
+            <p>Coloured monogram tiles are generated from the entry's own name — no third-party brand artwork ships in the app. A licensed icon pack or a favicon fetch would give real logos, and both carry their own licence and offline questions, so the monogram is the floor that always works.</p>
+          </div>
+          <div class="note">The RoboForm shape — recognise by colour, not by reading. Best of the three at speed once there are thirty entries; weakest at showing history and the access log.</div>
+        </div>
+
+        <!-- 4 — FOLDER TREE -->
+        <div class="opt hide" id="o4">
+          <div style="display:flex;gap:16px;align-items:flex-start">
+            <div class="card" style="width:300px;flex:0 0 300px">
+              <div class="sectitle"><span class="mlabel">Folders</span><button class="btn sm">＋</button></div>
+              <div class="tree">
+                <div class="tnode on">🗀 All records<span class="n">12</span></div>
+                <div class="tnode">🗀 Personal<span class="n">4</span></div>
+                <div class="tnode d1">🗀 Email<span class="n">2</span></div>
+                <div class="tnode d2">🗀 Family<span class="n">1</span></div>
+                <div class="tnode">🗀 Infrastructure<span class="n">5</span></div>
+                <div class="tnode d1">🗀 Hetzner<span class="n">3</span></div>
+                <div class="tnode d1">🗀 DNS<span class="n">2</span></div>
+                <div class="tnode">🗀 Clients<span class="n">3</span></div>
+                <div class="tnode d1">🗀 Jax's Collectibles<span class="n">2</span></div>
+                <div class="tnode" style="color:var(--orange)">🗀 Shared folder <span class="nbadge" style="margin-left:auto">Team only</span></div>
+              </div>
+            </div>
+            <div class="card" style="flex:1;min-width:0">
+              <div class="sectitle"><span class="mlabel">Infrastructure → Hetzner</span>
+                <div class="viewsw"><span>Sort: Name ▾</span><span>Show: All ▾</span></div></div>
+              <table>
+                <tr><th>Record</th><th>Kind</th><th>Value</th><th></th></tr>
+                <tr><td><div style="display:flex;align-items:center;gap:10px"><div class="mono-tile" style="background:#c0392b">H</div>
+                  <div><b>avert-core-01 root</b><div class="who">root</div></div></div></td>
+                  <td><span class="kind">Password</span></td><td><span class="masked">•••••••••</span></td>
+                  <td><div class="acts"><button class="btn sm">Reveal</button><button class="btn sm">Copy</button></div></td></tr>
+                <tr><td><div style="display:flex;align-items:center;gap:10px"><div class="mono-tile" style="background:#c0392b">H</div>
+                  <div><b>Deploy user</b><div class="who">deploy</div></div></div></td>
+                  <td><span class="kind">Password</span></td><td><span class="masked">•••••••••</span></td>
+                  <td><div class="acts"><button class="btn sm">Reveal</button><button class="btn sm">Copy</button></div></td></tr>
+                <tr><td><div style="display:flex;align-items:center;gap:10px"><div class="mono-tile" style="background:#c0392b">H</div>
+                  <div><b>SSH key passphrase</b><div class="who">id_ed25519_hetzner</div></div></div></td>
+                  <td><span class="kind">Password</span></td><td><span class="masked">•••••••••</span></td>
+                  <td><div class="acts"><button class="btn sm">Reveal</button><button class="btn sm">Copy</button></div></td></tr>
+              </table>
+            </div>
+          </div>
+          <div class="note nb" style="border-left:3px solid var(--orange);padding-left:12px">Folders and nesting need a new table and a parent reference — not in the Phase 1 schema. Shared folders are multi-user and park until there is a team.</div>
+        </div>
+
+        <!-- 5 — GENERATOR -->
+        <div class="opt hide" id="o5">
+          <div class="card nb">
+            <div class="sectitle"><span class="mlabel">Password generator</span><span class="nbadge">Not built</span></div>
+            <div class="gentabs">
+              <span class="gentab on">Strong / random</span><span class="gentab">Advanced</span><span class="gentab">Memorable</span>
+              <span class="gentab">Passphrase</span><span class="gentab">PIN code</span><span class="gentab">Bulk</span>
+            </div>
+            <div class="genout">
+              <span class="p">(F(vn^De9J[wG^]u</span>
+              <button class="btn sm">↻ Regenerate</button><button class="btn go">⧉ Copy</button>
+            </div>
+            <div class="meter"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i></div>
+            <div class="strengthrow"><span style="color:var(--green);font-weight:700">Very strong</span>
+              <span class="hint">Estimated crack time · <b class="mono" style="color:var(--txt)">3,000 years</b></span></div>
+
+            <div style="margin-top:20px" class="mlabel quiet">How secure</div>
+            <div class="slider"><i></i><b></b></div>
+            <div class="segs"><span>Weak</span><span>Fair</span><span>Good</span><span>Strong</span><span>Fortress</span></div>
+
+            <div class="opts">
+              <div class="opt-r"><span class="mono" style="width:74px;color:var(--dimmer);font-size:12px">Length</span>
+                <div class="inp" style="width:74px;padding:6px 10px">16</div></div>
+              <div class="opt-r"><span class="chk on"></span>Lowercase <span class="who">abcdef</span></div>
+              <div class="opt-r"><span class="chk on"></span>Uppercase <span class="who">ABCDEF</span></div>
+              <div class="opt-r"><span class="chk on"></span>Numbers <span class="who">123456</span></div>
+              <div class="opt-r"><span class="chk on"></span>Symbols <span class="who">*@#+%</span></div>
+              <div class="opt-r"><span class="chk"></span>Exclude similar <span class="who">o 0 i l 1</span></div>
+              <div class="opt-r"><span class="chk"></span>Exclude ambiguous <span class="who">~ , ; : { } [ ]</span></div>
+              <div class="opt-r"><span class="chk"></span>No repeated characters</div>
+            </div>
+            <div class="hint" style="margin-top:16px">Generated on this machine. Nothing is sent anywhere, online or off.</div>
+          </div>
+          <div class="note">Six modes behind one control, the strength range as a slider so "how secure" is a choice rather than a guess. Entirely local — no schema change needed to ship the generator alone.</div>
+        </div>
+
+        <!-- 6 — HEALTH -->
+        <div class="opt hide" id="o6">
+          <div class="card nb">
+            <div class="sectitle"><span class="mlabel">Password health</span><span class="nbadge">Not built</span></div>
+            <div style="display:flex;gap:26px;align-items:center;flex-wrap:wrap">
+              <div class="donut"><span>78</span></div>
+              <div style="flex:1;min-width:260px">
+                <div class="hint" style="font-size:13px;color:var(--dim);line-height:1.7">
+                  Twelve entries analysed on this machine. <b style="color:var(--txt)">Nine are healthy.</b>
+                  Two are worth rotating and one is reused across sites — fix those and this reads 100.</div>
+                <button class="btn go" style="margin-top:12px">Review the three</button>
+              </div>
+            </div>
+          </div>
+          <div class="hgrid">
+            <div class="hcard"><span class="mlabel quiet">Weak</span><div class="n" style="color:var(--red)">1</div><span class="hint">Guessable in under a day</span></div>
+            <div class="hcard"><span class="mlabel quiet">Reused</span><div class="n" style="color:var(--amber)">1</div><span class="hint">Same value in two entries</span></div>
+            <div class="hcard"><span class="mlabel quiet">Older than 90 days</span><div class="n" style="color:var(--amber)">2</div><span class="hint">Worth rotating</span></div>
+            <div class="hcard"><span class="mlabel quiet">Healthy</span><div class="n" style="color:var(--green)">9</div><span class="hint">Strong and unique</span></div>
+          </div>
+          <div class="card nb" style="margin-top:14px">
+            <div class="sectitle"><span class="mlabel">Breach check</span><span class="nbadge">Not built · opt-in, off by default</span></div>
+            <div class="hint" style="font-size:12.5px;line-height:1.7">The only feature here that touches the network. A short prefix of the hash leaves the machine — never the password itself — and the answer comes back locally. Off until you turn it on.</div>
+          </div>
+          <div class="note">Analysis runs over the decrypted-in-memory set. Needs no new columns, but it does need the values to carry enough structure to compare — which today they do.</div>
+        </div>
+
+        <!-- 7 — ENTRY MODAL -->
+        <div class="opt hide" id="o7">
+          <div class="scrim">
+            <div class="modal">
+              <h3>New entry</h3>
+              <div class="sub">Hetzner · monogram generated from the name</div>
+              <div class="two">
+                <div class="f"><span class="mlabel quiet">Name</span><div class="inp">Hetzner — avert-core-01 root</div></div>
+                <div class="f"><span class="mlabel quiet">Kind</span><div class="inp">Password ▾</div></div>
+              </div>
+              <div class="f nb" style="border-radius:8px"><span class="mlabel quiet">Username / ID <span class="nbadge">Not in schema</span></span><div class="inp ph">root</div></div>
+              <div class="f"><span class="mlabel quiet">Value</span>
+                <div class="inp mono" style="display:flex;align-items:center;gap:10px">
+                  <span style="flex:1">••••••••••••••</span>
+                  <span class="who" style="font-family:var(--sans)">👁 show</span>
+                  <span class="who" style="font-family:var(--sans)">↻ generate</span></div>
+                <div class="meter" style="margin:9px 0 4px"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i><i></i></div>
+                <div class="strengthrow"><span style="color:var(--green);font-weight:700;font-size:12px">Very strong</span>
+                  <span class="hint">3,000 years to crack</span></div>
+              </div>
+              <div class="two">
+                <div class="f nb"><span class="mlabel quiet">Website <span class="nbadge">Not in schema</span></span><div class="inp ph">console.hetzner.cloud</div></div>
+                <div class="f nb"><span class="mlabel quiet">Two-factor seed <span class="nbadge">Not built</span></span><div class="inp ph">otpauth:// or scan</div></div>
+              </div>
+              <div class="two">
+                <div class="f nb"><span class="mlabel quiet">Security questions <span class="nbadge">Not in schema</span></span><div class="inp ph">Add a question…</div></div>
+                <div class="f nb"><span class="mlabel quiet">Backup codes <span class="nbadge">Not in schema</span></span><div class="inp ph">Paste codes…</div></div>
+              </div>
+              <div class="f"><span class="mlabel quiet">Notes</span><div class="inp ph">Root only — use the deploy user for Coolify.</div></div>
+              <div class="tip"><h5>What happens when you save</h5>
+                <p>The value is written to the encrypted vault file as version 1 and never leaves it again except through a read you can see in the access log. Changing it later appends version 2 — version 1 is kept, not overwritten.</p></div>
+              <div class="mrow"><button class="btn">Cancel</button><button class="btn go">Save entry</button></div>
+            </div>
+          </div>
+          <div class="note">The full entry the password manager needs. Four fields are orange because the Phase 1 schema has no column for them — this is the exact list a schema expansion would have to add.</div>
+        </div>
+
+
+        <!-- 8 — VAULT SETTINGS + IMPORT / EXPORT -->
+        <div class="opt hide" id="o8">
+          <div class="tip" style="margin-bottom:16px">
+            <h5>These settings live inside the Vault only</h5>
+            <p>Nothing here is reachable from the application's own Settings page. A vault that can be reconfigured from outside itself gives an attacker a lever — auto-lock, export and the master password are changed in here or not at all.</p>
+          </div>
+
+          <div class="card nb">
+            <div class="sectitle"><span class="mlabel">Lock</span><span class="nbadge">Not built</span></div>
+            <div class="opts" style="grid-template-columns:1fr">
+              <div class="opt-r"><span class="chk"></span>Require a master password to open the vault</div>
+              <div class="opt-r"><span class="chk"></span>Lock automatically after
+                <div class="inp" style="width:110px;padding:6px 10px">5 minutes ▾</div></div>
+              <div class="opt-r"><span class="chk"></span>Lock when the application is minimised</div>
+              <div class="opt-r"><span class="chk"></span>Clear a copied value from the clipboard after
+                <div class="inp" style="width:96px;padding:6px 10px">30 sec ▾</div></div>
+            </div>
+            <div class="hint" style="margin-top:14px">Today the vault opens automatically with the application. Turning the first switch on is what makes the rest of this section mean anything.</div>
+          </div>
+
+          <div class="card" style="margin-top:16px">
+            <div class="sectitle"><span class="mlabel">Import</span><span class="hint">Nothing is written until you review the mapping</span></div>
+            <div class="collage" style="grid-template-columns:repeat(auto-fill,minmax(118px,1fr))">
+              <div class="tile"><div class="mg" style="background:var(--blue)">CH</div><div class="n">Chrome</div></div>
+              <div class="tile"><div class="mg" style="background:#c0392b">FF</div><div class="n">Firefox</div></div>
+              <div class="tile"><div class="mg" style="background:#1f6fb2">ED</div><div class="n">Edge</div></div>
+              <div class="tile"><div class="mg" style="background:#b8362a">BR</div><div class="n">Brave</div></div>
+              <div class="tile"><div class="mg" style="background:#2b7a4b">1P</div><div class="n">1Password</div></div>
+              <div class="tile"><div class="mg" style="background:#1f6fb2">BW</div><div class="n">Bitwarden</div></div>
+              <div class="tile"><div class="mg" style="background:#c9821a">LP</div><div class="n">LastPass</div></div>
+              <div class="tile"><div class="mg" style="background:var(--purple)">DL</div><div class="n">Dashlane</div></div>
+              <div class="tile"><div class="mg" style="background:#2b6f7a">KP</div><div class="n">KeePass</div></div>
+              <div class="tile"><div class="mg" style="background:#7a4b2b">KE</div><div class="n">Keeper</div></div>
+              <div class="tile"><div class="mg" style="background:#3b4a5f">RF</div><div class="n">RoboForm</div></div>
+              <div class="tile"><div class="mg" style="background:var(--dimmer)">CSV</div><div class="n">Other / CSV</div></div>
+            </div>
+            <div class="hint" style="margin-top:14px">Pick a source, choose the file, then map its columns onto vault fields. The preview shows exactly what will be created before a single row is written.</div>
+          </div>
+
+          <div class="card nb" style="margin-top:16px">
+            <div class="sectitle"><span class="mlabel">Export</span><span class="nbadge">Confirmation required</span></div>
+            <div class="opts" style="grid-template-columns:1fr">
+              <div class="opt-r"><span class="chk on"></span>Encrypted archive — restorable only into a vault</div>
+              <div class="opt-r"><span class="chk"></span>Plain CSV — <b style="color:var(--red)">every secret readable by anyone who opens the file</b></div>
+            </div>
+            <div class="tip" style="margin-top:14px;border-left-color:var(--red)">
+              <h5 style="color:var(--red)">A plain export leaves the vault</h5>
+              <p>The moment a plain file is written, the encryption, the access log and the version history stop protecting anything in it. The export itself is recorded in the access log — that record is permanent.</p>
+            </div>
+            <div class="mrow" style="justify-content:flex-start;margin-top:14px">
+              <button class="btn">Cancel</button><button class="btn" style="border-color:var(--red);color:var(--red)">I understand — export</button></div>
+          </div>
+
+          <div class="card" style="margin-top:16px">
+            <div class="sectitle"><span class="mlabel">Storage</span></div>
+            <div class="fbox"><div class="l">Vault file</div>
+              <div class="v mono" style="font-size:12.5px">019fc0a9-8891-73cc-9f7c-36982abe6b00.atd<span class="i">🗀</span></div></div>
+            <div class="fbox"><div class="l">Key file</div>
+              <div class="v mono" style="font-size:12.5px">019fc0a9-8891-73cc-9f7c-36982abe6b00.ixd<span class="i">🗀</span></div></div>
+            <div class="hint">Deliberately dull names. Neither file announces what it is to anyone browsing the folder — obscurity is not protection, it just removes the invitation.</div>
+          </div>
+          <div class="note">Import, export, lock and storage all live inside the Vault. The application's Settings page carries no vault controls at all.</div>
+        </div>
+        <div class="tip nb" style="margin-top:4px">
+          <h5>⚠ Standing design flag — no master password exists today</h5>
+          <p>The vault file unlocks automatically at boot from a key held by the operating system's credential store. No prompt, no auto-lock timer, no locked state — so anyone with the machine unlocked and the app open can reveal every secret. Defensible for a taxpayer identifier the app itself needs; <b>not</b> defensible for a password manager. A master password, an auto-lock timer and a locked state are the first thing the full build adds.</p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  <div class="foot">Powered by AvertXAI · San Antonio, TX · All Rights Reserved © 2026 · Terms Of Service | Privacy Policy</div>
+</div>
+
+<script>
+document.querySelectorAll('.obtn[data-o]').forEach(function(b){
+  b.addEventListener('click',function(){
+    document.querySelectorAll('.obtn[data-o]').forEach(function(x){x.classList.remove('on');});
+    b.classList.add('on');
+    document.querySelectorAll('.opt').forEach(function(p){p.classList.add('hide');});
+    document.getElementById('o'+b.dataset.o).classList.remove('hide');
+    window.scrollTo({top:0,behavior:'smooth'});
+  });
+});
+document.getElementById('themeBtn').addEventListener('click',function(){
+  document.body.classList.toggle('dark');
+  this.textContent=document.body.classList.contains('dark')?'☀ Light':'◐ Dark';
+});
+</script>
+</body>
+</html>

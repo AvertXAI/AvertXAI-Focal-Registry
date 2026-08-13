@@ -30,6 +30,11 @@ import {
   updateSecretMeta,
 } from "../electron/core/services/vault/store";
 import * as lock from "../electron/core/services/vault/lock";
+import { archiveNote, createNote, getNote, importDocs, listNotes, searchNotes } from "../electron/core/services/vault/notes";
+import {
+  archiveNoteFolder, createNoteFolder, deleteNoteFolder, emptyNoteFolder, noteFolderCounts, noteFolderSubtree,
+  setNoteFolder, unfiledNoteCount,
+} from "../electron/core/services/vault/noteFolders";
 import { getAllSettings, getSetting, setSetting } from "../electron/core/services/vault/settings";
 import { estimateStrength, generatePassword } from "../electron/core/services/vault/generator";
 import { analyseHealth } from "../electron/core/services/vault/health";
@@ -50,11 +55,36 @@ const ok = (msg: string): void => {
 ensureVaultSchema(db);
 ensureVaultSchema(db); // idempotent — this runs on every boot
 const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'vault_%' ORDER BY name").all() as { name: string }[]).map((t) => t.name);
-assert.deepEqual(tables, ["vault_access_log", "vault_folders", "vault_secret_versions", "vault_secrets", "vault_settings"]);
+// The list is EXACT on purpose — a table appearing here unannounced is a schema change nobody
+// reviewed. Grown twice since it was written: the redesign added notes/servers/dns/repos, and
+// 08-11-2026 added vault_event_log (the four-level log behind the reference ids).
+assert.deepEqual(tables, [
+  "vault_access_log",
+  "vault_dns_records",
+  "vault_event_log",
+  "vault_folders",
+  "vault_note_folders",
+  "vault_notes",
+  "vault_repos",
+  "vault_secret_versions",
+  "vault_secrets",
+  "vault_servers",
+  "vault_settings",
+]);
 const secretCols = (db.pragma("table_info(vault_secrets)") as { name: string }[]).map((c) => c.name);
 assert.ok(!secretCols.includes("value"), "vault_secrets must never hold a credential");
 assert.ok(secretCols.includes("username") && secretCols.includes("url") && secretCols.includes("favourite"));
-ok(`schema: 5 tables, idempotent, vault_secrets is credential-free (${secretCols.length} metadata columns)`);
+// The event log is the OTHER table that must never hold a credential — same rule, same reason.
+const logCols = (db.pragma("table_info(vault_event_log)") as { name: string }[]).map((c) => c.name);
+assert.ok(!logCols.includes("value") && !logCols.includes("password"), "vault_event_log must never hold a credential");
+assert.ok(logCols.includes("request_id"), "the reference id is the whole point of the log");
+// The note tree: a real parent_id, and notes carry a reference to it. Both added 08-11-2026.
+const nfCols = (db.pragma("table_info(vault_note_folders)") as { name: string }[]).map((c) => c.name);
+assert.ok(nfCols.includes("parent_id"), "note folders nest");
+const noteCols = (db.pragma("table_info(vault_notes)") as { name: string }[]).map((c) => c.name);
+assert.ok(noteCols.includes("folder_id"), "notes reference the tree");
+assert.ok(noteCols.includes("folder"), "the legacy text column is KEPT — it is the migration source");
+ok(`schema: ${tables.length} tables, idempotent, vault_secrets and vault_event_log are credential-free (${secretCols.length} metadata columns)`);
 assert.ok(VAULT_ACTIONS.length >= 30, "the action vocabulary is deliberately wide");
 ok(`access-log vocabulary: ${VAULT_ACTIONS.length} actions accepted (ruled "10x it, just in case")`);
 
@@ -210,5 +240,227 @@ assert.equal(lock.isUnlocked(db, ORG), true, "turning the lock off is a supporte
 setSetting(db, ORG, "lock.enabled", "1");
 assert.equal(lock.isUnlocked(db, ORG), false, "…and turning it back on re-locks");
 ok("lock gate: locks, unlocks, and honours its own setting");
+
+
+// ── the import duplicate guard (08-12-2026) ────────────────────────────────────────────────────
+// Jason imported ~2,000 files and the folder read 4,178 — the same documents pulled in four or five
+// times across repeated runs. The guard is a PARTIAL UNIQUE INDEX, so this is a database guarantee
+// rather than a check the importer has to remember.
+{
+  const twice = { name: "a.md", rel: "x/a.md", path: "D:/dev/x/a.md", text: "hello", birthtimeMs: 0, mtimeMs: 0 };
+  const first = importDocs(db, ORG, [twice], {});
+  assert.equal(first.created, 1, "the first import creates it");
+  const second = importDocs(db, ORG, [twice], {});
+  assert.equal(second.created, 0, "the SAME file does not come in twice");
+  assert.equal(second.skipped, 1, "…and it is reported as skipped, never silently dropped");
+
+  // A different file from the same folder still imports — the guard must not block new work.
+  const other = importDocs(db, ORG, [{ name: "b.md", rel: "x/b.md", path: "D:/dev/x/b.md", text: "hi", birthtimeMs: 0, mtimeMs: 0 }], {});
+  assert.equal(other.created, 1, "a new file in an already-imported folder still arrives");
+
+  // Notes written IN the app carry no source path, and must be free to share that absence.
+  createNote(db, ORG, { kind: "note", title: "hand-written one", body: "" });
+  createNote(db, ORG, { kind: "note", title: "hand-written two", body: "" });
+
+  // And the index is the real backstop — a direct insert of a duplicate path must be refused.
+  assert.throws(
+    () => db.prepare("INSERT INTO vault_notes (uuid, org_id, kind, title, body, source_path, created_at) VALUES (?,?,?,?,?,?,?)")
+      .run("dupe-uuid", ORG, "note", "sneaky", "", "D:/dev/x/a.md", new Date().toISOString()),
+    /UNIQUE/,
+    "the partial unique index refuses a duplicate source_path"
+  );
+  ok("import guard: the same file cannot arrive twice, new files still can, hand-written notes unaffected");
+}
+
+
+// ── the import arithmetic, and WHERE the skipped ones went (08-12-2026) ────────────────────────
+// Jason: "_source says it has 2078 files, but the imported modal says different" — 2,084 already
+// here against a folder reading 2,078. Nothing on screen could account for the 6, so the report was
+// indistinguishable from a bug. It is not one: the tree hides archived notes and the import guard
+// does not. This pins BOTH — the totals must sum, and the split must name the difference.
+{
+  const ORG4 = "import-count-org";
+  const file = (n: number): Record<string, unknown> =>
+    ({ name: `f${n}.md`, rel: `src/f${n}.md`, path: `D:/src/f${n}.md`, text: `body ${n}`, birthtimeMs: 0, mtimeMs: 0 });
+  const all = [1, 2, 3, 4, 5].map(file);
+
+  const first = importDocs(db, ORG4, all, { folder: "src", mirror: true });
+  assert.equal(first.created, 5, "five files in, five notes out");
+  assert.equal(first.scanned, first.created + first.skipped + first.failed,
+    "SCANNED === CREATED + SKIPPED + FAILED — the totals reconcile by construction, not by luck");
+
+  // Put one on the Archived shelf and unfile another. Now the folder tree and the import guard are
+  // legitimately looking at different sets — exactly Jason's situation.
+  const rows = listNotes(db, ORG4, undefined, false).rows;
+  archiveNote(db, ORG4, rows[0].uuid);
+  setNoteFolder(db, ORG4, rows[1].uuid, null);
+
+  const again = importDocs(db, ORG4, all, { folder: "src", mirror: true });
+  assert.equal(again.created, 0, "nothing new — every file is already in the vault");
+  assert.equal(again.skipped, 5, "all five skipped");
+  assert.equal(again.skippedFiled + again.skippedUnfiled + again.skippedArchived, again.skipped,
+    "THE SPLIT SUMS TO THE TOTAL — a breakdown that does not add up is worse than no breakdown");
+  assert.equal(again.skippedArchived, 1, "the archived one is counted as archived, not as filed");
+  assert.equal(again.skippedUnfiled, 1, "the unfiled one is counted as unfiled");
+  assert.equal(again.skippedFiled, 3, "leaving 3 filed");
+
+  // AND THE PAYOFF: skippedFiled is the number the sidebar shows. That equality is the whole reason
+  // the split exists — it turns "2,084 vs 2,078" into an arithmetic anyone can check on screen.
+  const tree = noteFolderCounts(db, ORG4);
+  const shown = Object.values(tree).length > 0 ? Math.max(...Object.values(tree)) : 0;
+  assert.equal(shown, again.skippedFiled,
+    "the folder's own count EQUALS skippedFiled — the gap to `skipped` is the archived and unfiled ones");
+
+  ok("import counts: scanned reconciles, the skip split sums, and skippedFiled matches the tree exactly");
+}
+
+
+// ── folder delete + the Unfiled count (08-12-2026) ─────────────────────────────────────────────
+// Jason: deleted a folder holding 7 notes, Unfiled went 6 -> 7 instead of staying at 6 (delete) or
+// reaching 13 (keep). Both readings cannot be right, so the two paths and the counter are pinned
+// here rather than reasoned about.
+{
+  const ORG2 = "folder-proof-org";
+  const mk = (title: string, folderId: number | null): void => {
+    const n = createNote(db, ORG2, { kind: "note", title, body: "x" });
+    if (folderId != null) setNoteFolder(db, ORG2, n.uuid, folderId);
+  };
+
+  // Six loose notes, then a parent folder with a child, 7 notes between them.
+  for (let i = 0; i < 6; i++) mk(`loose-${i}`, null);
+  const parent = createNoteFolder(db, ORG2, "parent", null);
+  const child = createNoteFolder(db, ORG2, "child", parent.id);
+  for (let i = 0; i < 4; i++) mk(`p-${i}`, parent.id);
+  for (let i = 0; i < 3; i++) mk(`c-${i}`, child.id);
+
+  assert.equal(unfiledNoteCount(db, ORG2), 6, "six loose notes to start");
+  assert.equal(noteFolderCounts(db, ORG2)[parent.id], 7, "parent counts its own 4 plus the child's 3");
+  assert.deepEqual(noteFolderSubtree(db, ORG2, parent.id), { folders: 2, notes: 7, directNotes: 4, archived: 0 },
+    "the confirm is told 2 folders and 7 notes BEFORE anything happens");
+
+  // EMPTY — every note in the SUBTREE goes to Unfiled, folders stay, nothing is deleted.
+  const emptied = emptyNoteFolder(db, ORG2, parent.id);
+  assert.equal(emptied.movedNotes, 7, "all 7 — the parent's 4 AND the child's 3, not just the direct ones");
+  assert.equal(unfiledNoteCount(db, ORG2), 13, "6 + 7 = 13, which is the number Jason expected to see");
+  assert.equal(noteFolderCounts(db, ORG2)[child.id], 0, "the child folder still exists and is now empty");
+
+  // DELETE — the whole subtree, notes included, and Unfiled must NOT move.
+  const p2 = createNoteFolder(db, ORG2, "p2", null);
+  const c2 = createNoteFolder(db, ORG2, "c2", p2.id);
+  for (let i = 0; i < 4; i++) mk(`p2-${i}`, p2.id);
+  for (let i = 0; i < 3; i++) mk(`c2-${i}`, c2.id);
+  const before = unfiledNoteCount(db, ORG2);
+  const wiped = deleteNoteFolder(db, ORG2, p2.id);
+  assert.equal(wiped.deletedNotes, 7, "EVERYTHING in the folder — subfolders and their notes included");
+  assert.equal(wiped.deletedFolders, 2, "both folders went");
+  assert.equal(unfiledNoteCount(db, ORG2), before,
+    "UNFILED MUST NOT MOVE — deleting is not unfiling, and there is no longer a path that confuses the two");
+
+  // A note created WITH a folder must land in it — not in Unfiled to be moved by a second call.
+  const filed = createNote(db, ORG2, { kind: "note", title: "born filed", body: "", folderId: child.id });
+  assert.equal(getNote(db, ORG2, filed.uuid).folder_id, child.id, "createNote files it directly");
+
+  ok("folders: EMPTY unfiles the whole subtree, DELETE removes it entirely, createNote files directly");
+}
+
+
+// ── the THIRD door, and the count that made the tree look broken (08-12-2026) ──────────────────
+// Jason: the note trashbin offers cancel/delete/archive; the folder prompt offered only two. And he
+// archived a note, deleted its folder, and watched the parent's count fall by TWO for one delete.
+// Both behaviours are pinned here: archive-a-folder is real, and the two counts differ for a stated
+// reason rather than by accident.
+{
+  const ORG3 = "folder-archive-org";
+  const mk = (title: string, folderId: number | null): string => {
+    const n = createNote(db, ORG3, { kind: "note", title, body: "x" });
+    if (folderId != null) setNoteFolder(db, ORG3, n.uuid, folderId);
+    return n.uuid;
+  };
+
+  const top = createNoteFolder(db, ORG3, "top", null);
+  const sub = createNoteFolder(db, ORG3, "sub", top.id);
+  for (let i = 0; i < 3; i++) mk(`t-${i}`, top.id);
+  const archivedOne = mk("s-archived", sub.id);
+  mk("s-live", sub.id);
+
+  // THE DIVERGENCE, made explicit. Archive one note and the two counts stop matching — legitimately.
+  archiveNote(db, ORG3, archivedOne);
+  assert.equal(noteFolderCounts(db, ORG3)[top.id], 4, "the TREE hides archived notes: 5 filed, 4 shown");
+  const sub1 = noteFolderSubtree(db, ORG3, top.id);
+  assert.equal(sub1.notes, 5, "the CONFIRM counts them: a delete would take all 5");
+  assert.equal(sub1.archived, 1,
+    "and it now says how many are archived — the one number that explains why 5 and 4 are both right");
+
+  // ARCHIVE THE FOLDER — every live note to the shelf, folders gone, NOTHING erased.
+  const before = listNotes(db, ORG3, undefined, true).total;
+  const r = archiveNoteFolder(db, ORG3, top.id);
+  assert.equal(r.archivedNotes, 4, "the 4 live ones moved; the already-archived one was not re-stamped");
+  assert.equal(r.deletedFolders, 2, "both folders removed — an archived tree of empty boxes is litter");
+  assert.equal(listNotes(db, ORG3, undefined, true).total, before + 4,
+    "ARCHIVE IS NOT DELETE — every note is still in the vault, on the Archived shelf");
+  assert.equal(listNotes(db, ORG3, undefined, false).total, 0, "and none of them is on the working shelf");
+  assert.equal(unfiledNoteCount(db, ORG3), 0,
+    "archived notes are not 'unfiled' — Unfiled is the working shelf's overflow and must not absorb them");
+
+  ok("folder archive: every note kept and restorable, folders removed, and the tree/confirm counts reconcile");
+}
+
+
+// ── search: words not a phrase, title before mention, and an excerpt that shows the match ───────
+// Jason 08-12-2026, all three in one report: "when i search for builders audit, i get no hits, when
+// i should", and "i should [not] have to scroll all the way down for that specific keyword like
+// buildersaudit". The old query was one %needle% LIKE ordered by updated_at, so adjacent-words-only
+// matching and pure recency were both baked in. This pins the replacement.
+{
+  const ORG4 = "search-org";
+  const mk = (title: string, body: string): void => { createNote(db, ORG4, { kind: "note", title, body }); };
+
+  // The note actually named after the words — written FIRST, so recency ordering would bury it.
+  mk("IDEAS-BUILDERSAUDIT.md", "Project: BuildersAudit. Parent: AvertXAI Umbrella.");
+  mk("Builders Audit — handoff", "the two words, spaced, in the title");
+  mk("Quarterly review", "the audit ran long and the builders were late"); // reversed AND far apart
+  // ...under a pile of notes that only MENTION them, each one newer than the last.
+  for (let i = 0; i < 12; i++) mk(`STATUS-${i}.md`, `Product state. ${"filler ".repeat(60)}buildersaudit was mentioned here in passing.`);
+
+  const one = searchNotes(db, ORG4, "buildersaudit", 50);
+  assert.equal(one.length, 13, "one term: the title hit plus all 12 body mentions");
+  assert.equal(one[0].title, "IDEAS-BUILDERSAUDIT.md",
+    "RELEVANCE, NOT RECENCY — the note named after the word sorts above 12 newer notes that mention it");
+
+  // TWO WORDS, ANY ORDER. Under the old single %builders audit% LIKE this returned NOTHING — the
+  // words had to be adjacent and in that order.
+  const two = searchNotes(db, ORG4, "builders audit", 50);
+  assert.equal(two[0].title, "IDEAS-BUILDERSAUDIT.md", "still the note named for the words");
+  assert.ok(two.some((n) => n.title === "Builders Audit — handoff"), "the spaced title is found");
+  assert.ok(two.some((n) => n.title === "Quarterly review"),
+    "and so is a body that says them BACKWARDS, six words apart — which is the whole point");
+  assert.deepEqual(
+    searchNotes(db, ORG4, "audit builders", 50).map((n) => n.uuid),
+    two.map((n) => n.uuid),
+    "order of the typed words changes nothing"
+  );
+  assert.equal(searchNotes(db, ORG4, "builders nonesuch", 50).length, 0,
+    "AND, not OR — one term missing means no hit, or a second word could only ever add noise");
+
+  // THE EXCERPT IS THE MATCH. A body hit 400 characters in used to show the head of the file, so
+  // twenty markdown notes produced twenty identical-looking rows explaining nothing.
+  const deep = one.find((n) => n.title === "STATUS-0.md");
+  assert.ok(deep, "the body mention is in the results");
+  assert.ok(deep.excerpt.toLowerCase().includes("buildersaudit"),
+    "the window is cut around the term, not off the front of the file");
+  assert.ok(!deep.excerpt.startsWith("Product state."), "which means it is NOT the head of the file");
+  // A title-only hit has nowhere better to point, and still gets an excerpt rather than an empty cell.
+  const titleOnly = two.find((n) => n.title === "Builders Audit — handoff");
+  assert.ok(titleOnly && titleOnly.excerpt.length > 0, "a title match falls back to the head of the body");
+
+  assert.deepEqual(searchNotes(db, ORG4, "   ", 50), [], "whitespace is not a search");
+  // Punctuation is part of the term, not syntax. (LIKE's own wildcards % and _ still act as
+  // wildcards inside a term — a widened match, never an injection, since every term is a bound
+  // parameter. Worth knowing before someone reports "STATUS_0 found STATUS-0".)
+  assert.equal(searchNotes(db, ORG4, "STATUS-0.md", 50)[0].title, "STATUS-0.md",
+    "a hyphenated, dotted filename searches as one term");
+
+  ok("note search: AND across words, title beats mention, and the excerpt shows why the row is there");
+}
 
 console.log(`\nALL ${pass} VAULT ENGINE CHECKS PASSED`);

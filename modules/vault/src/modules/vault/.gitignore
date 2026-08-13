@@ -1,0 +1,12 @@
+# Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary
+#
+# ONE NARROW EXEMPTION, and it is not a relaxation of anything.
+#
+# The repository root ignores `*secret*` so a credential file can never be committed by accident.
+# That rule is right, and it stays. But it also swallows SecretsView.tsx — a React component with no
+# credential in it — so the file silently never appeared in `git status`, never appeared in a diff,
+# and would have been missing from the first commit of a module that cannot build without it.
+#
+# Re-included by exact name only. A new `*secret*` file in this folder is still ignored, which is the
+# behaviour the root rule exists for.
+!SecretsView.tsx

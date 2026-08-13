@@ -6,6 +6,8 @@
 // right-click the row and pick one. A select box in a table cell is a form control pretending to
 // be an action — it reads as data entry, not as filing.
 import { useState } from "react";
+import ConfirmModal from "./ConfirmModal";
+import { useFolderDrop } from "./FolderMenu";
 import { vaultApi, type VaultFolder, type VaultSecretMeta } from "./vaultApi";
 
 export interface FolderRailProps {
@@ -39,8 +41,11 @@ export default function FolderRail({ folders, secrets, selected, onSelect, onCha
   const api = vaultApi();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
-  const [dropTarget, setDropTarget] = useState<number | null | "none">("none");
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<VaultFolder | null>(null);
+  // Shared with the three-pane nav — one drop implementation, so filing means the same thing
+  // wherever the folder happens to be drawn.
+  const { over, dropProps } = useFolderDrop(onChanged);
 
   const active = secrets.filter((s) => !s.archived_at);
   const unfiled = active.filter((s) => s.folder_id == null).length;
@@ -56,23 +61,6 @@ export default function FolderRail({ folders, secrets, selected, onSelect, onCha
         onChanged();
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  };
-
-  /** A row was dropped on a folder. The uuid travels as plain text — never a credential. */
-  const drop = (folderId: number | null) => (e: React.DragEvent): void => {
-    e.preventDefault();
-    setDropTarget("none");
-    const uuid = e.dataTransfer.getData("text/vault-secret");
-    if (!uuid) return;
-    void api.updateMeta(uuid, { folderId }).then(onChanged).catch(() => undefined);
-  };
-
-  const allow = (folderId: number | null) => (e: React.DragEvent): void => {
-    // Only claim the drop when it is one of OUR rows — otherwise a file dragged in from the
-    // desktop would look droppable and then do nothing.
-    if (!e.dataTransfer.types.includes("text/vault-secret")) return;
-    e.preventDefault();
-    setDropTarget(folderId);
   };
 
   return (
@@ -114,11 +102,9 @@ export default function FolderRail({ folders, secrets, selected, onSelect, onCha
 
       {(folders.length > 0 || active.length > 0) && (
         <button
-          className={`vault-railrow${selected === "unfiled" ? " on" : ""}${dropTarget === null ? " drop" : ""}`}
+          className={`vault-railrow${selected === "unfiled" ? " on" : ""}${over === null ? " drop" : ""}`}
           onClick={() => onSelect("unfiled")}
-          onDragOver={allow(null)}
-          onDragLeave={() => setDropTarget("none")}
-          onDrop={drop(null)}
+          {...dropProps(null)}
         >
           <span className="vault-raildot" style={{ background: "var(--mc-dimmer)" }} />
           <span className="vault-railname">Unfiled</span>
@@ -129,17 +115,13 @@ export default function FolderRail({ folders, secrets, selected, onSelect, onCha
       {tree.map(({ folder, depth }) => (
         <button
           key={folder.id}
-          className={`vault-railrow${selected === `folder:${folder.id}` ? " on" : ""}${dropTarget === folder.id ? " drop" : ""}`}
+          className={`vault-railrow${selected === `folder:${folder.id}` ? " on" : ""}${over === folder.id ? " drop" : ""}`}
           style={{ paddingLeft: 9 + depth * 12 }}
           onClick={() => onSelect(`folder:${folder.id}`)}
-          onDragOver={allow(folder.id)}
-          onDragLeave={() => setDropTarget("none")}
-          onDrop={drop(folder.id)}
+          {...dropProps(folder.id)}
           onContextMenu={(e) => {
             e.preventDefault();
-            if (confirm(`Delete the folder "${folder.name}"? Nothing inside it is deleted — those entries move back to Unfiled.`)) {
-              void api.deleteFolder(folder.id).then(onChanged).catch(() => undefined);
-            }
+            setDeleting(folder);
           }}
           title="Drop an entry here to file it · right-click to delete"
         >
@@ -148,6 +130,26 @@ export default function FolderRail({ folders, secrets, selected, onSelect, onCha
           <span className="vault-railcount">{active.filter((s) => s.folder_id === folder.id).length}</span>
         </button>
       ))}
+
+      {deleting && (
+        <ConfirmModal
+          title={`Delete the folder "${deleting.name}"?`}
+          body={
+            <>
+              <p>The folder is removed from the sidebar.</p>
+              <p className="vault-hint">
+                <b>Nothing inside it is deleted.</b> The{" "}
+                {active.filter((s) => s.folder_id === deleting.id).length} entries it holds move back to <b>Unfiled</b>,
+                where you can file them again.
+              </p>
+            </>
+          }
+          confirmLabel="Delete folder"
+          danger
+          onConfirm={() => void api.deleteFolder(deleting.id).then(onChanged).catch(() => undefined)}
+          onClose={() => setDeleting(null)}
+        />
+      )}
     </>
   );
 }

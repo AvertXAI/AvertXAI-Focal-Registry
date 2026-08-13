@@ -4,7 +4,9 @@
 // from outside itself hands an attacker a lever. Carries the Lock section (the placeholder seam),
 // the seed-data card Jason ruled on 08-06, and the storage facts.
 import { useCallback, useEffect, useState } from "react";
-import { vaultApi, type VaultLockState } from "./vaultApi";
+import SidebarEditor from "./SidebarEditor";
+import type { Shortcut } from "./Sidebar";
+import { vaultApi, type VaultCompactStatus, type VaultFolder, type VaultLockState, type VaultSecretMeta } from "./vaultApi";
 
 export interface VaultSettingsProps {
   settings: Record<string, string>;
@@ -12,9 +14,14 @@ export interface VaultSettingsProps {
   onSetting: (key: string, value: string) => void;
   onLockChanged: (s: VaultLockState) => void;
   onDataChanged: () => void;
+  /** The sidebar editor (Jason 08-10-2026) — arranging lives here; quick-add lives on the sidebar. */
+  shortcuts: Shortcut[];
+  onShortcuts: (list: Shortcut[]) => void;
+  secrets: VaultSecretMeta[];
+  folders: VaultFolder[];
 }
 
-export default function VaultSettingsView({ settings, lockState, onSetting, onLockChanged, onDataChanged }: VaultSettingsProps) {
+export default function VaultSettingsView({ settings, lockState, onSetting, onLockChanged, onDataChanged, shortcuts, onShortcuts, secrets, folders }: VaultSettingsProps) {
   const api = vaultApi();
   const [seed, setSeed] = useState<{ present: boolean; count: number } | null>(null);
   const [seedBusy, setSeedBusy] = useState(false);
@@ -81,6 +88,14 @@ export default function VaultSettingsView({ settings, lockState, onSetting, onLo
 
   return (
     <>
+      {/* The sidebar editor sits FIRST — it is the settings surface most likely to be wanted, and
+          the one Jason asked for by name (08-10-2026). */}
+      <SidebarEditor
+        shortcuts={shortcuts} onChange={onShortcuts} secrets={secrets} folders={folders}
+        adjustable={settings["sidebar.width_adjustable"] !== "0"}
+        onAdjustable={(v) => onSetting("sidebar.width_adjustable", v ? "1" : "0")}
+      />
+
       <div className="vault-card">
         <div className="vault-cardhead">
           <span className="vault-cardtitle">These settings live inside the Vault only</span>
@@ -206,24 +221,207 @@ export default function VaultSettingsView({ settings, lockState, onSetting, onLo
           files are named so they say nothing about what they hold. That is not protection in itself — the encryption
           is — it just removes the invitation.
         </div>
+        <Compactor settings={settings} onSetting={onSetting} />
+        <NotePurge onDone={onDataChanged} />
       </div>
 
-      {/* ---- Import / export: mapped, not built. Orange is the not-built reference (Jason 08-06). ---- */}
-      <div className="vault-card" style={{ borderColor: "var(--mc-orange)" }}>
-        <div className="vault-cardhead">
-          <span className="vault-cardtitle" style={{ color: "var(--mc-orange)" }}>
-            Import / Export
-          </span>
-          <span className="vault-kind" style={{ color: "var(--mc-orange)", borderColor: "var(--mc-orange)" }}>
-            Not built
-          </span>
-        </div>
-        <div className="vault-hint">
-          Bringing in a spreadsheet of passwords, and taking one out again. The import maps a file's columns onto vault
-          fields and shows exactly what will be created before a single row is written. A plain export is the one action
-          that takes secrets out from behind the encryption, so it will always confirm first and always be recorded.
-        </div>
-      </div>
+      {/* The event log MOVED to its own surface on 08-12-2026 — it is reached from the ⚠ chip in the
+          nav row and from Diagnostics in this sidebar. A copy here would be a second place to look. */}
     </>
+  );
+}
+
+/**
+ * THE EVENT LOG SURFACE. Jason, 08-11-2026: "when something breaks, the app spits out an error only
+ * I would understand… not a normal oh shit something broke contact the developer to the user."
+ *
+ * So the split is: the user gets a sentence and a REFERENCE; this screen is where the reference is
+ * cashed in. Paste VLT-A3F91C into the search box and the technical row it names comes back with
+ * its stack. That is the entire design, and the reason request_id exists as a column.
+ *
+ * The level chooser writes log.min_level, which is the FLOOR FOR WHAT IS KEPT, not a view filter —
+ * dropping it to Debug starts recording developer chatter from that moment. Said plainly on screen,
+ * because a filter that silently changes what the past looks like would be a trap.
+ */
+
+
+/**
+ * COMPACT THE VAULT. SQLite does not hand deleted space back to the operating system on its own —
+ * freed pages are reused by later writes, so the file stays as large as it ever was until it is
+ * rebuilt. Measured 08-12-2026 on a 76 MB vault: 1,849 deleted notes freed nothing until a compact,
+ * which returned it to 7.4 MB in 167 ms.
+ *
+ * WHY THIS IS A BUTTON AND NOT AUTOMATIC. Jason asked whether it could just run on every delete. It
+ * was measured rather than argued: a full rebuild after ONE delete cost 2,158 ms and reclaimed
+ * nothing. Deletes now do the cheap incremental reclaim instead (0 ms), and this is the occasional
+ * full tidy — which also converts a pre-existing file to incremental mode, so it only ever needs
+ * pressing once before deletes start maintaining themselves.
+ */
+function Compactor({ settings, onSetting }: { settings: Record<string, string>; onSetting: (k: string, v: string) => void }) {
+  const api = vaultApi();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [st, setSt] = useState<VaultCompactStatus | null>(null);
+  const mb = (b: number): string => `${(b / 1048576).toFixed(1)} MB`;
+
+  /** Dry run — the arithmetic, compacting nothing. Shown so the decision is inspectable rather
+      than a thing that happens to you. */
+  const refresh = useCallback((): void => {
+    void api.compactIfDue(true).then(setSt).catch(() => setSt(null));
+  }, [api]);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const run = (): void => {
+    setBusy(true); setMsg(null); setError(null);
+    void api.compact()
+      .then((r) => setMsg(
+        r.freed > 0
+          ? `Compacted — ${mb(r.before)} down to ${mb(r.after)}, ${mb(r.freed)} returned to Windows.`
+          : `Already compact at ${mb(r.after)} — there was no reclaimable space.`
+      ))
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => { setBusy(false); refresh(); });
+  };
+
+  const pct = st ? Math.round(st.ratio * 100) : 0;
+
+  return (
+    <div style={{ marginTop: 14, borderTop: "1px solid var(--mc-border)", paddingTop: 12 }}>
+      <div className="vault-btnrow" style={{ alignItems: "center" }}>
+        <button className="vault-btn" disabled={busy} onClick={run}>
+          {busy && <span className="vault-spinner" aria-hidden="true" />}
+          {busy ? "Compacting…" : "Compact the vault"}
+        </button>
+        <span className="vault-hint" style={{ flex: 1 }}>
+          Rebuilds the database file so space from deleted items goes back to Windows. Nothing is lost — it is the same
+          data in a tighter file. It needs about double the vault&rsquo;s size in free space while it runs.
+        </span>
+      </div>
+      {/* A rebuild of a 158 MB encrypted file is not instant, and a dead button is how people press
+          it twice. The bar is indeterminate on purpose — SQLite reports no progress from VACUUM. */}
+      {busy && <div className="vault-progress" role="status" aria-live="polite"><i /></div>}
+      {msg && <div className="vault-hint" style={{ marginTop: 8, color: "var(--vault-strong-color)" }}>{msg}</div>}
+      {error && <div className="vault-state error" style={{ marginTop: 8 }}>{error}</div>}
+
+      <div className="vault-field" style={{ marginTop: 12, maxWidth: 320 }}>
+        <label htmlFor="compact-every">Compact on its own</label>
+        <select
+          id="compact-every"
+          value={settings["maintenance.compact_every"] ?? "weekly"}
+          onChange={(e) => onSetting("maintenance.compact_every", e.target.value)}
+        >
+          <option value="off">Never — I will press the button</option>
+          <option value="launch">Every time the vault opens</option>
+          <option value="daily">Once a day</option>
+          <option value="weekly">Once a week</option>
+        </select>
+      </div>
+      <div className="vault-hint" style={{ marginTop: 6 }}>
+        The schedule is only a <b>backstop</b>. What actually triggers it is <b>pressure</b> — dead space left behind by
+        deletes — so a bloated vault is tidied straight away instead of waiting for the calendar, and a healthy one is
+        never rewritten for nothing. You get a brief green notice when it runs.
+      </div>
+
+      {/* THE ARITHMETIC, ON SCREEN. Jason's ask was that it be "calculated, not firing like an
+          idiot" — so the calculation is visible rather than something that happens to you. */}
+      {st && (
+        <div className="vault-card" style={{ marginTop: 12, background: "var(--mc-nested)" }}>
+          <div className="vault-cardhead"><span className="vault-cardtitle">Where it stands right now</span></div>
+          <div className="vault-pressure">
+            {/* AN EMPTY BAR READS AS BROKEN (Jason 08-12-2026 — "shows blank after compacting").
+                Zero dead space is the HEALTHY answer, not a missing value, so at 0% the bar fills
+                green and says so rather than sitting empty and looking like a failed render. */}
+            <div className={`vault-pbar${st.reclaimable === 0 ? " clean" : ""}`}>
+              <i style={{ width: st.reclaimable === 0 ? "100%" : `${Math.max(2, Math.min(100, pct))}%` }} />
+            </div>
+            <div className="vault-hint" style={{ marginTop: 7 }}>
+              {st.reclaimable === 0 ? (
+                <><b style={{ color: "var(--vault-strong-color)" }}>No dead space at all.</b> All {mb(st.fileBytes)} is live data — there is nothing to reclaim.</>
+              ) : (
+                <><b>{mb(st.reclaimable)}</b> of <b>{mb(st.fileBytes)}</b> is dead space — <b>{pct}%</b>.</>
+              )}
+            </div>
+          </div>
+          <ul className="vault-reasons" style={{ marginTop: 8 }}>
+            <li>{st.hitsAbsolute ? "✓" : "—"} Enough on its own: {mb(st.absoluteBar)} reclaimable</li>
+            <li>{st.hitsRatio ? "✓" : "—"} Proportionally bloated: {Math.round(st.ratioBar * 100)}% of the file</li>
+            <li>{st.hitsSchedule ? "✓" : "—"} Backstop: the {st.every} schedule is due</li>
+          </ul>
+          <div className="vault-hint" style={{ marginTop: 8 }}>
+            {st.hitsAbsolute || st.hitsRatio || st.hitsSchedule
+              ? "It will compact on the next check."
+              : "Nothing to do — it will leave the file alone."}
+            {st.lastCompactedMs ? ` Last compacted ${new Date(st.lastCompactedMs).toLocaleString()}.` : " It has never needed compacting."}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/**
+ * CLEAR EVERY NOTE. A testing surface and a real one — after a bad import you want the whole thing
+ * gone, and 4,000 archive-then-destroy round trips is not an answer (Jason 08-12-2026: "you didnt
+ * create a place for me to purge the notes db").
+ *
+ * TYPED CONFIRMATION, not a button. This is the most destructive control in the module: it does not
+ * archive, there is no shelf to recover from, and it takes the folder tree with it. A dialog you can
+ * dismiss by reflex is the wrong guard for that, so the word has to be typed — the same treatment
+ * the shell gives its organisation reset.
+ */
+function NotePurge({ onDone }: { onDone: () => void }) {
+  const api = vaultApi();
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = (): void => {
+    setBusy(true); setError(null);
+    void api.purgeNotes()
+      .then((r) => {
+        setMsg(`${r.notes.toLocaleString()} notes and ${r.folders} folders deleted. Passwords, servers and repos are untouched.`);
+        setOpen(false); setTyped(""); onDone();
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div style={{ marginTop: 14, borderTop: "1px solid var(--mc-border)", paddingTop: 12 }}>
+      <div className="vault-btnrow" style={{ alignItems: "center" }}>
+        <button className="vault-btn danger" onClick={() => setOpen((v) => !v)}>Delete every note</button>
+        <span className="vault-hint" style={{ flex: 1 }}>
+          Clears all Secured Notes, Runbooks, Snippets <b>and the folder tree</b>. Passwords, servers and repos are not
+          touched. Files on your disk are not touched — the vault only ever held copies.
+        </span>
+      </div>
+
+      {open && (
+        <div className="vault-card" style={{ marginTop: 10, borderColor: "var(--vault-danger-color)" }}>
+          <div className="vault-hint" style={{ marginBottom: 8 }}>
+            <b style={{ color: "var(--vault-danger-color)" }}>There is no undo and no archive.</b> Type
+            <b> DELETE</b> to confirm.
+          </div>
+          <div className="vault-btnrow">
+            <input
+              className="vault-logsearch" style={{ maxWidth: 200 }} autoFocus value={typed}
+              placeholder="DELETE" onChange={(e) => setTyped(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && typed === "DELETE") run(); }}
+            />
+            <button className="vault-btn danger solid" disabled={typed !== "DELETE" || busy} onClick={run}>
+              {busy ? "Deleting…" : "Delete every note"}
+            </button>
+            <button className="vault-btn" onClick={() => { setOpen(false); setTyped(""); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {msg && <div className="vault-hint" style={{ marginTop: 8, color: "var(--vault-strong-color)" }}>{msg}</div>}
+      {error && <div className="vault-state error" style={{ marginTop: 8 }}>{error}</div>}
+    </div>
   );
 }

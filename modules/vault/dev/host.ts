@@ -15,7 +15,7 @@ import { app, BrowserWindow } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { addOrg, getActiveOrg, initRegistry } from "../electron/core/services/db/registry";
-import { initDb } from "../electron/core/services/db";
+import { initDb, closeAllDbs } from "../electron/core/services/db";
 import { registerVaultIpc } from "../electron/core/services/vault/ipc";
 
 // A fixed org id, so the same throwaway database is reused between runs and the seed survives.
@@ -54,4 +54,7 @@ app.whenReady().then(() => {
   win.webContents.on("did-finish-load", () => win.show());
 });
 
+// Checkpoint and close every connection BEFORE the process goes, so the WAL sidecar is folded into
+// the database file and what is on disk after quit is the complete story (Jason 08-12-2026).
+app.on("will-quit", () => closeAllDbs());
 app.on("window-all-closed", () => app.quit());

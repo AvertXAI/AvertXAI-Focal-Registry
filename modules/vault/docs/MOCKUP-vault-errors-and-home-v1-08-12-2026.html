@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vault — the Errors surface, and what the Vault tab is for — v1 08-12-2026</title>
+<style>
+:root{
+  --win:#f4f6fa; --panel:#ffffff; --panel2:#f3f6fb; --field:#ffffff; --sel:#fdf2e9;
+  --bd:#dde4ee; --bd2:#c2ccdb; --txt:#111a2b; --dim:#586a86; --dimmer:#8492a8;
+  --green:#128a4b; --purple:#6355d8; --red:#cf3b45; --orange:#d2691e;
+  --blue:#2f6fd0; --amber:#c9821a; --teal:#17838f;
+  --mono:'Cascadia Mono','Consolas',monospace; --sans:'Segoe UI',system-ui,sans-serif;
+  /* the terminal */
+  --t-bg:#11161d; --t-line:#1c232c; --t-txt:#c8d3e0; --t-dim:#6b7a8d;
+  --t-green:#4ec9a7; --t-amber:#e2b341; --t-red:#f2685f; --t-blue:#5aa9f0; --t-purple:#b48ef0;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--win);color:var(--txt);font:13px/1.55 var(--sans)}
+h1,h2,h3{margin:0}
+.rn{font-family:var(--mono)}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 20px 90px}
+.doc h1{font-size:23px;letter-spacing:-.2px}
+.doc .sub{color:var(--dim);margin-top:7px;max-width:880px}
+.sec{margin:44px 0 0}
+.sec>h2{font-size:17px;padding-bottom:9px;border-bottom:2px solid var(--bd);margin-bottom:5px}
+.sec>.why{color:var(--dim);margin:11px 0 17px;max-width:900px}
+.frame{border:1px solid var(--bd2);border-radius:12px;overflow:hidden;box-shadow:0 3px 14px rgba(23,38,64,.13);background:var(--panel)}
+.cap{font-size:11px;color:var(--dimmer);margin:8px 2px 22px}
+.q{background:#eef4ff;border:1px solid #cfe0ff;border-left:3px solid var(--blue);border-radius:8px;padding:12px 15px;margin:16px 0;max-width:900px}
+.q b{color:var(--blue)}
+ul.tight{margin:9px 0 0 19px;padding:0}ul.tight li{margin-bottom:5px}
+.btn{border:1px solid var(--bd2);background:var(--panel);border-radius:8px;padding:6px 13px;font:12px var(--sans);cursor:pointer;color:var(--txt)}
+.btn.go{background:var(--orange);border-color:var(--orange);color:#fff;font-weight:600}
+.btn.sm{padding:3px 9px;font-size:11px}
+.seg{display:inline-flex;border:1px solid var(--bd2);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--bd2);background:var(--panel);padding:5px 12px;font:12px var(--sans);cursor:pointer;color:var(--dim)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--sel);color:var(--orange);font-weight:600}
+.head{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;letter-spacing:.7px;
+  padding:2px 6px 2px 7px;border-radius:5px;text-transform:uppercase;border:1px solid}
+.pill.err{color:var(--red);border-color:var(--red)}
+.pill.warn{color:var(--amber);border-color:var(--amber)}
+.pill.ok{color:var(--green);border-color:var(--green)}
+.pill.grey{color:var(--dimmer);border-color:var(--bd2)}
+
+/* ---- terminal ---- */
+.term{background:var(--t-bg);padding:12px 14px;font:11.5px/1.75 var(--mono);color:var(--t-txt);
+  max-height:420px;overflow:auto}
+.term .ln{display:flex;gap:10px;white-space:pre-wrap;word-break:break-word;padding:1px 0}
+.term .ln:hover{background:var(--t-line)}
+.term .ts{color:var(--t-dim);flex:none}
+.term .lv{flex:none;font-weight:700;width:52px}
+.lv.error{color:var(--t-red)}.lv.warn{color:var(--t-amber)}.lv.info{color:var(--t-blue)}.lv.debug{color:var(--t-dim)}
+.term .ch{color:var(--t-purple);flex:none}
+.term .msg{flex:1;min-width:0}
+.term .ref{color:var(--t-green);flex:none}
+.term .stack{color:var(--t-dim);padding:2px 0 6px 62px;white-space:pre-wrap}
+.term .grp{color:var(--t-dim);border-top:1px solid var(--t-line);margin-top:6px;padding-top:6px}
+.tbar{display:flex;align-items:center;gap:8px;background:#0c1117;border-bottom:1px solid var(--t-line);
+  padding:7px 12px;font:11px var(--mono);color:var(--t-dim);flex-wrap:wrap}
+.tbar .dot{width:9px;height:9px;border-radius:50%;background:var(--t-red);flex:none}
+.tbar input{flex:1;min-width:120px;background:#161d26;border:1px solid var(--t-line);border-radius:6px;
+  padding:4px 9px;color:var(--t-txt);font:11px var(--mono);outline:none}
+.tbar .tg{border:1px solid var(--t-line);background:#161d26;color:var(--t-dim);border-radius:5px;
+  padding:2px 9px;cursor:pointer;font:10px var(--mono)}
+.tbar .tg.on{color:var(--t-txt);border-color:var(--t-blue)}
+.live{display:inline-flex;align-items:center;gap:5px;color:var(--t-green)}
+.live i{width:7px;height:7px;border-radius:50%;background:var(--t-green);display:block}
+
+/* ---- home options ---- */
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.opt{border:1px solid var(--bd2);border-radius:11px;overflow:hidden;background:var(--panel)}
+.opt>h4{margin:0;padding:10px 13px;background:var(--panel2);border-bottom:1px solid var(--bd);font-size:12.5px}
+.opt>.body{padding:12px 13px}
+.opt .lead{font-size:11.5px;color:var(--dim);margin-bottom:10px}
+.stat{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.card{border:1px solid var(--bd);border-radius:9px;padding:8px 11px;min-width:92px}
+.card .k{display:block;font-size:9px;letter-spacing:.9px;text-transform:uppercase;color:var(--dimmer)}
+.card .v{display:block;font-size:17px;font-weight:700;margin-top:2px}
+.feed{border:1px solid var(--bd);border-radius:9px;overflow:hidden}
+.fr{display:flex;align-items:center;gap:9px;padding:6px 10px;border-bottom:1px solid var(--bd);font-size:11.5px}
+.fr:last-child{border-bottom:0}
+.fr .ic{width:19px;height:19px;border-radius:5px;display:grid;place-items:center;font-size:9px;color:#fff;flex:none}
+.fr .w{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fr .t{font-family:var(--mono);font-size:9.5px;color:var(--dimmer);flex:none}
+.rec{font-size:11px;color:var(--dim);margin-top:9px}
+.verdict{background:#f2fbf5;border:1px solid #bfe6cd;border-left:3px solid var(--green);border-radius:8px;padding:11px 14px;margin-top:14px}
+.verdict b{color:var(--green)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="doc">
+  <h1>The Errors surface, and what the Vault tab is for</h1>
+  <div class="sub">Mockup v1 · 08-12-2026. Two things Jason asked for: the error log out of the bottom of Settings and
+  into something with its own room and a terminal reading, and a decision on the Vault home tab — options, or remove it.</div>
+</div>
+
+<!-- ================================================================ 1 -->
+<div class="sec">
+  <h2>1 · Errors — its own surface, read like a terminal</h2>
+  <div class="why">
+    Right now it is a card near the bottom of Settings, below Storage. That is wrong twice: it is the thing you go
+    looking for when something has just broken, so it should not need scrolling past three other cards to reach; and a
+    log wants to read like a log, not like a settings panel.
+    <br><br>
+    <b>Reached from the ⚠ chip in the nav row</b> — which already appears only when errors exist — and from Settings.
+    Still not a permanent sixth tab: the strip needs ~498 of the 508 pixels available at the 740 floor.
+  </div>
+
+  <div class="frame">
+    <div class="head">
+      <b style="font-size:13px">Activity &amp; errors</b>
+      <span class="pill err">3 errors</span><span class="pill warn">2 warnings</span><span class="pill grey">41 info</span>
+      <span style="margin-left:auto;display:flex;gap:7px">
+        <button class="btn sm">Copy all</button>
+        <button class="btn sm">Export .log</button>
+        <button class="btn sm">Clear resolved</button>
+      </span>
+    </div>
+
+    <div class="tbar">
+      <span class="dot"></span>
+      <span class="tg on">error</span><span class="tg on">warn</span><span class="tg">info</span><span class="tg">debug</span>
+      <input value="" placeholder="filter — paste a VLT- reference, a channel, or any text">
+      <span class="tg">wrap</span><span class="tg on">stacks</span>
+      <span class="live"><i></i>live</span>
+    </div>
+
+    <div class="term">
+      <div class="ln"><span class="ts">04:12:07</span><span class="lv error">ERROR</span><span class="ch">vault:compactIfDue</span><span class="msg">No handler registered for 'vault:compactIfDue'</span><span class="ref">VLT-A3F91C</span></div>
+      <div class="stack">Error: No handler registered for 'vault:compactIfDue'
+    at EventEmitter.&lt;anonymous&gt; (node:electron/js2c/browser_init:2:83402)
+    at Object.onMessage (node:electron/js2c/browser_init:2:79210)</div>
+
+      <div class="ln"><span class="ts">04:12:07</span><span class="lv warn">WARN</span><span class="ch">renderer</span><span class="msg">Search: repos could not be read</span><span class="ref">VLT-77B204</span></div>
+
+      <div class="ln"><span class="ts">04:11:58</span><span class="lv error">ERROR</span><span class="ch">vault:chooseScanRoot</span><span class="msg">No handler registered for 'vault:chooseScanRoot'</span><span class="ref">VLT-2E9D01</span></div>
+      <div class="stack">Error: No handler registered for 'vault:chooseScanRoot'
+    at EventEmitter.&lt;anonymous&gt; (node:electron/js2c/browser_init:2:83402)</div>
+
+      <div class="ln"><span class="ts">04:11:44</span><span class="lv info">INFO</span><span class="ch">vault</span><span class="msg">Vault opened.</span><span class="ref"></span></div>
+      <div class="ln"><span class="ts">04:11:44</span><span class="lv debug">DEBUG</span><span class="ch">vault:listNotes</span><span class="msg">4089 rows in 31 ms</span><span class="ref"></span></div>
+
+      <div class="ln grp"><span class="ts">08-11 23:17</span><span class="lv info">INFO</span><span class="ch">vault</span><span class="msg">Vault opened.</span><span class="ref"></span></div>
+      <div class="ln"><span class="ts">08-11 23:16</span><span class="lv info">INFO</span><span class="ch">vault:importDocs</span><span class="msg">documents · 2041 created, 0 warned</span><span class="ref"></span></div>
+    </div>
+
+    <div class="head" style="border-top:1px solid var(--bd);border-bottom:0">
+      <span style="font-size:11px;color:var(--dim)">
+        Newest first · a blank line separates sessions · <b>live</b> means it appends as things happen, no refresh button
+      </span>
+      <span style="margin-left:auto;display:flex;gap:9px;align-items:center">
+        <span style="font-size:11px;color:var(--dim)">Record from now on</span>
+        <select style="border:1px solid var(--bd2);border-radius:7px;padding:4px 9px;font:12px var(--sans)">
+          <option>Errors only</option><option>Warnings and errors</option><option selected>Normal operation</option><option>Everything, including developer detail</option>
+        </select>
+      </span>
+    </div>
+  </div>
+  <div class="cap">Terminal reading, but still a real list: rows are selectable, the reference is one click to copy, and stacks fold away
+  with the <b>stacks</b> toggle so a screen of errors stays scannable. Sessions separate with a rule so "this launch" and "last night"
+  never blur — which is exactly the confusion the stale timestamps caused.</div>
+
+  <div class="q">
+    <b>Three options that need your call, because they change what the log is FOR.</b>
+    <ul class="tight">
+      <li><b>Clear resolved</b> — should the log ever be clearable by hand? Canon says keep everything, and a log you can
+      quietly empty is worth less when something goes wrong. My lean: <b>no manual clear</b>, only the level floor.</li>
+      <li><b>Export .log</b> — plain text to a file you can send. My lean: <b>yes</b>, and it is the thing a bug report
+      should attach.</li>
+      <li><b>Retention</b> — nothing prunes this today, so it grows for ever. My lean: keep <b>errors and warnings for
+      ever</b>, and roll <b>info/debug</b> off after 30 days, since those are volume and not evidence.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ================================================================ 2 -->
+<div class="sec">
+  <h2>2 · The Vault tab — three options, or delete it</h2>
+  <div class="why">
+    You are right that it earns nothing today: six count tiles and a sentence. Nothing was ever ruled for it — it was a
+    placeholder from the redesign and it has stayed one. Here is what it could be. <b>Option D is deleting it</b>, and
+    that is a real answer, not a filler.
+  </div>
+
+  <div class="opts">
+    <div class="opt">
+      <h4>A · Recent activity — what you were doing</h4>
+      <div class="body">
+        <div class="lead">The one thing no other tab shows: a timeline across all four. Open the app, see where you left off.</div>
+        <div class="feed">
+          <div class="fr"><span class="ic" style="background:var(--purple)">N</span><span class="w">Edited <b>FocalRegistry-R&amp;D-Backlog-05</b></span><span class="t">4m ago</span></div>
+          <div class="fr"><span class="ic" style="background:var(--orange)">P</span><span class="w">Revealed <b>Hetzner root</b></span><span class="t">1h</span></div>
+          <div class="fr"><span class="ic" style="background:var(--teal)">I</span><span class="w">Imported <b>18 DNS records</b> for avertxai.com</span><span class="t">2h</span></div>
+          <div class="fr"><span class="ic" style="background:var(--purple)">N</span><span class="w">Imported <b>2,041 notes</b> from D:\dev\_source</span><span class="t">yesterday</span></div>
+        </div>
+        <div class="rec"><b>Cheapest to build</b> — the access log and the event log already hold all of it.</div>
+      </div>
+    </div>
+
+    <div class="opt">
+      <h4>B · Needs attention — the vault's own health</h4>
+      <div class="body">
+        <div class="lead">Only ever shows things with an action attached. When there is nothing wrong, it says so and stops.</div>
+        <div class="stat">
+          <div class="card"><span class="k">Weak</span><span class="v" style="color:var(--red)">23</span></div>
+          <div class="card"><span class="k">Reused</span><span class="v" style="color:var(--amber)">12</span></div>
+          <div class="card"><span class="k">Errors</span><span class="v" style="color:var(--red)">3</span></div>
+          <div class="card"><span class="k">Unfiled</span><span class="v">784</span></div>
+        </div>
+        <div class="feed">
+          <div class="fr"><span class="ic" style="background:var(--red)">!</span><span class="w">3 errors recorded since last launch</span><span class="t">open</span></div>
+          <div class="fr"><span class="ic" style="background:var(--amber)">!</span><span class="w">12 passwords reused across sites</span><span class="t">fix</span></div>
+          <div class="fr"><span class="ic" style="background:var(--blue)">i</span><span class="w">784 notes are unfiled</span><span class="t">file</span></div>
+        </div>
+        <div class="rec">Health and the log exist; this is a roll-up of both.</div>
+      </div>
+    </div>
+
+    <div class="opt">
+      <h4>C · Pinned — you decide what is on it</h4>
+      <div class="body">
+        <div class="lead">The shortcuts rail promoted to a page: the entries, notes and servers you actually reach for, big enough to hit.</div>
+        <div class="feed">
+          <div class="fr"><span class="ic" style="background:var(--orange)">P</span><span class="w">Hetzner root — avert-core-01</span><span class="t">copy</span></div>
+          <div class="fr"><span class="ic" style="background:var(--purple)">R</span><span class="w">Restoring the Hetzner box</span><span class="t">run</span></div>
+          <div class="fr"><span class="ic" style="background:var(--teal)">I</span><span class="w">avert-core-01</span><span class="t">open</span></div>
+        </div>
+        <div class="rec">Duplicates the sidebar it sits next to — the weakest of the three for that reason.</div>
+      </div>
+    </div>
+
+    <div class="opt" style="border-color:var(--red)">
+      <h4 style="color:var(--red)">D · Remove it</h4>
+      <div class="body">
+        <div class="lead">Four tabs, and Passwords becomes the landing page. Nothing is lost — every number on the tile row already
+        appears on the tab that owns it, and the sidebar is the real navigation.</div>
+        <div class="rec">
+          <b>Buys back ~52 pixels</b> of a tab strip that is already tight at the 740 floor, and removes a page that
+          currently teaches a new user nothing. Costs one ruling to reverse later if a home page turns out to be wanted.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="verdict">
+    <b>My lean: A, and only A.</b> Recent activity is the one thing the other four tabs structurally cannot show — each of
+    them is a single kind of thing, and "what happened lately" cuts across all of them. It is also nearly free: the
+    access log and the event log already carry every row it would render.
+    <br><br>
+    B is a good idea in the wrong place — "needs attention" belongs on Health, where the fixes already live. C restates
+    the sidebar two inches to its right. And <b>D is a perfectly respectable answer</b>: if you would not open a recent-activity
+    page, the honest move is to delete the tab rather than decorate it.
+  </div>
+</div>
+
+<!-- ================================================================ 3 -->
+<div class="sec">
+  <h2>3 · Code files — what works today, and what does not</h2>
+  <div class="why">You asked about <span class="rn">.py</span> files: capture as snippets, and view them in an editor.</div>
+  <div class="frame" style="padding:14px 16px">
+    <ul class="tight" style="margin:0 0 0 19px">
+      <li><b>Importing them: not yet, and it is one line.</b> <span class="rn">.py</span> is not in the walk list — that
+      list currently ends at markdown, text, data and the binary stubs. Any text extension can join it.</li>
+      <li><b>Storing them: already correct.</b> A code file is text; it lands in a note wrapped in a fenced block, the same
+      way <span class="rn">.json</span> and <span class="rn">.csv</span> already do, so nothing is lost or reformatted.</li>
+      <li><b>Viewing them: works, in monochrome.</b> The Markdoc renderer draws fenced code with a copy button and keeps
+      whitespace exactly. What it does <b>not</b> do is colour the syntax.</li>
+      <li><b>Editing them: works, with a caveat worth stating.</b> Milkdown edits the note; the note is a copy. Editing a
+      <span class="rn">.py</span> note does not touch the <span class="rn">.py</span> file on your disk — same one-way rule
+      as everything else imported.</li>
+    </ul>
+    <div class="q" style="margin-bottom:0">
+      <b>Syntax colouring is the only real decision.</b> It needs a highlighter, and that is a §2.10 dependency call —
+      Shiki is accurate but ships a large grammar set, Prism and highlight.js are lighter and both MIT. My lean:
+      <b>ship monochrome first</b>, because a fenced Python file is perfectly readable in a monospace font, and only add a
+      highlighter if you find yourself squinting. It is a one-file change either way.
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Secured Vault — Phase 2 · 9 options · 08-10-2026</title>
+<style>
+/* Same vocabulary as MOCKUP-vault-v3-8-options-08-02-2026 — same var names, same kit, so this
+   reads as the next chapter of that document rather than a different designer's file. */
+:root{
+  --win:#f4f6fa; --bar:#ffffff; --side:#eef1f7; --panel:#ffffff; --panel2:#f3f6fb;
+  --field:#ffffff; --sel:#fdf2e9; --bd:#dde4ee; --bd2:#c2ccdb;
+  --txt:#111a2b; --dim:#586a86; --dimmer:#8492a8; --lock:#a9b4c5;
+  --green:#128a4b; --greenbtn:#1f9d44; --purple:#6355d8; --red:#cf3b45;
+  --orange:#d2691e; --blue:#2f6fd0; --amber:#c9821a; --teal:#17838f;
+  --tipbg:#fdf6ee; --shadow:rgba(23,38,64,.13); --code:#f6f8fb;
+  --mono:'Cascadia Mono','Consolas',monospace; --sans:'Segoe UI',system-ui,sans-serif;
+}
+body.dark{
+  --win:#0a0e17; --bar:#0d1320; --side:#0b1019; --panel:#0e1626; --panel2:#111d31;
+  --field:#15233b; --sel:#1d1710; --bd:#1b2942; --bd2:#24365a;
+  --txt:#e9eef7; --dim:#7e92b0; --dimmer:#54678a; --lock:#3a465f;
+  --green:#38d982; --orange:#e08a3a; --blue:#4f8df0; --amber:#e0a93a; --teal:#2bb5c4;
+  --red:#e8636d; --tipbg:#171a1c; --shadow:rgba(0,0,0,.55); --code:#0c1524;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#e7ebf2;font-family:var(--sans);color:var(--txt);padding:24px 20px 60px}
+body.dark{background:#05080f}
+
+.optbar{max-width:1600px;margin:0 auto 16px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.optbar .lead{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--dimmer);margin-right:6px}
+.obtn{background:var(--panel);border:1px solid var(--bd);color:var(--dim);font-size:12px;padding:8px 13px;
+  border-radius:8px;cursor:pointer;font-family:var(--sans)}
+.obtn.on{background:var(--sel);border-color:var(--orange);color:var(--txt)}
+.obtn b{font-family:var(--mono);color:var(--dimmer);margin-right:6px}
+.obtn.on b{color:var(--orange)}
+.obtn.theme{margin-left:auto}
+
+.app{max-width:1600px;margin:0 auto;background:var(--win);border-radius:12px;
+  box-shadow:0 18px 50px var(--shadow);overflow:hidden;border:1px solid var(--bd)}
+.top{display:flex;align-items:center;gap:14px;background:var(--bar);padding:13px 22px;border-bottom:1px solid var(--bd)}
+.logo{width:32px;height:32px;border-radius:50%;background:var(--txt);color:var(--bar);font-weight:800;
+  display:flex;align-items:center;justify-content:center;font-size:15px;flex:0 0 32px}
+.crumb{font-size:13px;color:var(--dim);white-space:nowrap} .crumb b{color:var(--txt)} .crumb .lk{color:var(--lock)}
+.search{flex:1;max-width:440px;background:var(--field);border:1px solid var(--bd);border-radius:8px;
+  padding:7px 12px;font-size:12px;color:var(--dimmer)}
+.right{margin-left:auto;display:flex;align-items:center;gap:14px;color:var(--dim);font-size:14px}
+.wctl{color:var(--dimmer);letter-spacing:6px;font-size:12px;white-space:nowrap}
+
+.shellbody{display:flex;min-height:760px}
+.rail{width:232px;flex:0 0 232px;background:var(--side);border-right:1px solid var(--bd);padding:14px 11px;overflow:auto}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.tabs{display:flex;gap:20px;padding:14px 24px 0;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.tab{font-size:13px;color:var(--dim);padding-bottom:11px;white-space:nowrap;cursor:pointer}
+.tab.on{color:var(--txt);box-shadow:inset 0 -2px 0 var(--orange)}
+.tab.nu{color:var(--orange)}
+.content{padding:18px 24px 26px;display:flex;flex-direction:column;gap:14px;flex:1;min-width:0}
+
+.rhead{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--dimmer);margin:14px 0 5px 8px;font-weight:700}
+.rrow{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:7px;font-size:12.5px;color:var(--txt);cursor:pointer}
+.rrow:hover{background:var(--panel2)}
+.rrow.on{background:var(--sel);font-weight:600;box-shadow:inset 3px 0 0 var(--orange)}
+.rdot{width:8px;height:8px;border-radius:50%;flex:none}
+.rname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rn{font-family:var(--mono);font-size:11px;color:var(--dimmer)}
+.newbtn{width:100%;background:var(--greenbtn);color:#fff;border:0;border-radius:8px;padding:9px 12px;
+  font-size:12.5px;font-weight:600;cursor:pointer;font-family:var(--sans);margin-top:9px}
+
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:16px 18px}
+.card.flush{padding:0;overflow:hidden}
+.mlabel{display:block;font-size:11px;letter-spacing:1.8px;text-transform:uppercase;color:var(--orange);font-weight:700}
+.mlabel.quiet{color:var(--dimmer);font-weight:400;letter-spacing:1.5px}
+.mono{font-family:var(--mono)}
+.hint{font-size:12px;color:var(--dimmer);line-height:1.6}
+.sectitle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.btn{border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;border:1px solid var(--bd2);
+  background:var(--panel2);color:var(--txt);font-family:var(--sans);cursor:pointer;white-space:nowrap}
+.btn.go{background:var(--greenbtn);border-color:var(--greenbtn);color:#fff}
+.btn.pri{background:var(--orange);border-color:var(--orange);color:#fff}
+.btn.sm{padding:5px 10px;font-size:11.5px;font-weight:500}
+.btn.dgr{border-color:var(--red);color:var(--red)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.grow{flex:1;min-width:0}
+.srch{background:var(--field);border:1px solid var(--bd);border-radius:8px;padding:8px 11px;font-size:12px;color:var(--dimmer)}
+
+/* the "this is new" marker — orange outline, used sparingly */
+.nb{border-color:var(--orange)!important;box-shadow:0 0 0 1px rgba(210,105,30,.13)}
+.nbadge{display:inline-block;color:var(--orange);border:1px solid var(--orange);font-size:10px;font-weight:700;
+  letter-spacing:.6px;padding:1px 6px;border-radius:5px;vertical-align:middle;margin-left:7px}
+
+table{width:100%;border-collapse:collapse}
+/* Wide tables scroll INSIDE their own card — measured at the 740px floor, the DNS table wants
+   907px against 658px of content column, and a page that scrolls sideways is a broken page.
+   min-width keeps the columns legible rather than crushing them to fit. */
+.tscroll{overflow-x:auto}
+.tscroll table{min-width:660px}
+th{text-align:left;font-size:9.5px;letter-spacing:1.3px;text-transform:uppercase;color:var(--dimmer);
+  padding:0 10px 9px 0;font-weight:700;border-bottom:1px solid var(--bd)}
+td{padding:9px 10px 9px 0;border-bottom:1px solid var(--bd);font-size:12.5px;vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.pill{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.5px;padding:2px 8px;border-radius:20px;
+  text-transform:uppercase;white-space:nowrap}
+.pill.ok{background:rgba(18,138,75,.12);color:var(--green)}
+.pill.no{background:rgba(207,59,69,.12);color:var(--red)}
+.pill.warn{background:rgba(201,130,26,.14);color:var(--amber)}
+.pill.info{background:rgba(47,111,208,.12);color:var(--blue)}
+.pill.grey{background:var(--panel2);color:var(--dimmer)}
+
+.chips{display:flex;gap:9px;flex-wrap:wrap}
+.chip{background:var(--panel2);border:1px solid var(--bd);border-radius:9px;padding:9px 13px;min-width:104px}
+.chip .k{display:block;font-size:9px;letter-spacing:.9px;text-transform:uppercase;color:var(--dimmer);margin-bottom:3px}
+.chip .v{font-family:var(--mono);font-size:19px;font-weight:700;line-height:1}
+
+/* ---------- notes ---------- */
+.notewrap{display:flex;border:1px solid var(--bd);border-radius:12px;overflow:hidden;background:var(--panel);min-height:600px}
+.notelist{width:276px;flex:none;border-right:1px solid var(--bd);overflow:auto;background:var(--panel)}
+.nrow{padding:11px 14px;border-bottom:1px solid var(--bd);cursor:pointer}
+.nrow:hover{background:var(--panel2)}
+.nrow.on{background:var(--sel);box-shadow:inset 3px 0 0 var(--orange)}
+.nrow .t{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px}
+.nrow .s{font-size:11px;color:var(--dimmer);margin-top:3px;line-height:1.45;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.nrow .m{font-size:10px;color:var(--lock);margin-top:5px;font-family:var(--mono)}
+.ticon{width:17px;height:17px;border-radius:5px;flex:none;display:inline-flex;align-items:center;
+  justify-content:center;font-size:9.5px;font-weight:800;color:#fff}
+.noteedit{flex:1;min-width:0;display:flex;flex-direction:column}
+.notebar{display:flex;align-items:center;gap:6px;padding:9px 13px;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.tbtn{width:29px;height:27px;border:1px solid transparent;background:none;border-radius:6px;color:var(--dim);
+  cursor:pointer;font-size:13px;font-family:var(--sans)}
+.tbtn:hover{background:var(--panel2);border-color:var(--bd)}
+.tbtn.hot{color:var(--orange);border-color:var(--orange);background:var(--sel)}
+.seg{display:inline-flex;border:1px solid var(--bd2);border-radius:7px;overflow:hidden;margin-left:auto}
+.seg span{font-size:11px;padding:5px 11px;color:var(--dim);cursor:pointer;border-right:1px solid var(--bd2)}
+.seg span:last-child{border-right:0}
+.seg span.on{background:var(--orange);color:#fff;font-weight:600}
+.notesplit{flex:1;display:flex;min-height:0}
+.pane{flex:1;min-width:0;padding:16px 18px;overflow:auto;font-size:12.5px;line-height:1.65}
+.pane.src{border-right:1px solid var(--bd);font-family:var(--mono);font-size:12px;background:var(--panel)}
+.pane.src .h{color:var(--orange);font-weight:700}
+.pane.src .f{color:var(--dimmer)}
+.pane.src .k{color:var(--purple)}
+.pane h1{font-size:19px;margin:0 0 10px}
+.pane h2{font-size:15px;margin:18px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--bd)}
+.pane p{margin:0 0 11px}
+.pane ol,.pane ul{margin:0 0 12px 20px}
+.pane li{margin-bottom:7px}
+.pane code{font-family:var(--mono);font-size:11.5px;background:var(--code);border:1px solid var(--bd);
+  border-radius:4px;padding:1px 5px}
+.cblock{background:var(--code);border:1px solid var(--bd);border-radius:9px;margin:0 0 13px;overflow:hidden}
+.cblock .cb{display:flex;align-items:center;gap:8px;padding:6px 11px;border-bottom:1px solid var(--bd);
+  font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--dimmer)}
+.cblock pre{padding:11px 13px;overflow-x:auto;font-family:var(--mono);font-size:11.5px;line-height:1.6}
+.cblock .kw{color:var(--purple)} .cblock .st{color:var(--green)} .cblock .nu{color:var(--orange)}
+.cblock .cm{color:var(--dimmer)} .cblock .fn{color:var(--blue)}
+
+/* the entry chip — a note referencing a credential WITHOUT containing it */
+.vchip{display:inline-flex;align-items:center;gap:7px;background:var(--sel);border:1px solid var(--orange);
+  border-radius:7px;padding:2px 4px 2px 9px;font-size:11.5px;vertical-align:middle}
+.vchip .lk{color:var(--orange);font-weight:700}
+.vchip .v{font-family:var(--mono);color:var(--dimmer);letter-spacing:2px}
+.vchip button{border:1px solid var(--bd2);background:var(--panel);color:var(--dim);border-radius:5px;
+  font-size:10px;padding:2px 7px;cursor:pointer;font-family:var(--sans)}
+.shot{background:var(--panel2);border:1px dashed var(--bd2);border-radius:9px;padding:10px 12px;margin:0 0 13px;
+  display:flex;align-items:center;gap:11px}
+.shotimg{width:112px;height:66px;border-radius:6px;flex:none;background:
+  linear-gradient(135deg,#1b2430 0%,#28313f 48%,#1b2430 100%);position:relative;overflow:hidden;border:1px solid var(--bd2)}
+.shotimg::after{content:"";position:absolute;left:9px;right:9px;top:12px;height:5px;border-radius:3px;
+  background:rgba(255,255,255,.22);box-shadow:0 11px 0 rgba(255,255,255,.14),0 22px 0 rgba(255,255,255,.09),0 33px 0 rgba(255,255,255,.06)}
+
+/* ---------- runbook run mode ---------- */
+.step{display:flex;gap:13px;padding:14px 0;border-bottom:1px solid var(--bd)}
+.step:last-child{border-bottom:0}
+.snum{width:26px;height:26px;flex:none;border-radius:50%;border:1.5px solid var(--bd2);color:var(--dim);
+  display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer}
+.step.done .snum{background:var(--greenbtn);border-color:var(--greenbtn);color:#fff}
+.step.done .sbody{opacity:.5}
+.sbody{flex:1;min-width:0}
+.stitle{font-size:13px;font-weight:600;margin-bottom:7px}
+.cmd{display:flex;align-items:center;gap:9px;background:var(--code);border:1px solid var(--bd);border-radius:8px;
+  padding:8px 11px;font-family:var(--mono);font-size:11.5px;margin-bottom:8px}
+.cmd .c{flex:1;min-width:0;overflow-x:auto;white-space:nowrap}
+
+/* ---------- randomart ---------- */
+.art{font-family:var(--mono);font-size:12px;line-height:1.32;background:var(--code);border:1px solid var(--bd);
+  border-radius:9px;padding:12px 14px;display:inline-block;white-space:pre;color:var(--txt)}
+.fbox{background:var(--panel2);border:1px solid var(--bd);border-radius:9px;padding:10px 12px;margin-bottom:10px}
+.flabel{font-size:10px;color:var(--dimmer);margin-bottom:5px;letter-spacing:.5px;text-transform:uppercase;
+  display:flex;align-items:center;gap:8px}
+.fvalue{font-size:12.5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;word-break:break-all}
+/* actions sit hard right of the value they act on, so a Copy can never be mistaken for copying
+   the whole record — the mistake this pane was rebuilt to fix */
+.facts{margin-left:auto;display:flex;gap:6px}
+.derived{font-size:9px;letter-spacing:.7px;text-transform:uppercase;color:var(--teal);
+  border:1px solid var(--teal);border-radius:4px;padding:0 5px}
+.masked{font-family:var(--mono);color:var(--dimmer);letter-spacing:2px}
+.keybox{font-family:var(--mono);font-size:11px;background:var(--code);border:1px solid var(--bd);border-radius:8px;
+  padding:10px 12px;line-height:1.55;word-break:break-all;color:var(--dim);max-height:96px;overflow:auto}
+
+/* ---------- import ---------- */
+.paths{display:grid;grid-template-columns:repeat(auto-fit,minmax(216px,1fr));gap:11px;margin-bottom:14px}
+.path{border:1px solid var(--bd);border-radius:11px;padding:14px 15px;cursor:pointer;background:var(--panel)}
+.path.on{border-color:var(--orange);background:var(--sel)}
+.path .pi{font-size:19px;margin-bottom:8px}
+.path .pt{font-size:13px;font-weight:700;margin-bottom:5px}
+.path .pd{font-size:11.5px;color:var(--dimmer);line-height:1.55}
+.drop{border:2px dashed var(--bd2);border-radius:11px;padding:30px 18px;text-align:center;color:var(--dimmer);
+  font-size:12.5px;background:var(--panel2)}
+.zone{width:100%;min-height:132px;background:var(--code);border:1px solid var(--bd);border-radius:9px;
+  padding:11px 13px;font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.55;white-space:pre;overflow:auto}
+.conf{font-size:9px;font-weight:700;letter-spacing:.5px;padding:1px 5px;border-radius:4px;text-transform:uppercase}
+.conf.hi{background:rgba(18,138,75,.13);color:var(--green)}
+.conf.md{background:rgba(201,130,26,.15);color:var(--amber)}
+.conf.lo{background:rgba(207,59,69,.13);color:var(--red)}
+td.low{box-shadow:inset 0 0 0 1.5px var(--red);border-radius:6px}
+.cellin{background:var(--field);border:1px solid var(--bd);border-radius:6px;padding:4px 7px;font-size:12px;
+  font-family:var(--mono);color:var(--txt);width:100%}
+
+/* ---------- repos ---------- */
+.repo{border:1px solid var(--bd);border-radius:11px;margin-bottom:9px;background:var(--panel);overflow:hidden}
+.repohead{display:flex;align-items:center;gap:12px;padding:13px 15px;cursor:pointer}
+.repohead:hover{background:var(--panel2)}
+.ravatar{width:34px;height:34px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:13px;color:#fff}
+.rmeta{flex:1;min-width:0}
+.rtitle{font-size:13.5px;font-weight:700;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.rdesc{font-size:11.5px;color:var(--dimmer);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rstats{display:flex;gap:14px;font-size:11px;color:var(--dim);align-items:center;flex:none;flex-wrap:wrap}
+.langdot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px}
+.caret{color:var(--dimmer);font-size:12px;transition:transform .15s;flex:none}
+.repo.open .caret{transform:rotate(90deg)}
+.repobody{display:none;border-top:1px solid var(--bd);background:var(--win)}
+.repo.open .repobody{display:block}
+.vaultstrip{display:flex;gap:9px;flex-wrap:wrap;align-items:center;padding:11px 15px;background:var(--sel);
+  border-bottom:1px solid var(--bd);font-size:11.5px}
+.ghtabs{display:flex;gap:24px;padding:11px 18px 0;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.ghtab{font-size:12.5px;color:var(--dim);padding-bottom:9px;cursor:pointer;white-space:nowrap}
+.ghtab.on{color:var(--txt);font-weight:600;box-shadow:inset 0 -2px 0 var(--orange)}
+.readme{padding:20px 26px 26px;max-width:900px}
+.readme h1{font-size:25px;padding-bottom:9px;border-bottom:1px solid var(--bd);margin-bottom:14px}
+.readme h2{font-size:18px;padding-bottom:7px;border-bottom:1px solid var(--bd);margin:24px 0 12px}
+.readme p{font-size:13px;line-height:1.7;margin-bottom:12px;color:var(--dim)}
+.readme li{font-size:13px;line-height:1.75;color:var(--dim);margin-bottom:3px}
+.readme ul{margin-left:20px;margin-bottom:12px}
+.readme b{color:var(--txt)}
+.badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:13px}
+.bdg{display:inline-flex;font-size:10px;font-family:var(--sans);border-radius:4px;overflow:hidden;height:19px;line-height:19px}
+.bdg .l{background:#555;color:#fff;padding:0 6px}
+.bdg .r{color:#fff;padding:0 6px;font-weight:600}
+.masterdetail{display:flex;border:1px solid var(--bd);border-radius:12px;overflow:hidden;min-height:560px;background:var(--panel)}
+.mdlist{width:290px;flex:none;border-right:1px solid var(--bd);overflow:auto}
+.mdrow{display:flex;gap:10px;align-items:center;padding:11px 13px;border-bottom:1px solid var(--bd);cursor:pointer}
+.mdrow.on{background:var(--sel);box-shadow:inset 3px 0 0 var(--orange)}
+.mddetail{flex:1;min-width:0;overflow:auto}
+
+.split2{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.split3{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}
+@media (max-width:1180px){.split3{grid-template-columns:1fr}.split2{grid-template-columns:1fr}}
+.optpanel{display:none}
+.optpanel.on{display:flex;flex-direction:column;gap:14px}
+.note{background:var(--tipbg);border:1px solid var(--orange);border-radius:9px;padding:11px 13px;font-size:12px;
+  line-height:1.6;color:var(--dim)}
+.note b{color:var(--txt)}
+body.dark .note{background:#1b1712}
+</style>
+</head>
+<body>
+
+<div class="optbar">
+  <span class="lead">Vault phase 2</span>
+  <button class="obtn on" data-opt="1"><b>1</b>Notes — editor</button>
+  <button class="obtn" data-opt="2"><b>2</b>Notes — 3 list styles</button>
+  <button class="obtn" data-opt="3"><b>3</b>Runbook — run mode</button>
+  <button class="obtn" data-opt="4"><b>4</b>SSH key + randomart</button>
+  <button class="obtn" data-opt="5"><b>5</b>Infrastructure</button>
+  <button class="obtn" data-opt="6"><b>6</b>Import — 3 paths</button>
+  <button class="obtn" data-opt="7"><b>7</b>Repos — accordion</button>
+  <button class="obtn" data-opt="8"><b>8</b>Repos — master/detail</button>
+  <button class="obtn" data-opt="9"><b>9</b>Packages ledger</button>
+  <button class="obtn theme" id="themebtn">◐ Dark</button>
+</div>
+
+<div class="app">
+  <div class="top">
+    <div class="logo">A</div>
+    <div class="crumb">AvertXAI · Focal Registry / <b>Secured Vault</b> <span class="lk">🔒</span></div>
+    <div class="search">Search everything — entries, notes, servers, repos, packages</div>
+    <div class="right"><span>☀</span><span>◐</span><span class="wctl">— ▢ ✕</span></div>
+  </div>
+
+  <div class="shellbody">
+    <div class="rail">
+      <div class="srch" style="width:100%">Search secrets</div>
+      <button class="newbtn">+ New entry</button>
+
+      <div class="rhead">Folders</div>
+      <div class="rrow"><span class="rdot" style="background:var(--dimmer)"></span><span class="rname">Unfiled</span><span class="rn">44</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--orange)"></span><span class="rname">Financial</span><span class="rn">1</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--orange)"></span><span class="rname">Photography</span><span class="rn">1</span></div>
+
+      <div class="rhead">Vault</div>
+      <div class="rrow"><span class="rdot" style="background:var(--orange)"></span><span class="rname">All items</span><span class="rn">46</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--amber)"></span><span class="rname">Favourites</span><span class="rn">0</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--lock)"></span><span class="rname">Archived</span><span class="rn">0</span></div>
+
+      <div class="rhead">Types</div>
+      <div class="rrow"><span class="rdot" style="background:var(--green)"></span><span class="rname">Logins</span><span class="rn">38</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--blue)"></span><span class="rname">API keys</span><span class="rn">2</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--amber)"></span><span class="rname">Financial</span><span class="rn">6</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--red)"></span><span class="rname">Taxpayer IDs</span><span class="rn">0</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--teal)"></span><span class="rname">SSH keys</span><span class="rn">7</span><span class="nbadge">NEW</span></div>
+
+      <div class="rhead">Library <span class="nbadge" style="margin-left:6px">NEW</span></div>
+      <div class="rrow on" id="railNotes"><span class="rdot" style="background:var(--purple)"></span><span class="rname">Notes</span><span class="rn">31</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--teal)"></span><span class="rname">Runbooks</span><span class="rn">12</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--blue)"></span><span class="rname">Snippets</span><span class="rn">24</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--green)"></span><span class="rname">Infrastructure</span><span class="rn">35</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--txt)"></span><span class="rname">Repos</span><span class="rn">9</span></div>
+      <div class="rrow"><span class="rdot" style="background:var(--amber)"></span><span class="rname">Packages</span><span class="rn">58</span></div>
+
+      <div class="rhead">Tools</div>
+      <div class="rrow"><span class="rname">Generator</span></div>
+      <div class="rrow"><span class="rname">Health</span></div>
+      <div class="rrow"><span class="rname">Access log</span></div>
+      <div class="rrow"><span class="rname">Lock the vault</span></div>
+    </div>
+
+    <div class="main">
+      <div class="tabs" id="tabstrip">
+        <div class="tab">Vault</div>
+        <div class="tab on nu" id="tabLive">Library</div>
+        <div class="tab nu">Infrastructure</div>
+        <div class="tab nu">Repos</div>
+        <div class="tab nu">Packages</div>
+        <div class="tab">Generator</div>
+        <div class="tab">Health</div>
+        <div class="tab">Access log</div>
+        <div class="tab">Import / Export</div>
+        <div class="tab">Vault settings</div>
+      </div>
+
+      <div class="content">
+
+<!-- ============================================================ 1. NOTES EDITOR -->
+<div class="optpanel on" data-panel="1">
+  <div class="note">
+    <b>One editor, three kinds.</b> A note, a runbook and a snippet are the same stored thing — a title, a type
+    and a markdown body. The type changes the icon, the starting template and one toolbar button. Building three
+    editors would mean three places to fix the same bug.<br><br>
+    <b>The part that makes it a vault note and not a text file:</b> the orange chip below. A note <i>references</i>
+    a credential by locator; it never contains one. Reveal on the chip is the same logged read as anywhere else,
+    so a runbook can say "use this password" without a password ever being written into a document.
+  </div>
+
+  <div class="notewrap">
+    <div class="notelist">
+      <div style="padding:10px 13px;border-bottom:1px solid var(--bd);display:flex;gap:7px">
+        <div class="srch grow">Search notes</div>
+        <button class="btn sm go">+ New</button>
+      </div>
+      <div class="nrow on">
+        <div class="t"><span class="ticon" style="background:var(--blue)">S</span> AvertXAI Toolforge — Qt/QML Desktop App</div>
+        <div class="s">Jason has two standalone AvertXAI scripts that he runs by hand from D:\dev\0 - AvertXAI Tools\AvertXAI-SOP-IP-Generator\</div>
+        <div class="m">08-10-2026 · 2 code blocks · 1 image</div>
+      </div>
+      <div class="nrow">
+        <div class="t"><span class="ticon" style="background:var(--teal)">R</span> Log into the Coolify Postgres</div>
+        <div class="s">Tunnel through the Hetzner box, then psql on the container. Never expose 5432 publicly.</div>
+        <div class="m">08-09-2026 · runbook · 6 steps</div>
+      </div>
+      <div class="nrow">
+        <div class="t"><span class="ticon" style="background:var(--purple)">N</span> Hetzner VPS Server Hosting Info — GitHub SSH</div>
+        <div class="s">178.63.17.184 · Coolify dashboard on core.avertxai.com · deploy key lives in the vault</div>
+        <div class="m">08-07-2026 · 3 linked entries</div>
+      </div>
+      <div class="nrow">
+        <div class="t"><span class="ticon" style="background:var(--blue)">S</span> High Tech Code</div>
+        <div class="s">window._cf_chl_opt = { iktV5: 'g' }; ~function(Db, cv, cm, ct, cf, cS, cx, cu, cM, cF, cB, D7, D9) {…</div>
+        <div class="m">03-01-2026 · javascript</div>
+      </div>
+      <div class="nrow">
+        <div class="t"><span class="ticon" style="background:var(--teal)">R</span> Release from PowerShell only</div>
+        <div class="s">Git Bash ssh cannot reach the Windows agent holding the Hetzner key — release.mjs hangs at 1/4 payload.</div>
+        <div class="m">08-02-2026 · runbook · 4 steps</div>
+      </div>
+      <div class="nrow">
+        <div class="t"><span class="ticon" style="background:var(--purple)">N</span> Chrome Extension Info</div>
+        <div class="s">Manifest v3 notes, the isolated-world content script pattern, why raw-secret executeJavaScript is banned.</div>
+        <div class="m">07-28-2026</div>
+      </div>
+    </div>
+
+    <div class="noteedit">
+      <div class="notebar">
+        <button class="tbtn" title="Bold"><b>B</b></button>
+        <button class="tbtn" title="Italic"><i>I</i></button>
+        <button class="tbtn" title="Heading">H</button>
+        <button class="tbtn" title="Link">🔗</button>
+        <button class="tbtn hot" title="Code block — pick a language">{;}</button>
+        <button class="tbtn" title="Bulleted list">☰</button>
+        <button class="tbtn" title="Checklist">☑</button>
+        <button class="tbtn" title="Table">⊞</button>
+        <button class="tbtn" title="Paste a screenshot — Ctrl+V">🖼</button>
+        <button class="tbtn hot" title="Link a vault entry — type @">@</button>
+        <div class="seg" id="viewseg">
+          <span>Edit</span><span class="on">Split</span><span>Preview</span>
+        </div>
+      </div>
+
+      <div class="notesplit">
+        <div class="pane src"><span class="h"># AvertXAI Toolforge — Qt/QML Desktop App</span>
+
+<span class="h">## Context</span>
+
+Jason has two standalone AvertXAI scripts that he runs
+by hand from <span class="k">`D:\dev\0 - AvertXAI Tools\`</span>:
+
+1. <span class="k">**`AvertXAI-IP-Script.mjs`**</span> — Node.js IP stamper. Walks a
+   project, injects a legal/copyright header into every
+   supported source file (line-comment, block-comment,
+   or JSON <span class="k">`_authorship`</span> key depending on extension).
+   Idempotent: detects existing <span class="k">`Copyright &lt;year&gt; AvertXAI`</span>
+   blocks and replaces stale ones; preserves shebangs
+   and <span class="k">`'use client'`</span> directives; scrubs
+   <span class="k">`Co-Authored-By: Claude`</span> lines. CLI takes one
+   positional path arg.
+
+<span class="f">![Toolforge window](vault://attachment/a71c…)</span>
+
+<span class="h">## Credentials</span>
+
+Signing cert password: <span class="f">@[[vault:Code signing — AvertXAI]]</span>
+
+<span class="h">## Stamp header</span>
+
+<span class="f">```javascript</span>
+<span class="f">window._cf_chl_opt = {</span>
+<span class="f">    iktV5: 'g'</span>
+<span class="f">};</span>
+<span class="f">```</span></div>
+
+        <div class="pane">
+          <h1>AvertXAI Toolforge — Qt/QML Desktop App</h1>
+          <h2>Context</h2>
+          <p>Jason has two standalone AvertXAI scripts that he runs by hand from <code>D:\dev\0 - AvertXAI Tools\</code>:</p>
+          <ol>
+            <li><b><code>AvertXAI-IP-Script.mjs</code></b> — Node.js IP stamper. Walks a project, injects a
+              legal/copyright header into every supported source file (line-comment, block-comment, or JSON
+              <code>_authorship</code> key depending on extension). Idempotent: detects existing
+              <code>Copyright &lt;year&gt; AvertXAI</code> blocks and replaces stale ones; preserves shebangs and
+              <code>'use client'</code> directives; scrubs <code>Co-Authored-By: Claude</code> lines. CLI takes one
+              positional path arg.</li>
+          </ol>
+
+          <div class="shot">
+            <div class="shotimg"></div>
+            <div>
+              <div style="font-size:12px;font-weight:600">Toolforge window.png</div>
+              <div class="hint" style="margin-top:3px">248 KB · pasted 08-10-2026 · <b style="color:var(--green)">encrypted in the vault</b></div>
+              <div class="row" style="margin-top:7px"><button class="btn sm">Open</button><button class="btn sm">Copy</button><button class="btn sm dgr">Remove</button></div>
+            </div>
+          </div>
+
+          <h2>Credentials</h2>
+          <p>Signing cert password:
+            <span class="vchip"><span class="lk">🔒 Code signing — AvertXAI</span>
+              <span class="v">••••••••</span><button>Reveal</button><button>Copy</button></span>
+          </p>
+
+          <h2>Stamp header</h2>
+          <div class="cblock">
+            <div class="cb"><span>javascript</span><span style="margin-left:auto">Copy</span></div>
+<pre><span class="cm">window</span>.<span class="fn">_cf_chl_opt</span> = {
+    <span class="fn">iktV5</span>: <span class="st">'g'</span>
+};
+~<span class="kw">function</span>(<span class="fn">Db</span>, <span class="fn">cv</span>, <span class="fn">cm</span>, <span class="fn">ct</span>, <span class="fn">cf</span>) {
+    <span class="fn">Db</span> = <span class="fn">i</span>,
+    <span class="kw">function</span>(<span class="fn">b</span>, <span class="fn">c</span>, <span class="fn">Dh</span>) {
+        <span class="kw">for</span> (<span class="fn">Dh</span> = {
+            <span class="fn">b</span>: <span class="nu">363</span>,
+            <span class="fn">c</span>: <span class="nu">422</span>,
+            <span class="fn">D</span>: <span class="nu">471</span>
+        },</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ 2. NOTE LIST STYLES -->
+<div class="optpanel" data-panel="2">
+  <div class="note"><b>Three ways to list the same 31 notes.</b> Pick one — or say "A for notes, C for runbooks" and
+    the list style follows the type. All three are the same data and the same click target.</div>
+
+  <div class="split3">
+    <div class="card flush">
+      <div style="padding:12px 15px;border-bottom:1px solid var(--bd)"><span class="mlabel">A · Dense rows</span>
+        <div class="hint" style="margin-top:5px">Your Joplin habit. Most notes visible at once, snippet gives you the scent.</div></div>
+      <div class="nrow on"><div class="t"><span class="ticon" style="background:var(--blue)">S</span> AvertXAI Toolforge</div>
+        <div class="s">Jason has two standalone AvertXAI scripts that he runs by hand…</div><div class="m">08-10-2026</div></div>
+      <div class="nrow"><div class="t"><span class="ticon" style="background:var(--teal)">R</span> Coolify Postgres login</div>
+        <div class="s">Tunnel through the Hetzner box, then psql on the container…</div><div class="m">08-09-2026</div></div>
+      <div class="nrow"><div class="t"><span class="ticon" style="background:var(--purple)">N</span> Hetzner VPS Info</div>
+        <div class="s">178.63.17.184 · Coolify dashboard on core.avertxai.com…</div><div class="m">08-07-2026</div></div>
+      <div class="nrow"><div class="t"><span class="ticon" style="background:var(--blue)">S</span> High Tech Code</div>
+        <div class="s">window._cf_chl_opt = { iktV5: 'g' }…</div><div class="m">03-01-2026</div></div>
+      <div class="nrow"><div class="t"><span class="ticon" style="background:var(--teal)">R</span> Release from PowerShell</div>
+        <div class="s">Git Bash ssh cannot reach the Windows agent…</div><div class="m">08-02-2026</div></div>
+    </div>
+
+    <div class="card flush">
+      <div style="padding:12px 15px;border-bottom:1px solid var(--bd)"><span class="mlabel">B · Cards by type</span>
+        <div class="hint" style="margin-top:5px">Colour tells you the kind before you read the title. Fewer per screen.</div></div>
+      <div style="padding:13px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="card" style="padding:12px;border-top:3px solid var(--blue)">
+          <div style="font-size:9px;letter-spacing:1px;color:var(--blue);font-weight:700">SNIPPET</div>
+          <div style="font-size:12.5px;font-weight:600;margin:5px 0 4px">AvertXAI Toolforge</div>
+          <div class="hint" style="font-size:10.5px">2 code blocks · 1 image</div></div>
+        <div class="card" style="padding:12px;border-top:3px solid var(--teal)">
+          <div style="font-size:9px;letter-spacing:1px;color:var(--teal);font-weight:700">RUNBOOK</div>
+          <div style="font-size:12.5px;font-weight:600;margin:5px 0 4px">Coolify Postgres</div>
+          <div class="hint" style="font-size:10.5px">6 steps · 2 credentials</div></div>
+        <div class="card" style="padding:12px;border-top:3px solid var(--purple)">
+          <div style="font-size:9px;letter-spacing:1px;color:var(--purple);font-weight:700">NOTE</div>
+          <div style="font-size:12.5px;font-weight:600;margin:5px 0 4px">Hetzner VPS Info</div>
+          <div class="hint" style="font-size:10.5px">3 linked entries</div></div>
+        <div class="card" style="padding:12px;border-top:3px solid var(--blue)">
+          <div style="font-size:9px;letter-spacing:1px;color:var(--blue);font-weight:700">SNIPPET</div>
+          <div style="font-size:12.5px;font-weight:600;margin:5px 0 4px">High Tech Code</div>
+          <div class="hint" style="font-size:10.5px">javascript</div></div>
+      </div>
+    </div>
+
+    <div class="card flush">
+      <div style="padding:12px 15px;border-bottom:1px solid var(--bd)"><span class="mlabel">C · Grouped by type</span>
+        <div class="hint" style="margin-top:5px">Sections collapse. Best once runbooks and snippets outnumber notes.</div></div>
+      <div style="padding:9px 13px 15px">
+        <div class="rhead" style="margin-left:0">▾ Runbooks <span class="rn">12</span></div>
+        <div class="rrow"><span class="rname">Coolify Postgres login</span></div>
+        <div class="rrow"><span class="rname">Release from PowerShell only</span></div>
+        <div class="rrow"><span class="rname">Rotate the Hetzner deploy key</span></div>
+        <div class="rhead" style="margin-left:0">▾ Snippets <span class="rn">24</span></div>
+        <div class="rrow on"><span class="rname">AvertXAI Toolforge</span></div>
+        <div class="rrow"><span class="rname">High Tech Code</span></div>
+        <div class="rrow"><span class="rname">Drunken bishop — randomart</span></div>
+        <div class="rhead" style="margin-left:0">▸ Notes <span class="rn">31</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ 3. RUNBOOK RUN MODE -->
+<div class="optpanel" data-panel="3">
+  <div class="note"><b>A runbook is read differently from a note.</b> You read it with one hand on the keyboard,
+    mid-task, following along. So it gets a second mode: <b>Run</b>. Big steps, a copy button on every command,
+    credentials revealed in place, and a tick you can leave behind so you know where you got to. Click the
+    numbers.</div>
+
+  <div class="card">
+    <div class="sectitle">
+      <div>
+        <span class="mlabel">Runbook</span>
+        <div style="font-size:16px;font-weight:700;margin-top:5px">Log into the Coolify Postgres</div>
+        <div class="hint" style="margin-top:3px">Last run 08-09-2026 · 6 steps · touches 2 vault entries and 1 server</div>
+      </div>
+      <div class="row">
+        <div class="seg"><span>Read</span><span class="on">Run</span><span>Edit</span></div>
+        <button class="btn sm">Reset ticks</button>
+      </div>
+    </div>
+
+    <div class="step"><div class="snum">1</div><div class="sbody">
+      <div class="stitle">Open a tunnel to the Hetzner box. Never expose 5432 to the internet.</div>
+      <div class="cmd"><span class="c">ssh -L 5432:localhost:5432 root@178.63.17.184 -N</span><button class="btn sm">Copy</button></div>
+      <div class="hint">Uses <span class="vchip"><span class="lk">🔑 Hetzner root — ed25519</span><button>Reveal key</button></span>
+        &nbsp;·&nbsp; host from <b>Infrastructure → avertxai.com</b></div>
+    </div></div>
+
+    <div class="step"><div class="snum">2</div><div class="sbody">
+      <div class="stitle">If the agent refuses, it is the Git Bash problem — use PowerShell.</div>
+      <div class="hint">Git Bash ssh cannot reach the Windows agent holding the key. It fails silently rather than
+        prompting, so it looks like a hang. Open PowerShell and repeat step 1.</div>
+    </div></div>
+
+    <div class="step"><div class="snum">3</div><div class="sbody">
+      <div class="stitle">Find the database container.</div>
+      <div class="cmd"><span class="c">docker ps --filter name=postgres --format "{{.Names}}\t{{.Status}}"</span><button class="btn sm">Copy</button></div>
+    </div></div>
+
+    <div class="step"><div class="snum">4</div><div class="sbody">
+      <div class="stitle">Connect. The password is in the vault — reveal it here, do not paste it into a file.</div>
+      <div class="cmd"><span class="c">psql -h localhost -p 5432 -U coolify -d coolify</span><button class="btn sm">Copy</button></div>
+      <div class="hint"><span class="vchip"><span class="lk">🔒 Coolify Postgres — coolify</span>
+        <span class="v">••••••••••</span><button>Reveal</button><button>Copy</button></span>
+        &nbsp; every reveal from here lands in the access log with this runbook named as the caller.</div>
+    </div></div>
+
+    <div class="step"><div class="snum">5</div><div class="sbody">
+      <div class="stitle">Sanity check before you touch anything.</div>
+      <div class="cmd"><span class="c">\dt   —   then   SELECT count(*) FROM applications;</span><button class="btn sm">Copy</button></div>
+    </div></div>
+
+    <div class="step"><div class="snum">6</div><div class="sbody">
+      <div class="stitle">Close the tunnel when you are done.</div>
+      <div class="hint">Ctrl+C in the ssh window. A tunnel left open is a hole you forgot you made.</div>
+    </div></div>
+  </div>
+</div>
+
+<!-- ============================================================ 4. SSH KEY -->
+<div class="optpanel" data-panel="4">
+  <div class="note">
+    <b>Your question, answered on screen.</b> The randomart is <i>not stored</i>. It is a pure function of the
+    fingerprint, which is a pure function of the public key — so the vault keeps the public key and draws the art
+    every time it shows it. Stored derived data drifts from the thing it describes; derived data cannot. The
+    algorithm is the drunken bishop, about forty lines, no dependency and therefore no licence gate.<br><br>
+    Everything marked <span class="derived">derived</span> below is computed on display and has no column in the
+    database. Everything else is stored exactly like a password — encrypted, versioned, and readable only through
+    a logged read.
+  </div>
+
+  <div class="split2">
+    <div class="card">
+      <span class="mlabel">New entry · Kind = SSH key</span>
+      <div style="margin-top:13px">
+        <div class="fbox"><div class="flabel">Label</div><div class="fvalue"><b>Hetzner root — ed25519</b></div></div>
+        <div class="split2" style="gap:10px">
+          <div class="fbox"><div class="flabel">User</div><div class="fvalue mono">root</div></div>
+          <div class="fbox"><div class="flabel">Host</div><div class="fvalue mono">178.63.17.184</div></div>
+        </div>
+        <div class="split2" style="gap:10px">
+          <div class="fbox"><div class="flabel">Port</div><div class="fvalue mono">22</div></div>
+          <div class="fbox"><div class="flabel">Key type</div><div class="fvalue mono">ed25519</div></div>
+        </div>
+        <div class="fbox nb"><div class="flabel">Private key <span class="pill no">secret</span></div>
+          <div class="keybox">-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACBHb1oPTe3Vv1mZ2lQ4kK9pXsT0cRfWq8yYbNjKu4LmAwAAAJj8m2Yl/Jtm
+JQAAAAtzc2gtZWQyNTUxOQAAACBHb1oPTe3Vv1mZ2lQ4kK9pXsT0cRfWq8yYbNjKu4LmAw
+-----END OPENSSH PRIVATE KEY-----</div>
+          <div class="hint" style="margin-top:6px">Multi-line. Stored as one value, versioned with everything else on
+            this entry — rotating the key appends a version, it does not overwrite one.</div></div>
+        <div class="fbox"><div class="flabel">Passphrase <span class="pill no">secret</span></div>
+          <div class="fvalue"><span class="masked">••••••••••••</span><button class="btn sm" style="margin-left:auto">Show</button></div></div>
+        <div class="fbox"><div class="flabel">Public key <span class="pill grey">not secret</span></div>
+          <div class="keybox">ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEdvWg9N7dW/WZnaVDiQr2lexPRxF9arzJhs2Mq7guYD jason@avertxai</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <span class="mlabel">Detail pane · what you see after Reveal</span>
+      <div style="margin-top:13px">
+        <!-- THE PASSPHRASE IS THE TOP ROW (Jason 08-10-2026). He is prompted for it all day — the
+             IDE asks, git asks, ssh-add asks — so it is the thing this pane is opened FOR. The
+             first version buried it in the form and left it off the detail pane entirely, which is
+             the same mistake as the Copy button sitting where it could not say what it copied. -->
+        <div class="fbox nb" style="border-color:var(--orange)">
+          <div class="flabel">Passphrase <span class="pill no">secret</span>
+            <span class="hint" style="text-transform:none;letter-spacing:0;font-size:11px;margin-left:auto">what the IDE keeps asking for</span></div>
+          <div class="fvalue">
+            <span class="masked">••••••••••••••</span>
+            <span class="facts"><button class="btn sm">Reveal</button><button class="btn pri sm">Copy</button></span>
+          </div>
+        </div>
+
+        <div class="fbox"><div class="flabel">Fingerprint <span class="derived">derived</span></div>
+          <div class="fvalue mono" style="font-size:11.5px">SHA256:Yx4qL8nR2vB7mKp0aZcWtE6sJhF3dQoU9iN1gTrXbVs</div></div>
+
+        <div class="flabel" style="margin:14px 0 8px">Randomart <span class="derived">derived</span>
+          <span class="hint" style="text-transform:none;letter-spacing:0;font-size:11px">— drawn from the fingerprint, never stored</span></div>
+        <div class="art">+--[ED25519 256]--+
+|       o+.       |
+|      . o. .     |
+|     . .  o      |
+|      o  . .     |
+|     . oS.  .    |
+|      +.=o.o     |
+|     o *.Booo    |
+|    . = *+O= .   |
+|     . o.**E=    |
++----[SHA256]-----+</div>
+
+        <div class="hint" style="margin-top:12px">This is the picture your terminal draws on first connect. Put the
+          two side by side and you can tell in a second whether you are talking to the right machine — which is the
+          entire reason the picture exists.</div>
+
+        <div class="row" style="margin-top:14px">
+          <button class="btn">Copy public key</button>
+          <button class="btn">Copy private key</button>
+          <button class="btn">Copy fingerprint</button>
+          <button class="btn">Copy ssh config block</button>
+        </div>
+        <div class="note" style="margin-top:12px"><b>Because it is asked for constantly, it gets two
+          shortcuts nothing else has.</b> A global hotkey copies the passphrase of the last SSH key you
+          opened without bringing the window forward — the prompt is already on screen and stealing
+          focus loses it. And the clipboard clears itself after 30 seconds, because a passphrase you
+          paste ten times a day is a passphrase sitting in the clipboard all day.
+          <span class="pill warn" style="margin-left:6px">both need your ruling</span></div>
+        <div class="cblock" style="margin-top:12px">
+          <div class="cb"><span>~/.ssh/config</span><span style="margin-left:auto">generated</span></div>
+<pre><span class="kw">Host</span> hetzner
+  <span class="fn">HostName</span> 178.63.17.184
+  <span class="fn">User</span> root
+  <span class="fn">Port</span> 22
+  <span class="fn">IdentityFile</span> ~/.ssh/hetzner_ed25519</pre>
+        </div>
+
+        <div class="fbox" style="margin-top:12px"><div class="flabel">Used by</div>
+          <div class="fvalue" style="flex-direction:column;align-items:stretch;gap:6px">
+            <div class="row"><span class="pill info">server</span> avertxai.com · 178.63.17.184</div>
+            <div class="row"><span class="pill info">runbook</span> Log into the Coolify Postgres — step 1</div>
+            <div class="row"><span class="pill info">repo</span> AvertXAI-Focal-Registry — deploy key</div>
+          </div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ 5. INFRASTRUCTURE -->
+<div class="optpanel" data-panel="5">
+  <div class="note"><b>Your real zone, as it would look after an import.</b> The value is not the table — Cloudflare
+    already has a table. The value is that each row knows which SSH key opens it, which runbook explains it, and
+    which repo deploys to it. Click a comment cell to see what I mean by cross-links.</div>
+
+  <div class="chips" style="margin-bottom:2px">
+    <div class="chip"><span class="k">Records</span><span class="v">35</span></div>
+    <div class="chip"><span class="k">A</span><span class="v">17</span></div>
+    <div class="chip"><span class="k">CAA</span><span class="v">4</span></div>
+    <div class="chip"><span class="k">MX</span><span class="v">7</span></div>
+    <div class="chip"><span class="k">TXT</span><span class="v">6</span></div>
+    <div class="chip"><span class="k">Proxied</span><span class="v" style="color:var(--orange)">16</span></div>
+    <div class="chip"><span class="k">Servers</span><span class="v">3</span></div>
+  </div>
+
+  <div class="card">
+    <div class="sectitle">
+      <span class="mlabel">Servers</span>
+      <div class="row"><button class="btn sm">+ Add server</button></div>
+    </div>
+    <div class="tscroll">
+    <table>
+      <thead><tr><th>Host</th><th>Address</th><th>Provider</th><th>Role</th><th>Opens with</th><th>Runbook</th></tr></thead>
+      <tbody>
+        <tr><td><b>hetzner-01</b></td><td class="mono">178.63.17.184</td><td>Hetzner</td>
+          <td><span class="pill info">web · coolify</span></td>
+          <td><span class="vchip"><span class="lk">🔑 Hetzner root — ed25519</span><button>Reveal</button></span></td>
+          <td><a style="color:var(--orange)">Coolify Postgres →</a></td></tr>
+        <tr><td><b>mcp-node</b></td><td class="mono">100.78.248.15</td><td>Tailscale</td>
+          <td><span class="pill grey">private · dns only</span></td>
+          <td><span class="vchip"><span class="lk">🔑 MCP node — ed25519</span><button>Reveal</button></span></td>
+          <td class="hint">—</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="sectitle">
+      <div><span class="mlabel">DNS records</span> <span class="hint">avertxai.com · Cloudflare · exported 08-10-2026</span></div>
+      <div class="row"><div class="srch">Search records</div><button class="btn sm">Filters</button><button class="btn sm go">+ Import</button></div>
+    </div>
+    <div class="tscroll">
+    <table>
+      <thead><tr><th>Name</th><th style="width:60px">Type</th><th>Content</th><th style="width:132px">Proxy</th>
+        <th style="width:58px">TTL</th><th>Comment</th></tr></thead>
+      <tbody>
+        <tr><td><b>admin</b><span class="hint">.avertxai.com</span></td><td class="mono">A</td><td class="mono">178.63.17.184</td>
+          <td><span class="pill warn">☁ Proxied</span></td><td class="hint">Auto</td><td class="hint">—</td></tr>
+        <tr><td><b>*</b><span class="hint">.avertxai.com</span></td><td class="mono">A</td><td class="mono">178.63.17.184</td>
+          <td><span class="pill warn">☁ Proxied</span></td><td class="hint">Auto</td><td class="hint">wildcard</td></tr>
+        <tr><td><b>avertxai.com</b></td><td class="mono">A</td><td class="mono">178.63.17.184</td>
+          <td><span class="pill warn">☁ Proxied</span></td><td class="hint">Auto</td><td class="hint">—</td></tr>
+        <tr><td><b>core</b><span class="hint">.avertxai.com</span></td><td class="mono">A</td><td class="mono">178.63.17.184</td>
+          <td><span class="pill warn">☁ Proxied</span></td><td class="hint">Auto</td>
+          <td>Coolio Dashboard <span class="pill info">runbook</span></td></tr>
+        <tr><td><b>mcp</b><span class="hint">.avertxai.com</span></td><td class="mono">A</td><td class="mono">100.78.248.15</td>
+          <td><span class="pill grey">DNS only — reserved IP</span></td><td class="hint">Auto</td>
+          <td>Tailscale · not public <span class="pill info">server</span></td></tr>
+        <tr><td><b>demos</b><span class="hint">.avertxai.com</span></td><td class="mono">A</td><td class="mono">178.63.17.184</td>
+          <td><span class="pill warn">☁ Proxied</span></td><td class="hint">Auto</td><td class="hint">All portfolio demos use this subdomain</td></tr>
+        <tr><td><b>avertxai.com</b></td><td class="mono">CAA</td><td class="mono">0 issue "letsencrypt.org"</td>
+          <td><span class="pill grey">DNS only</span></td><td class="hint">Auto</td><td class="hint">—</td></tr>
+        <tr><td><b>avertxai.com</b></td><td class="mono">MX</td><td class="mono">81 route3.mx.cloudflare.net</td>
+          <td><span class="pill grey">DNS only</span></td><td class="hint">Auto</td><td class="hint">—</td></tr>
+        <tr><td><b>_dmarc</b><span class="hint">.avertxai.com</span></td><td class="mono">TXT</td>
+          <td class="mono">"v=DMARC1; p=none;"</td><td><span class="pill grey">DNS only</span></td>
+          <td class="hint">Auto</td><td><span class="pill warn">p=none — not enforcing</span></td></tr>
+        <tr><td><b>cf2024-1._domainkey</b></td><td class="mono">TXT</td>
+          <td class="mono" style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"v=DKIM1; h=sha256; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEF…</td>
+          <td><span class="pill grey">DNS only</span></td><td class="hint">Auto</td><td class="hint">DKIM · 2 chunks</td></tr>
+        <tr><td><b>onboarding.avertxai.com</b><span class="hint">.avertxai.com</span></td><td class="mono">MX</td>
+          <td class="mono">81 route3.mx.cloudflare.net</td><td><span class="pill grey">DNS only</span></td><td class="hint">Auto</td>
+          <td><span class="pill no">name looks doubled</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="hint" style="margin-top:11px">Two things the import noticed and did not act on:
+      <b>_dmarc is <span class="mono">p=none</span></b>, which records failures without enforcing anything; and three
+      MX rows read <span class="mono">onboarding.avertxai.com.avertxai.com</span>, which is what a trailing dot left
+      off a fully-qualified name looks like. Flagged, never changed — the vault does not edit your DNS.</div>
+  </div>
+</div>
+
+<!-- ============================================================ 6. IMPORT -->
+<div class="optpanel" data-panel="6">
+  <div class="note"><b>Two parsers, one reviewer.</b> A zone file parses exactly — it is a defined format, so there
+    is nothing to guess and no model involved. A screenshot has to be read, so it goes through a local vision model
+    and lands on the <i>same</i> review table with a confidence on every cell. Nothing is written until you press
+    Import, either way. Click the three cards.</div>
+
+  <div class="paths" id="paths">
+    <div class="path on" data-path="a"><div class="pi">📄</div><div class="pt">Paste a zone file or CSV</div>
+      <div class="pd">Exact. A BIND export or a Cloudflare CSV is a defined format — parsed on this machine, no
+        model, no guessing. <b>Use this whenever an export exists.</b></div></div>
+    <div class="path" data-path="b"><div class="pi">🖼</div><div class="pt">Paste a screenshot</div>
+      <div class="pd">For when there is no export button. A local vision model reads the image; every field arrives
+        with a confidence and nothing is saved until you approve it.</div></div>
+    <div class="path" data-path="c"><div class="pi">✎</div><div class="pt">Type one in</div>
+      <div class="pd">One record, by hand. Always available and always the fallback when the other two disagree
+        with what you know.</div></div>
+  </div>
+
+  <div class="card" id="pathA">
+    <div class="sectitle"><span class="mlabel">Paste the export</span>
+      <span class="hint">avertxai.com.txt · BIND zone format detected</span></div>
+    <div class="zone">;; A Records
+admin.avertxai.com.	1	IN	A	178.63.17.184 ; cf_tags=cf-proxied:true
+*.avertxai.com.	1	IN	A	178.63.17.184 ; cf_tags=cf-proxied:true
+avertxai.com.	1	IN	A	178.63.17.184 ; cf_tags=cf-proxied:true
+core.avertxai.com.	1	IN	A	178.63.17.184 ; Coolio Dashboard cf_tags=cf-proxied:true
+mcp.avertxai.com.	1	IN	A	100.78.248.15 ; cf_tags=cf-proxied:false
+
+;; CAA Records
+avertxai.com.	1	IN	CAA	0 issue "letsencrypt.org"</div>
+    <div class="row" style="margin-top:12px">
+      <span class="pill ok">35 records parsed</span>
+      <span class="pill grey">17 A · 4 CAA · 7 MX · 6 TXT · 2 NS</span>
+      <span class="pill warn">2 flagged for your eye</span>
+      <span class="hint" style="margin-left:auto">Nothing written yet.</span>
+      <button class="btn go">Review 35 records →</button>
+    </div>
+    <div class="hint" style="margin-top:10px">The zone file also carries the comments Cloudflare stores
+      (<span class="mono">; Coolio Dashboard</span>) and the proxy flag (<span class="mono">cf-proxied:true</span>),
+      so the import brings those across rather than dropping them.</div>
+  </div>
+
+  <div class="card" id="pathB" style="display:none">
+    <div class="sectitle"><span class="mlabel">Read a screenshot</span>
+      <div class="row"><span class="pill ok">llava · local · 4.1 GB</span><button class="btn sm">Change model</button></div></div>
+    <div class="drop">Drop an image here, paste with <b>Ctrl+V</b>, or <b>choose a file</b><br>
+      <span class="hint">PNG · JPG · up to 12 MB</span></div>
+    <div class="note" style="margin-top:12px"><b>Where the image goes:</b> to the model running on this computer and
+      nowhere else. The vault has exactly two features that touch the internet and both live on the Health tab
+      behind a switch — this is not one of them. If no local model is installed, this path says so and stops rather
+      than quietly reaching for a cloud one.</div>
+
+    <div style="margin-top:14px">
+      <div class="sectitle"><span class="mlabel">Review — 11 rows read, nothing saved</span>
+        <div class="row"><span class="pill ok">7 high</span><span class="pill warn">2 medium</span><span class="pill no">2 low</span></div></div>
+      <table>
+        <thead><tr><th style="width:26px"><input type="checkbox" checked></th><th>Name</th><th style="width:60px">Type</th>
+          <th>Content</th><th style="width:120px">Proxy</th><th style="width:96px">Read as</th></tr></thead>
+        <tbody>
+          <tr><td><input type="checkbox" checked></td><td class="mono">admin</td><td class="mono">A</td>
+            <td class="mono">178.63.17.184</td><td><span class="pill warn">☁ Proxied</span></td><td><span class="conf hi">high</span></td></tr>
+          <tr><td><input type="checkbox" checked></td><td class="mono">core</td><td class="mono">A</td>
+            <td class="mono">178.63.17.184</td><td><span class="pill warn">☁ Proxied</span></td><td><span class="conf hi">high</span></td></tr>
+          <tr><td><input type="checkbox" checked></td><td class="mono">jaxscollectibles</td><td class="mono">A</td>
+            <td class="mono">178.63.17.184</td><td><span class="pill warn">☁ Proxied</span></td><td><span class="conf md">medium</span></td></tr>
+          <tr><td><input type="checkbox" checked></td><td class="mono">mcp</td><td class="mono">A</td>
+            <td class="low"><input class="cellin" value="100.78.248.I5"></td>
+            <td><span class="pill grey">DNS only</span></td><td><span class="conf lo">low</span></td></tr>
+          <tr><td><input type="checkbox"></td><td class="low"><input class="cellin" value="cf2024-1._domainkey"></td>
+            <td class="mono">TXT</td><td class="mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">"v=DKIM1; h=sha256; k=rsa; p=MIIBIjANBg…</td>
+            <td><span class="pill grey">DNS only</span></td><td><span class="conf lo">low</span></td></tr>
+        </tbody>
+      </table>
+      <div class="hint" style="margin-top:11px">Two cells are outlined red because the model was not sure, and one of
+        them is the classic: <b>a capital I where a 1 belongs</b>. That single character is the difference between a
+        working record and an afternoon. Low-confidence rows arrive <b>unticked</b> — you opt them in, they never
+        opt themselves in. A long value like the DKIM key is exactly what optical reading gets wrong, which is why
+        the card above says use the export when one exists.</div>
+      <div class="row" style="margin-top:12px"><span class="hint">3 of 5 ticked</span>
+        <button class="btn" style="margin-left:auto">Discard</button><button class="btn go">Import 3 records</button></div>
+    </div>
+  </div>
+
+  <div class="card" id="pathC" style="display:none">
+    <div class="sectitle"><span class="mlabel">One record</span></div>
+    <div class="split2">
+      <div><div class="fbox"><div class="flabel">Name</div><div class="fvalue mono">status</div></div>
+        <div class="fbox"><div class="flabel">Type</div><div class="fvalue mono">A</div></div></div>
+      <div><div class="fbox"><div class="flabel">Content</div><div class="fvalue mono">178.63.17.184</div></div>
+        <div class="fbox"><div class="flabel">Comment</div><div class="fvalue hint">optional</div></div></div>
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn">Cancel</button><button class="btn go">Add record</button></div>
+  </div>
+</div>
+
+<!-- ============================================================ 7. REPOS ACCORDION -->
+<div class="optpanel" data-panel="7">
+  <div class="note"><b>Your idea, built: rows that drop open into the repo.</b> Click any row. The orange strip
+    inside is the part GitHub cannot give you — the deploy key, the token and the local path, sitting with the repo
+    they belong to. The README is a snapshot stored in the vault, so it reads with the network off.</div>
+
+  <div class="row" style="margin-bottom:4px">
+    <div class="srch grow">Search repos</div>
+    <button class="btn sm">All</button><button class="btn sm">Private 6</button><button class="btn sm">Public 3</button>
+    <button class="btn sm go">+ Add repo</button>
+  </div>
+
+  <div class="repo open" data-repo>
+    <div class="repohead">
+      <div class="ravatar" style="background:#1f2933">WM</div>
+      <div class="rmeta">
+        <div class="rtitle">world-monitor <span class="pill grey">public</span> <span class="pill no">AGPL v3</span></div>
+        <div class="rdesc">Real-time global intelligence dashboard — AI-powered news aggregation, geopolitical monitoring, and infrastructure tracking</div>
+      </div>
+      <div class="rstats">
+        <span><span class="langdot" style="background:#3178c6"></span>TypeScript</span>
+        <span>★ 80k</span><span class="mono">v2.5.23</span><span class="hint">today</span>
+      </div>
+      <div class="caret">▶</div>
+    </div>
+    <div class="repobody">
+      <div class="vaultstrip">
+        <span class="vchip"><span class="lk">🔑 GitHub deploy key — world-monitor</span><button>Reveal</button></span>
+        <span class="vchip"><span class="lk">🔒 GH_TOKEN — releases</span><span class="v">••••••</span><button>Copy</button></span>
+        <span class="mono hint">D:\dev\world-monitor</span>
+        <button class="btn sm" style="margin-left:auto">Open folder</button>
+        <button class="btn sm">Open on GitHub</button>
+        <button class="btn sm">Refresh snapshot</button>
+      </div>
+      <div class="ghtabs">
+        <div class="ghtab on">README</div><div class="ghtab">Code of conduct</div><div class="ghtab">Contributing</div>
+        <div class="ghtab">License</div><div class="ghtab">Security</div>
+      </div>
+      <div class="readme">
+        <h1>World Monitor</h1>
+        <div class="badges">
+          <span class="bdg"><span class="l">Stars</span><span class="r" style="background:#4c1">80k</span></span>
+          <span class="bdg"><span class="l">License</span><span class="r" style="background:#97ca00">AGPL v3</span></span>
+          <span class="bdg"><span class="l">TypeScript</span><span class="r" style="background:#3178c6">5.4</span></span>
+          <span class="bdg"><span class="l">release</span><span class="r" style="background:#007ec6">v2.5.23</span></span>
+          <span class="bdg"><span class="l">npm</span><span class="r" style="background:#cb3837">v0.1.3</span></span>
+        </div>
+        <p><b>Real-time global intelligence dashboard</b> — AI-powered news aggregation, geopolitical monitoring, and
+          infrastructure tracking in a unified situational awareness interface.</p>
+        <h2>What It Does</h2>
+        <ul>
+          <li><b>500+ curated news feeds</b> across 15 categories, AI-synthesized into briefs</li>
+          <li><b>Dual map engine</b> — 3D globe (globe.gl) and WebGL flat map (deck.gl) with 56 map layer types</li>
+          <li><b>Cross-stream correlation</b> — military, economic, disaster, and escalation signal convergence</li>
+          <li><b>Local AI</b> — run everything with Ollama, no API keys required</li>
+          <li><b>Native desktop app</b> (Tauri 2) for macOS, Windows, and Linux</li>
+        </ul>
+        <div class="note" style="margin-top:4px"><b>Why the licence pill is red.</b> This repo is AGPL v3. The
+          Packages tab reads the same field, so anything you vendor from here shows up there as a ruling you owe
+          yourself — the two surfaces read one fact.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="repo" data-repo>
+    <div class="repohead">
+      <div class="ravatar" style="background:#c0392b">FR</div>
+      <div class="rmeta">
+        <div class="rtitle">AvertXAI-Focal-Registry <span class="pill info">private</span> <span class="pill grey">proprietary</span></div>
+        <div class="rdesc">Photography archive tooling for professionals — Electron shell, Scan, Rename, MindMerge, Secured Vault</div>
+      </div>
+      <div class="rstats"><span><span class="langdot" style="background:#3178c6"></span>TypeScript</span>
+        <span class="mono">v0.2.6</span><span class="hint">2 hours ago</span></div>
+      <div class="caret">▶</div>
+    </div>
+    <div class="repobody">
+      <div class="vaultstrip">
+        <span class="vchip"><span class="lk">🔑 Hetzner deploy key</span><button>Reveal</button></span>
+        <span class="mono hint">D:\dev\AvertXAI-Focal-Registry</span>
+        <span class="pill warn">branch feature/vault-build</span>
+        <button class="btn sm" style="margin-left:auto">Open folder</button>
+      </div>
+      <div class="ghtabs"><div class="ghtab on">README</div><div class="ghtab">License</div></div>
+      <div class="readme"><h1>Focal Registry</h1>
+        <p>Electron + Vite + React + TypeScript. Built by copy-then-gut of the Mission Control shell. Data only — no
+          pixels: this product answers who, what, when, where and why about an archive and never decodes an image.</p></div>
+    </div>
+  </div>
+
+  <div class="repo" data-repo>
+    <div class="repohead">
+      <div class="ravatar" style="background:#2b7a4b">TF</div>
+      <div class="rmeta"><div class="rtitle">AvertXAI-Toolforge <span class="pill info">private</span></div>
+        <div class="rdesc">Qt/QML desktop wrapper for the IP stamper and the code extractor</div></div>
+      <div class="rstats"><span><span class="langdot" style="background:#f1e05a"></span>JavaScript</span><span class="hint">3 days ago</span></div>
+      <div class="caret">▶</div>
+    </div>
+    <div class="repobody"><div class="readme"><h1>Toolforge</h1><p>Two scripts, one window.</p></div></div>
+  </div>
+</div>
+
+<!-- ============================================================ 8. REPOS MASTER/DETAIL -->
+<div class="optpanel" data-panel="8">
+  <div class="note"><b>Same data, other navigation.</b> The accordion wins when you are browsing and want to scan
+    the whole list; this wins once there are thirty repos and you are looking for one. It also keeps the README at
+    a fixed width, which the accordion cannot promise. <b>My lean: accordion, because you described it and because
+    nine repos is a scannable list.</b> Revisit at thirty.</div>
+
+  <div class="masterdetail">
+    <div class="mdlist">
+      <div style="padding:10px 13px;border-bottom:1px solid var(--bd)"><div class="srch">Search repos</div></div>
+      <div class="mdrow on"><div class="ravatar" style="background:#1f2933;width:28px;height:28px;font-size:11px">WM</div>
+        <div class="grow"><div style="font-size:12.5px;font-weight:600">world-monitor</div>
+          <div class="hint" style="font-size:10.5px">★ 80k · TypeScript · today</div></div></div>
+      <div class="mdrow"><div class="ravatar" style="background:#c0392b;width:28px;height:28px;font-size:11px">FR</div>
+        <div class="grow"><div style="font-size:12.5px;font-weight:600">AvertXAI-Focal-Registry</div>
+          <div class="hint" style="font-size:10.5px">private · TypeScript · 2h</div></div></div>
+      <div class="mdrow"><div class="ravatar" style="background:#2b7a4b;width:28px;height:28px;font-size:11px">TF</div>
+        <div class="grow"><div style="font-size:12.5px;font-weight:600">AvertXAI-Toolforge</div>
+          <div class="hint" style="font-size:10.5px">private · JavaScript · 3d</div></div></div>
+      <div class="mdrow"><div class="ravatar" style="background:#6355d8;width:28px;height:28px;font-size:11px">RB</div>
+        <div class="grow"><div style="font-size:12.5px;font-weight:600">AvertXAI-RUNBOOKS</div>
+          <div class="hint" style="font-size:10.5px">private · TypeScript · 1w</div></div></div>
+      <div class="mdrow"><div class="ravatar" style="background:#17838f;width:28px;height:28px;font-size:11px">PP</div>
+        <div class="grow"><div style="font-size:12.5px;font-weight:600">Phantom-Protocol-Pro</div>
+          <div class="hint" style="font-size:10.5px">private · Rust · 2w</div></div></div>
+    </div>
+    <div class="mddetail">
+      <div class="vaultstrip">
+        <span class="vchip"><span class="lk">🔑 GitHub deploy key — world-monitor</span><button>Reveal</button></span>
+        <span class="mono hint">D:\dev\world-monitor</span>
+        <button class="btn sm" style="margin-left:auto">Open on GitHub</button>
+      </div>
+      <div class="ghtabs"><div class="ghtab on">README</div><div class="ghtab">Code of conduct</div>
+        <div class="ghtab">Contributing</div><div class="ghtab">License</div><div class="ghtab">Security</div></div>
+      <div class="readme">
+        <h1>World Monitor</h1>
+        <div class="badges">
+          <span class="bdg"><span class="l">Stars</span><span class="r" style="background:#4c1">80k</span></span>
+          <span class="bdg"><span class="l">License</span><span class="r" style="background:#97ca00">AGPL v3</span></span>
+          <span class="bdg"><span class="l">release</span><span class="r" style="background:#007ec6">v2.5.23</span></span>
+        </div>
+        <p><b>Real-time global intelligence dashboard</b> — AI-powered news aggregation, geopolitical monitoring,
+          and infrastructure tracking in a unified situational awareness interface.</p>
+        <h2>What It Does</h2>
+        <ul>
+          <li><b>500+ curated news feeds</b> across 15 categories, AI-synthesized into briefs</li>
+          <li><b>Country Instability Index (CII)</b> — server-authoritative CII v8 stress scoring for 31 Tier-1 countries</li>
+          <li><b>26 languages</b> with native-language feeds and RTL support</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ 9. PACKAGES -->
+<div class="optpanel" data-panel="9">
+  <div class="note"><b>This one writes itself, because you already wrote the rules.</b> CLAUDE.md §2.10 names the
+    licences that pass without asking and the ones that stop the line. So the ledger reads the licence from
+    <span class="mono">node_modules</span> and rules on it automatically — <b>green needs nothing from you, red is
+    already decided, and amber is the only column that is actually your inbox.</b> §2.11 adds the size column:
+    anything over 20 MB is flagged whatever its licence.</div>
+
+  <div class="chips">
+    <div class="chip"><span class="k">Tracked</span><span class="v">58</span></div>
+    <div class="chip"><span class="k">Approved</span><span class="v" style="color:var(--green)">51</span></div>
+    <div class="chip"><span class="k">Banned</span><span class="v" style="color:var(--red)">4</span></div>
+    <div class="chip"><span class="k">Needs ruling</span><span class="v" style="color:var(--amber)">3</span></div>
+    <div class="chip"><span class="k">Over 20 MB</span><span class="v" style="color:var(--amber)">2</span></div>
+    <div class="chip"><span class="k">Install size</span><span class="v" style="font-size:15px">412 MB</span></div>
+  </div>
+
+  <div class="card">
+    <div class="sectitle">
+      <div><span class="mlabel">Package ledger</span> <span class="hint">AvertXAI-Focal-Registry · scanned 08-10-2026</span></div>
+      <div class="row"><div class="srch">Search packages</div>
+        <button class="btn sm">All 58</button><button class="btn sm" style="border-color:var(--amber);color:var(--amber)">Needs ruling 3</button>
+        <button class="btn sm go">Rescan</button></div>
+    </div>
+    <div class="tscroll">
+    <table>
+      <thead><tr><th>Package</th><th style="width:82px">Version</th><th style="width:104px">Licence</th>
+        <th style="width:76px">Size</th><th style="width:120px">Verdict</th><th>Why · where</th></tr></thead>
+      <tbody>
+        <tr><td><b>exifr</b></td><td class="mono">7.1.3</td><td class="mono">MIT</td><td class="mono">1.5 MB</td>
+          <td><span class="pill ok">approved</span></td>
+          <td class="hint">Permissive, auto-passed. Header-only stills reads · <b>Scan</b></td></tr>
+        <tr><td><b>music-metadata</b></td><td class="mono">10.2.0</td><td class="mono">MIT</td><td class="mono">2.8 MB</td>
+          <td><span class="pill ok">approved</span></td>
+          <td class="hint">Permissive, auto-passed. Video and audio containers · <b>Scan</b></td></tr>
+        <tr><td><b>better-sqlite3-multiple-ciphers</b></td><td class="mono">11.5.0</td><td class="mono">MIT</td><td class="mono">38 MB</td>
+          <td><span class="pill ok">approved</span></td>
+          <td><span class="pill warn">over 20 MB</span> <span class="hint">native build, unavoidable · <b>every module</b></span></td></tr>
+        <tr><td><b>argon2</b></td><td class="mono">0.41.1</td><td class="mono">MIT</td><td class="mono">6.2 MB</td>
+          <td><span class="pill ok">approved</span></td><td class="hint">Key derivation · <b>Vault</b></td></tr>
+        <tr><td><b>@tiptap/core</b></td><td class="mono">2.6.6</td><td class="mono">MIT</td><td class="mono">4.4 MB</td>
+          <td><span class="pill ok">approved</span></td>
+          <td class="hint">Core and open extensions only — <b>Pro extensions are paid</b> · <b>MindMerge, Notes</b></td></tr>
+        <tr class="nb"><td><b>ffprobe-static</b></td><td class="mono">—</td><td class="mono">GPL v3</td><td class="mono">78 MB</td>
+          <td><span class="pill no">banned</span></td>
+          <td><b style="color:var(--red)">Ships a GPL binary inside the installer.</b>
+            <span class="hint">Installed once in error and removed. Replaced by music-metadata plus a hand-written
+            ISO box-tree walker. <b>Do not reintroduce.</b></span></td></tr>
+        <tr><td><b>node-gyp-build</b></td><td class="mono">4.8.1</td><td class="mono">MIT</td><td class="mono">0.1 MB</td>
+          <td><span class="pill ok">approved</span></td><td class="hint">Transitive of argon2</td></tr>
+        <tr class="nb"><td><b>some-chart-lib</b></td><td class="mono">3.0.1</td><td class="mono">?</td><td class="mono">12 MB</td>
+          <td><span class="pill warn">needs ruling</span></td>
+          <td><b style="color:var(--amber)">Licence could not be determined.</b>
+            <span class="hint">No LICENSE file, package.json field empty. §2.10 says undeterminable stops the line.
+            Two permissive alternatives and a write-it-ourselves estimate are drafted below.</span>
+            <div class="row" style="margin-top:7px"><button class="btn sm go">Approve</button>
+              <button class="btn sm dgr">Ban</button><button class="btn sm">See alternatives</button></div></td></tr>
+        <tr><td><b>pg</b></td><td class="mono">8.12.0</td><td class="mono">MIT</td><td class="mono">3.1 MB</td>
+          <td><span class="pill no">banned</span></td>
+          <td><b style="color:var(--red)">Licence is fine — the package does not belong here.</b>
+            <span class="hint">This product is SQLite only. Banned on architecture, not on law. The ledger keeps
+            both reasons because they are not the same reason.</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="hint" style="margin-top:12px"><b>The two bans read differently on purpose.</b> One is a legal
+      obligation the product will not take on; the other is a package that would simply be wrong here. A ledger that
+      collapses those into one red pill teaches you nothing six months later, which is the only moment it matters.</div>
+  </div>
+
+  <div class="card">
+    <div class="sectitle"><span class="mlabel">Before you install</span></div>
+    <div class="row" style="align-items:flex-start">
+      <div class="grow"><div class="srch" style="width:100%">Paste a package name — <span class="mono">npm i some-chart-lib</span></div></div>
+      <button class="btn pri">Check it</button>
+    </div>
+    <div class="note" style="margin-top:12px">Checks the licence and the install size <b>before</b> the package
+      enters the tree, which is the order §2.10 asks for and the order that is easy to get backwards. Answers in
+      three lines: what the licence is, whether it passes, and what it weighs.</div>
+  </div>
+</div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- option strip
+const panels = [...document.querySelectorAll('.optpanel')];
+document.querySelectorAll('.obtn[data-opt]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.obtn[data-opt]').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  panels.forEach(p => p.classList.toggle('on', p.dataset.panel === b.dataset.opt));
+  // the tab strip follows the surface you are looking at
+  const map = {1:'Library',2:'Library',3:'Library',4:'Vault',5:'Infrastructure',6:'Infrastructure',7:'Repos',8:'Repos',9:'Packages'};
+  const want = map[b.dataset.opt];
+  document.querySelectorAll('#tabstrip .tab').forEach(t => t.classList.toggle('on', t.textContent.trim() === want));
+  window.scrollTo({top:0,behavior:'smooth'});
+}));
+
+// --- theme
+document.getElementById('themebtn').addEventListener('click', e => {
+  document.body.classList.toggle('dark');
+  e.target.textContent = document.body.classList.contains('dark') ? '◐ Light' : '◐ Dark';
+});
+
+// --- note editor: Edit / Split / Preview
+document.querySelectorAll('#viewseg span').forEach(s => s.addEventListener('click', () => {
+  document.querySelectorAll('#viewseg span').forEach(x => x.classList.remove('on'));
+  s.classList.add('on');
+  const src = document.querySelector('.pane.src'), prev = document.querySelectorAll('.notesplit .pane')[1];
+  const m = s.textContent;
+  src.style.display  = m === 'Preview' ? 'none' : 'block';
+  prev.style.display = m === 'Edit'    ? 'none' : 'block';
+}));
+
+// --- runbook ticks
+document.querySelectorAll('.snum').forEach(n => n.addEventListener('click', () => n.closest('.step').classList.toggle('done')));
+
+// --- import paths
+document.querySelectorAll('#paths .path').forEach(p => p.addEventListener('click', () => {
+  document.querySelectorAll('#paths .path').forEach(x => x.classList.remove('on'));
+  p.classList.add('on');
+  pathA.style.display = p.dataset.path === 'a' ? 'block' : 'none';
+  pathB.style.display = p.dataset.path === 'b' ? 'block' : 'none';
+  pathC.style.display = p.dataset.path === 'c' ? 'block' : 'none';
+}));
+
+// --- repo accordion
+document.querySelectorAll('[data-repo] .repohead').forEach(h => h.addEventListener('click', () => h.parentElement.classList.toggle('open')));
+
+// --- github tabs, master/detail rows, tab strip, rail
+document.querySelectorAll('.ghtabs').forEach(strip =>
+  strip.querySelectorAll('.ghtab').forEach(t => t.addEventListener('click', () => {
+    strip.querySelectorAll('.ghtab').forEach(x => x.classList.remove('on')); t.classList.add('on');
+  })));
+document.querySelectorAll('.mdrow').forEach(r => r.addEventListener('click', () => {
+  document.querySelectorAll('.mdrow').forEach(x => x.classList.remove('on')); r.classList.add('on');
+}));
+document.querySelectorAll('.notelist .nrow, .rail .rrow').forEach(r => r.addEventListener('click', () => {
+  const scope = r.closest('.notelist') || r.closest('.rail');
+  scope.querySelectorAll(r.classList.contains('nrow') ? '.nrow' : '.rrow').forEach(x => x.classList.remove('on'));
+  r.classList.add('on');
+}));
+</script>
+</body>
+</html>

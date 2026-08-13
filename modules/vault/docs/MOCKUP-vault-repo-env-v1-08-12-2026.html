@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP — Repo .env capture — v1 08-12-2026</title>
+<style>
+:root{
+  --bg:#efece7; --modal:#ffffff; --ink:#1f2937; --label:#6b7280; --hint:#9aa0a8;
+  --line:#e5e7eb; --salmon:#e2795c; --salmon-soft:#f0b39e; --req:#e2603d;
+  --green:#16a34a; --bar:#f5f4f1;
+  --sans:'Segoe UI',system-ui,sans-serif; --mono:Consolas,'Cascadia Mono',monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--sans);padding:22px 20px 70px}
+h2{margin:0;font-size:19px;font-weight:700}
+.mono{font-family:var(--mono)}
+.nav{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:20px}
+.nav button{border:1px solid var(--line);background:var(--modal);border-radius:8px;padding:5px 12px;
+  font:12px var(--sans);cursor:pointer;color:var(--label)}
+.nav button.on{background:var(--salmon);border-color:var(--salmon);color:#fff;font-weight:600}
+.stage{max-width:760px;margin:0 auto}
+.card{background:var(--modal);border-radius:16px;padding:28px 30px;box-shadow:0 12px 44px rgba(30,25,20,.16)}
+.sub{color:var(--label);font-size:13.5px;margin-top:6px}
+.sub b{color:var(--ink)}
+.state{display:none}.state.on{display:block}
+.slab{font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:var(--label);margin:22px 0 9px}
+
+/* the env table */
+.env{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.envhd{display:flex;align-items:center;gap:10px;padding:9px 13px;background:var(--bar);
+  border-bottom:1px solid var(--line);font-size:11.5px;color:var(--label)}
+.row{display:flex;align-items:center;gap:10px;padding:9px 13px;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row:hover{background:var(--bar)}
+.k{font-family:var(--mono);font-size:12px;font-weight:600;flex:none;min-width:190px}
+.v{font-family:var(--mono);font-size:12px;color:var(--label);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:1px}
+.v.shown{color:var(--ink);letter-spacing:0}
+.mini{border:1px solid var(--line);background:var(--modal);border-radius:7px;padding:3px 10px;
+  font:11.5px var(--sans);cursor:pointer;color:var(--label);flex:none}
+.mini:hover{border-color:var(--salmon);color:var(--salmon)}
+.tag{font-size:9.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:2px 6px;
+  border-radius:5px;border:1px solid;flex:none}
+.tag.sec{color:var(--req);border-color:var(--req)}
+.tag.plain{color:var(--label);border-color:var(--line)}
+.btn{border:1px solid var(--line);background:var(--modal);border-radius:10px;padding:9px 16px;
+  font:13px var(--sans);cursor:pointer;color:var(--ink)}
+.btn.pri{background:var(--salmon);border-color:var(--salmon);color:#fff;font-weight:600}
+.acts{display:flex;gap:9px;justify-content:flex-end;margin-top:22px;align-items:center}
+.note{background:#fdf6f3;border:1px solid #f3d9cf;border-left:3px solid var(--salmon);
+  border-radius:10px;padding:13px 16px;margin-top:18px;font-size:13px}
+.note b{color:var(--req)}
+.warn{background:#fff8f6;border:1px solid #f3cfc9;border-left:3px solid var(--req);
+  border-radius:10px;padding:13px 16px;margin:16px 0;font-size:13px}
+.warn b{color:var(--req)}
+.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;
+  padding:11px 13px;margin-bottom:8px;cursor:pointer}
+.opt.on{border-color:var(--salmon);background:#fdf6f3;box-shadow:0 0 0 2px rgba(226,121,92,.13)}
+.opt .rad{width:15px;height:15px;border-radius:50%;border:2px solid var(--line);flex:none;margin-top:2px}
+.opt.on .rad{border-color:var(--salmon);background:radial-gradient(circle,var(--salmon) 0 42%,transparent 44%)}
+.opt b{display:block;font-size:12.5px;margin-bottom:3px}
+.opt span{display:block;font-size:11.5px;color:var(--label);line-height:1.5}
+.path{font-family:var(--mono);font-size:11.5px;color:var(--label)}
+ul.tight{margin:8px 0 0 18px;padding:0}ul.tight li{margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <button class="on" data-go="a">A · found on scan</button>
+  <button data-go="b">B · the repo row</button>
+  <button data-go="c">C · reveal + copy</button>
+</div>
+
+<div class="stage">
+
+  <!-- =============================== A -->
+  <div class="state on" id="a">
+    <div class="card">
+      <h2>An .env file was found</h2>
+      <div class="sub"><span class="path">D:\dev\world-monitor\.env</span> — 11 values, 7 of them look like credentials.</div>
+
+      <div class="warn">
+        <b>Read this before choosing.</b> An .env holds live keys. Whatever you pick, the file on your disk is
+        <b>never changed, moved or deleted</b> — the vault only ever reads. But where the values END UP decides how well
+        they are protected.
+      </div>
+
+      <div class="slab">What should happen to them</div>
+
+      <div class="opt on">
+        <span class="rad"></span>
+        <span><b>Store them as vault entries <span class="tag sec" style="margin-left:4px">recommended</span></b>
+        <span>Each value becomes a real entry, encrypted like every password, masked on screen, and revealed only
+        through the one logged read. The repo row shows them as a list you can copy from.</span></span>
+      </div>
+      <div class="opt">
+        <span class="rad"></span>
+        <span><b>Remember the keys, not the values</b>
+        <span>The vault records that <span class="mono">STRIPE_SECRET_KEY</span> exists here and leaves the value on
+        disk. Useful as an inventory; nothing to copy from the app.</span></span>
+      </div>
+      <div class="opt">
+        <span class="rad"></span>
+        <span><b>Skip this file</b>
+        <span>Nothing is read or stored. The repo is added without it.</span></span>
+      </div>
+
+      <div class="slab">What is in it</div>
+      <div class="env">
+        <div class="envhd"><span style="flex:1">11 values · nothing is stored until you press Import</span>
+          <span>7 credential-shaped</span></div>
+        <div class="row"><span class="k">STRIPE_SECRET_KEY</span><span class="tag sec">secret</span>
+          <span class="v">••••••••••••••••••••</span><button class="mini">exclude</button></div>
+        <div class="row"><span class="k">OPENAI_API_KEY</span><span class="tag sec">secret</span>
+          <span class="v">••••••••••••••••••••</span><button class="mini">exclude</button></div>
+        <div class="row"><span class="k">DATABASE_URL</span><span class="tag sec">secret</span>
+          <span class="v">••••••••••••••••••••</span><button class="mini">exclude</button></div>
+        <div class="row"><span class="k">NODE_ENV</span><span class="tag plain">plain</span>
+          <span class="v shown">production</span><button class="mini">exclude</button></div>
+        <div class="row"><span class="k">PORT</span><span class="tag plain">plain</span>
+          <span class="v shown">3000</span><button class="mini">exclude</button></div>
+      </div>
+      <div class="sub" style="margin-top:9px">…and 6 more. A value is called <b>credential-shaped</b> when its key
+      contains KEY, SECRET, TOKEN, PASSWORD, DSN or URL-with-credentials — a guess, so check the list.</div>
+
+      <div class="acts">
+        <span style="margin-right:auto;font-size:11.5px;color:var(--label)">Your .env file is not modified.</span>
+        <button class="btn">Cancel</button><button class="btn pri">Import 11 values</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =============================== B -->
+  <div class="state" id="b">
+    <div class="card">
+      <h2>world-monitor</h2>
+      <div class="sub">The repo row, opened. <span class="path">D:\dev\world-monitor</span></div>
+
+      <div class="slab">Environment · 11 values</div>
+      <div class="env">
+        <div class="envhd"><span style="flex:1">from <span class="mono">.env</span> · captured 08-12-2026</span>
+          <button class="mini">Re-read the file</button></div>
+        <div class="row"><span class="k">STRIPE_SECRET_KEY</span><span class="v">••••••••••••••••••••</span>
+          <button class="mini">Reveal</button><button class="mini">Copy</button></div>
+        <div class="row"><span class="k">OPENAI_API_KEY</span><span class="v">••••••••••••••••••••</span>
+          <button class="mini">Reveal</button><button class="mini">Copy</button></div>
+        <div class="row"><span class="k">DATABASE_URL</span><span class="v">••••••••••••••••••••</span>
+          <button class="mini">Reveal</button><button class="mini">Copy</button></div>
+        <div class="row"><span class="k">NODE_ENV</span><span class="v shown">production</span>
+          <button class="mini">Copy</button></div>
+      </div>
+
+      <div class="acts">
+        <span style="margin-right:auto;font-size:11.5px;color:var(--label)">Every reveal and copy is recorded in the access log.</span>
+        <button class="btn">Copy as .env</button>
+        <button class="btn pri">Copy export lines</button>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Why the two copy buttons.</b> You said you want these on your VPS quickly.
+      <b>Copy as .env</b> gives you <span class="mono">KEY=value</span> lines to paste into a file;
+      <b>Copy export lines</b> gives <span class="mono">export KEY=value</span> to paste straight into a shell.
+      Both are one press, and both are recorded — a bulk copy of every secret in a repo is exactly the event a log
+      exists for.
+    </div>
+  </div>
+
+  <!-- =============================== C -->
+  <div class="state" id="c">
+    <div class="card">
+      <h2>Revealing one value</h2>
+      <div class="sub">Same rules as every other credential in the vault — no second path, no shortcut.</div>
+
+      <div class="env" style="margin-top:16px">
+        <div class="row"><span class="k">STRIPE_SECRET_KEY</span>
+          <span class="v shown" id="rv">sk_live_51Nq8fJK2mXpQ7rTvB3wYzA</span>
+          <button class="mini" id="hide">Hide</button><button class="mini">Copy</button></div>
+      </div>
+
+      <div class="warn" style="margin-top:16px">
+        <b>What that press did.</b>
+        <ul class="tight">
+          <li>Read the value through the <b>one logged path</b> — the same one a password uses.</li>
+          <li>Wrote a row to the access log: what, when, and that it was granted.</li>
+          <li>Started the clipboard timer — a copied value clears after <b>30 seconds</b>, as configured.</li>
+          <li>The value is dropped from the screen the moment you press Hide, or when you leave the tab.</li>
+        </ul>
+      </div>
+
+      <div class="acts"><button class="btn pri">Got it</button></div>
+    </div>
+
+    <div class="note">
+      <b>The one thing I would push back on.</b> Importing an .env copies live production keys into the vault, so they
+      then exist in two places instead of one — and the vault becomes worth more to an attacker than the repo was.
+      That is a fair trade if it saves you hunting for keys on a VPS at 2am, but it should be a choice you made on
+      purpose rather than a side effect of adding a repo. Hence the three options on the first screen, and hence
+      <b>Skip this file</b> being one of them.
+    </div>
+  </div>
+
+</div>
+
+<script>
+  document.querySelectorAll('.nav button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.nav button').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      document.querySelectorAll('.state').forEach(function (s) { s.classList.remove('on'); });
+      document.getElementById(b.dataset.go).classList.add('on');
+      window.scrollTo(0, 0);
+    });
+  });
+  // The option cards behave.
+  document.querySelectorAll('.opt').forEach(function (o) {
+    o.addEventListener('click', function () {
+      document.querySelectorAll('.opt').forEach(function (x) { x.classList.remove('on'); });
+      o.classList.add('on');
+    });
+  });
+  // Reveal toggles back to masked, so the "dropped when hidden" rule is visible.
+  var hide = document.getElementById('hide'), rv = document.getElementById('rv');
+  if (hide) hide.addEventListener('click', function () {
+    var masked = rv.classList.toggle('shown');
+    rv.textContent = masked ? 'sk_live_51Nq8fJK2mXpQ7rTvB3wYzA' : '••••••••••••••••••••';
+    hide.textContent = masked ? 'Hide' : 'Reveal';
+  });
+</script>
+</body>
+</html>

@@ -77,8 +77,16 @@ function vExtras(value: unknown): string | null {
         .filter((q) => q && typeof q.question === "string" && typeof q.answer === "string")
         .map((q) => ({ question: q.question.slice(0, 300), answer: q.answer.slice(0, 300) }))
     : [];
-  if (codes.length === 0 && questions.length === 0) return null;
-  const json = JSON.stringify({ backupCodes: codes, securityQuestions: questions });
+  // SSH passphrase — a second credential riding the version row. Sliced never, THROWN on oversize,
+  // same rule as the value itself: a truncated passphrase is a corrupted one.
+  const passphrase = typeof e.passphrase === "string" && e.passphrase !== "" ? e.passphrase : null;
+  if (passphrase && passphrase.length > 1024) throw new Error("passphrase too long (max 1024 characters)");
+  if (codes.length === 0 && questions.length === 0 && !passphrase) return null;
+  const json = JSON.stringify({
+    backupCodes: codes,
+    securityQuestions: questions,
+    ...(passphrase ? { passphrase } : {}),
+  });
   if (json.length > MAX_VALUE) throw new Error("Backup codes and security questions are too long to store.");
   return json;
 }
@@ -101,7 +109,7 @@ function parseExtras(raw: unknown): VaultSecretExtras | null {
 // history's highest row (nothing stores it on the secret): a correlated MAX(version) that is a
 // single descent on vault_secret_versions_uniq.
 const META_COLS =
-  "id, uuid, kind, label, full_name, username, url, notes, favourite, folder_id, " +
+  "id, uuid, kind, label, full_name, username, url, notes, favourite, folder_id, public_key, " +
   "(SELECT MAX(v.version) FROM vault_secret_versions v WHERE v.secret_id = vault_secrets.id) AS version, " +
   "archived_at, archive_reason, created_at, updated_at";
 // Newest access-log stamp per secret — the ledger's "Last read" column. Derived, never stored.
@@ -152,14 +160,15 @@ export function createSecret(db: Db, orgId: string, caller: string, input: Vault
   const url = vOptional(input?.url, "website", 500);
   const notes = vOptional(input?.notes, "notes", MAX_NOTES);
   const folderId = input?.folderId == null ? null : Number(input.folderId);
+  const publicKey = vOptional(input?.publicKey, "public key", 4000);
   const extras = vExtras(input?.extras);
   const rowid = db.transaction(() => {
     const res = db
       .prepare(
-        `INSERT INTO vault_secrets (uuid, org_id, kind, label, full_name, username, url, notes, folder_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO vault_secrets (uuid, org_id, kind, label, full_name, username, url, notes, folder_id, public_key, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(uuid, orgId, kind, label, fullName, username, url, notes, folderId, at);
+      .run(uuid, orgId, kind, label, fullName, username, url, notes, folderId, publicKey, at);
     db.prepare(
       `INSERT INTO vault_secret_versions (uuid, org_id, secret_id, version, value, extras, created_at)
        VALUES (?, ?, ?, 1, ?, ?, ?)`
@@ -315,7 +324,7 @@ export function updateSecretMeta(db: Db, orgId: string, caller: string, uuid: un
   const at = nowIso();
   db.prepare(
     `UPDATE vault_secrets SET kind = ?, label = ?, full_name = ?, username = ?, url = ?, notes = ?,
-       folder_id = ?, updated_at = ? WHERE id = ?`
+       folder_id = ?, public_key = ?, updated_at = ? WHERE id = ?`
   ).run(
     patch.kind === undefined ? row.kind : vText(patch.kind, "kind", MAX_TAG),
     patch.label === undefined ? row.label : vText(patch.label, "label", MAX_TAG),
@@ -324,6 +333,7 @@ export function updateSecretMeta(db: Db, orgId: string, caller: string, uuid: un
     patch.url === undefined ? row.url : vOptional(patch.url, "website", 500),
     patch.notes === undefined ? row.notes : vOptional(patch.notes, "notes", MAX_NOTES),
     patch.folderId === undefined ? row.folder_id : patch.folderId == null ? null : Number(patch.folderId),
+    patch.publicKey === undefined ? row.public_key : vOptional(patch.publicKey, "public key", 4000),
     at,
     row.id
   );
@@ -386,6 +396,29 @@ export function listAccessLog(db: Db, orgId: string, opts?: { limit?: number; se
  * data travelling to the analysis: health.ts consumes it in-process and returns verdicts, and
  * nothing here is reachable from IPC. Do not export it through a channel, ever.
  */
+export interface VaultExportRow extends VaultSecretMeta {
+  value: string;
+  extras: string | null;
+  folder_name: string | null;
+}
+
+/**
+ * MAIN-SIDE ONLY — the second and last function that hands out the whole set, and it exists for the
+ * same reason the first one does: the WORK travels to the data, not the data to the work. transfer.ts
+ * consumes this in-process and writes a FILE; not one row of it crosses IPC. Same rule as
+ * readAllForAnalysis — do not export it through a channel, ever. Archived rows are included
+ * deliberately: a backup that silently drops what you retired is not a backup.
+ */
+export function readAllForExport(db: Db, orgId: string): VaultExportRow[] {
+  return db
+    .prepare(
+      `SELECT ${META_COLS}, ${CURRENT_VALUE},
+              (SELECT f.name FROM vault_folders f WHERE f.id = vault_secrets.folder_id) AS folder_name
+         FROM vault_secrets WHERE org_id = ? ORDER BY label COLLATE NOCASE ASC`
+    )
+    .all(orgId) as VaultExportRow[];
+}
+
 export function readAllForAnalysis(db: Db, orgId: string): { uuid: string; label: string; username: string | null; url: string | null; value: string; created_at: string }[] {
   return db
     .prepare(

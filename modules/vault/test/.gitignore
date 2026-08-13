@@ -1,0 +1,4 @@
+# Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary
+# Build output. Each proof is bundled to a .cjs before it can run against the Electron-built native
+# module (see README.md) — the .ts beside it is the source of truth and the only thing committed.
+*-proof.cjs

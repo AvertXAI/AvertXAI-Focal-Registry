@@ -9,4 +9,4 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: modules/vault/electron/core/services/db/index.ts
 //------------------------------------------------------------
-export { createTable, getDb, initDb, openDb } from "../../../../../../electron/core/services/db";
+export { closeAllDbs, compactDb, createTable, getDb, initDb, openDb } from "../../../../../../electron/core/services/db";

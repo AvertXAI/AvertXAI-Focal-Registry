@@ -8,6 +8,7 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 //------------------------------------------------------------
 import Database from "better-sqlite3-multiple-ciphers";
+import fs from "node:fs";
 import { generateUUIDv7 } from "../utils/uuidv7";
 
 // Clean baseplate schema for the shared DB: a single key/value settings table. Real tables are
@@ -24,6 +25,17 @@ CREATE TABLE IF NOT EXISTS app_settings (
 const registry = new Map<string, Database.Database>();
 
 function applyPragmas(db: Database.Database): void {
+  /**
+   * INCREMENTAL auto-vacuum, set BEFORE any table exists — which is the only time SQLite will accept
+   * it on a fresh file. Measured 08-12-2026 at Jason's real scale (76 MB, 2,050 notes):
+   *   · full VACUUM after ONE delete .... 2158 ms, and reclaimed nothing
+   *   · incremental after ONE delete ....    0 ms
+   *   · both reclaim the same 76.1 -> 7.4 MB once there is real garbage
+   * So "VACUUM on every delete" is 2000x the cost for no gain; freed pages are released a few at a
+   * time instead. On an EXISTING file this pragma is inert until one full VACUUM rebuilds it — which
+   * is exactly what the Compact button does, so compacting once also upgrades the file.
+   */
+  db.pragma("auto_vacuum = INCREMENTAL");
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
 }
@@ -32,6 +44,48 @@ function applyPragmas(db: Database.Database): void {
 // own file path + a unique name so they get a handle that is separate from the shared DB.
 // cipherKey (hex): encryption key — cipher scheme + key MUST be the connection's first statements,
 // applied before any other pragma (WAL etc.), or an encrypted file is unreadable.
+/**
+ * Checkpoint and close every open connection. Called on quit.
+ *
+ * WHY IT MATTERS: every database here runs in WAL mode, so a committed write lands in the `-wal`
+ * sidecar and is folded into the main file at a checkpoint. SQLite recovers an un-checkpointed WAL
+ * on the next open, so a clean exit was never actually lossy — but nothing was closing these
+ * connections at all, which leaves the sidecar behind and makes "did my note save?" impossible to
+ * answer by looking at the file. Closing runs a TRUNCATE checkpoint, so what is on disk after quit
+ * is the whole story. (Jason reported suspected loss on restart 08-12-2026; the real cause was an
+ * un-saved editor draft, fixed in NotesView — this is the other half, done properly.)
+ */
+/**
+ * Compact a database and say how much came back. Runs the FULL rebuild, so it is the on-demand
+ * button rather than something on a hot path — see the measurements on the auto_vacuum pragma above.
+ * It also converts a legacy file to incremental auto-vacuum, after which deletes maintain themselves.
+ */
+export function compactDb(db: Database.Database, dbPath: string): { before: number; after: number; freed: number } {
+  const size = (): number => {
+    try { return fs.statSync(dbPath).size; } catch { return 0; }
+  };
+  db.pragma("wal_checkpoint(TRUNCATE)");
+  const before = size();
+  db.exec("VACUUM");
+  db.pragma("wal_checkpoint(TRUNCATE)");
+  const after = size();
+  return { before, after, freed: Math.max(0, before - after) };
+}
+
+export function closeAllDbs(): void {
+  for (const [name, db] of registry) {
+    try {
+      if (db.open) {
+        db.pragma("wal_checkpoint(TRUNCATE)");
+        db.close();
+      }
+    } catch (e) {
+      console.error(`[db] could not close '${name}' cleanly:`, e);
+    }
+  }
+  registry.clear();
+}
+
 export function openDb(dbPath: string, name = dbPath, cipherKey?: string): Database.Database {
   const existing = registry.get(name);
   if (existing) return existing;

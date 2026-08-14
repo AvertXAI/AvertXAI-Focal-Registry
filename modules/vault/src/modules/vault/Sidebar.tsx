@@ -201,7 +201,7 @@ export default function Sidebar(p: SidebarProps) {
               onOpen={p.onOpenFolders}
             />
             <div className="vault-hint sbtxt" style={{ padding: "6px 9px" }}>
-              Notes, Runbooks and Snippets switch inside the pane — the three buttons above the list.
+              Notes, Runbooks and Ideas switch inside the pane — the three buttons above the list.
               They share this one tree.
             </div>
           </>

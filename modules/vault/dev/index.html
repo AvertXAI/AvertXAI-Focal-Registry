@@ -13,28 +13,55 @@
    DEV HOST ONLY. The shell tokens the module reads, at their canon Hybrid / Dark / Light values,
    so the module can be looked at in all three modes before it is mounted in the real shell. In the
    app these come from src/globals.css; this file never ships. */
+/* Tokens that are the SAME in all three modes. Every colour that varies lives in the three blocks
+   below and nowhere else — a value in both places is a value that will drift. */
 :root {
-  --mc-base: #0d1320; --mc-panels: #121a2e; --mc-nested: #182238; --mc-border: #233149;
-  --mc-text: #e8edf7; --mc-muted: #8b9bb4; --mc-dimmer: #5b6b88; --mc-accent-primary: #4f8df0;
-  --mc-orange: #ff9100; --mc-green: #16a34a; --mc-field: #0d1320; --mc-topbar: #0d1320;
-  --mc-radius: 6px; --mc-footer-height: 0px;
-  /* selected-segment chip — fixed icon-box blues in EVERY theme; deliberately does NOT flip
-     with the accent (globals.css:15-16). Light overrides the background only. */
-  --mc-seg-on-background: #303539; --mc-seg-on-icon: #4773a6;
+  --mc-green: #16a34a; --mc-radius: 6px;
+  --mc-footer-height: 0px; /* the dev host has no shell footer; the app reserves 65px */
   --mc-font: 'Segoe UI', system-ui, sans-serif;
   --mc-mono: 'Cascadia Mono', Consolas, monospace;
 }
+/* ---------------------------------------------------------------------------------------------
+   THE REAL THREE MODES, COPIED VERBATIM FROM src/globals.css:8-63 (Jason 08-13-2026: "use the FR
+   color mode already set. copy it to this app so i can use it. itsa hybrid, light and dark mode").
+
+   The block above was a HAND-TRIMMED subset and that is exactly what went wrong: it carried roughly
+   half the tokens, so dark and light inherited Hybrid's deep-navy values for everything it had
+   forgotten — --mc-sidebar, --mc-avatar, --mc-scrollbar-thumb, --mc-toggle-on, --mc-modal-border —
+   and, critically, no `color-scheme`, which is what tells Chromium to paint native <select> popups
+   and scrollbars for the right theme. Switching modes therefore changed some surfaces and not
+   others, which reads as "the switcher does not work".
+
+   These are now the SAME VALUES the shipped shell uses. Anything looked at here is what the module
+   will look like once it is mounted for real. If globals.css changes, this block is stale by
+   definition — it is a copy, not an import, because the dev host must not depend on the app it is
+   being built beside. -------------------------------------------------------------------------- */
+:root, [data-theme="hybrid"] {
+  --mc-base:#0d1320; --mc-panels:#121a2e; --mc-nested:#182238; --mc-border:#233149;
+  --mc-text:#e8edf7; --mc-muted:#8b9bb4; --mc-accent-primary:#4f8df0; --mc-orange:#ff9100;
+  --mc-topbar:#0d1320; --mc-sidebar:#121a2e; --mc-field:#0d1320; --mc-avatar:#4f8df0; --mc-dimmer:#5b6b88;
+  --mc-scrollbar-thumb:#2c3a58;
+  /* fixed in EVERY theme — these deliberately do NOT flip with the accent */
+  --mc-toggle-on:#4f8df0; --mc-seg-on-background:#303539; --mc-seg-on-icon:#4773a6;
+  /* hybrid's deep navy sits too close in value to a modal, so the dialog edge takes the accent */
+  --mc-modal-border:var(--mc-accent-primary);
+  color-scheme:dark;
+}
 [data-theme="dark"] {
-  --mc-base: #1f1f1f; --mc-panels: #2c2c2a; --mc-nested: #2c2a26; --mc-border: #61615b;
-  --mc-text: #E5E5E5; --mc-muted: #A0A0A0; --mc-dimmer: #71716B; --mc-accent-primary: #d97757;
-  --mc-field: #424240; --mc-topbar: #262626;
+  --mc-base:#1f1f1f; --mc-panels:#2c2c2a; --mc-nested:#2c2a26; --mc-border:#61615b;
+  --mc-text:#E5E5E5; --mc-muted:#A0A0A0; --mc-dimmer:#71716B; --mc-accent-primary:#d97757; --mc-orange:#ff9100;
+  --mc-topbar:#262626; --mc-sidebar:#262626; --mc-field:#424240; --mc-avatar:#313131; --mc-scrollbar-thumb:#7c7b75;
+  --mc-toggle-on:#4f8df0; --mc-seg-on-background:#303539; --mc-seg-on-icon:#4773a6;
+  --mc-modal-border:var(--mc-border); /* dark separates on its own — no accent edge */
+  color-scheme:dark;
 }
 [data-theme="light"] {
-  --mc-base: #FAFAFA; --mc-panels: #FFFFFF; --mc-nested: #F5F5F5; --mc-border: #E5E5E5;
-  --mc-text: #1A1A1A; --mc-muted: #737373; --mc-dimmer: #A3A3A2; --mc-accent-primary: #d97757;
-  --mc-field: #FFFFFF; --mc-topbar: #FFFFFF;
-  /* pale blue chip, so the selected segment doesn't sit dark on white (globals.css:60) */
-  --mc-seg-on-background: #DCE8F5;
+  --mc-base:#FAFAFA; --mc-panels:#FFFFFF; --mc-nested:#F5F5F5; --mc-border:#E5E5E5;
+  --mc-text:#1A1A1A; --mc-muted:#737373; --mc-dimmer:#A3A3A2; --mc-accent-primary:#d97757; --mc-orange:#ff9100;
+  --mc-topbar:#FFFFFF; --mc-sidebar:#FFFFFF; --mc-field:#FFFFFF; --mc-avatar:#E6E6E6; --mc-scrollbar-thumb:#B1B1B0;
+  --mc-toggle-on:#4f8df0; --mc-seg-on-background:#DCE8F5; --mc-seg-on-icon:#4773a6;
+  --mc-modal-border:var(--mc-border);
+  color-scheme:light;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 /* THE OUTER HEIGHT CHAIN, and it is why the whole window scrolled (Jason 08-12-2026: "everything
@@ -83,7 +110,7 @@ body { display: flex; flex-direction: column; font-family: var(--mc-font); color
     <div id="vault-topbar-search" class="devsearch"></div>
     <div class="right">
       <div class="themeseg" role="group" aria-label="Theme">
-        <button class="segbtn" data-theme-btn="system" title="System theme" aria-label="System theme">
+        <button class="segbtn" data-theme-btn="system" title="Hybrid — the default, what clearing data-theme gives you" aria-label="Hybrid theme">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
             <rect x="1.8" y="2.5" width="12.4" height="8" rx="1.2" />
             <path d="M6 13.2h4M8 10.5v2.7" />
@@ -105,19 +132,8 @@ body { display: flex; flex-direction: column; font-family: var(--mc-font); color
   </div>
   <div id="root"></div>
   <script type="module" src="./renderer.js"></script>
-  <script>
-    // Mirrors App.tsx exactly: 'system' CLEARS the attribute and falls through to the :root Hybrid
-    // block; 'light'/'dark' set it. The shell persists the choice to app_settings — this host does
-    // not, because a dev host that remembers a theme hides the default a new organization gets.
-    document.querySelectorAll("[data-theme-btn]").forEach(function (b) {
-      b.addEventListener("click", function () {
-        document.querySelectorAll("[data-theme-btn]").forEach(function (x) { x.classList.remove("on"); });
-        b.classList.add("on");
-        var mode = b.dataset.themeBtn;
-        if (mode === "system") document.documentElement.removeAttribute("data-theme");
-        else document.documentElement.setAttribute("data-theme", mode);
-      });
-    });
-  </script>
+  <!-- A FILE, not an inline block — the CSP above forbids inline script. See theme.js for the
+       full account; the pill had never worked, in any theme, since this host was written. -->
+  <script src="./theme.js"></script>
 </body>
 </html>

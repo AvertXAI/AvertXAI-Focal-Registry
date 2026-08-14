@@ -153,6 +153,37 @@ export interface FoundRepo {
   localPath: string;
   remoteUrl: string;
   branch: string;
+  /** The README as found on disk, or "" when the folder has none. See readReadme. */
+  readme: string;
+}
+
+/** The names a README actually ships under, in the order they win when a repo has more than one. */
+const README_NAMES = ["README.md", "readme.md", "Readme.md", "README.MD", "README", "readme", "README.txt", "readme.txt", "README.rst"];
+const README_MAX = 200_000; // 200 KB of markdown is a book; anything larger is not a README
+
+/**
+ * READ THE README OFF DISK (Jason 08-13-2026: "ik there are readme's in these folders, but the app
+ * isnt reading any of them").
+ *
+ * The scan opened `.git/config` and `.git/HEAD` and nothing else, so every scanned repo landed with
+ * an empty snapshot and the row said "No README snapshot stored. Paste one when you add or edit this
+ * repo" — asking a person to paste, by hand, a file sitting right beside the config it had just
+ * read. The vault still never touches the network; this is the same local folder, one more file.
+ *
+ * Bounded and silent on failure: an unreadable or absurd README costs the snapshot, never the scan.
+ */
+export function readReadme(dir: string): string {
+  for (const name of README_NAMES) {
+    const file = path.join(dir, name);
+    try {
+      const stat = fs.statSync(file);
+      if (!stat.isFile() || stat.size === 0 || stat.size > README_MAX) continue;
+      return fs.readFileSync(file, "utf8");
+    } catch {
+      /* not this one — try the next spelling */
+    }
+  }
+  return "";
 }
 
 /** Pull the origin fetch URL out of a .git/config. Plain INI — no parser dependency for ~15 lines. */
@@ -209,7 +240,10 @@ export function scanLocalRepos(root: unknown): { found: FoundRepo[]; scanned: nu
     if (entries.some((e) => e.name === ".git")) {
       let remote = "";
       try { remote = parseGitRemote(fs.readFileSync(path.join(gitDir, "config"), "utf8")); } catch { remote = ""; }
-      found.push({ name: path.basename(dir), localPath: dir, remoteUrl: remote, branch: headBranch(gitDir) });
+      found.push({
+        name: path.basename(dir), localPath: dir, remoteUrl: remote,
+        branch: headBranch(gitDir), readme: readReadme(dir),
+      });
       return; // a clone is a leaf — never descend into one
     }
     for (const e of entries) {
@@ -237,11 +271,20 @@ export function importLocalRepos(db: Db, orgId: string, repos: unknown): { added
       const existing = db.prepare("SELECT uuid FROM vault_repos WHERE org_id = ? AND local_path = ?")
         .get(orgId, r.localPath) as { uuid?: string } | undefined;
       if (existing?.uuid) {
-        db.prepare("UPDATE vault_repos SET remote_url = COALESCE(NULLIF(?, ''), remote_url), updated_at = ? WHERE org_id = ? AND uuid = ?")
-          .run(r.remoteUrl, nowIso(), orgId, existing.uuid);
+        // The README fills a HOLE, it never overwrites. NULLIF('') is what protects a snapshot you
+        // pasted by hand from being replaced by a scan that found nothing — and the COALESCE on the
+        // stored side protects it from being replaced by a scan that found something, too, because
+        // a rescan must not silently discard an edit. It only lands where the column was empty.
+        db.prepare(
+          `UPDATE vault_repos
+              SET remote_url = COALESCE(NULLIF(?, ''), remote_url),
+                  readme_md  = CASE WHEN COALESCE(readme_md, '') = '' THEN NULLIF(?, '') ELSE readme_md END,
+                  updated_at = ?
+            WHERE org_id = ? AND uuid = ?`
+        ).run(r.remoteUrl, r.readme ?? "", nowIso(), orgId, existing.uuid);
         updated++;
       } else {
-        saveRepo(db, orgId, { name: r.name, localPath: r.localPath, remoteUrl: r.remoteUrl });
+        saveRepo(db, orgId, { name: r.name, localPath: r.localPath, remoteUrl: r.remoteUrl, readmeMd: r.readme ?? "" });
         added++;
       }
     }

@@ -24,8 +24,9 @@
 // React elements. Raw HTML in a note body is NOT executed — `allowIndentation`/html passthrough is
 // never enabled — so a pasted note cannot smuggle markup into the page.
 import * as React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Markdoc, { type RenderableTreeNode } from "@markdoc/markdoc";
+import { isHighlightable, tokenize, type Role, type Token } from "./codeTheme";
 import { vaultApi, type VaultSecretMeta } from "./vaultApi";
 
 // ---------------------------------------------------------------- source → Markdoc
@@ -116,19 +117,81 @@ export function VaultChip({ label, secrets }: { label: string; secrets: VaultSec
   );
 }
 
+/** Role → the class the stylesheet maps to a --vault-code-* variable. One letter each: a 400-line
+ *  fence is a lot of spans, and the class name is the bulk of every one of them. */
+const CLASS: Record<Role, string> = {
+  plain: "", comment: "cc", string: "cs", keyword: "ck",
+  number: "cn", function: "cf", variable: "cv", type: "ct", punct: "cp",
+};
+
+/** Split the token run at newlines, keeping every character. Only needed when line numbers are on. */
+function toLines(tokens: Token[]): Token[][] {
+  const lines: Token[][] = [[]];
+  for (const t of tokens) {
+    const parts = t.text.split("\n");
+    parts.forEach((p, i) => {
+      if (i > 0) lines.push([]);
+      if (p) lines[lines.length - 1].push({ text: p, role: t.role });
+    });
+  }
+  return lines;
+}
+
+const paint = (t: Token, i: number): ReactNode =>
+  t.role === "plain" ? t.text : <span key={i} className={CLASS[t.role]}>{t.text}</span>;
+
+/**
+ * A fenced block, painted (Jason 08-12-2026, pointing at his own editor: "for the JavaScript code,
+ * can we use this color for that area"). Approved mockup MOCKUP-vault-code-appearance-v1.
+ *
+ * The colours arrive as CSS custom properties on the shell rather than as props, which is why this
+ * component takes no theme argument and no context. The palette is one thing, it changes when the
+ * light/dark mode changes, and Markdoc constructs this component itself from a tag — threading a
+ * prop through the renderer's component map would mean rebuilding the whole config on every theme
+ * change. A variable on an ancestor costs one repaint.
+ *
+ * AN UNTAGGED FENCE IS NEVER GUESSED. It renders plain on the themed background. Jason's notes are
+ * full of ASCII architecture diagrams, and a language detector that decides one is Perl does more
+ * damage than no colour at all.
+ */
 function CodeBlock({ content, language }: { content?: string; language?: string }) {
   const [copied, setCopied] = useState(false);
   const text = (content ?? "").replace(/\n$/, "");
+  const lang = (language ?? "").trim();
+  const tokens = useMemo(() => (isHighlightable(lang) ? tokenize(text, lang) : null), [text, lang]);
+
   return (
     <div className="vault-cblock">
       <div className="cb">
-        <span>{language || "text"}</span>
+        <span>{lang || "text"}</span>
         <button type="button" onClick={() => { void navigator.clipboard.writeText(text); setCopied(true); }}>
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre>{text}</pre>
+      {tokens === null ? (
+        <pre>{text}</pre>
+      ) : (
+        <pre>{tokens.map(paint)}</pre>
+      )}
     </div>
+  );
+}
+
+/** The same painting, for the settings preview and anywhere else that shows a sample. Exported so
+ *  there is one renderer — a preview drawn by different code is a preview that can lie. */
+export function CodeSample({ source, language, lineNumbers = false }: { source: string; language: string; lineNumbers?: boolean }) {
+  const tokens = useMemo(() => (isHighlightable(language) ? tokenize(source, language) : [{ text: source, role: "plain" as Role }]), [source, language]);
+  if (!lineNumbers) return <pre className="vault-csample">{tokens.map(paint)}</pre>;
+  return (
+    <pre className="vault-csample">
+      {toLines(tokens).map((line, i) => (
+        <span key={i} className="cline">
+          <span className="cln">{i + 1}</span>
+          {line.map(paint)}
+          {"\n"}
+        </span>
+      ))}
+    </pre>
   );
 }
 

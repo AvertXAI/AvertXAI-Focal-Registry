@@ -124,6 +124,24 @@ export const VAULT_DEFAULTS = {
   "maintenance.compact_every": "weekly",
   /** Do not rebuild the whole file to win less than this. Megabytes. */
   "maintenance.compact_min_mb": "20",
+  /**
+   * ---- code-block appearance (Jason 08-13-2026, MOCKUP-vault-code-appearance-v1) ----
+   *
+   * ONE JSON PALETTE PER MODE, not one key per colour. A nine-role palette as nine keys would be
+   * eighteen whitelist entries across two modes, and every future role would need another — a
+   * whitelist that has to grow per colour is one somebody forgets to grow, and forgetting throws
+   * "Unknown setting key" at boot and drops the shell into Safe Mode (§3.8). Same reasoning as
+   * `sidebar.widths`.
+   *
+   * The value is either a BUILT-IN ID ("focal-dark") or a serialised CodeTheme. Anything that will
+   * not parse falls back to the built-in for that mode — see readTheme; a bad stored palette must
+   * never blank the preview.
+   */
+  "code.theme_dark": "focal-dark",
+  "code.theme_light": "focal-light",
+  /** Empty falls through to the shell's --mc-mono. Any font installed on the machine. */
+  "code.font": "",
+  "code.line_numbers": "0",
 } as const;
 
 export type VaultSettingKey = keyof typeof VAULT_DEFAULTS;

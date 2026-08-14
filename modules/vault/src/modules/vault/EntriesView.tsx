@@ -10,9 +10,21 @@ import { FolderContextMenu, useRowFiling } from "./FolderMenu";
 import GeneratorPanel from "./GeneratorPanel";
 import { vaultApi, type VaultSecretExtras, type VaultSecretInput, type VaultSecretMeta, type VaultStrength } from "./vaultApi";
 
+/**
+ * SSH KEY WAS MISSING FROM THIS LIST, and that is the whole of the bug Jason reported on 08-12-2026
+ * ("theres no place to add an entry for the SSH keys").
+ *
+ * It was never a missing button. The SERVICE has supported SSH keys since it shipped — store.ts
+ * takes a `publicKey` on create and a `passphrase` in extras, sshart.ts derives the fingerprint and
+ * randomart, and the Infrastructure pane filters on `kind === "ssh_key"` and renders both. The one
+ * thing absent was this line, so the kind could not be chosen and a key could only ever reach the
+ * vault through the seed loader or a transfer import. Meanwhile the SSH pane's empty state told the
+ * user to "pick the SSH key kind" — naming an option that did not exist.
+ */
 const KINDS: [string, string][] = [
   ["login", "Login"],
   ["api_key", "API key"],
+  ["ssh_key", "SSH key"],
   ["financial", "Financial"],
   ["taxpayer_id", "Taxpayer ID"],
   ["note", "Secure note"],
@@ -237,7 +249,11 @@ export function EntryModal({
   onSetting,
   onClose,
   onSaved,
+  /** Pre-select the kind on a NEW entry. Used by the Infrastructure pane's Add SSH key button, so
+   *  the form opens already showing the two fields a key needs instead of making you find them. */
+  initialKind,
 }: {
+  initialKind?: string;
   secret: VaultSecretMeta | null;
   settings: Record<string, string>;
   onSetting: (k: string, v: string) => void;
@@ -246,7 +262,7 @@ export function EntryModal({
 }) {
   const api = vaultApi();
   const [form, setForm] = useState<VaultSecretInput>({
-    kind: secret?.kind ?? "login",
+    kind: secret?.kind ?? initialKind ?? "login",
     label: secret?.label ?? "",
     value: "",
     fullName: secret?.full_name ?? "",
@@ -256,6 +272,10 @@ export function EntryModal({
   });
   const [codes, setCodes] = useState("");
   const [questions, setQuestions] = useState("");
+  /** SSH-only, and only surfaced when the kind is ssh_key — see the two fields further down. */
+  const [publicKey, setPublicKey] = useState(secret?.public_key ?? "");
+  const [passphrase, setPassphrase] = useState("");
+  const isSsh = form.kind === "ssh_key";
   const [strength, setStrength] = useState<VaultStrength | null>(null);
   const [showValue, setShowValue] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -299,7 +319,10 @@ export function EntryModal({
         const at = line.indexOf("?");
         return at === -1 ? { question: line, answer: "" } : { question: line.slice(0, at + 1), answer: line.slice(at + 1).trim() };
       });
-    return backupCodes.length || securityQuestions.length ? { backupCodes, securityQuestions } : null;
+    const pass = isSsh ? passphrase.trim() : "";
+    return backupCodes.length || securityQuestions.length || pass
+      ? { backupCodes, securityQuestions, ...(pass ? { passphrase: pass } : {}) }
+      : null;
   };
 
   const save = (): void => {
@@ -314,8 +337,9 @@ export function EntryModal({
       setError(e instanceof Error ? e.message : String(e));
       setSaving(false);
     };
+    const pub = isSsh ? publicKey.trim() : undefined;
     if (!secret) {
-      void api.create({ ...form, extras }).then(done).catch(fail);
+      void api.create({ ...form, ...(pub ? { publicKey: pub } : {}), extras }).then(done).catch(fail);
       return;
     }
     // An existing entry: metadata always, credential only when one was typed.
@@ -413,10 +437,58 @@ export function EntryModal({
           )}
         </div>
 
-        <div className="vault-field">
-          <label htmlFor="v-url">Website</label>
-          <input id="v-url" value={form.url ?? ""} onChange={(e) => set("url", e.target.value)} placeholder="console.hetzner.cloud" />
-        </div>
+        {/**
+          * SHOWN ONLY FOR AN SSH KEY. Two fields the other kinds have no use for, and the private
+          * key is deliberately not among them: it stays in ~/.ssh where ssh-agent expects it.
+          * Putting it here would create a second place it can leak from and save nobody a step.
+          */}
+        {isSsh && (
+          <>
+            <div className="vault-field">
+              <label htmlFor="v-pub">
+                Public key <span className="vault-kind ok">not secret</span>
+              </label>
+              <textarea
+                id="v-pub"
+                value={publicKey}
+                spellCheck={false}
+                rows={3}
+                onChange={(e) => setPublicKey(e.target.value)}
+                placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... jason@core"
+                style={{ fontFamily: "var(--mc-mono)", fontSize: 11.5, lineHeight: 1.5, resize: "vertical" }}
+              />
+              <div className="vault-hint">
+                The whole line out of <span className="vault-mono">id_ed25519.pub</span>. This is the half you hand to
+                a server — the fingerprint and randomart on the Infrastructure tab are derived from it and never stored.
+              </div>
+            </div>
+            <div className="vault-field">
+              <label htmlFor="v-pass">
+                Passphrase <span className="vault-kind danger">secret</span>
+              </label>
+              <input
+                id="v-pass"
+                type="password"
+                autoComplete="new-password"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                placeholder={secret ? "Leave empty to keep the stored one" : ""}
+              />
+              <div className="vault-hint">
+                The thing the development environment keeps asking for. Encrypted with everything else, and every read
+                of it lands in the access log.
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* A key has no website, and a URL row on one is a field nobody can fill in. */}
+        {!isSsh && (
+          <div className="vault-field">
+            <label htmlFor="v-url">Website</label>
+            <input id="v-url" value={form.url ?? ""} onChange={(e) => set("url", e.target.value)} placeholder="console.hetzner.cloud" />
+          </div>
+        )}
 
         <div className="vault-two">
           <div className="vault-field">

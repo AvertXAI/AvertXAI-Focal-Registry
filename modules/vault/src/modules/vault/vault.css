@@ -355,7 +355,12 @@ body.vault-resizing .vault-notelist { transition: none !important; }
   font-size: 12px; flex-wrap: wrap; }
 .vault-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 9px 20px;
   margin-top: 15px; font-size: 12.5px; }
-.vault-opt { display: flex; align-items: center; gap: 9px; }
+/* min-width:0 is what lets the label shrink inside its grid cell instead of forcing the column
+   wider than the track — the same auto-sizing trap the code-appearance grid hit. The checkbox is
+   flex:none so a long label never squashes the control itself. */
+.vault-opt { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.vault-opt > span { min-width: 0; overflow-wrap: anywhere; }
+.vault-opt input[type="checkbox"] { flex: none; }
 .vault-opt input[type="range"] { flex: 1; accent-color: var(--mc-accent-primary); }
 .vault-opt input[type="checkbox"] { accent-color: var(--mc-accent-primary); }
 
@@ -614,9 +619,19 @@ body.vault-resizing .vault-notelist { transition: none !important; }
 .vault-milkdown blockquote { border-left: 3px solid var(--mc-border); padding-left: 12px; color: var(--mc-muted); margin: 0 0 10px; }
 .vault-milkdown code { font-family: var(--mc-mono); font-size: 11.5px; background: var(--mc-nested);
   border: 1px solid var(--mc-border); border-radius: 4px; padding: 1px 5px; }
-.vault-milkdown pre { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 8px;
-  padding: 11px 13px; overflow-x: auto; margin: 0 0 11px; }
-.vault-milkdown pre code { background: none; border: none; padding: 0; font-size: 11.5px; line-height: 1.6; }
+/* THE EDITOR'S FENCES WEAR THE SAME PALETTE (Jason 08-13-2026: "the editor and preview window still
+   doesnt show the code blocks color"). Half of that was an untagged `text` fence, which is plain by
+   design — but the other half was real: the editor pane never read --vault-code-* at all, so a fence
+   changed appearance the moment you switched from Edit to Preview.
+
+   SURFACE ONLY, not tokens. Colouring the WORDS inside the editor means a ProseMirror decoration
+   that re-runs on every keystroke, which is a different and much larger piece of machinery than a
+   render. The background, the ink and the font now match, so the two panes stop disagreeing about
+   what a code block looks like; per-token colour in the editor is its own build. */
+.vault-milkdown pre { background: var(--vault-code-background); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 11px 13px; overflow-x: auto; margin: 0 0 11px; color: var(--vault-code-plain); }
+.vault-milkdown pre code { background: none; border: none; padding: 0; font-size: 11.5px; line-height: 1.6;
+  font-family: var(--vault-code-font, var(--mc-mono)); color: inherit; }
 .vault-milkdown hr { border: 0; border-top: 1px solid var(--mc-border); margin: 14px 0; }
 .vault-milkdown a { color: var(--mc-accent-primary); }
 /* The read-side source view — what actually gets stored. Still used by surfaces that want the raw
@@ -652,7 +667,74 @@ body.vault-resizing .vault-notelist { transition: none !important; }
   font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--mc-dimmer); }
 .vault-cblock .cb button { margin-left: auto; background: none; border: 1px solid var(--mc-border); border-radius: 5px;
   color: var(--mc-muted); font-size: 10px; padding: 2px 8px; cursor: pointer; font-family: inherit; }
-.vault-cblock pre { padding: 11px 13px; overflow-x: auto; font-family: var(--mc-mono); font-size: 11.5px; line-height: 1.6; }
+/* ---- code-block appearance (MOCKUP-vault-code-appearance-v1, approved 08-13-2026) --------------
+   The palette arrives as --vault-code-* on .vault-shell, written by VaultModule from the stored
+   theme for the CURRENT light/dark mode. Colours as variables rather than props is what lets the
+   Markdoc-constructed CodeBlock stay prop-free: a theme change is one repaint of an ancestor, not a
+   rebuild of the renderer config. Defaults here mirror Focal Dark so an unstyled boot is never
+   invisible. ------------------------------------------------------------------------------- */
+.vault-shell {
+  --vault-code-background: var(--mc-nested);
+  --vault-code-plain: var(--mc-text);
+  --vault-code-comment: var(--mc-dimmer);
+  --vault-code-string: #9ecb8a;
+  --vault-code-keyword: #d98a70;
+  --vault-code-number: #d9b970;
+  --vault-code-function: #7fb8e6;
+  --vault-code-variable: var(--mc-text);
+  --vault-code-type: #c39ae0;
+  --vault-code-punct: var(--mc-muted);
+  --vault-code-comment-style: italic;
+  --vault-code-font: var(--mc-mono);
+}
+.vault-cblock pre { padding: 11px 13px; overflow-x: auto; font-family: var(--vault-code-font, var(--mc-mono));
+  font-size: 11.5px; line-height: 1.6; background: var(--vault-code-background); color: var(--vault-code-plain); }
+/* One letter per class on purpose — a 400-line fence is thousands of spans and the class name is
+   the bulk of each one. */
+.vault-cblock .cc, .vault-csample .cc { color: var(--vault-code-comment); font-style: var(--vault-code-comment-style); }
+.vault-cblock .cs, .vault-csample .cs { color: var(--vault-code-string); }
+.vault-cblock .ck, .vault-csample .ck { color: var(--vault-code-keyword); }
+.vault-cblock .cn, .vault-csample .cn { color: var(--vault-code-number); }
+.vault-cblock .cf, .vault-csample .cf { color: var(--vault-code-function); }
+.vault-cblock .cv, .vault-csample .cv { color: var(--vault-code-variable); }
+.vault-cblock .ct, .vault-csample .ct { color: var(--vault-code-type); }
+.vault-cblock .cp, .vault-csample .cp { color: var(--vault-code-punct); }
+/* The settings preview and any other sample — same painter, same variables, so a preview cannot
+   show you something the real block will not. */
+.vault-csample { margin: 0; padding: 12px 14px; overflow-x: auto; border-radius: 9px;
+  font-family: var(--vault-code-font, var(--mc-mono)); font-size: 11.5px; line-height: 1.62;
+  background: var(--vault-code-background); color: var(--vault-code-plain); white-space: pre; }
+.vault-csample .cln { display: inline-block; width: 2.1em; text-align: right; margin-right: 1.1em;
+  color: var(--vault-code-punct); opacity: .65; user-select: none; }
+/* THE TWO PREVIEW COLUMNS, and why this is not `.vault-two` (Jason 08-13-2026: "the code appearance
+   is truncated with the sidebar is opened, and it corrects itself when its closed").
+
+   TWO separate faults, and fixing either alone leaves it broken:
+
+   1. A grid ITEM defaults to `min-width: auto`, which means "at least as wide as my content". The
+      preview inside is a <pre> of unwrapped code, so each column refused to shrink below the widest
+      line and the pair overflowed the card — which is why closing the 270-pixel sidebar "fixed" it
+      and reopening broke it again. `min-width: 0` is what lets the column shrink so the <pre>'s own
+      overflow-x can finally do its job.
+   2. Two 1fr columns stay two columns at ANY width. auto-fit with a 300-pixel floor drops to one
+      column instead of squeezing both into unreadability — and at the 740-pixel window floor with
+      the rail open there is roughly 400 pixels of card, so one column is the only honest answer. */
+.vault-codegrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px; align-items: start; }
+.vault-codegrid > * { min-width: 0; }
+
+/* The by-hand palette editor. Two columns so nine roles plus a background fit without scrolling the
+   settings page — one per line would push the second preview off screen. Collapses to one on a
+   narrow card for the same reason as the grid above. */
+.vault-swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 6px 10px; margin-top: 10px; }
+.vault-swatch { display: flex; align-items: center; gap: 8px; border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 4px 7px; min-width: 0; }
+.vault-swatch .chip { width: 18px; height: 18px; border-radius: 5px; flex: none;
+  border: 1px solid var(--mc-border); }
+.vault-swatch .nm { flex: 1; font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.vault-swatch input { width: 82px; flex: none; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 6px; padding: 3px 6px; color: var(--mc-text); font-family: var(--mc-mono); font-size: 11px; }
 .vault-checklist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13.5px; }
 .vault-checklist label { display: flex; align-items: center; gap: 8px; }
 /* The credential chip — a note references, never contains. */
@@ -811,7 +893,9 @@ body.vault-resizing .vault-notelist { transition: none !important; }
   border-radius: 8px; padding: 11px 12px; }
 .vault-inlinegen .vault-genout { padding: 10px 12px; }
 .vault-inlinegen .vault-genout .value { min-width: 130px; font-size: 14px; }
-.vault-inlinegen .vault-opts { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 16px;
+/* 150, not 180: with the shorter labels two columns now fit comfortably in the modal, and dropping
+   the floor means it reaches two columns rather than one at the narrow end. */
+.vault-inlinegen .vault-opts { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px;
   margin-top: 12px; font-size: 12px; }
 .vault-inlinegen .vault-bulklist { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 

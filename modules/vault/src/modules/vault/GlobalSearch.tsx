@@ -18,6 +18,7 @@
 //
 // Everything filters over data already in memory. No new IPC, no query per keystroke.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { noteBadge } from "./NotesView";
 import type { Section } from "./Sidebar";
 import { vaultApi, type VaultNoteMeta, type VaultRepo, type VaultSecretMeta, type VaultServer } from "./vaultApi";
 
@@ -203,7 +204,7 @@ export default function GlobalSearch({ secrets, servers, repos, onGo }: GlobalSe
       return terms.every((t) => hay.includes(t));
     });
     const fromDb: Hit[] = noteHits.map((n) => ({
-      id: `n-${n.uuid}`, uuid: n.uuid, scope: "notes", badge: (n.kind ?? "n")[0]?.toUpperCase() ?? "N",
+      id: `n-${n.uuid}`, uuid: n.uuid, scope: "notes", badge: noteBadge(n.kind),
       colour: "var(--vault-note-color)",
       title: n.title,
       // The excerpt is now a window cut out of markdown, so it arrives with newlines and indentation

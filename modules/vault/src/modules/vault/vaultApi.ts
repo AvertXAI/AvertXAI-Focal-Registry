@@ -231,12 +231,16 @@ export interface VaultApi {
   clearLog: () => Promise<{ removed: number }>;
   /** Removes EVERYTHING, errors and warnings included. Developer surface, typed-confirm gated. */
   clearAllLog: () => Promise<{ removed: number }>;
+  /** Colour themes installed in Visual Studio Code on this machine. Reads only; never the network. */
+  findCodeThemes: () => Promise<{ active: string | null; themes: VaultFoundTheme[] }>;
+  /** The RAW text of one — JSONC and all. Parsing lives in codeTheme.ts, one implementation. */
+  readCodeTheme: (file: string) => Promise<{ name: string; raw: string }>;
   /** The renderer's own failures. A React crash never reaches the main-side error boundary, so
    *  without this the log would quietly imply the renderer never breaks. Returns the reference id
    *  so a surface can show the user the same six characters that are now in the log. */
   logClient: (level: VaultLogLevel, message: string, detail?: string) => Promise<string>;
   /** The Secured Notes folder tree. SEPARATE from the Passwords tree by ruling (08-11-2026), one
-   *  folder per note, shared by Notes/Runbooks/Snippets. Counts are INCLUSIVE of descendants. */
+   *  folder per note, shared by Notes/Runbooks/Ideas. Counts are INCLUSIVE of descendants. */
   listNoteFolders: () => Promise<{ folders: VaultNoteFolder[]; counts: Record<number, number>; unfiled: number }>;
   createNoteFolder: (name: string, parentId?: number | null) => Promise<VaultNoteFolder>;
   renameNoteFolder: (id: number, name: string) => Promise<VaultNoteFolder>;
@@ -422,6 +426,16 @@ export interface VaultZoneRecord {
   ttl: string | null;
   proxied: number | null;
   comment: string | null;
+}
+
+/** One colour theme this machine has installed. Mirrors FoundTheme in codeThemes.ts. */
+export interface VaultFoundTheme {
+  label: string;
+  uiTheme: "dark" | "light" | null;
+  file: string;
+  extension: string;
+  /** The one named in the user's own workbench.colorTheme — listed first. */
+  active: boolean;
 }
 
 export interface VaultRepo {

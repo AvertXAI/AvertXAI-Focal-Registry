@@ -24,7 +24,7 @@ type Tab = "servers" | "ssh" | "packages" | "import";
  * So the rows were written and this view never asked again — until something unrelated happened to
  * remount it, which is the five minutes. Same one-counter fix the notes list needed.
  */
-export default function InfraView({ secrets, onReload, onImport, reloadKey }: { secrets: VaultSecretMeta[]; onReload: () => void; onImport: () => void; reloadKey: number }) {
+export default function InfraView({ secrets, onReload, onImport, onAddKey, reloadKey }: { secrets: VaultSecretMeta[]; onReload: () => void; onImport: () => void; onAddKey: () => void; reloadKey: number }) {
   const api = vaultApi();
   const [tab, setTab] = useState<Tab>("servers");
   const [servers, setServers] = useState<VaultServer[]>([]);
@@ -214,7 +214,7 @@ export default function InfraView({ secrets, onReload, onImport, reloadKey }: { 
         </>
       )}
 
-      {tab === "ssh" && <SshPane keys={sshKeys} onReload={onReload} />}
+      {tab === "ssh" && <SshPane keys={sshKeys} onReload={onReload} onAddKey={onAddKey} />}
       {tab === "packages" && <PackageLedger />}
       {tab === "import" && <ImportRecords onImported={() => { load(); setTab("servers"); }} />}
 
@@ -231,7 +231,7 @@ function Chip({ k, v, colour }: { k: string; v: number; colour?: string }) {
 }
 
 // ---------------------------------------------------------------- SSH
-function SshPane({ keys, onReload }: { keys: VaultSecretMeta[]; onReload: () => void }) {
+function SshPane({ keys, onReload, onAddKey }: { keys: VaultSecretMeta[]; onReload: () => void; onAddKey: () => void }) {
   const api = vaultApi();
   const [sel, setSel] = useState<string | null>(keys[0]?.uuid ?? null);
   const [art, setArt] = useState<{ ok: boolean; error?: string; fingerprint?: string; randomart?: string } | null>(null);
@@ -259,12 +259,28 @@ function SshPane({ keys, onReload }: { keys: VaultSecretMeta[]; onReload: () => 
   };
 
   if (keys.length === 0) {
-    return <div className="vault-state">No SSH keys yet. Add one with <b>+ New entry</b> and pick the <b>SSH key</b> kind — the fingerprint and randomart appear here automatically.</div>;
+    // THE OLD COPY NAMED TWO THINGS THAT WERE NOT ON THIS SCREEN: "+ New entry" is a Passwords-tab
+    // button, and the "SSH key" kind was not in the picker at all. An empty state that tells you to
+    // use a control you cannot reach is worse than one that says nothing (Jason 08-12-2026).
+    return (
+      <div className="vault-state">
+        No SSH keys yet. Paste a public key and the fingerprint and randomart appear here automatically —
+        derived on every render, never stored.
+        <div style={{ marginTop: 14 }}>
+          <button className="vault-btn primary" onClick={onAddKey}>+ Add SSH key</button>
+        </div>
+      </div>
+    );
   }
   return (
     <div className="vault-two">
       <div className="vault-card">
-        <div className="vault-cardhead"><span className="vault-cardtitle">SSH keys</span></div>
+        {/* The button lives in the card head, not only in the empty state — you need it most on the
+            SECOND key, by which time the empty state is long gone. */}
+        <div className="vault-cardhead">
+          <span className="vault-cardtitle">SSH keys</span>
+          <button className="vault-btn sm primary" onClick={onAddKey}>+ Add SSH key</button>
+        </div>
         {keys.map((k) => (
           <button key={k.uuid} className={`vault-railrow${sel === k.uuid ? " on" : ""}`} onClick={() => setSel(k.uuid)}>
             <span className="vault-raildot" style={{ background: "var(--vault-strong-color)" }} />

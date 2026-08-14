@@ -79,6 +79,8 @@ contextBridge.exposeInMainWorld("api", {
     compactIfDue: (dry?: boolean) => invoke("vault:compactIfDue", dry === true),
     clearLog: () => invoke("vault:clearLog"),
     clearAllLog: () => invoke("vault:clearAllLog"),
+    findCodeThemes: () => invoke("vault:findCodeThemes"),
+    readCodeTheme: (file: string) => invoke("vault:readCodeTheme", file),
     logClient: (level: string, message: string, detail?: string) => invoke("vault:logClient", level, message, detail ?? ""),
     // Secured Notes folder tree
     listNoteFolders: () => invoke("vault:listNoteFolders"),

@@ -59,7 +59,7 @@ const DESTS: Record<ImportTarget, DestDef[]> = {
     { id: "auto", title: "Work it out", blurb: "Read each file and decide from its shape and frontmatter.", exts: ".md · .txt · .pdf" },
     { id: "note", title: "Notes", blurb: "Everything lands as a plain note.", exts: ".md · .txt · .pdf" },
     { id: "runbook", title: "Runbooks", blurb: "Numbered steps get copy buttons and ticks in Run mode.", exts: ".md · .txt" },
-    { id: "snippet", title: "Snippets", blurb: "Short reusable fragments — commands, config blocks.", exts: ".md · .txt" },
+    { id: "snippet", title: "Ideas", blurb: "Things you are thinking about — sketches, concepts, fragments.", exts: ".md · .txt" },
   ],
   repos: [
     { id: "docs", title: "READMEs and docs", blurb: "Markdown from a folder of repositories, kept readable offline.", exts: ".md · .txt · .pdf" },

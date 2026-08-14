@@ -15,7 +15,11 @@
 // File: modules/vault/test/engine-proof.ts
 //------------------------------------------------------------
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import Database from "better-sqlite3-multiple-ciphers";
+import { importLocalRepos, listRepos, readReadme, saveRepo } from "../electron/core/services/vault/repos";
 import { ensureVaultSchema, VAULT_ACTIONS } from "../electron/core/services/vault/db";
 import {
   archiveSecret,
@@ -30,7 +34,7 @@ import {
   updateSecretMeta,
 } from "../electron/core/services/vault/store";
 import * as lock from "../electron/core/services/vault/lock";
-import { archiveNote, createNote, getNote, importDocs, listNotes, searchNotes } from "../electron/core/services/vault/notes";
+import { archiveNote, createNote, getNote, importDocs, listNotes, searchNotes, updateNote } from "../electron/core/services/vault/notes";
 import {
   archiveNoteFolder, createNoteFolder, deleteNoteFolder, emptyNoteFolder, noteFolderCounts, noteFolderSubtree,
   setNoteFolder, unfiledNoteCount,
@@ -461,6 +465,73 @@ ok("lock gate: locks, unlocks, and honours its own setting");
     "a hyphenated, dotted filename searches as one term");
 
   ok("note search: AND across words, title beats mention, and the excerpt shows why the row is there");
+}
+
+
+// ── a note names itself from its own first heading ──────────────────────────────────────────────
+// Jason 08-12-2026: "this md file auto saved, but the file to the left, still says untitled".
+{
+  const ORG5 = "title-org";
+  const save = (uuid: string, body: string): string => updateNote(db, ORG5, uuid, { body }).title;
+
+  const a = createNote(db, ORG5, { kind: "note", title: "Untitled", body: "" });
+  assert.equal(save(a.uuid, "# Remote Desktop Idea\n\nWebRTC inside Electron."), "Remote Desktop Idea",
+    "the placeholder is replaced by the leading heading, the same rule import has always used");
+  assert.equal(save(a.uuid, "# Something Else\n\nchanged my mind"), "Remote Desktop Idea",
+    "and NEVER again — once a note has a name it is the note's, not the heading's");
+
+  const b = createNote(db, ORG5, { kind: "note", title: "Untitled", body: "" });
+  assert.equal(save(b.uuid, "just prose, no heading at all"), "Untitled",
+    "prose is not a title — half a sentence in the list would be its own bug");
+  assert.equal(save(b.uuid, "### Deep heading works too"), "Deep heading works too", "h1 through h3 count");
+
+  const c = createNote(db, ORG5, { kind: "note", title: "My own name", body: "" });
+  assert.equal(save(c.uuid, "# Ignore me"), "My own name", "a title you chose is never overwritten");
+
+  const d = createNote(db, ORG5, { kind: "note", title: "Untitled", body: "" });
+  assert.equal(updateNote(db, ORG5, d.uuid, { title: "Untitled", body: "  # Padded  " }).title, "Padded",
+    "leading whitespace on the heading line is trimmed, not stored");
+
+  ok("note titles: a hand-made note adopts its first heading exactly once, and never overrides yours");
+}
+
+
+// ── the scan reads READMEs, and never overwrites one you wrote ───────────────────────────────────
+// Jason 08-13-2026: "ik there are readme's in these folders, but the app isnt reading any of them".
+{
+  const ORG6 = "repo-org";
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vault-readme-"));
+  const repoDir = path.join(tmp, "world-monitor");
+  fs.mkdirSync(repoDir);
+  fs.writeFileSync(path.join(repoDir, "README.md"), "# World Monitor\n\nWhat it does.", "utf8");
+
+  assert.equal(readReadme(repoDir), "# World Monitor\n\nWhat it does.", "the file is read verbatim");
+  assert.equal(readReadme(path.join(tmp, "nothing-here")), "", "a folder with none returns empty, never throws");
+  // Lower-case spelling is just as common in the wild as the shouty one.
+  const alt = path.join(tmp, "alt");
+  fs.mkdirSync(alt);
+  fs.writeFileSync(path.join(alt, "readme.md"), "lower", "utf8");
+  assert.equal(readReadme(alt), "lower", "readme.md counts too");
+
+  // FIRST scan: the snapshot lands.
+  importLocalRepos(db, ORG6, [{ name: "world-monitor", localPath: repoDir, remoteUrl: "", branch: "main", readme: readReadme(repoDir) }]);
+  const one = listRepos(db, ORG6).find((r) => r.name === "world-monitor");
+  assert.ok(one?.readme_md?.startsWith("# World Monitor"), "a scanned repo arrives WITH its README");
+
+  // A HAND EDIT, then a rescan. The edit must survive — a rescan that silently replaces what you
+  // typed with what happens to be on disk is the bug this CASE expression exists to prevent.
+  saveRepo(db, ORG6, { uuid: one!.uuid, name: "world-monitor", readmeMd: "MY OWN NOTES" });
+  importLocalRepos(db, ORG6, [{ name: "world-monitor", localPath: repoDir, remoteUrl: "", branch: "main", readme: "# World Monitor\n\nWhat it does." }]);
+  assert.equal(listRepos(db, ORG6).find((r) => r.name === "world-monitor")?.readme_md, "MY OWN NOTES",
+    "a rescan NEVER overwrites a README a human wrote");
+
+  // And a scan that finds nothing must not wipe what is already stored.
+  importLocalRepos(db, ORG6, [{ name: "world-monitor", localPath: repoDir, remoteUrl: "", branch: "main", readme: "" }]);
+  assert.equal(listRepos(db, ORG6).find((r) => r.name === "world-monitor")?.readme_md, "MY OWN NOTES",
+    "an empty read is not a delete");
+
+  fs.rmSync(tmp, { recursive: true, force: true });
+  ok("repo scan: READMEs are read off disk, fill only an empty snapshot, and never clobber an edit");
 }
 
 console.log(`\nALL ${pass} VAULT ENGINE CHECKS PASSED`);

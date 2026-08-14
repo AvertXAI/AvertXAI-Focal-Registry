@@ -18,6 +18,7 @@
 // the compiler cannot see it.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { readTheme } from "./codeTheme";
 import EntriesView, { EntryModal } from "./EntriesView";
 import CollageView, { type CollageSort } from "./CollageView";
 import { PanesView } from "./PanesView";
@@ -66,6 +67,9 @@ export default function VaultModule() {
   const [search, setSearch] = useState("");
   const [tool, setTool] = useState<string | null>(null);
   const [editing, setEditing] = useState<VaultSecretMeta | null | "new">(null);
+  /** Which kind a NEW entry opens on. Set by "Add SSH key" so the form arrives already showing the
+   *  public-key and passphrase fields; cleared back to undefined for the ordinary + New entry. */
+  const [newKind, setNewKind] = useState<string | undefined>(undefined);
   const [shortcutModal, setShortcutModal] = useState(false);
   const [helpModal, setHelpModal] = useState(false);
   /** One importer per tab (Jason 08-11-2026) — which one is open, or null. */
@@ -115,6 +119,55 @@ export default function VaultModule() {
       return {} as Record<string, number>;
     }
   }, [settings]);
+  /**
+   * THE CODE PALETTE, as CSS custom properties on the shell (MOCKUP-vault-code-appearance-v1).
+   *
+   * Which of the two stored themes applies is decided by the SHELL's mode, not by a vault setting —
+   * `data-theme` on <html>, with no attribute meaning "system", exactly as §3.3 defines it. A code
+   * block that stays dark when the app goes light is the bug this avoids, and it is why there are
+   * two stored themes rather than one.
+   *
+   * Delivered as variables rather than props because Markdoc constructs CodeBlock itself: threading
+   * a theme through the renderer's component map would rebuild the whole config on every mode flip,
+   * where an ancestor variable costs one repaint.
+   */
+  /**
+   * LIGHT is the only light one. §3.3: there are three modes, and `system` CLEARS the attribute so
+   * it falls through to the `:root` Hybrid block — which is the deep navy #0d1320, a dark surface.
+   * Hybrid does not follow the operating system, so consulting prefers-color-scheme here (as the
+   * first cut did) would hand a light palette to a dark page on any machine set to light.
+   */
+  const isDarkNow = (): boolean => document.documentElement.getAttribute("data-theme") !== "light";
+  const [shellDark, setShellDark] = useState(isDarkNow);
+  useEffect(() => {
+    // The shell writes data-theme at runtime; an observer is the only honest way to follow it from
+    // inside a module that does not own the attribute.
+    const el = document.documentElement;
+    const read = (): void => setShellDark(isDarkNow());
+    const mo = new MutationObserver(read);
+    mo.observe(el, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => mo.disconnect();
+  }, []);
+
+  const codeVars = useMemo(() => {
+    const t = readTheme(settings[shellDark ? "code.theme_dark" : "code.theme_light"], shellDark ? "dark" : "light");
+    const font = (settings["code.font"] ?? "").trim();
+    return {
+      "--vault-code-background": t.background,
+      "--vault-code-plain": t.colors.plain,
+      "--vault-code-comment": t.colors.comment,
+      "--vault-code-string": t.colors.string,
+      "--vault-code-keyword": t.colors.keyword,
+      "--vault-code-number": t.colors.number,
+      "--vault-code-function": t.colors.function,
+      "--vault-code-variable": t.colors.variable,
+      "--vault-code-type": t.colors.type,
+      "--vault-code-punct": t.colors.punct,
+      "--vault-code-comment-style": t.commentItalic ? "italic" : "normal",
+      ...(font ? { "--vault-code-font": `${font}, ${"monospace"}` } : {}),
+    } as React.CSSProperties;
+  }, [settings, shellDark]);
+
   /** Expanded note folders. Parsed defensively, same as the shortcuts row above — a stored value is
       untrusted input, and a malformed one must collapse the tree, never blank the module. */
   const openFolders = useMemo(() => {
@@ -278,7 +331,7 @@ export default function VaultModule() {
   // ---- locked, or the lock could not be read: the SAME shell either way, with a retry.
   if (lockError || !lock || lock.locked) {
     return (
-      <div className="view shown vault-shell">
+      <div className="view shown vault-shell" style={codeVars}>
         <div className="vault-lock">
           <div className="vault-lockcard">
             <div className="vault-lockglyph">🔒</div>
@@ -351,7 +404,7 @@ export default function VaultModule() {
   };
 
   return (
-    <div className="view shown vault-shell">
+    <div className="view shown vault-shell" style={codeVars}>
       <div className="vault-main-col">
         {/* ONE SEARCH FOR THE WHOLE VAULT (Jason 08-11-2026), replacing the sidebar box and the
             notes-list box. It renders INTO THE TITLE BAR when the host provides a slot, which is
@@ -419,7 +472,7 @@ export default function VaultModule() {
                 note dragged into a folder updated the counts and not the list it was sitting in
                 (Jason 08-12-2026). One counter, both listeners — that is the whole fix. */}
             {section === "notes" && <ErrorBoundary surface="Secured Notes"><NotesView secrets={secrets} settings={settings} onSetting={setSetting} onHelp={() => setHelpModal(true)} onImport={() => setImportModal("notes")} folderId={noteFolder} reloadKey={noteReloadKey} onNotesChanged={() => setNoteReloadKey((k) => k + 1)} openUuid={pendingNote} onOpened={() => setPendingNote(null)} /></ErrorBoundary>}
-            {section === "infra" && <ErrorBoundary surface="Infrastructure"><InfraView secrets={secrets} onReload={loadData} onImport={() => setImportModal("infra")} reloadKey={noteReloadKey} /></ErrorBoundary>}
+            {section === "infra" && <ErrorBoundary surface="Infrastructure"><InfraView secrets={secrets} onReload={loadData} onImport={() => setImportModal("infra")} onAddKey={() => { setNewKind("ssh_key"); setEditing("new"); }} reloadKey={noteReloadKey} /></ErrorBoundary>}
             {section === "repos" && <ErrorBoundary surface="Repos"><ReposView secrets={secrets} /></ErrorBoundary>}
             {section === "settings" && (
               <ErrorBoundary surface="Settings"><VaultSettingsView settings={settings} lockState={lock} onSetting={setSetting} onLockChanged={setLock}
@@ -431,7 +484,9 @@ export default function VaultModule() {
 
       {editing !== null && (
         <EntryModal secret={editing === "new" ? null : editing} settings={settings} onSetting={setSetting}
-          onClose={() => setEditing(null)} onSaved={() => { setEditing(null); loadData(); }} />
+          initialKind={editing === "new" ? newKind : undefined}
+          onClose={() => { setEditing(null); setNewKind(undefined); }}
+          onSaved={() => { setEditing(null); setNewKind(undefined); loadData(); }} />
       )}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
       {shortcutModal && (

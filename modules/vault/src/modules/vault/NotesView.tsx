@@ -1,5 +1,5 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-// Secured Notes. Three list styles — Notes · Runbooks · Snippets — over ONE stored shape, a
+// Secured Notes. Three list styles — Notes · Runbooks · Ideas — over ONE stored shape, a
 // collapsible list, and the Milkdown editor. The layout decisions, in the order Jason made them:
 //   • EDITOR LEFT, source RIGHT (08-11-2026). It was preview-left until the placeholder renderer
 //     made that pane read-only; with Milkdown the left pane IS the render and IS editable.
@@ -75,10 +75,24 @@ const PAGE = 60;
  */
 export const LIST_WIDTH = 216;
 
+/**
+ * THE THIRD SHELF IS CALLED IDEAS (Jason 08-12-2026: "can we change snippets to Ideas").
+ *
+ * The STORED kind stays the string `snippet`, and that is deliberate, not laziness. Renaming a value
+ * that 2,085 imported rows already carry is a non-additive migration, which §3.9 bans outright — and
+ * it would buy nothing, because the label is the only part anyone reads. `Style` is the storage word;
+ * STYLES and TITLES are the human ones, and they are the only place the rename belongs.
+ */
 type Style = "note" | "runbook" | "snippet";
-const STYLES: [Style, string][] = [["note", "Notes"], ["runbook", "Runbooks"], ["snippet", "Snippets"]];
-const TITLES: Record<Style, string> = { note: "Secured Notes", runbook: "Runbooks", snippet: "Snippets" };
-const BADGE: Record<Style, [string, string]> = { note: ["N", "var(--vault-note-color)"], runbook: ["R", "var(--vault-strong-color)"], snippet: ["S", "var(--mc-accent-primary)"] };
+const STYLES: [Style, string][] = [["note", "Notes"], ["runbook", "Runbooks"], ["snippet", "Ideas"]];
+const TITLES: Record<Style, string> = { note: "Secured Notes", runbook: "Runbooks", snippet: "Ideas" };
+const BADGE: Record<Style, [string, string]> = { note: ["N", "var(--vault-note-color)"], runbook: ["R", "var(--vault-strong-color)"], snippet: ["I", "var(--mc-accent-primary)"] };
+
+/** The list badge for a stored kind, shared with the global search so a note cannot wear one letter
+ *  in the list and a different one in the results. */
+export function noteBadge(kind: string | null | undefined): string {
+  return BADGE[(kind ?? "note") as Style]?.[0] ?? (kind ?? "n")[0]?.toUpperCase() ?? "N";
+}
 
 export interface NotesViewProps {
   secrets: VaultSecretMeta[];
@@ -284,10 +298,32 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
       .finally(() => { pendingOpen.current = null; onOpened(); });
   }, [openUuid, api, onOpened]);
 
+  /**
+   * TAKE THE TITLE THE VAULT ACTUALLY STORED (Jason 08-12-2026: "this md file auto saved, but the
+   * file to the left, still says untitled").
+   *
+   * updateNote names an untouched "Untitled" note after its own leading heading — the same rule
+   * import has always used. All three save paths threw the returned note away, so the write was
+   * correct and every surface still said Untitled until something forced a re-read.
+   *
+   * It fires ONLY when the title we sent was the untouched placeholder and the vault came back with
+   * something else. Any other case and this must not run: overwriting the title box while a user is
+   * typing in it is a far worse bug than the one being fixed.
+   */
+  const adopted = useCallback((sent: string, got: { uuid: string; title: string }): boolean => {
+    if (sent !== "Untitled" || got.title === sent) return false;
+    if (live.current?.uuid !== got.uuid) return false; // they moved on; leave the new note alone
+    setTitle(got.title);
+    setCurrent((c) => (c && c.uuid === got.uuid ? { ...c, title: got.title } : c));
+    return true;
+  }, []);
+
   const save = useCallback((): void => {
     if (!current || !dirty) return;
-    void api.updateNote(current.uuid, { title, body: draft }).then(() => { setDirty(false); loadList(style, false); }).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  }, [api, current, dirty, title, draft, style, loadList]);
+    void api.updateNote(current.uuid, { title, body: draft })
+      .then((n) => { adopted(title, n); setDirty(false); loadList(style, false); })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, [api, current, dirty, title, draft, style, loadList, adopted]);
 
   /**
    * Write whatever is on screen, for the note it belongs to. Reads the ref rather than the closure
@@ -297,13 +333,16 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
     const l = live.current;
     if (!l || !l.dirty) return Promise.resolve();
     return api.updateNote(l.uuid, { title: l.title, body: l.body })
-      .then(() => {
+      .then((n) => {
+        // The list row is only re-read when the name actually changed — an autosave every few
+        // seconds must not drag the whole list across the bridge with it.
+        if (adopted(l.title, n)) loadList(style, false);
         if (live.current?.uuid !== l.uuid) return; // the user moved on; do not touch their new note
         setDirty(false);
-        if (announce) setJustSaved((n) => n + 1);
+        if (announce) setJustSaved((n2) => n2 + 1);
       })
       .catch((e: unknown) => { setError(e instanceof Error ? e.message : String(e)); });
-  }, [api]);
+  }, [api, adopted, loadList, style]);
 
   /** The flash. Keyed by a counter so a second save re-triggers the animation rather than being
       swallowed because the flag was already true. */

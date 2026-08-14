@@ -22,7 +22,9 @@
 // which vault.css already styles for the preview pane. The editor reuses those rules rather than
 // shipping a second stylesheet that would drift from the theme tokens.
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, rootCtx } from "@milkdown/kit/core";
+import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx, schemaCtx, serializerCtx } from "@milkdown/kit/core";
+import { exitCode } from "@milkdown/kit/prose/commands";
+import { Slice } from "@milkdown/kit/prose/model";
 import {
   commonmark,
   createCodeBlockCommand,
@@ -161,7 +163,122 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
       .config((ctx) => {
         ctx.set(rootCtx, host.current as HTMLElement);
         ctx.set(defaultValueCtx, initial);
-        ctx.update(editorViewOptionsCtx, (prev) => ({ ...prev, editable: () => !readOnly }));
+        ctx.update(editorViewOptionsCtx, (prev) => ({
+          ...prev,
+          editable: () => !readOnly,
+
+          /**
+           * COPY GIVES YOU MARKDOWN (Jason 08-12-2026: "i assumed everything was in md coding, and
+           * it wasnt copied that way. it was all plain text").
+           *
+           * It was not plain text by choice. ProseMirror's default text serializer is
+           * `textBetween()` — it walks the document collecting characters and knows nothing about
+           * the marks around them, so every heading, bullet, fence and bold run arrived stripped.
+           * In a WYSIWYG that is the wrong default by definition: the markdown IS the document, and
+           * an editor that will not hand it back is a one-way door.
+           *
+           * Milkdown already owns the serializer that writes the file — the same one autosave uses —
+           * so the clipboard now goes through it instead of a second, worse one.
+           */
+          clipboardTextSerializer: (slice) => {
+            const plain = (): string => slice.content.textBetween(0, slice.content.size, "\n\n");
+            try {
+              const schema = ctx.get(schemaCtx);
+              const serialize = ctx.get(serializerCtx);
+              // A selection inside one paragraph is INLINE content, which a doc node cannot hold.
+              // Wrap it in a paragraph first; a block selection needs no wrapping.
+              let doc;
+              try {
+                doc = schema.topNodeType.create(null, slice.content);
+              } catch {
+                doc = schema.topNodeType.create(null, schema.nodes.paragraph.create(null, slice.content));
+              }
+              return serialize(doc).trim() || plain();
+            } catch {
+              return plain(); // a serializer that throws must never cost the user their copy
+            }
+          },
+
+          /**
+           * SHIFT+ENTER, EVERY TIME (Jason 08-12-2026: "hitting shift + enter is buggy, sometimes it
+           * works sometimes it doesnt").
+           *
+           * Both halves of "sometimes" are explained by where the caret was. Milkdown binds the key
+           * to an insert-hardbreak command, and that command correctly returns FALSE wherever a
+           * hard break is not valid content — a heading, a table cell, a code block. Returning false
+           * means "not handled", and nothing was behind it to handle it, so the key did nothing at
+           * all and looked broken at random.
+           *
+           * This sits in the view's base props, which ProseMirror consults only AFTER every plugin
+           * keymap has declined. So Milkdown still wins wherever it works, and this is purely the
+           * floor underneath it — no plugin-ordering fight, no duplicated binding.
+           */
+          /**
+           * A PASTED MARKDOWN DOCUMENT ARRIVES AS MARKDOWN (Jason 08-13-2026, pasting a 551-line
+           * design document: "it got the spacing wrong… i have to re-edit it in the editor after i
+           * already went through it once").
+           *
+           * WHAT WAS ACTUALLY HAPPENING, from diffing his source against the row the vault stored:
+           *   · every run of spaces in his ASCII diagrams came back as U+00A0 NON-BREAKING SPACE
+           *   · `## 1. Unified Peer Agent Architecture` was stored as **bold text**, not a heading
+           *   · `**bold**` was stored as `**\*\*bold\*\***` — the marks applied AND the literal
+           *     asterisks kept, then escaped on the way back out
+           *   · `---` became `\---`
+           *   · 551 lines became 1,089
+           *
+           * Every one of those is the signature of an HTML paste. A clipboard carries several
+           * flavours at once, and whatever he copied from offered `text/html`; ProseMirror prefers
+           * it, parsed it as HTML — which is where the non-breaking spaces and the bold-instead-of-
+           * heading come from — and the markdown serializer then dutifully escaped the literal
+           * asterisks that had survived as plain characters. Double-encoded, and unreadable.
+           *
+           * THIS IS NOT A MILKDOWN FAULT AND TIPTAP WOULD DO THE SAME. Both are ProseMirror, and
+           * this is ProseMirror's generic paste path doing exactly what it is documented to do. What
+           * was missing is a markdown editor saying "in here, the plain-text flavour IS the richer
+           * one" — which is this handler, and it is fifteen lines rather than an editor migration.
+           *
+           * INSIDE A FENCE IT STANDS ASIDE: there, a paste is literal text, and parsing it as
+           * markdown would eat the very characters you are trying to store.
+           */
+          handlePaste: (view, event) => {
+            if (readOnly) return false;
+            const text = event.clipboardData?.getData("text/plain");
+            if (!text || text.trim() === "") return false;
+            const { state } = view;
+            if (state.selection.$from.parent.type.spec.code) return false;
+            try {
+              const doc = ctx.get(parserCtx)(text);
+              if (!doc || doc.content.size === 0) return false;
+              const frag = doc.content;
+              // A single paragraph pastes INLINE — open on both sides — so dropping a sentence into
+              // the middle of a line does not split it into three blocks. Anything richer keeps its
+              // own block structure.
+              const inline = frag.childCount === 1 && frag.firstChild?.type.name === "paragraph";
+              view.dispatch(state.tr.replaceSelection(new Slice(frag, inline ? 1 : 0, inline ? 1 : 0)).scrollIntoView());
+              return true;
+            } catch {
+              return false; // a document the parser chokes on still pastes the ordinary way
+            }
+          },
+
+          handleKeyDown: (view, event) => {
+            if (event.key !== "Enter" || !event.shiftKey || readOnly) return false;
+            const { state, dispatch } = view;
+            const { $from } = state.selection;
+            // In a fence, plain Enter already gives you a new line — so Shift+Enter means the other
+            // thing you want there, which is to get OUT of the block. That is ProseMirror's own
+            // convention and exitCode is its own command for it.
+            if ($from.parent.type.spec.code) return exitCode(state, dispatch);
+            const br = state.schema.nodes.hard_break ?? state.schema.nodes.hardbreak;
+            if (!br) return false;
+            // Ask before inserting. This is the check the failing cases were missing: if a hard
+            // break cannot live here, say so honestly rather than dispatching a transaction that
+            // quietly drops it.
+            if (!$from.parent.canReplaceWith($from.index(), $from.index(), br)) return false;
+            dispatch(state.tr.replaceSelectionWith(br.create()).scrollIntoView());
+            return true;
+          },
+        }));
         ctx.get(listenerCtx).markdownUpdated((_c, md) => cb.current(md));
       })
       .use(commonmark)

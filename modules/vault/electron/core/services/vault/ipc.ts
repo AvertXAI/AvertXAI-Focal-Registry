@@ -31,6 +31,7 @@ import * as noteFolders from "./noteFolders";
 import * as infra from "./infra";
 import * as repos from "./repos";
 import { deriveSshArt } from "./sshart";
+import { findVsCodeThemes, readVsCodeTheme } from "./codeThemes";
 import fs from "node:fs";
 import { FILE_FILTERS, exportDirFor, locateExports, statPickedFiles, walkForDocs } from "./sources";
 import { clearAllEvents, clearRoutine, listEvents, logEvent, newRequestId, presentableMessage, type VaultLogLevel } from "./log";
@@ -922,6 +923,17 @@ export function registerVaultIpc(): void {
    * The replacement line is written AFTER the delete, on purpose: an empty log that cannot account
    * for its own emptiness is indistinguishable from one that was never written to.
    */
+  /**
+   * The Visual Studio Code themes installed on this machine, and the raw text of one.
+   *
+   * NOT GATED ON THE VAULT LOCK, and that is deliberate: neither call touches the vault database or
+   * any secret. They read a public extensions folder, which is the same class of thing as asking the
+   * operating system for a font list. Putting them behind `gated()` would mean the settings page
+   * could not show you a theme preview until you had unlocked, for no security gained.
+   */
+  safeHandle("vault:findCodeThemes", async () => findVsCodeThemes());
+  safeHandle("vault:readCodeTheme", async (_e, file: unknown) => readVsCodeTheme(file));
+
   safeHandle("vault:clearAllLog", async () => {
     const { db, orgId } = await gated();
     const r = clearAllEvents(db, orgId);

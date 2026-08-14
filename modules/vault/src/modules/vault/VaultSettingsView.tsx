@@ -4,6 +4,7 @@
 // from outside itself hands an attacker a lever. Carries the Lock section (the placeholder seam),
 // the seed-data card Jason ruled on 08-06, and the storage facts.
 import { useCallback, useEffect, useState } from "react";
+import CodeAppearance from "./CodeAppearance";
 import SidebarEditor from "./SidebarEditor";
 import type { Shortcut } from "./Sidebar";
 import { vaultApi, type VaultCompactStatus, type VaultFolder, type VaultLockState, type VaultSecretMeta } from "./vaultApi";
@@ -95,6 +96,10 @@ export default function VaultSettingsView({ settings, lockState, onSetting, onLo
         adjustable={settings["sidebar.width_adjustable"] !== "0"}
         onAdjustable={(v) => onSetting("sidebar.width_adjustable", v ? "1" : "0")}
       />
+
+      {/* Second, beside the sidebar editor, because both are presentation and this is the one Jason
+          went looking for and could not find: "where do i select my colors?" (08-13-2026). */}
+      <CodeAppearance settings={settings} onSetting={onSetting} />
 
       <div className="vault-card">
         <div className="vault-cardhead">
@@ -395,7 +400,7 @@ function NotePurge({ onDone }: { onDone: () => void }) {
       <div className="vault-btnrow" style={{ alignItems: "center" }}>
         <button className="vault-btn danger" onClick={() => setOpen((v) => !v)}>Delete every note</button>
         <span className="vault-hint" style={{ flex: 1 }}>
-          Clears all Secured Notes, Runbooks, Snippets <b>and the folder tree</b>. Passwords, servers and repos are not
+          Clears all Secured Notes, Runbooks, Ideas <b>and the folder tree</b>. Passwords, servers and repos are not
           touched. Files on your disk are not touched — the vault only ever held copies.
         </span>
       </div>

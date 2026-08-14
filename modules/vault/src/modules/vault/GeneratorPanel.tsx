@@ -22,14 +22,23 @@ const MODES: [GenMode, string][] = [
   ["bulk", "Bulk"],
 ];
 
-const TOGGLES: [keyof VaultGeneratorOptions, string, string][] = [
-  ["lowercase", "Lowercase", "generator.lowercase"],
-  ["uppercase", "Uppercase", "generator.uppercase"],
-  ["numbers", "Numbers", "generator.numbers"],
-  ["symbols", "Symbols", "generator.symbols"],
-  ["excludeSimilar", "Exclude similar looking (o 0 i l 1)", "generator.exclude_similar"],
-  ["excludeAmbiguous", "Exclude awkward symbols", "generator.exclude_ambiguous"],
-  ["noRepeats", "No repeated characters", "generator.no_repeats"],
+/**
+ * LABEL, then the long explanation as a TITLE (Jason 08-13-2026: "the options are truncated").
+ *
+ * "Exclude similar looking (o 0 i l 1)" is three times the width of "Lowercase", and this panel is
+ * rendered INSIDE the new-entry modal as well as full width on its own tab. In the modal the grid
+ * has roughly 180 pixels a column, so the long ones wrapped onto two and three lines and the row
+ * stopped reading as a list of checkboxes. Short label on screen, full sentence on hover — nothing
+ * is lost, and the ones that matter are the four everybody actually toggles.
+ */
+const TOGGLES: [keyof VaultGeneratorOptions, string, string, string][] = [
+  ["lowercase", "Lowercase", "generator.lowercase", "Include a–z"],
+  ["uppercase", "Uppercase", "generator.uppercase", "Include A–Z"],
+  ["numbers", "Numbers", "generator.numbers", "Include 0–9"],
+  ["symbols", "Symbols", "generator.symbols", "Include punctuation"],
+  ["excludeSimilar", "No look-alikes", "generator.exclude_similar", "Leave out characters that are easy to confuse when read aloud or retyped: o 0 i l 1"],
+  ["excludeAmbiguous", "No awkward symbols", "generator.exclude_ambiguous", "Leave out symbols that break shells, spreadsheets and command lines"],
+  ["noRepeats", "No repeats", "generator.no_repeats", "Never use the same character twice — shortens the real key space, so it costs strength"],
 ];
 
 export interface GeneratorPanelProps {
@@ -228,10 +237,10 @@ export default function GeneratorPanel({ settings, onSetting, onUse }: Generator
             )}
             {/* "Memorable" builds from syllables, so the character toggles do not apply to it. */}
             {mode !== "memorable" &&
-              TOGGLES.map(([key, label, settingKey]) => (
-                <label key={key} className="vault-opt">
+              TOGGLES.map(([key, label, settingKey, why]) => (
+                <label key={key} className="vault-opt" title={why}>
                   <input type="checkbox" checked={Boolean(opts[key])} onChange={(e) => change(key, e.target.checked as never, settingKey)} />
-                  {label}
+                  <span>{label}</span>
                 </label>
               ))}
           </>

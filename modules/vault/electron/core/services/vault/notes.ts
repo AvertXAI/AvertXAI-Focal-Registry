@@ -262,6 +262,31 @@ function isoOrNow(value: unknown): string {
   return nowIso();
 }
 
+/** The placeholder a hand-made note is born with. Only this exact string is ever overwritten. */
+export const UNTITLED = "Untitled";
+
+/**
+ * A NOTE THAT NAMES ITSELF (Jason 08-12-2026: "this md file auto saved, but the file to the left,
+ * still says untitled").
+ *
+ * Import has derived the title from a leading heading since it shipped — frontmatter, then `# `,
+ * then the filename. A note you create in the app got none of that: it was born "Untitled" and stayed
+ * "Untitled" no matter what you pasted into it, so the list read Untitled beside a document with a
+ * title in its first line.
+ *
+ * ONLY the untouched placeholder is replaced, and only by a real leading heading. Once you have named
+ * a note — even back to something else — this never fires again, because the title is then yours. And
+ * a body with no heading keeps the placeholder rather than being given the first line of prose, which
+ * would put half a sentence in the list and look like a bug of its own.
+ */
+export function adoptTitle(title: string, body: string): string {
+  if (title.trim() !== UNTITLED) return title;
+  // Up to three leading spaces is still a heading in CommonMark, and a pasted document routinely
+  // has them. Anchoring hard at column zero is why this missed one in testing.
+  const heading = body.match(/^[ \t]{0,3}#{1,3}[ \t]+(.+?)[ \t]*$/m)?.[1]?.trim();
+  return heading ? heading.slice(0, 300) : title;
+}
+
 export function updateNote(
   db: Db,
   orgId: string,
@@ -269,10 +294,12 @@ export function updateNote(
   patch: { title?: unknown; body?: unknown; folder?: unknown; pinned?: unknown; kind?: unknown }
 ): VaultNote {
   const cur = getNote(db, orgId, uuid);
+  const wanted = patch.title === undefined ? cur.title : vText(patch.title, "title", 300);
+  const nextBody = patch.body === undefined ? cur.body : String(patch.body).slice(0, MAX_BODY);
   db.prepare("UPDATE vault_notes SET kind = ?, title = ?, body = ?, folder = ?, pinned = ?, updated_at = ? WHERE id = ?").run(
     patch.kind === undefined ? cur.kind : vText(patch.kind, "kind", 40),
-    patch.title === undefined ? cur.title : vText(patch.title, "title", 300),
-    patch.body === undefined ? cur.body : String(patch.body).slice(0, MAX_BODY),
+    adoptTitle(wanted, nextBody),
+    nextBody,
     patch.folder === undefined ? cur.folder : patch.folder == null || patch.folder === "" ? null : String(patch.folder).slice(0, 120),
     patch.pinned === undefined ? cur.pinned : patch.pinned ? 1 : 0,
     nowIso(),

@@ -19,8 +19,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3-multiple-ciphers";
-import { importLocalRepos, listRepos, readReadme, saveRepo } from "../electron/core/services/vault/repos";
-import { ensureVaultSchema, VAULT_ACTIONS } from "../electron/core/services/vault/db";
+import { importLocalRepos, listRepos, readReadme, saveRepo } from "../../../electron/core/services/vault/repos";
+import { copyWithClear, _resetForTest } from "../../../electron/core/services/vault/clipboard";
+import { ensureVaultSchema, VAULT_ACTIONS } from "../../../electron/core/services/vault/db";
 import {
   archiveSecret,
   createSecret,
@@ -32,18 +33,18 @@ import {
   setFavourite,
   supersedeSecret,
   updateSecretMeta,
-} from "../electron/core/services/vault/store";
-import * as lock from "../electron/core/services/vault/lock";
-import { archiveNote, createNote, getNote, importDocs, listNotes, searchNotes, updateNote } from "../electron/core/services/vault/notes";
+} from "../../../electron/core/services/vault/store";
+import * as lock from "../../../electron/core/services/vault/lock";
+import { archiveNote, createNote, getNote, importDocs, listNotes, searchNotes, updateNote } from "../../../electron/core/services/vault/notes";
 import {
   archiveNoteFolder, createNoteFolder, deleteNoteFolder, emptyNoteFolder, noteFolderCounts, noteFolderSubtree,
   setNoteFolder, unfiledNoteCount,
-} from "../electron/core/services/vault/noteFolders";
-import { getAllSettings, getSetting, setSetting } from "../electron/core/services/vault/settings";
-import { estimateStrength, generatePassword } from "../electron/core/services/vault/generator";
-import { analyseHealth } from "../electron/core/services/vault/health";
-import { loadSeed, purgeSeed, seedStatus } from "../electron/core/services/vault/seed";
-import { SEED_ENTRIES } from "../electron/core/services/vault/seed-data";
+} from "../../../electron/core/services/vault/noteFolders";
+import { getAllSettings, getSetting, setSetting } from "../../../electron/core/services/vault/settings";
+import { estimateStrength, generatePassword } from "../../../electron/core/services/vault/generator";
+import { analyseHealth } from "../../../electron/core/services/vault/health";
+import { loadSeed, purgeSeed, seedStatus } from "../../../electron/core/services/vault/seed";
+import { SEED_ENTRIES } from "../../../electron/core/services/vault/seed-data";
 
 const db = new Database(":memory:");
 db.pragma("foreign_keys = ON");
@@ -92,21 +93,69 @@ ok(`schema: ${tables.length} tables, idempotent, vault_secrets and vault_event_l
 assert.ok(VAULT_ACTIONS.length >= 30, "the action vocabulary is deliberately wide");
 ok(`access-log vocabulary: ${VAULT_ACTIONS.length} actions accepted (ruled "10x it, just in case")`);
 
+// ── 1b. legacy access-log rebuild — a pre-mount vault must widen its CHECK, rows intact ────────
+// (The bug this pins down: Jason's dev org could not unlock post-mount because the pre-mount table
+//  rejected the 'unlock' action. Found at the 08-14 mount gate; must never return.)
+{
+  const legacy = new Database(":memory:");
+  legacy.pragma("foreign_keys = ON");
+  // The table EXACTLY as the pre-mount app created it: same columns, four-action CHECK.
+  legacy.exec(
+    "CREATE TABLE vault_access_log (\n" +
+      "  id INTEGER PRIMARY KEY,\n" +
+      "  uuid TEXT UNIQUE NOT NULL,\n" +
+      "  org_id TEXT NOT NULL,\n" +
+      "  ts TEXT NOT NULL,\n" +
+      "  action TEXT NOT NULL CHECK (action IN ('create','read','supersede','archive')),\n" +
+      "  secret_uuid TEXT,\n" +
+      "  secret_label TEXT,\n" +
+      "  caller TEXT NOT NULL,\n" +
+      "  granted INTEGER NOT NULL CHECK (granted IN (0, 1)),\n" +
+      "  detail TEXT,\n" +
+      "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n" +
+      "  updated_at DATETIME\n" +
+      ");"
+  );
+  legacy
+    .prepare(
+      "INSERT INTO vault_access_log (uuid, org_id, ts, action, secret_uuid, secret_label, caller, granted) VALUES ('legacy-row', ?, '2026-08-01T00:00:00Z', 'read', null, null, 'proof', 1)"
+    )
+    .run(ORG);
+  ensureVaultSchema(legacy);
+  const kept = legacy.prepare("SELECT COUNT(*) AS n FROM vault_access_log WHERE action = 'read'").get() as { n: number };
+  assert.equal(kept.n, 1, "the legacy row survives the rebuild");
+  // this exact insert is what threw pre-rebuild
+  legacy
+    .prepare(
+      "INSERT INTO vault_access_log (uuid, org_id, ts, action, secret_uuid, secret_label, caller, granted) VALUES ('new-row', ?, '2026-08-14T00:00:00Z', 'unlock', null, null, 'proof', 1)"
+    )
+    .run(ORG);
+  const ddl = (legacy.prepare("SELECT sql FROM sqlite_master WHERE name = 'vault_access_log'").get() as { sql: string }).sql;
+  assert.ok(ddl.includes("'unlock'"), "the stored DDL now carries the full vocabulary");
+  legacy.close();
+  ok("legacy access-log: pre-mount 4-action CHECK rebuilt to the full vocabulary, rows preserved");
+}
+
 // ── 2. the lock gate [master-password-placeholder] ─────────────────────────────────────────────
 lock.resetLockForTest();
 lock.ensureMasterPassword(db, ORG);
 lock.ensureMasterPassword(db, ORG); // idempotent — must not mint a second verifier
+// [master-password-placeholder] — the initial is DERIVED from device identity (ruled 2026-08-14).
+// Recomputing it here proves the seeded verifier matches what the dev-mode reveal will show.
+const INITIAL_MASTER = lock.deriveInitialMasterPassword();
+assert.ok(/^[A-Za-z0-9]{16}$/.test(INITIAL_MASTER), "the derived initial is exactly 16 alphanumerics, no symbols");
+ok("derived initial: machine-derived, recomputable, 16 alphanumerics");
 assert.equal(lock.isUnlocked(db, ORG), false, "the vault starts LOCKED");
 assert.equal(lock.unlock(db, ORG, "wrong-password").ok, false);
 assert.equal(lock.unlock(db, ORG, "").ok, false);
 assert.equal(lock.lockState(db, ORG).failedAttempts, 2, "failures are counted");
-assert.equal(lock.unlock(db, ORG, "lurpz.bmt@gmail.com").ok, true, "the placeholder credential opens it");
+assert.equal(lock.unlock(db, ORG, INITIAL_MASTER).ok, true, "the derived initial credential opens it");
 assert.equal(lock.lockState(db, ORG).failedAttempts, 0, "a success clears the counter");
 assert.equal(lock.isUnlocked(db, ORG), true);
 // the verifier is a hash, not the password
 const stored = db.prepare("SELECT value FROM vault_settings WHERE key = 'lock.verifier'").get() as { value: string };
-assert.ok(!stored.value.includes("lurpz"), "the password is NEVER stored in readable form");
-ok("lock: starts locked, wrong password refused and counted, placeholder opens it, verifier is a hash");
+assert.ok(!stored.value.includes(INITIAL_MASTER), "the password is NEVER stored in readable form");
+ok("lock: starts locked, wrong password refused and counted, derived initial opens it, verifier is a hash");
 
 // ── 3. create with credential extras ───────────────────────────────────────────────────────────
 const meta = createSecret(db, ORG, CALLER, {
@@ -149,6 +198,22 @@ assert.deepEqual(history.map((h) => h.value), ["n7Q$ka2!vX9m", "second-value", "
 assert.equal(readSecret(db, ORG, CALLER, meta.uuid).value, "third-value");
 ok("supersede: v1 intact, three versions on record, read returns the newest");
 
+// ── 6b. TIER-1 FIX 2 — rotation carries extras forward; it never strips the active version ──────
+// v2 was superseded WITH an explicit extras edit; v3 was superseded with NONE. Before the fix, v3
+// landed with extras = null — rotating a password silently stripped backup codes, security answers
+// and the SSH passphrase from the version every read returns. The old version kept them, so nothing
+// was destroyed — but the ACTIVE credential lied.
+{
+  const ex = (v: number): string | null =>
+    (db.prepare("SELECT extras FROM vault_secret_versions WHERE version = ?").get(v) as { extras: string | null }).extras;
+  assert.ok(ex(1) !== null && ex(2) !== null, "both edited versions stored their extras");
+  assert.notEqual(ex(2), ex(1), "an EXPLICIT extras edit replaces — v2's differ from v1's");
+  assert.equal(ex(3), ex(2), "a no-edit rotation CARRIES the prior extras byte-for-byte");
+  const active = readSecret(db, ORG, CALLER, meta.uuid);
+  assert.deepEqual(active.extras?.backupCodes, ["9999-0000"], "the active version still answers with the backup codes");
+  ok("supersede extras: an edit replaces, a plain rotation carries — the active version never silently strips");
+}
+
 // ── 7. metadata edits never touch the credential history ───────────────────────────────────────
 const edited = updateSecretMeta(db, ORG, CALLER, meta.uuid, { label: "Hetzner — avert-core-01", username: "deploy" });
 assert.equal(edited.label, "Hetzner — avert-core-01");
@@ -156,6 +221,28 @@ assert.equal(edited.version, 3, "renaming is not a new version of the password")
 setFavourite(db, ORG, meta.uuid, true);
 assert.equal(listSecrets(db, ORG)[0].favourite, 1);
 ok("metadata: edits and favourites change nothing about the credential or its version");
+
+// ── 7b. TIER-1 FIX 4 — an SSH public-key EDIT persists ─────────────────────────────────────────
+// The service always supported publicKey on update; the entry form only sent it on CREATE, so an
+// edit looked saved and silently reverted on the next open. The form now sends it for ssh_key —
+// this pins the contract that patch relies on: sent = saved, absent = kept, empty = cleared.
+{
+  const SSH_ORG = "ssh-org"; // its own org — sections 8/14 assert EXACT counts on the main one
+  const KEY_V1 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEdvWg9N7dW/WZnaVDiQr2lexPRxF9arzJhs2Mq7guYD jason@old";
+  const KEY_V2 = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAr8pQnJ0eV6xKcT2mWdY9uZbN3sLfHgXvE4iQjRkTpM jason@new";
+  const ssh = createSecret(db, SSH_ORG, CALLER, {
+    kind: "ssh_key", label: "deploy key", value: "unused-private-half-placeholder",
+    publicKey: KEY_V1, extras: { passphrase: "correct horse" },
+  });
+  assert.equal(ssh.public_key, KEY_V1, "the key lands on create");
+  const reKeyed = updateSecretMeta(db, SSH_ORG, CALLER, ssh.uuid, { label: "deploy key", publicKey: KEY_V2 });
+  assert.equal(reKeyed.public_key, KEY_V2, "an edited public key STICKS");
+  const untouched = updateSecretMeta(db, SSH_ORG, CALLER, ssh.uuid, { label: "deploy key (renamed)" });
+  assert.equal(untouched.public_key, KEY_V2, "a patch that does not mention the key keeps it");
+  assert.deepEqual(readSecret(db, SSH_ORG, CALLER, ssh.uuid).extras?.passphrase, "correct horse",
+    "the passphrase rides the version row, unbothered by metadata edits");
+  ok("ssh public key: create stores it, an edit sticks, an unrelated patch keeps it");
+}
 
 // ── 8. archive is soft and reversible; the value survives ──────────────────────────────────────
 archiveSecret(db, ORG, CALLER, meta.uuid, "rotated out");
@@ -215,7 +302,7 @@ ok(`health: ${report.weak} weak, ${report.reused} reused, ${report.stale} stale,
 // ── 13. THE HARD RULE — the access log holds no credential, ever ───────────────────────────────
 const log = JSON.stringify(listAccessLog(db, ORG, { limit: 5000 }));
 for (const e of SEED_ENTRIES) assert.ok(!log.includes(e.password), `access log leaked ${e.company}'s password`);
-for (const v of ["n7Q$ka2!vX9m", "second-value", "third-value", "lurpz.bmt@gmail.com", "1194-8823", "Maggie"]) {
+for (const v of ["n7Q$ka2!vX9m", "second-value", "third-value", INITIAL_MASTER, "1194-8823", "Maggie"]) {
   assert.ok(!log.includes(v), `access log leaked "${v}"`);
 }
 assert.ok(log.includes("unlock_failed"), "a failed unlock IS recorded");
@@ -228,7 +315,9 @@ assert.equal(purged.removed, SEED_ENTRIES.length);
 const left = listSecrets(db, ORG, true);
 assert.equal(left.length, 1, "the hand-made entry SURVIVES an exact purge");
 assert.equal(left[0].label, "Hetzner — avert-core-01");
-assert.equal((db.prepare("SELECT COUNT(*) c FROM vault_secret_versions").get() as { c: number }).c, 3, "only the survivor's versions remain");
+// Scoped to ORG deliberately (08-15-2026): section 7b keeps an ssh_key fixture in its own org, so
+// the whole-file count is no longer the purge's to answer. Within the purged org it stays EXACT.
+assert.equal((db.prepare("SELECT COUNT(*) c FROM vault_secret_versions WHERE org_id = ?").get(ORG) as { c: number }).c, 3, "only the survivor's versions remain");
 const seededUuids = new Set(afterSeed.filter((s) => s.uuid !== meta.uuid).map((s) => s.uuid));
 const logAfter = listAccessLog(db, ORG, { limit: 5000 });
 assert.ok(logAfter.every((r) => !r.secret_uuid || !seededUuids.has(r.secret_uuid)), "seeded log rows went too (the ruled exception)");
@@ -532,6 +621,54 @@ ok("lock gate: locks, unlocks, and honours its own setting");
 
   fs.rmSync(tmp, { recursive: true, force: true });
   ok("repo scan: READMEs are read off disk, fill only an empty snapshot, and never clobber an edit");
+}
+
+// ── the clipboard clear actually happens — and never eats the user's own copy ────────────────────
+// Tier-1 fix 1 (vault-broken-patch.md): clipboard.clear_seconds shipped with ZERO readers, so the
+// promised clear never ran. The helper is proven here with hand-driven ports: the fake clock
+// exposes the armed callback so the proof IS the timer firing, not a sleep.
+{
+  const fake = { text: "pre-existing", read: () => fake.text, write: (t: string) => { fake.text = t; }, clear: () => { fake.text = ""; } };
+  let armed: (() => void) | null = null;
+  let armedMs = 0;
+  let cancelled = 0;
+  const clock = {
+    set: (fn: () => void, ms: number): unknown => { armed = fn; armedMs = ms; return { fn }; },
+    clear: (_t: unknown): void => { cancelled += 1; armed = null; },
+  };
+
+  // copy → timer fires → cleared. The claim the product has been making, finally true.
+  copyWithClear("hunter2", 30, fake, clock);
+  assert.equal(fake.text, "hunter2", "the value lands on the clipboard");
+  assert.equal(armedMs, 30_000, "the timer is armed with the setting's seconds");
+  armed!();
+  assert.equal(fake.text, "", "after the timer, the clipboard is empty");
+
+  // copy → the user copies something else → the timer must NOT clobber it.
+  copyWithClear("s3cret", 30, fake, clock);
+  fake.write("the user's own later copy");
+  armed!();
+  assert.equal(fake.text, "the user's own later copy", "a later copy by the user survives the timer");
+
+  // "0" means never — no timer is armed at all.
+  armed = null;
+  copyWithClear("keep-me", 0, fake, clock);
+  assert.equal(fake.text, "keep-me", "the copy itself still happens");
+  assert.equal(armed, null, "zero arms nothing — never means never");
+  // A malformed setting must fail SAFE (no clear), not throw or arm garbage.
+  copyWithClear("still-here", Number.NaN, fake, clock);
+  assert.equal(armed, null, "NaN arms nothing");
+
+  // A second copy cancels the first timer — one pending clear, ever.
+  const before = cancelled;
+  copyWithClear("first", 30, fake, clock);
+  copyWithClear("second", 30, fake, clock);
+  assert.equal(cancelled, before + 1, "re-copying cancels the previous timer");
+  armed!();
+  assert.equal(fake.text, "", "the surviving timer clears the surviving value");
+
+  _resetForTest();
+  ok("clipboard: copy clears after the timer, spares the user's later copy, honours 0/NaN, one pending timer");
 }
 
 console.log(`\nALL ${pass} VAULT ENGINE CHECKS PASSED`);

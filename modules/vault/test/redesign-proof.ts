@@ -15,9 +15,11 @@
 // File: test/redesign-proof.ts
 //------------------------------------------------------------
 import assert from "node:assert/strict";
-import { deriveSshArt } from "../electron/core/services/vault/sshart";
-import { parseZone } from "../electron/core/services/vault/infra";
-import { parseImportDates } from "../electron/core/services/vault/notes";
+import Database from "better-sqlite3-multiple-ciphers";
+import { deriveSshArt } from "../../../electron/core/services/vault/sshart";
+import { importZone, parseZone } from "../../../electron/core/services/vault/infra";
+import { ensureVaultSchema } from "../../../electron/core/services/vault/db";
+import { parseImportDates } from "../../../electron/core/services/vault/notes";
 
 let checks = 0;
 const check = (name: string, fn: () => void): void => { fn(); checks++; console.log(`  ok  ${name}`); };
@@ -176,5 +178,38 @@ check("unparseable junk falls back to now rather than storing Invalid Date", () 
   assert.ok(!Number.isNaN(new Date(d.createdAt).getTime()));
   assert.equal(d.createdAt.slice(0, 4), String(new Date().getFullYear()));
 });
+
+// ---- importZone: an empty approval is a NO-OP, never a wipe (Tier-1 fix 3) --------------------
+// The DELETE used to run before the length was ever looked at, so importing a zone with nothing
+// approved erased the domain's stored records and inserted zero. Proven against a real in-memory
+// vault schema; run this proof under ELECTRON_RUN_AS_NODE like engine-proof — the native module is
+// built for Electron's ABI.
+console.log("\ninfra.ts — importZone empty-approval guard");
+{
+  const db = new Database(":memory:");
+  ensureVaultSchema(db);
+  const ORG = "zone-org";
+  const REC = { name: "core.avertxai.com", rtype: "A", content: "203.0.113.7", ttl: "300", proxied: 0, comment: null };
+
+  check("a real approval imports and replaces", () => {
+    const r = importZone(db, ORG, "avertxai.com", [REC]);
+    assert.equal(r.imported, 1);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM vault_dns_records WHERE org_id = ? AND domain = ?").get(ORG, "avertxai.com") as { n: number }).n, 1);
+  });
+
+  check("an EMPTY approval changes nothing and says so", () => {
+    const r = importZone(db, ORG, "avertxai.com", []);
+    assert.equal(r.imported, 0);
+    assert.match(r.message ?? "", /nothing was changed/i, "the no-op carries a plain sentence");
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM vault_dns_records WHERE org_id = ? AND domain = ?").get(ORG, "avertxai.com") as { n: number }).n, 1,
+      "the stored records survive — an empty import is not a wipe");
+  });
+
+  check("junk instead of an array is treated as empty, not as approval to delete", () => {
+    const r = importZone(db, ORG, "avertxai.com", "not-an-array");
+    assert.equal(r.imported, 0);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM vault_dns_records WHERE org_id = ? AND domain = ?").get(ORG, "avertxai.com") as { n: number }).n, 1);
+  });
+}
 
 console.log(`\n${checks} checks passed.`);

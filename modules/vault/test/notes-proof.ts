@@ -20,11 +20,14 @@
 // File: test/notes-proof.ts
 //------------------------------------------------------------
 import assert from "node:assert/strict";
-import { preprocess } from "../src/modules/vault/markdown";
-import { GENERIC, isUserFacing, newRequestId, presentableMessage, userError } from "../electron/core/services/vault/log";
-import { parseServers } from "../electron/core/services/vault/infra";
-import { parseGitRemote } from "../electron/core/services/vault/repos";
-import { compactDecision } from "../electron/core/services/vault/settings";
+import Database from "better-sqlite3-multiple-ciphers";
+import { preprocess } from "../../../src/modules/vault/markdown";
+import { GENERIC, isUserFacing, newRequestId, presentableMessage, userError } from "../../../electron/core/services/vault/log";
+import { parseServers } from "../../../electron/core/services/vault/infra";
+import { parseGitRemote } from "../../../electron/core/services/vault/repos";
+import { compactDecision } from "../../../electron/core/services/vault/settings";
+import { ensureVaultSchema } from "../../../electron/core/services/vault/db";
+import { createNote, getNote, updateNote } from "../../../electron/core/services/vault/notes";
 
 let checks = 0;
 const check = (name: string, fn: () => void): void => { fn(); checks++; console.log(`  ok  ${name}`); };
@@ -278,5 +281,33 @@ check("an empty or unreadable file does not divide by zero", () => {
   assert.equal(v.ratio, 0);
   assert.equal(v.compact, false);
 });
+
+// ---- + New flushes the draft first (Tier-1 fix 5) ---------------------------------------------
+// The renderer's newNote used to jump straight to createNote, so a dirty draft died on the way to
+// the fresh note — the ONE record-change route that skipped the flush rule (RULES-40: any editor
+// holding user text flushes before the record changes). This replays both call sequences against
+// the real services; run under ELECTRON_RUN_AS_NODE like engine-proof (Electron-ABI native module).
+console.log("\nnotes.ts — + New flushes before creating");
+{
+  const db = new Database(":memory:");
+  ensureVaultSchema(db);
+  const ORG = "flush-org";
+
+  check("the FIXED sequence — flush, then create — keeps the typed body", () => {
+    const a = createNote(db, ORG, { kind: "note", title: "Draft in progress", body: "saved text" });
+    // The user types; the words exist only in renderer state. + New now sends them first.
+    updateNote(db, ORG, a.uuid, { title: "Draft in progress", body: "saved text + the sentence just typed" });
+    const b = createNote(db, ORG, { kind: "note", title: "Untitled", body: "" });
+    assert.equal(getNote(db, ORG, a.uuid).body, "saved text + the sentence just typed", "the draft survived + New");
+    assert.equal(getNote(db, ORG, b.uuid).body, "", "and the new note starts empty");
+  });
+
+  check("the OLD sequence — create without flushing — is exactly how the words died", () => {
+    const c = createNote(db, ORG, { kind: "note", title: "Another draft", body: "saved text" });
+    createNote(db, ORG, { kind: "note", title: "Untitled", body: "" }); // + New, no flush
+    assert.equal(getNote(db, ORG, c.uuid).body, "saved text",
+      "the database still holds only what was last flushed — the typed words were never sent");
+  });
+}
 
 console.log(`\n${checks} checks passed.`);

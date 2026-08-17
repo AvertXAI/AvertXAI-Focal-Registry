@@ -1,0 +1,241 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* Scan Notes styles, built to MOCKUP-scan-notes-v4-08-17-2026.html. Consumes --mc-* shell tokens and
+   declares its OWN scannotes-* tokens scoped to .scannotes — module token law (§3.2): full-word role
+   names, never an abbreviation, never a redefined shell token, never a hardcoded shell constant.
+   The mockup's literal hexes are NOT copied: --salmon is --mc-accent-primary, --line is --mc-border,
+   --base is --mc-nested, and so on. What IS declared here is the handful of washes and tag colours
+   the shell has no token for, each with its own light-mode value — a wash tuned for a dark panel
+   turns into a smear on a white one.
+   Classes carry the scannotes- prefix so nothing collides with .scan-* or with globals.css. */
+
+.scannotes{
+  /* accent washes — the tinted "selected" fill behind a chip, a folder row, a note card */
+  --scannotes-accent-wash:#2a2136;
+  --scannotes-accent-wash-strong:#332839;
+  /* an unseen feed row: present, but never louder than the text on it */
+  --scannotes-new-wash:#241d2b;
+  /* the count badge — a plain red pip. NOT --mc-orange: the not-built glow is suppressed in this
+     product (§3.6) and reusing its colour would teach the wrong thing. */
+  --scannotes-badge-background:#e2603d;
+  --scannotes-badge-foreground:#ffffff;
+  /* feed tag chips, one pair per kind. Backgrounds are washes; foregrounds carry the meaning. */
+  --scannotes-tag-note-background:#14301f;      --scannotes-tag-note-foreground:#4ade80;
+  --scannotes-tag-rename-background:#3a2418;    --scannotes-tag-rename-foreground:#f0b39e;
+  --scannotes-tag-scan-background:#1b2533;      --scannotes-tag-scan-foreground:#8fb0d4;
+  --scannotes-tag-sync-background:#271f36;      --scannotes-tag-sync-foreground:#b79ae0;
+  /* the drive dot, connected. Reuses Scan's own --scan-ok so the two views agree on "connected". */
+  --scannotes-connected:var(--scan-ok, #38d982);
+}
+[data-theme="light"] .scannotes{
+  --scannotes-accent-wash:#fdf1ec;
+  --scannotes-accent-wash-strong:#fbe6dd;
+  --scannotes-new-wash:#fdf6f3;
+  --scannotes-tag-note-background:#e8f6ee;      --scannotes-tag-note-foreground:#15803d;
+  --scannotes-tag-rename-background:#fdf1ec;    --scannotes-tag-rename-foreground:#b8492c;
+  --scannotes-tag-scan-background:#eef2f7;      --scannotes-tag-scan-foreground:#5b7391;
+  --scannotes-tag-sync-background:#f3eefa;      --scannotes-tag-sync-foreground:#7a5da0;
+}
+[data-theme="dark"] .scannotes{
+  --scannotes-accent-wash:#3a2b23;
+  --scannotes-accent-wash-strong:#45332a;
+  --scannotes-new-wash:#332721;
+}
+
+/* ---------------------------------------------------------------- header search + filter panel */
+/* Sits beside the page H1 in the MODULE's own header row — this is not the shell topbar search, and
+   nothing here reaches out of src/modules/scan/ (§2.8). */
+.scannotes-headrow{display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap}
+.scannotes-headleft{flex:none;min-width:220px}
+.scannotes-headright{flex:1;min-width:260px;display:flex;padding-top:2px}
+.scannotes-searchwrap{flex:1;min-width:240px;position:relative}
+.scannotes-search{display:flex;align-items:center;gap:8px;border:1px solid var(--mc-border);background:var(--mc-field);border-radius:10px;padding:9px 13px}
+.scannotes-search input{border:none;outline:none;flex:1;font:inherit;font-size:13.5px;background:transparent;color:var(--mc-text);min-width:0}
+.scannotes-search input::placeholder{color:var(--mc-dimmer)}
+.scannotes-search .kbd{font-family:var(--mc-mono);font-size:11px;color:var(--mc-dimmer);border:1px solid var(--mc-border);border-radius:5px;padding:1px 6px;flex:none}
+.scannotes-searchwrap.open .scannotes-search{border-color:var(--mc-accent-primary)}
+.scannotes-filterpanel{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:12px;box-shadow:0 12px 44px rgba(0,0,0,.35);padding:14px;z-index:40}
+.scannotes-ft{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mc-dimmer);margin-bottom:8px}
+.scannotes-chips{display:flex;gap:8px;flex-wrap:wrap}
+.scannotes-chip{font:inherit;font-size:12px;padding:6px 12px;border:1px solid var(--mc-border);border-radius:16px;background:var(--mc-nested);color:var(--mc-muted);cursor:pointer}
+.scannotes-chip.on{border-color:var(--mc-accent-primary);color:var(--mc-accent-primary);background:var(--scannotes-accent-wash)}
+.scannotes-chip .n{font-family:var(--mc-mono);font-size:10.5px;color:var(--mc-dimmer);margin-left:4px}
+.scannotes-sortline{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--mc-border)}
+.scannotes-sortline label{font-size:11px;color:var(--mc-dimmer);text-transform:uppercase;letter-spacing:.04em}
+.scannotes-sortline select{font:inherit;font-size:12.5px;padding:6px 8px;border:1px solid var(--mc-border);border-radius:8px;background:var(--mc-field);color:var(--mc-text)}
+.scannotes-hintline{font-size:11.5px;color:var(--mc-dimmer);margin-top:10px}
+/* search results drop straight into the panel — one surface, not a second floating layer */
+.scannotes-results{margin-top:12px;padding-top:12px;border-top:1px solid var(--mc-border);max-height:280px;overflow:auto}
+.scannotes-result{display:block;width:100%;text-align:left;font:inherit;background:none;border:none;border-radius:8px;padding:7px 9px;cursor:pointer;color:var(--mc-text)}
+.scannotes-result:hover{background:var(--mc-nested)}
+.scannotes-result .rt{font-size:12.5px;font-weight:600;display:block}
+.scannotes-result .rx{font-size:11.5px;color:var(--mc-muted);display:block;margin-top:2px}
+.scannotes-result .rp{font-family:var(--mc-mono);font-size:10.5px;color:var(--mc-dimmer);display:block;margin-top:2px;word-break:break-all}
+
+/* ---------------------------------------------------------------- tab row actions */
+/* The house tab strip (.scan-tabs) is unchanged; this only adds the right-hand action cluster and
+   the tab badge, both on the same baseline as the tabs. */
+.scan-shell .scan-tabs.scannotes-tabrow{align-items:flex-end;gap:14px;margin-bottom:0}
+.scannotes-tablist{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+.scannotes-tbadge{position:absolute;top:-4px;right:2px;background:var(--scannotes-badge-background);color:var(--scannotes-badge-foreground);font-size:9.5px;font-family:var(--mc-mono);border-radius:8px;padding:0 5px;line-height:15px}
+.scan-tab{position:relative}
+.scannotes-tabactions{display:flex;gap:10px;align-items:center;padding-bottom:8px;flex-wrap:wrap}
+.scannotes-btn{font:inherit;font-size:13px;padding:9px 14px;border:1px solid var(--mc-border);background:var(--mc-nested);color:var(--mc-text);border-radius:10px;cursor:pointer;white-space:nowrap}
+.scannotes-btn:hover:not(:disabled){border-color:var(--mc-accent-primary)}
+.scannotes-btn:disabled{opacity:.5;cursor:default}
+.scannotes-btn.pri{background:var(--mc-accent-primary);border-color:var(--mc-accent-primary);color:#fff}
+.scannotes-iconbtn{position:relative;width:40px;height:40px;border:1px solid var(--mc-border);background:var(--mc-nested);color:var(--mc-text);border-radius:10px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;flex:none}
+.scannotes-iconbtn:disabled{opacity:.55;cursor:default}
+/* PENDING WORK ANNOUNCES ITSELF. The pulse only ever runs when there is something queued — a ring
+   that breathes all day is a ring nobody looks at. */
+.scannotes-iconbtn.alert{border-color:var(--mc-accent-primary);color:var(--mc-accent-primary);animation:scannotes-pulse 1.4s infinite}
+.scannotes-iconbtn .badge{position:absolute;top:-6px;right:-6px;background:var(--scannotes-badge-background);color:var(--scannotes-badge-foreground);font-size:10px;border-radius:9px;padding:1px 5px;font-family:var(--mc-mono)}
+@keyframes scannotes-pulse{0%,100%{box-shadow:0 0 0 0 rgba(217,119,87,.45)}50%{box-shadow:0 0 0 6px rgba(217,119,87,0)}}
+.scannotes-iconbtn.spin{animation:scannotes-spin .7s linear infinite}
+@keyframes scannotes-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.scannotes-iconbtn.alert,.scannotes-iconbtn.spin{animation:none}}
+
+/* the panel the tabs join onto — the selected tab's bottom border is painted with this surface */
+.scannotes-tabbody{background:var(--mc-nested);border:1px solid var(--mc-border);border-top:none;border-radius:0 0 12px 12px;padding:16px}
+.scan-shell .scan-tabs.scannotes-tabrow .scan-tab.on{border-bottom-color:var(--mc-nested);background:var(--mc-nested)}
+
+/* ---------------------------------------------------------------- the three-pane grid */
+/* WIDTH MATH, the two reachable states at the 740px floor (§3.4 — nothing renders below it):
+     rail EXPANDED at 740  → 740 - 300 rail - 32 wrap padding - 34 tabbody padding+border = 374px
+     rail COLLAPSED at 740 → 740 -  58 rail - 32 - 34                                     = 616px
+   250 + 240 + 14 + 14 = 518 of fixed track, so three panes cannot fit at 374 and barely fit at 616
+   with a 98px editor. Below the one sanctioned container threshold the grid therefore STACKS —
+   panes full width, in order — and only becomes three columns at 900px, where 900 - 58 - 32 - 34 -
+   518 = 258px of editor and up. There is no 375px rule and no second breakpoint: this shell can
+   never render below 740 (§3.4). */
+.scannotes-grid{display:grid;grid-template-columns:1fr;gap:14px;min-height:480px}
+@container (min-width:900px){
+  .scannotes-grid{grid-template-columns:250px 240px 1fr}
+  .scannotes-grid.media{grid-template-columns:250px 1fr}
+}
+.scannotes-pane{background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:12px;padding:12px;overflow:auto;min-width:0;max-height:calc(100vh - 320px)}
+.scannotes-pane h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mc-dimmer);margin-bottom:10px;font-weight:600}
+.scannotes-empty{font-size:12.5px;color:var(--mc-muted);padding:8px 2px}
+
+/* ---- drive / folder tree ---- */
+.scannotes-drive{margin-bottom:10px}
+.scannotes-drivehead{display:flex;align-items:center;gap:7px;font:inherit;font-size:13px;font-weight:600;padding:6px;border-radius:8px;cursor:pointer;user-select:none;background:none;border:none;color:var(--mc-text);width:100%;text-align:left}
+.scannotes-drivehead:hover{background:var(--mc-nested)}
+.scannotes-caret{font-size:10px;color:var(--mc-dimmer);transition:transform .15s;flex:none}
+.scannotes-drive.closed .scannotes-caret{transform:rotate(-90deg)}
+.scannotes-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.scannotes-dot.on{background:var(--scannotes-connected)}
+.scannotes-dot.off{background:var(--mc-dimmer)}
+.scannotes-serial{font-family:var(--mc-mono);font-size:10.5px;color:var(--mc-dimmer);font-weight:400;margin-left:auto}
+.scannotes-folder{display:flex;align-items:center;gap:6px;font:inherit;font-size:13px;padding:5px 6px 5px 26px;border-radius:8px;cursor:pointer;background:none;border:none;color:var(--mc-text);width:100%;text-align:left}
+.scannotes-folder:hover{background:var(--mc-nested)}
+.scannotes-folder.sel{background:var(--scannotes-accent-wash);color:var(--mc-accent-primary);font-weight:600}
+.scannotes-folder .nm{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* the name it used to have, struck through — the whole point of keeping the history */
+.scannotes-folder .old{display:block;font-size:11px;color:var(--mc-dimmer);font-weight:400;text-decoration:line-through;overflow:hidden;text-overflow:ellipsis}
+.scannotes-pencil{margin-left:auto;font-size:12px;color:var(--mc-dimmer);visibility:hidden;background:none;border:none;cursor:pointer;flex:none;padding:0 2px}
+.scannotes-folder:hover .scannotes-pencil,.scannotes-folder.sel .scannotes-pencil{visibility:visible}
+/* keyboard users never see :hover — the pencil must be reachable without a mouse */
+.scannotes-pencil:focus-visible{visibility:visible}
+
+/* ---- the file list (report card + notes) ---- */
+.scannotes-card{border:1px solid var(--mc-border);border-radius:10px;padding:10px 12px;margin-bottom:10px;cursor:pointer;background:none;color:var(--mc-text);font:inherit;width:100%;text-align:left;display:block}
+.scannotes-card:hover{border-color:var(--mc-accent-primary)}
+.scannotes-card.sel{border-color:var(--mc-accent-primary);background:var(--scannotes-accent-wash)}
+.scannotes-card .t{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.scannotes-badge-ro{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;background:var(--mc-nested);color:var(--mc-dimmer);border-radius:5px;padding:1px 5px}
+.scannotes-badge-user{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;background:var(--scannotes-tag-note-background);color:var(--scannotes-tag-note-foreground);border-radius:5px;padding:1px 5px}
+.scannotes-card .d{font-family:var(--mc-mono);font-size:10.5px;color:var(--mc-dimmer);margin-top:5px}
+.scannotes-card p{font-size:12px;color:var(--mc-muted);margin-top:4px}
+
+/* ---- the editor pane ---- */
+.scannotes-edtitle{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.scannotes-edtitle input{flex:1;min-width:0;font:inherit;font-size:15px;font-weight:600;border:1px solid var(--mc-border);border-radius:10px;padding:9px 13px;background:var(--mc-field);color:var(--mc-text)}
+.scannotes-edtitle input:focus{outline:none;border-color:var(--mc-accent-primary)}
+/* FOLDER HISTORY — the locked card. Its line format is fixed by the mockup and is deliberately
+   monospace: it is a record, and a record you can line up is a record you can scan down. */
+.scannotes-history{background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:10px;padding:10px 14px;margin-bottom:10px}
+.scannotes-history .hh{display:flex;align-items:center;gap:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mc-dimmer);margin-bottom:6px}
+.scannotes-history .line{font-family:var(--mc-mono);font-size:12px;color:var(--mc-text);line-height:1.7;word-break:break-word}
+.scannotes-history .line .arrow{color:var(--mc-accent-primary)}
+.scannotes-history .line.pending{color:var(--mc-muted)}
+.scannotes-toolbar{display:flex;gap:4px;flex-wrap:wrap;border:1px solid var(--mc-border);border-bottom:none;border-radius:10px 10px 0 0;background:var(--mc-panels);padding:6px 8px}
+.scannotes-toolbar button{border:none;background:none;font:inherit;font-size:13px;padding:5px 9px;border-radius:6px;cursor:pointer;color:var(--mc-muted)}
+.scannotes-toolbar button:hover{background:var(--mc-nested);color:var(--mc-text)}
+.scannotes-edbody{border:1px solid var(--mc-border);border-radius:0 0 10px 10px;background:var(--mc-panels);min-height:220px}
+.scannotes-saved{font-size:11.5px;color:var(--mc-dimmer);margin-top:6px}
+.scannotes-saved.err{color:var(--scannotes-badge-background)}
+
+/* Milkdown's editing surface. The presets emit plain semantic HTML, so the prose rules below serve
+   the editor and the rendered report alike — one set of type rules, no drift. */
+.scannotes-milkdown .ProseMirror{padding:14px 16px;min-height:220px;outline:none;font-size:13.5px;line-height:1.65;color:var(--mc-text)}
+.scannotes-prose{padding:2px 2px 6px;font-size:13.5px;line-height:1.65;color:var(--mc-text)}
+.scannotes-milkdown .ProseMirror>*:first-child,.scannotes-prose>*:first-child{margin-top:0}
+.scannotes-milkdown .ProseMirror h1,.scannotes-prose h1{font-size:19px;margin:16px 0 8px}
+.scannotes-milkdown .ProseMirror h2,.scannotes-prose h2{font-size:16px;margin:14px 0 7px}
+.scannotes-milkdown .ProseMirror h3,.scannotes-prose h3{font-size:14px;margin:12px 0 6px;text-transform:none;letter-spacing:0;color:var(--mc-text)}
+.scannotes-milkdown .ProseMirror p,.scannotes-prose p{margin:0 0 9px}
+.scannotes-milkdown .ProseMirror ul,.scannotes-milkdown .ProseMirror ol,.scannotes-prose ul,.scannotes-prose ol{margin:0 0 9px;padding-left:22px}
+.scannotes-milkdown .ProseMirror li,.scannotes-prose li{margin:2px 0}
+.scannotes-milkdown .ProseMirror blockquote,.scannotes-prose blockquote{border-left:3px solid var(--mc-border);margin:0 0 9px;padding:2px 0 2px 12px;color:var(--mc-muted)}
+.scannotes-milkdown .ProseMirror code,.scannotes-prose code{font-family:var(--mc-mono);font-size:12px;background:var(--mc-nested);border-radius:4px;padding:1px 5px}
+.scannotes-milkdown .ProseMirror hr,.scannotes-prose hr{border:none;border-top:1px solid var(--mc-border);margin:14px 0}
+.scannotes-milkdown .ProseMirror a,.scannotes-prose a{color:var(--mc-accent-primary)}
+.scannotes-milkdown .ProseMirror img,.scannotes-prose img{max-width:100%;height:auto;border-radius:8px}
+/* WIDE CONTENT SCROLLS INSIDE ITSELF — a table or a pasted path must never widen the pane and push
+   the grid sideways. */
+.scannotes-milkdown .ProseMirror table,.scannotes-prose table{border-collapse:collapse;width:100%;margin:0 0 9px;font-size:12.5px;display:block;overflow-x:auto}
+.scannotes-milkdown .ProseMirror th,.scannotes-milkdown .ProseMirror td,.scannotes-prose th,.scannotes-prose td{border:1px solid var(--mc-border);padding:6px 9px;text-align:left}
+.scannotes-milkdown .ProseMirror th,.scannotes-prose th{background:var(--mc-nested);color:var(--mc-muted);font-weight:600}
+.scannotes-cblock{border:1px solid var(--mc-border);border-radius:8px;overflow:hidden;margin:0 0 9px}
+.scannotes-cblock .cb{display:flex;align-items:center;justify-content:space-between;background:var(--mc-nested);padding:4px 10px;font-family:var(--mc-mono);font-size:10.5px;color:var(--mc-dimmer)}
+.scannotes-cblock .cb button{font:inherit;background:none;border:1px solid var(--mc-border);border-radius:5px;padding:1px 7px;color:var(--mc-muted);cursor:pointer}
+.scannotes-cblock pre{font-family:var(--mc-mono);font-size:12px;padding:10px 12px;margin:0;overflow-x:auto;white-space:pre;color:var(--mc-text)}
+.scannotes-task{display:inline-flex;align-items:flex-start;gap:7px}
+.scannotes-task.done>span{color:var(--mc-muted);text-decoration:line-through}
+.scannotes-task input{margin-top:3px;accent-color:var(--mc-accent-primary)}
+
+/* ---- the rendered report card (read-only, never materialized to a row) ---- */
+.scannotes-report{font-size:13px}
+.scannotes-report h2{font-size:17px;margin-bottom:4px}
+.scannotes-report .sub{font-family:var(--mc-mono);font-size:11px;color:var(--mc-dimmer);margin-bottom:12px;word-break:break-all}
+.scannotes-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.scannotes-stat{background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:10px;padding:9px 12px}
+.scannotes-stat .k{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mc-dimmer)}
+.scannotes-stat .v{font-size:15px;font-weight:600;margin-top:3px}
+.scannotes-stat .v.mono{font-family:var(--mc-mono);font-size:13px;font-weight:400}
+
+/* ---- the Updated Notes feed ---- */
+.scannotes-feedhead{display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.scannotes-feedhead .fh{font-size:14px;font-weight:600}
+.scannotes-feedhead .fs{font-size:12px;color:var(--mc-dimmer)}
+.scannotes-feed{background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:12px;overflow-x:auto}
+.scannotes-feed table{width:100%;border-collapse:collapse;min-width:560px}
+.scannotes-feed th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mc-dimmer);text-align:left;padding:10px 14px;border-bottom:1px solid var(--mc-border);background:var(--mc-nested)}
+.scannotes-feed td{font-size:13px;padding:11px 14px;border-bottom:1px solid var(--mc-border);vertical-align:top}
+.scannotes-feed tr:last-child td{border-bottom:none}
+.scannotes-feed td.dt{font-family:var(--mc-mono);font-size:11.5px;color:var(--mc-dimmer);white-space:nowrap}
+.scannotes-feed td .what{font-weight:600}
+.scannotes-feed td .detail{font-size:12px;color:var(--mc-muted);margin-top:2px;font-family:var(--mc-mono);word-break:break-word}
+.scannotes-feed td .detail .arrow{color:var(--mc-accent-primary)}
+.scannotes-feed tr.new td{background:var(--scannotes-new-wash)}
+.scannotes-feed .tag{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;border-radius:5px;padding:1px 6px;margin-right:6px}
+.scannotes-feed .tag.note{background:var(--scannotes-tag-note-background);color:var(--scannotes-tag-note-foreground)}
+.scannotes-feed .tag.rename{background:var(--scannotes-tag-rename-background);color:var(--scannotes-tag-rename-foreground)}
+.scannotes-feed .tag.scan{background:var(--scannotes-tag-scan-background);color:var(--scannotes-tag-scan-foreground)}
+.scannotes-feed .tag.sync{background:var(--scannotes-tag-sync-background);color:var(--scannotes-tag-sync-foreground)}
+/* a warn/error row keeps its level visible without shouting — the left edge, not the whole row */
+.scannotes-feed tr.warn td:first-child{box-shadow:inset 3px 0 0 var(--scan-warn,#e08a3a)}
+.scannotes-feed tr.error td:first-child{box-shadow:inset 3px 0 0 var(--scannotes-badge-background)}
+.scannotes-req{font-family:var(--mc-mono);font-size:10.5px;color:var(--mc-dimmer);margin-left:6px}
+
+/* ---------------------------------------------------------------- the rename modal */
+.scannotes-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+.scannotes-modal{background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:16px;padding:24px 26px;box-shadow:0 12px 44px rgba(0,0,0,.4);max-width:520px;width:100%;max-height:90vh;overflow:auto}
+.scannotes-modal h2{font-size:19px;margin-bottom:6px}
+.scannotes-modal .sub2{font-size:13.5px;color:var(--mc-muted);margin-bottom:16px}
+.scannotes-modal .fl{font-size:13px;color:var(--mc-muted);margin:18px 0 6px}
+.scannotes-modal input[type=text]{width:100%;font:inherit;border:1px solid var(--mc-border);border-radius:10px;padding:11px 13px;font-size:14px;background:var(--mc-field);color:var(--mc-text)}
+.scannotes-modal input[type=text]:focus{outline:none;border-color:var(--mc-accent-primary)}
+.scannotes-chainprev{background:var(--mc-nested);border-radius:8px;padding:8px 12px;font-family:var(--mc-mono);font-size:11.5px;color:var(--mc-muted);margin-top:10px;line-height:1.6;word-break:break-word}
+.scannotes-btnrow{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;flex-wrap:wrap}
+.scannotes-modalerr{margin-top:10px;font-size:12.5px;color:var(--scannotes-badge-background)}

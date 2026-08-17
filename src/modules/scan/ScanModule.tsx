@@ -16,10 +16,24 @@ import type { ScanCameraCount, ScanErrorList, ScanErrorRow, ScanFolderSummary, S
 import { explainScanError, CATEGORY_META, type ScanErrorCategory } from "../../shared/scanErrors";
 import { formatRange, formatStamp } from "../../shared/datetime";
 import { PRINT_STYLESHEET, renderReportPrintHtml } from "./reportPrint";
+import ScanNotesTab from "./notes/ScanNotesTab";
+import UpdatesTab from "./notes/UpdatesTab";
+import { signalAppToast } from "../../App";
 import { bumpRender } from "../../diag";
 import "./scan.css";
+import "./notes/scannotes.css";
 
-type Tab = "new" | "history" | "reports";
+// FIVE TABS (ruled 08-17-2026). The strip is data, not markup: adding a sixth is one row here, and
+// the label can never drift from the key the way two parallel literals did.
+type Tab = "new" | "history" | "reports" | "notes" | "updates";
+const TABS: Array<[Tab, string]> = [
+  ["new", "New scan"],
+  ["history", "History"],
+  ["reports", "Reports"],
+  ["notes", "Scan Notes"],
+  ["updates", "Updated Notes"],
+];
+const NOTES_TABS = new Set<Tab>(["notes", "updates"]);
 type LogLine =
   | { kind: "folder"; at: string; path: string; files: number; bytes: number }
   | { kind: "warn"; at: string; count: number }
@@ -153,6 +167,17 @@ function renderReport(content: string): ReactNode[] {
 export default function ScanModule() {
   bumpRender("scan"); // DIAG-2
   const [tab, setTab] = useState<Tab>("new");
+  // ---- Scan Notes state. Both view preferences persist to app_settings, never localStorage (§3.8). ----
+  const [mediaMode, setMediaMode] = useState(false);
+  const [notesRefresh, setNotesRefresh] = useState(0); // bumped by the push; every surface re-reads
+  const [unseen, setUnseen] = useState(0);
+  const [pendingRenames, setPendingRenames] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [notesFolder, setNotesFolder] = useState<{ path: string; driveId: number; letter: string | null } | null>(null);
+  const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [scope, setScope] = useState<"all" | "folders" | "notes">("all");
+  const [hits, setHits] = useState<Array<{ key: string; title: string; sub: string; path: string }>>([]);
   const [drives, setDrives] = useState<ScanVolume[]>([]);
   const [scannedDrives, setScannedDrives] = useState<ScannedDrive[]>([]); // completed-scan drives (may be unplugged)
   const [selected, setSelected] = useState<ScanVolume | null>(null);
@@ -298,6 +323,101 @@ export default function ScanModule() {
     window.api.on<ScanVolume[]>("scan:drives", onDrives);
     return () => window.api.off<ScanVolume[]>("scan:drives", onDrives);
   }, []);
+
+  // ---- Scan Notes: one push, everything re-reads. The payload is deliberately empty — a surface
+  // that trusts a pushed payload is a surface that drifts from the database it claims to show. ----
+  useEffect(() => {
+    const onChanged = (): void => setNotesRefresh((n) => n + 1);
+    window.api.on("scan:notes:changed", onChanged);
+    return () => window.api.off("scan:notes:changed", onChanged);
+  }, []);
+
+  // Restore the two sticky preferences. A missing row is the default, never an error.
+  useEffect(() => {
+    void window.api.settings.get("scan.notes_tab").then((v) => {
+      if (v && TABS.some(([k]) => k === v)) setTab(v as Tab);
+    }).catch(() => undefined);
+    void window.api.settings.get("scan.notes_media_mode").then((v) => setMediaMode(v === "1")).catch(() => undefined);
+  }, []);
+
+  // The badge and the pending-rename count. Re-read on every push AND on every tab change, because
+  // opening Updated Notes is what clears the badge.
+  useEffect(() => {
+    void window.api.scan.notes.unseen().then(setUnseen).catch(() => undefined);
+    void window.api.scan.notes.pendingRenames().then(setPendingRenames).catch(() => undefined);
+  }, [notesRefresh, tab]);
+
+  const chooseTab = useCallback((t: Tab) => {
+    setTab(t);
+    void window.api.settings.set("scan.notes_tab", t).catch(() => undefined);
+  }, []);
+  const toggleMedia = useCallback(() => {
+    setMediaMode((m) => {
+      void window.api.settings.set("scan.notes_media_mode", m ? "0" : "1").catch(() => undefined);
+      return !m;
+    });
+  }, []);
+
+  // Manual sync — the same work the reconnect consumer does. It is also the fallback if the WMI
+  // watcher ever misses an event, which is why the button exists at all.
+  const manualSync = useCallback(() => {
+    setSyncing(true);
+    void window.api.scan.notes
+      .sync()
+      .then((r) => {
+        setNotesRefresh((n) => n + 1);
+        signalAppToast(
+          r.applied === 0 && r.filesWritten === 0
+            ? "Everything is already up to date — nothing pending."
+            : `${r.applied} folder rename${r.applied === 1 ? "" : "s"} applied, ${r.filesWritten} file${r.filesWritten === 1 ? "" : "s"} written.`,
+          r.stale > 0 ? "err" : "ok"
+        );
+      })
+      .catch((e: unknown) => signalAppToast(e instanceof Error ? e.message : String(e), "err"))
+      .finally(() => setSyncing(false));
+  }, []);
+
+  const addNote = useCallback(() => {
+    if (!notesFolder) { signalAppToast("Pick a folder first — a note is saved inside one.", "err"); return; }
+    void window.api.scan.notes
+      .create(notesFolder.driveId, notesFolder.path)
+      .then((n) => { setNotesRefresh((x) => x + 1); signalAppToast(`Saved inside ${n.folder_path}.`, "ok"); })
+      .catch((e: unknown) => signalAppToast(e instanceof Error ? e.message : String(e), "err"));
+  }, [notesFolder]);
+
+  const makeShortcut = useCallback(() => {
+    void window.api.scan.notes
+      .shortcut()
+      .then((r) => signalAppToast(r.message, r.ok ? "ok" : "err"))
+      .catch((e: unknown) => signalAppToast(e instanceof Error ? e.message : String(e), "err"));
+  }, []);
+
+  // Search runs on a pause, over BOTH note bodies and folder-name history — old and new names alike,
+  // which is the whole reason the history keeps both (ruled).
+  useEffect(() => {
+    if (!searchOpen || query.trim() === "") { setHits([]); return; }
+    const t = setTimeout(() => {
+      const wantNotes = scope === "all" || scope === "notes";
+      const wantFolders = scope === "all" || scope === "folders";
+      void Promise.all([
+        wantNotes ? window.api.scan.notes.search(query) : Promise.resolve([]),
+        wantFolders ? window.api.scan.notes.searchFolders(query) : Promise.resolve([]),
+      ])
+        .then(([ns, fs]) => {
+          setHits([
+            ...ns.map((n) => ({ key: `n:${n.uuid}`, title: n.title, sub: n.excerpt.trim(), path: n.folder_path })),
+            ...fs.map((f) => ({
+              key: `f:${f.uuid}`,
+              title: f.name_new,
+              sub: `Renamed from ${f.name_old}${f.status === "applied" ? "" : ` (${f.status})`}`,
+              path: f.folder_path_new,
+            })),
+          ]);
+        })
+        .catch(() => setHits([]));
+    }, 220);
+    return () => clearTimeout(t);
+  }, [query, scope, searchOpen, notesRefresh]);
 
   // Keep `selected` pointing at the LIVE volume object as presence changes — a drive plugged back in
   // refreshes its letter/sizes; a removed drive stays selected but now reads "not connected".
@@ -453,15 +573,102 @@ export default function ScanModule() {
   return (
     <main className="view shown">
       <div className="wrap scan-shell">
-        <h1 className="pagetitle">Scan</h1>
-        <p className="subtitle">Backup drive scanner — a blueprint of what is inside your folders. Read-only; never renames or deletes.</p>
+        {/* The header row carries the module's OWN search — this is not the shell topbar's field,
+            and nothing here reaches outside src/modules/scan/ (§2.8). It only renders on the two
+            tabs that have something to search; a live-looking control with nothing behind it is
+            worse than no control. */}
+        <div className="scannotes-headrow scannotes">
+          <div className="scannotes-headleft">
+            <h1 className="pagetitle">Scan</h1>
+            <p className="subtitle">
+              Backup drive scanner — a blueprint of what is inside your folders. Renames folders only
+              when you ask; never renames files, never deletes.
+            </p>
+          </div>
+          {NOTES_TABS.has(tab) && (
+            <div className="scannotes-headright">
+              <div className={`scannotes-searchwrap${searchOpen ? " open" : ""}`}>
+                <div className="scannotes-search">
+                  <span aria-hidden="true">🔍</span>
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onFocus={() => setSearchOpen(true)}
+                    onKeyDown={(e) => { if (e.key === "Escape") { setSearchOpen(false); (e.target as HTMLInputElement).blur(); } }}
+                    placeholder="Search folder names (old and new), notes, reports"
+                    aria-label="Search Scan Notes"
+                  />
+                  <span className="kbd">Esc</span>
+                </div>
+                {searchOpen && (
+                  <div className="scannotes-filterpanel">
+                    <div className="scannotes-ft">Filters</div>
+                    <div className="scannotes-chips">
+                      {(["all", "folders", "notes"] as const).map((s) => (
+                        <button key={s} type="button" className={`scannotes-chip${scope === s ? " on" : ""}`} onClick={() => setScope(s)}>
+                          {s === "all" ? "All" : s === "folders" ? "Folders" : "Notes"}
+                        </button>
+                      ))}
+                    </div>
+                    {hits.length > 0 && (
+                      <div className="scannotes-results">
+                        {hits.map((h) => (
+                          <button
+                            key={h.key}
+                            type="button"
+                            className="scannotes-result"
+                            onClick={() => { setSearchOpen(false); chooseTab("notes"); }}
+                          >
+                            <span className="rt">{h.title}</span>
+                            {h.sub && <span className="rx">{h.sub}</span>}
+                            <span className="rp">{h.path}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="scannotes-hintline">
+                      {query.trim() === ""
+                        ? "Old and new folder names are both searchable. Esc to close."
+                        : hits.length === 0
+                          ? "Nothing matched. Every word has to appear somewhere in the title or the body."
+                          : `${hits.length} match${hits.length === 1 ? "" : "es"}. Esc to close.`}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
-        <div className="scan-tabs">
-          {(["new", "history", "reports"] as Tab[]).map((t) => (
-            <button key={t} className={`scan-tab${tab === t ? " on" : ""}`} onClick={() => setTab(t)}>
-              {t === "new" ? "New scan" : t === "history" ? "History" : "Reports"}
-            </button>
-          ))}
+        <div className={`scan-tabs${NOTES_TABS.has(tab) ? " scannotes-tabrow scannotes" : ""}`}>
+          <div className="scannotes-tablist">
+            {TABS.map(([key, label]) => (
+              <button key={key} className={`scan-tab${tab === key ? " on" : ""}`} onClick={() => chooseTab(key)}>
+                {label}
+                {key === "updates" && unseen > 0 && <span className="scannotes-tbadge">{unseen}</span>}
+              </button>
+            ))}
+          </div>
+          {tab === "notes" && (
+            <div className="scannotes-tabactions">
+              <button type="button" className="scannotes-btn pri" onClick={addNote}>+ Add Note</button>
+              <button type="button" className="scannotes-btn" onClick={makeShortcut}>Create desktop shortcut</button>
+              <button type="button" className="scannotes-btn pri" onClick={toggleMedia}>{mediaMode ? "Scan Notes" : "View media"}</button>
+              {/* The ring only pulses when there is queued work — a control that breathes all day is
+                  a control nobody looks at. */}
+              <button
+                type="button"
+                className={`scannotes-iconbtn${pendingRenames > 0 ? " alert" : ""}${syncing ? " spin" : ""}`}
+                disabled={syncing}
+                title="Sync folders to drive"
+                aria-label="Sync folders to drive"
+                onClick={manualSync}
+              >
+                ⟳
+                {pendingRenames > 0 && <span className="badge">{pendingRenames}</span>}
+              </button>
+            </div>
+          )}
         </div>
 
         {error && <div className="scan-card2 scan-note" style={{ marginBottom: 14 }}>{error}</div>}
@@ -561,6 +768,16 @@ export default function ScanModule() {
 
         {tab === "history" && <HistoryTable runs={runs} onView={viewReport} onNuke={nukeHistory} />}
         {tab === "reports" && <ReportsList runs={runs} onView={viewReport} onFolder={openReportsFolder} />}
+        {/* The two Scan Notes surfaces share one panel that the selected tab joins onto. */}
+        {NOTES_TABS.has(tab) && (
+          <div className="scannotes-tabbody scannotes">
+            {tab === "notes" ? (
+              <ScanNotesTab refreshKey={notesRefresh} mediaMode={mediaMode} onFolderChange={setNotesFolder} />
+            ) : (
+              <UpdatesTab refreshKey={notesRefresh} />
+            )}
+          </div>
+        )}
       </div>
 
       {reportModal && (

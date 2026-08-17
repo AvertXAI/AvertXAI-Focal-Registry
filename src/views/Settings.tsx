@@ -1,13 +1,16 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-// Settings — 2-pane (left nav list / right content pane). Live sections: General (Skip Fast Boot) and
-// Appearance (3-state theme toggle). The theme STATE + persistence live in App ("Expose, Don't
-// Connect"); this pane only renders the control. "Coming surfaces" stay .nb.
+// Settings — 2-pane (left nav list / right content pane). The theme STATE + persistence live in App
+// ("Expose, Don't Connect"); this pane only renders the control. Per-module sections mount
+// self-contained components from the module folders (TimeTracker, Vault — Jason's 08-14-2026 ruling
+// opened the Vault door). Remaining .nb nav items are not built; App's capture-phase interceptor
+// swallows their clicks.
 import { useEffect, useRef, useState } from "react";
 import { DoorTheme, Gear, Mail, Vault, Webhook } from "../icons";
 import { bumpRender } from "../diag";
 import { signalAppToast, signalUpdateToast, type ThemeMode } from "../App";
 import { setTipsEnabled } from "../components/Tip";
 import TimeTrackerSettings from "../modules/timetracker/TimeTrackerSettings";
+import VaultSettings from "../modules/vault/VaultSettings";
 import type { DeviceIdentityInfo, StorageLocations } from "../shared/types";
 
 interface Props {
@@ -30,7 +33,7 @@ let deviceCache: DeviceIdentityInfo | null = null;
 // same-session remounts; app_settings "settings_active_section" (bare snake_case — shell-level
 // key, in RENDERER_KEYS) survives a restart. Unknown/stale values fall back to General.
 let sectionCache: string | null = null;
-const LIVE_SECTIONS = new Set(["General", "Appearance", "Storage", "Business Profile", "Scan", "TimeTracker"]);
+const LIVE_SECTIONS = new Set(["General", "Appearance", "Storage", "Business Profile", "Scan", "TimeTracker", "Vault"]);
 
 /** Business Profile keys (08-06) — the invoice's bill-from block, terms and default tax rate.
     Config-as-Data rows in app_settings; every key is in RENDERER_KEYS. */
@@ -255,7 +258,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
               <TTClockIcon />
               TimeTracker
             </button>
-            <button className="navitem nb">
+            <button className={nav("Vault")} onClick={() => openSection("Vault")}>
               <Vault />
               Vault
             </button>
@@ -362,32 +365,9 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                     when the application closes.
                   </p>
                 </div>
-                <h2 className="mt">Coming surfaces</h2>
-                <p className="hint" style={{ marginBottom: 14 }}>
-                  Mapped but not built yet — these Vault surfaces arrive with the Secure Vault module.
-                </p>
-                <div className="door nb">
-                  <div className="di">
-                    <Vault />
-                  </div>
-                  <div>
-                    <div className="dt">Vault Security</div>
-                    <div className="dd">
-                      Unlock policy for the encrypted vault — key handling, auto-lock timer, and re-lock on idle.
-                    </div>
-                  </div>
-                  <span className="dtag">Not built</span>
-                </div>
-                <div className="door nb">
-                  <div className="di">
-                    <Vault />
-                  </div>
-                  <div>
-                    <div className="dt">Vault Backup &amp; Export</div>
-                    <div className="dd">Encrypted export of the vault database for offsite backup and migration.</div>
-                  </div>
-                  <span className="dtag">Not built</span>
-                </div>
+                {/* The "Coming surfaces" doors (Vault Security · Vault Backup & Export) lived here
+                    until 08-14-2026 — both claims went false when the vault mounted: lock policy is
+                    in Settings → Vault, encrypted export is the vault's Import / Export tool. */}
                 {/* B6 leaf, THIRD placement (Jason 08-10): IN the General section, bottom right —
                     in normal page flow, so no footer, chat bubble, or scroll position can hide it.
                     Ten clicks unlock developer mode; still no label, no tooltip, faint by ruling. */}
@@ -526,6 +506,8 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
             )}
 
             {activeSection === "TimeTracker" && <TimeTrackerSettings />}
+
+            {activeSection === "Vault" && <VaultSettings />}
 
             {activeSection === "Scan" && (
               <>

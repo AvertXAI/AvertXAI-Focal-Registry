@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vault — global search · specialised import · repos · package ledger — v1 08-11-2026</title>
+<style>
+:root{
+  --win:#f4f6fa; --bar:#ffffff; --side:#eef1f7; --panel:#ffffff; --panel2:#f3f6fb;
+  --field:#ffffff; --sel:#fdf2e9; --bd:#dde4ee; --bd2:#c2ccdb;
+  --txt:#111a2b; --dim:#586a86; --dimmer:#8492a8; --lock:#a9b4c5;
+  --green:#128a4b; --greenbtn:#1f9d44; --purple:#6355d8; --red:#cf3b45;
+  --orange:#d2691e; --blue:#2f6fd0; --amber:#c9821a; --teal:#17838f;
+  --code:#f6f8fb; --shadow:rgba(23,38,64,.13);
+  --mono:'Cascadia Mono','Consolas',monospace; --sans:'Segoe UI',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--win);color:var(--txt);font:13px/1.55 var(--sans)}
+h1,h2,h3,h4{margin:0}
+.rn{font-family:var(--mono)}
+.wrap{max-width:1220px;margin:0 auto;padding:26px 20px 90px}
+.doc{margin:0 0 34px}
+.doc h1{font-size:23px;letter-spacing:-.2px}
+.doc .sub{color:var(--dim);margin-top:7px;max-width:860px}
+.note{background:#fffbf4;border:1px solid #f0dcc0;border-left:3px solid var(--orange);
+  border-radius:8px;padding:12px 15px;margin:16px 0;max-width:900px}
+.note b{color:var(--orange)}
+.sec{margin:46px 0 0}
+.sec>h2{font-size:17px;padding-bottom:9px;border-bottom:2px solid var(--bd);margin-bottom:5px}
+.sec>.why{color:var(--dim);margin:11px 0 17px;max-width:900px}
+.frame{border:1px solid var(--bd2);border-radius:12px;overflow:hidden;box-shadow:0 3px 14px var(--shadow);background:var(--panel)}
+.cap{font-size:11px;color:var(--dimmer);margin:8px 2px 22px;letter-spacing:.2px}
+
+/* ---- app chrome ---- */
+.topbar{display:flex;align-items:center;gap:13px;background:var(--bar);border-bottom:1px solid var(--bd);padding:9px 14px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;white-space:nowrap}
+.av{width:26px;height:26px;border-radius:50%;background:var(--purple);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+.ntabs{display:flex;gap:2px;background:var(--side);border-bottom:1px solid var(--bd);padding:0 12px}
+.ntab{padding:9px 15px;font-size:12.5px;color:var(--dim);cursor:pointer;border:1px solid transparent;border-bottom:none;
+  border-radius:8px 8px 0 0;position:relative;top:1px}
+.ntab.on{background:var(--panel);border-color:var(--bd);color:var(--txt);font-weight:600}
+
+/* ---- THE SEARCH BAR ---- */
+.gsearch{flex:1;min-width:0;position:relative}
+.gsin{display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--bd2);border-radius:9px;padding:6px 11px}
+.gsin.focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(47,111,208,.11)}
+.gsin input{flex:1;border:0;outline:0;font:13px var(--sans);background:none;color:var(--txt);min-width:0}
+.gsin .mag{color:var(--dimmer)}
+.scope{display:inline-flex;align-items:center;gap:5px;background:var(--sel);color:var(--orange);border:1px solid #f0d5bd;
+  border-radius:6px;font-size:10.5px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;padding:2px 7px;white-space:nowrap}
+.scope button{border:0;background:none;color:inherit;cursor:pointer;font-weight:700;padding:0;line-height:1}
+.kbd{font:10px var(--mono);border:1px solid var(--bd2);border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--dimmer);background:var(--panel2)}
+
+.sheet{position:absolute;left:0;right:0;top:calc(100% + 7px);background:var(--panel);border:1px solid var(--bd2);
+  border-radius:11px;box-shadow:0 12px 34px var(--shadow);overflow:hidden;z-index:5}
+.filters{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;border-bottom:1px solid var(--bd);background:var(--panel2)}
+.fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--bd2);background:var(--panel);border-radius:20px;
+  padding:4px 11px;font-size:11.5px;cursor:pointer;color:var(--dim)}
+.fchip.on{background:var(--sel);border-color:var(--orange);color:var(--orange);font-weight:600}
+.fchip .n{font:10px var(--mono);opacity:.75}
+.fsep{width:1px;background:var(--bd2);margin:2px 4px}
+.rgroup{padding:5px 0}
+.rghd{font-size:9.5px;letter-spacing:1.1px;text-transform:uppercase;color:var(--dimmer);padding:8px 13px 4px}
+.rrow{display:flex;align-items:center;gap:10px;padding:7px 13px;cursor:pointer}
+.rrow:hover,.rrow.on{background:var(--sel)}
+.rico{width:22px;height:22px;border-radius:5px;display:grid;place-items:center;font-size:10px;font-weight:700;color:#fff;flex:none}
+.rmain{flex:1;min-width:0}
+.rmain b{font-size:12.5px;font-weight:600}
+.rmain .s{font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rwhere{font:10px var(--mono);color:var(--dimmer);white-space:nowrap}
+.hit{background:#fff3cd;border-radius:2px;padding:0 1px}
+.sfoot{display:flex;align-items:center;gap:12px;border-top:1px solid var(--bd);padding:7px 13px;background:var(--panel2);font-size:11px;color:var(--dim)}
+
+/* ---- modal ---- */
+.mback{background:rgba(17,26,43,.32);padding:26px;display:grid;place-items:center}
+.modal{background:var(--panel);border-radius:13px;box-shadow:0 18px 46px rgba(17,26,43,.3);width:100%;max-width:660px;padding:20px 22px}
+.modal h3{font-size:16px;margin-bottom:3px}
+.msub{color:var(--dim);font-size:12px;margin-bottom:15px}
+.dest{display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-bottom:15px}
+.dcard{border:1px solid var(--bd2);border-radius:10px;padding:11px 12px;cursor:pointer;background:var(--panel)}
+.dcard.on{border-color:var(--orange);background:var(--sel);box-shadow:0 0 0 2px rgba(210,105,30,.13)}
+.dcard b{display:block;font-size:12.5px;margin-bottom:3px}
+.dcard span{font-size:10.5px;color:var(--dim);line-height:1.45;display:block}
+.dcard .ex{font:10px var(--mono);color:var(--dimmer);margin-top:6px;display:block}
+.drop{width:100%;border:2px dashed var(--bd2);border-radius:11px;background:var(--panel2);padding:17px;text-align:center;cursor:pointer}
+.drop b{font-size:13px}
+.drop span{display:block;font-size:11px;color:var(--dim);margin-top:4px}
+.orrow{display:flex;align-items:center;gap:10px;margin:9px 0}
+.orrow .ln{flex:1;height:1px;background:var(--bd)}
+.orrow span{font-size:10.5px;color:var(--dimmer);text-transform:uppercase;letter-spacing:.6px}
+.frow{display:flex;align-items:center;gap:9px;border:1px solid var(--bd);border-radius:8px;padding:7px 10px;margin-top:9px;background:var(--panel2)}
+.macts{display:flex;gap:8px;justify-content:flex-end;margin-top:17px;align-items:center}
+
+.btn{border:1px solid var(--bd2);background:var(--panel);border-radius:8px;padding:6px 13px;font:12px var(--sans);cursor:pointer;color:var(--txt)}
+.btn.go{background:var(--orange);border-color:var(--orange);color:#fff;font-weight:600}
+.btn.grn{background:var(--greenbtn);border-color:var(--greenbtn);color:#fff;font-weight:600}
+.btn.sm{padding:3px 9px;font-size:11px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.pill{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.4px;padding:2px 8px;border-radius:20px;text-transform:uppercase}
+.pill.grey{background:var(--panel2);color:var(--dimmer)}.pill.info{background:rgba(47,111,208,.12);color:var(--blue)}
+.pill.warn{background:rgba(201,130,26,.14);color:var(--amber)}.pill.ok{background:rgba(18,138,75,.12);color:var(--green)}
+.pill.no{background:rgba(207,59,69,.12);color:var(--red)}
+.field{margin-bottom:11px}
+.field label{display:block;font-size:11px;color:var(--dim);margin-bottom:4px}
+.field input,.field select,.field textarea{width:100%;border:1px solid var(--bd2);border-radius:8px;padding:7px 10px;font:12.5px var(--sans);background:var(--field);color:var(--txt)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 13px}
+.auto{border-color:var(--green)!important;background:#f2fbf5!important}
+.autotag{font-size:9.5px;color:var(--green);font-weight:700;letter-spacing:.4px;text-transform:uppercase;float:right}
+
+/* ---- repos ---- */
+.head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--bd)}
+.seg{display:inline-flex;border:1px solid var(--bd2);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-right:1px solid var(--bd2);background:var(--panel);padding:5px 13px;font:12px var(--sans);cursor:pointer;color:var(--dim)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--sel);color:var(--orange);font-weight:600}
+.body{padding:13px 14px;background:var(--win)}
+.repo{border:1px solid var(--bd);border-radius:11px;margin-bottom:9px;background:var(--panel);overflow:hidden}
+.rhd{display:flex;align-items:center;gap:11px;padding:11px 13px;cursor:pointer}
+.rav{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:#fff;font-size:11px;font-weight:700;flex:none}
+.rti{font-size:13.5px;font-weight:600;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.rds{font-size:11.5px;color:var(--dim);margin-top:2px}
+.rst{display:flex;align-items:center;gap:13px;font-size:11px;color:var(--dim);white-space:nowrap}
+.ld{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px}
+.rcar{color:var(--dimmer)}
+.rbody{border-top:1px solid var(--bd);display:none}
+.repo.open .rbody{display:block}
+.vstrip{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 13px;background:var(--sel);border-bottom:1px solid var(--bd)}
+.vref2{display:inline-flex;align-items:center;gap:7px;border:1px solid #f0d5bd;background:var(--panel);border-radius:7px;padding:3px 8px;font-size:11px}
+.vref2 button{border:1px solid var(--bd2);background:var(--panel2);border-radius:5px;font-size:10px;padding:1px 7px;cursor:pointer}
+.ghtabs{display:flex;gap:17px;padding:0 14px;border-bottom:1px solid var(--bd)}
+.ghtab{padding:9px 0;font-size:12px;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent}
+.ghtab.on{color:var(--txt);font-weight:600;border-bottom-color:var(--orange)}
+.readme{padding:14px 16px}
+.readme h1{font-size:19px;padding-bottom:7px;border-bottom:1px solid var(--bd);margin-bottom:11px}
+.readme h2{font-size:15px;margin:15px 0 8px}
+.readme p{margin:0 0 10px}
+.readme ul{margin:0 0 10px 20px;padding:0}
+.badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px}
+.bdg{display:inline-flex;font-size:10px;border-radius:4px;overflow:hidden;height:19px;line-height:19px}
+.bdg .l{background:#555;color:#fff;padding:0 6px}
+.bdg .r{color:#fff;padding:0 6px;font-weight:600}
+
+/* THE ORIGIN PAIR — local (database) and online (world) */
+.origin{display:inline-flex;align-items:center;gap:3px;flex:none}
+.origin svg{width:15px;height:15px;display:block}
+.o-on{color:var(--green)}
+.o-off{color:var(--bd2)}
+
+.chips{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px}
+.chip{background:var(--panel);border:1px solid var(--bd);border-radius:9px;padding:8px 13px;min-width:104px}
+.chip .k{display:block;font-size:9.5px;letter-spacing:.9px;text-transform:uppercase;color:var(--dimmer)}
+.chip .v{display:block;font-size:18px;font-weight:700;margin-top:2px}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:11px;overflow:hidden}
+table.dt{width:100%;border-collapse:collapse;font-size:12px}
+table.dt th{text-align:left;background:var(--panel2);border-bottom:1px solid var(--bd);padding:8px 11px;font-size:10px;
+  letter-spacing:.7px;text-transform:uppercase;color:var(--dim)}
+table.dt td{border-bottom:1px solid var(--bd);padding:8px 11px;vertical-align:middle}
+table.dt tr:last-child td{border-bottom:0}
+.bar{height:5px;border-radius:3px;background:var(--panel2);overflow:hidden;min-width:54px}
+.bar i{display:block;height:100%}
+.q{background:#eef4ff;border:1px solid #cfe0ff;border-left:3px solid var(--blue);border-radius:8px;padding:12px 15px;margin:16px 0;max-width:900px}
+.q b{color:var(--blue)}
+ul.tight{margin:9px 0 0 19px;padding:0}
+ul.tight li{margin-bottom:5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="doc">
+  <h1>Secured Vault — global search, specialised import, repos and the package ledger</h1>
+  <div class="sub">Mockup v1 · 08-11-2026 · four surfaces from Jason's 08-11 batch. Everything below is static HTML —
+  no component exists yet. Styling matches <span class="rn">MOCKUP-vault-full-v2-08-10-2026.html</span> so this reads as
+  the same product.</div>
+
+  <div class="note" style="background:#f2fbf5;border-color:#bfe6cd;border-left-color:var(--green)">
+    <b style="color:var(--green)">RESOLVED 08-11-2026 — the network moves to MindMerge, and the Vault keeps its offline
+    property untouched.</b> Jason's call, and it is the right seam: MindMerge is already the Tier-1
+    <i>agent-readable</i> store that holds Vault <i>pointers</i> and never values, so it can reach the internet without
+    changing anything about what the encrypted secret store is. The three code comments
+    (<span class="rn">vaultApi.ts:152</span>, <span class="rn">db.ts:213</span>, <span class="rn">ReposView.tsx:138</span>)
+    stay <b>true as written</b> — no amendment needed, which is the tell that this is the correct split rather than a
+    workaround.
+    <div style="margin-top:9px">
+      <b>What lands where:</b>
+      <ul class="tight">
+        <li><b>Vault · Repos</b> — repository rows, local paths, and the deploy key and token that belong with them.
+        A credential does not leave the vault. <b>Still zero network.</b></li>
+        <li><b>MindMerge</b> — paste a URL, read the README and the file tree. Public content, agent-readable, and the
+        only thing that talks to github.com.</li>
+        <li><b>Package ledger</b> — moved to <b>Infrastructure</b>, between SSH keys and Import records. Reads this
+        machine's own disk; it never needed the network at all.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================= 1. SEARCH -->
+<div class="sec">
+  <h2>1 · One search, in the title bar, with filters</h2>
+  <div class="why">
+    Replaces both existing search boxes — the sidebar's <i>Search secrets</i> and the notes list's <i>Search secured
+    notes</i> — and takes the slot currently holding “dev host — throwaway database, not your real vault”. That strip is
+    a development label; the search is the thing that earns permanent space.
+  </div>
+
+  <div class="frame">
+    <div class="topbar">
+      <div class="brand"><span class="av">A</span> AvertXAI · Focal Registry / <b>Secured Vault</b> 🔒</div>
+      <div class="gsearch">
+        <div class="gsin focus">
+          <span class="mag">🔍</span>
+          <span class="scope">Secured notes <button title="Remove this filter">✕</button></span>
+          <span class="scope">Edited this month <button title="Remove this filter">✕</button></span>
+          <input value="hetzner" spellcheck="false">
+          <span class="kbd">Ctrl K</span>
+        </div>
+
+        <div class="sheet">
+          <div class="filters">
+            <span class="fchip">All <span class="n">61</span></span>
+            <span class="fchip">Passwords <span class="n">46</span></span>
+            <span class="fchip on">Secured notes <span class="n">9</span></span>
+            <span class="fchip">Infrastructure <span class="n">4</span></span>
+            <span class="fchip">Repos <span class="n">2</span></span>
+            <span class="fsep"></span>
+            <span class="fchip on">Edited this month</span>
+            <span class="fchip">Created…</span>
+            <span class="fchip">Any date ▾</span>
+          </div>
+
+          <div class="rgroup">
+            <div class="rghd">Secured notes · 3</div>
+            <div class="rrow on">
+              <span class="rico" style="background:var(--purple)">N</span>
+              <span class="rmain"><b>Restoring the <span class="hit">Hetzner</span> box from a snapshot</b>
+                <div class="s">1. Stop the Coolify stack  2. Attach the volume  3. Re-point Traefik…</div></span>
+              <span class="rwhere">runbook · edited 08-09-2026</span>
+            </div>
+            <div class="rrow">
+              <span class="rico" style="background:var(--purple)">N</span>
+              <span class="rmain"><b>Update feed — nginx cache headers</b>
+                <div class="s">…the <span class="hit">hetzner</span> host serves .md with no cache header…</div></span>
+              <span class="rwhere">note · edited 08-04-2026</span>
+            </div>
+            <div class="rrow">
+              <span class="rico" style="background:var(--blue)">S</span>
+              <span class="rmain"><b>ssh alias block</b>
+                <div class="s">Host avert-core-01 · IdentityFile ~/.ssh/id_ed25519_<span class="hit">hetzner</span></div></span>
+              <span class="rwhere">snippet · edited 08-02-2026</span>
+            </div>
+          </div>
+
+          <div class="rgroup" style="border-top:1px solid var(--bd);opacity:.55">
+            <div class="rghd">Hidden by your filters — 6 more</div>
+            <div class="rrow">
+              <span class="rico" style="background:var(--orange)">P</span>
+              <span class="rmain"><b><span class="hit">Hetzner</span> root — avert-core-01</b>
+                <div class="s">Password · last read 08-10-2026</div></span>
+              <span class="rwhere">passwords</span>
+            </div>
+            <div class="rrow">
+              <span class="rico" style="background:var(--teal)">I</span>
+              <span class="rmain"><b>avert-core-01</b><div class="s">2a01:4f8:110:52f0::2 · Coolify · Traefik</div></span>
+              <span class="rwhere">infrastructure</span>
+            </div>
+          </div>
+
+          <div class="sfoot">
+            <span><span class="kbd">↑↓</span> move</span><span><span class="kbd">↵</span> open</span>
+            <span><span class="kbd">Tab</span> next filter</span>
+            <span style="margin-left:auto">Values are never searched — labels, titles and note text only.</span>
+          </div>
+        </div>
+      </div>
+      <span style="color:var(--dimmer)">☀</span><span style="color:var(--dimmer)">◐</span>
+    </div>
+    <div class="ntabs">
+      <div class="ntab">Passwords</div><div class="ntab on">Secured Notes</div>
+      <div class="ntab">Infrastructure</div><div class="ntab">Repos</div>
+    </div>
+    <div class="body" style="height:112px;display:grid;place-items:center;color:var(--dimmer);font-size:12px">
+      the tab's own content sits here, unchanged
+    </div>
+  </div>
+  <div class="cap">Filters are chips, multi-select, and each carries its live count so an empty result is explained before you hit it.
+  Dropping every chip searches everything. The active filters also ride <i>inside</i> the input as removable scopes, so what you are searching is never off-screen.</div>
+
+  <div class="q">
+    <b>One thing to confirm.</b> The dimmed “Hidden by your filters” group is deliberate — it shows that matches exist
+    outside the current scope rather than silently returning three results when there are nine. Say if you would rather
+    it just showed nothing.
+    <br><br>
+    <b>And one rule I have assumed:</b> search never looks inside a password <i>value</i>. It matches labels, usernames,
+    URLs, note text, server names and repo names. Matching on the secret itself would mean decrypting all 46 entries on
+    every keystroke, and would let anyone at an unlocked screen confirm a password by typing guesses into a search box.
+  </div>
+</div>
+
+<!-- ================================================================= 2. IMPORT -->
+<div class="sec">
+  <h2>2 · Infrastructure import — the destination is the first question</h2>
+  <div class="why">
+    <b>The bug this fixes:</b> your <span class="rn">avertxai.com.txt</span> became a note in Secured Notes. The importer
+    is shared, and the tab that opened it only ever chose the file-dialog filter — the write always went to
+    <span class="rn">notes.importDocs</span>. That is why an infrastructure import offered “All as Notes / Runbooks /
+    Snippets”. So the destination now comes first, and it is the tab's own destinations.
+  </div>
+
+  <div class="frame"><div class="mback">
+    <div class="modal">
+      <h3>Import into Infrastructure</h3>
+      <div class="msub">Nothing is written until you press Import.</div>
+
+      <div class="dest">
+        <div class="dcard on">
+          <b>DNS records</b><span>A zone export or a records CSV. Parsed into real rows you can filter and edit.</span>
+          <span class="ex">.zone · .txt · .csv</span>
+        </div>
+        <div class="dcard">
+          <b>Servers</b><span>A host inventory — name, address, role. One row per machine.</span>
+          <span class="ex">.csv · .json</span>
+        </div>
+        <div class="dcard">
+          <b>SSH keys</b><span>Public keys. The fingerprint and randomart are derived on import.</span>
+          <span class="ex">.pub · authorized_keys</span>
+        </div>
+      </div>
+
+      <button class="drop"><b>Choose a file</b><span>Or a whole folder — every matching file inside is read.</span></button>
+      <div class="orrow"><span class="ln"></span><span>or</span><span class="ln"></span></div>
+      <div style="display:flex;gap:8px"><button class="btn" style="flex:1">Choose a folder</button><button class="btn" style="flex:1">Paste the text instead</button></div>
+
+      <div class="frow">
+        <span class="pill grey">txt</span>
+        <span class="rn" style="flex:1">avertxai.com.txt</span>
+        <span class="rn" style="color:var(--dimmer);font-size:11px">created 08-10-2026 · edited 08-10-2026 · 4 KB</span>
+        <button class="btn sm">✕</button>
+      </div>
+
+      <div style="margin-top:13px;border:1px solid var(--bd);border-radius:9px;overflow:hidden">
+        <div style="padding:7px 11px;background:var(--panel2);border-bottom:1px solid var(--bd);font-size:11px;color:var(--dim)">
+          <b style="color:var(--green)">18 records read</b> · 1 flagged · nothing written yet
+        </div>
+        <table class="dt"><thead><tr><th>Name</th><th>Type</th><th>Content</th><th>TTL</th></tr></thead><tbody>
+          <tr><td class="rn">@</td><td><span class="pill info">A</span></td><td class="rn">78.47.xx.xx</td><td class="rn">3600</td></tr>
+          <tr><td class="rn">www</td><td><span class="pill info">CNAME</span></td><td class="rn">avertxai.com</td><td class="rn">3600</td></tr>
+          <tr><td class="rn">_dmarc</td><td><span class="pill warn">TXT</span></td><td class="rn">v=DMARC1; p=none;</td><td class="rn">3600</td></tr>
+        </tbody></table>
+        <div style="padding:7px 11px;font-size:11px;color:var(--dim);border-top:1px solid var(--bd)">
+          …and 15 more. <b style="color:var(--amber)">p=none is reported, never changed</b> — the vault does not edit your DNS.
+        </div>
+      </div>
+
+      <div class="macts">
+        <span style="margin-right:auto;font-size:11px;color:var(--dim)">Imported into <b>Servers &amp; DNS</b>, not Secured Notes.</span>
+        <button class="btn">Cancel</button><button class="btn go">Import 18 records</button>
+      </div>
+    </div>
+  </div></div>
+  <div class="cap">Same three-card pattern for the other tabs: <b>Secured Notes</b> gets Notes / Runbooks / Snippets and leads with
+  “Choose files … or a whole folder”. <b>Repos</b> gets Repositories / READMEs &amp; docs / Package manifest. The file-versus-folder
+  choice is offered on every tab — you asked for it on Infrastructure, and there is no tab where it does harm.</div>
+</div>
+
+<!-- ================================================================= 3. ADD REPO -->
+<div class="sec">
+  <h2>3 · MindMerge — paste a URL, read the repo</h2>
+  <div class="why">
+    <b>This surface is in MindMerge, not the Vault.</b> One input, one paste, and the app reads the README and the file
+    tree so you can look at a repository without leaving the desk — which you said is the cleaner direction, and it is:
+    a form that asks you nine questions about a public repository is nine questions the repository already answers.
+    <br><br>
+    The Vault's own <i>Add a repo</i> form stays exactly as it is — name, path, deploy key — because that form is about
+    <i>your</i> credentials, not about a public README.
+  </div>
+
+  <div class="frame">
+    <div class="topbar">
+      <div class="brand"><span class="av" style="background:var(--teal)">M</span> AvertXAI · Focal Registry / <b>MindMerge</b></div>
+      <div class="gsearch"><div class="gsin focus">
+        <span class="mag">🔗</span>
+        <input class="rn" value="https://github.com/scrapy/scrapy" spellcheck="false">
+        <button class="btn grn" style="padding:3px 13px">Read</button>
+      </div></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:9px;background:#f2fbf5;border-bottom:1px solid #bfe6cd;padding:7px 14px;font-size:11.5px">
+      <span style="color:var(--green);font-weight:700">✓ Read in 0.6s</span>
+      <span style="color:var(--dim)">README + 41 top-level entries · stored as a snapshot, readable offline from now on</span>
+      <span class="pill ok" style="margin-left:auto">BSD-3-Clause</span><span class="pill grey">★ 63.8k</span>
+    </div>
+
+    <div style="display:flex;min-height:390px">
+      <!-- file tree -->
+      <div style="width:264px;flex:none;border-right:1px solid var(--bd);background:var(--panel2);overflow:auto">
+        <div style="padding:9px 12px;border-bottom:1px solid var(--bd);font-size:9.5px;letter-spacing:1.1px;text-transform:uppercase;color:var(--dimmer)">
+          File structure
+        </div>
+        <div style="padding:6px 0;font:11.5px var(--mono)">
+          <div style="padding:3px 12px">📁 <b>scrapy</b></div>
+          <div style="padding:3px 12px">📁 docs</div>
+          <div style="padding:3px 12px">📁 tests</div>
+          <div style="padding:3px 12px">📁 sep</div>
+          <div style="padding:3px 12px;color:var(--dimmer)">📄 .gitignore</div>
+          <div style="padding:3px 12px;color:var(--dimmer)">📄 AUTHORS</div>
+          <div style="padding:3px 12px;color:var(--dimmer)">📄 CITATION.cff</div>
+          <div style="padding:3px 12px;color:var(--dimmer)">📄 CODE_OF_CONDUCT.md</div>
+          <div style="padding:3px 12px;color:var(--dimmer)">📄 CONTRIBUTING.md</div>
+          <div style="padding:3px 12px;background:var(--sel);color:var(--orange);font-weight:700">📄 README.rst</div>
+          <div style="padding:3px 12px;color:var(--dimmer)">📄 LICENSE</div>
+          <div style="padding:3px 12px;color:var(--dimmer)">📄 pyproject.toml</div>
+          <div style="padding:7px 12px 3px;color:var(--dimmer);font-family:var(--sans);font-size:10.5px">…31 more</div>
+        </div>
+      </div>
+
+      <!-- rendered readme -->
+      <div style="flex:1;min-width:0;overflow:auto">
+        <div class="ghtabs" style="padding-top:2px"><div class="ghtab on">README</div><div class="ghtab">License</div><div class="ghtab">Contributing</div><div class="ghtab">Code of conduct</div></div>
+        <div class="readme">
+          <h1>Scrapy</h1>
+          <div class="badges">
+            <span class="bdg"><span class="l">pypi</span><span class="r" style="background:#007ec6">2.17.0</span></span>
+            <span class="bdg"><span class="l">license</span><span class="r" style="background:#4c1">BSD-3</span></span>
+            <span class="bdg"><span class="l">stars</span><span class="r" style="background:#4c1">63.8k</span></span>
+            <span class="bdg"><span class="l">python</span><span class="r" style="background:#3572A5">3.9+</span></span>
+          </div>
+          <p>Scrapy is a fast high-level web crawling and web scraping framework, used to crawl websites and extract
+          structured data from their pages.</p>
+          <h2>Install</h2>
+          <div style="background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:9px 12px;font:11.5px var(--mono);margin-bottom:10px">pip install scrapy</div>
+          <p style="color:var(--dim);font-size:11.5px"><b>Snapshot taken 08-11-2026.</b> This page now reads with the
+          network off. Press <b>Read</b> again to refresh it.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cap">One field, one button. Everything fetched is written to MindMerge's own database as a snapshot, so it is
+  searchable alongside your notes and stays readable offline — which is the property that makes it worth storing rather than
+  just opening a browser. A <b>Save to Vault Repos</b> action on this screen is the bridge if you later want a deploy key
+  attached to it.</div>
+
+  <div class="q">
+    <b>One implementation note, because it decides how much work this is.</b> Two ways to read a repo:
+    the <b>GitHub API</b> (<span class="rn">api.github.com</span>) returns the README and the file tree as clean JSON in
+    two calls — no parsing, no breakage when the site is redesigned, but 60 requests/hour unauthenticated and GitHub-only.
+    <b>Scraping the HTML page</b> works on any forge but breaks whenever the markup changes.
+    <br><br>
+    <b>My lean is the API</b>, with the raw <span class="rn">README.md</span> pulled from
+    <span class="rn">raw.githubusercontent.com</span> and rendered through the Markdoc renderer we just built — so the
+    README looks identical to a Secured Note, no second renderer. GitLab and Gitea have near-identical APIs if you want
+    them later.
+  </div>
+</div>
+
+<!-- ================================================================= 4. REPOS + LEDGER -->
+<div class="sec">
+  <h2>4 · Vault · Repos — the list, and where local meets online</h2>
+  <div class="why">
+    Your two tracked sets in one list — repos you own, and repos you are merely interested in — separated by origin
+    rather than by folder. <b>Scan D:\dev</b> walks the drive for <span class="rn">.git</span> folders and reads each
+    one's <span class="rn">.git/config</span> for its remote: <b>entirely local, no network</b>, which is how this list
+    can show both icons without the Vault ever calling out. The globe means “a remote is recorded”, not “we fetched it”
+    — reading the remote is MindMerge's job, one section up.
+    <br><br>
+    Note the segment control is gone: the Package ledger moved to Infrastructure, so Repos has nothing left to switch
+    between.
+  </div>
+
+  <div class="frame">
+    <div class="head">
+      <span class="pill ok">9 local</span><span class="pill info">6 with a remote</span><span class="pill grey">3 watch-only</span>
+      <span style="margin-left:auto;display:flex;gap:7px">
+        <button class="btn sm">⭳ Scan D:\dev</button><button class="btn sm">⭳ Import</button><button class="btn go">+ Add repo</button>
+      </span>
+    </div>
+    <div class="body">
+
+      <div class="repo open">
+        <div class="rhd">
+          <span class="origin" title="On this drive and on GitHub">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="o-on"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="o-on"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.8 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.8-3.8-9S9.5 5.7 12 3z"/></svg>
+          </span>
+          <div class="rav" style="background:#1f2933">WM</div>
+          <div style="flex:1;min-width:0">
+            <div class="rti">world-monitor <span class="pill grey">public</span> <span class="pill no">AGPL v3</span></div>
+            <div class="rds">Real-time global intelligence dashboard — news, geopolitics, infrastructure</div>
+          </div>
+          <div class="rst"><span><span class="ld" style="background:#3178c6"></span>TypeScript</span><span>★ 80k</span><span class="rn">v2.5.23</span></div>
+          <span class="rcar">▼</span>
+        </div>
+        <div class="rbody">
+          <div class="vstrip">
+            <span class="vref2"><span>🔑 Deploy key — world-monitor</span><button>Reveal</button></span>
+            <span class="vref2"><span>🔒 GH_TOKEN</span><button>Copy</button></span>
+            <span class="rn" style="color:var(--dim);font-size:11px">D:\dev\world-monitor</span>
+            <span class="pill warn">2 commits behind</span>
+            <button class="btn sm" style="margin-left:auto">Open folder</button><button class="btn sm">Open on GitHub</button>
+          </div>
+          <div class="ghtabs"><div class="ghtab on">README</div><div class="ghtab">Code of conduct</div><div class="ghtab">License</div><div class="ghtab">Security</div></div>
+          <div class="readme">
+            <h1>World Monitor</h1>
+            <div class="badges">
+              <span class="bdg"><span class="l">stars</span><span class="r" style="background:#4c1">80k</span></span>
+              <span class="bdg"><span class="l">license</span><span class="r" style="background:#97ca00">AGPL v3</span></span>
+              <span class="bdg"><span class="l">release</span><span class="r" style="background:#007ec6">v2.5.23</span></span>
+              <span class="bdg"><span class="l">build</span><span class="r" style="background:#4c1">passing</span></span>
+              <span class="bdg"><span class="l">issues</span><span class="r" style="background:#dfb317">37 open</span></span>
+            </div>
+            <p><b>Real-time global intelligence dashboard</b> — AI-powered news aggregation and infrastructure tracking.
+            This README is a stored snapshot — it reads with the network off.</p>
+            <h2>What It Does</h2>
+            <ul><li><b>500+ curated news feeds</b> across 15 categories</li><li><b>Dual map engine</b> — 3D globe and WebGL flat map</li></ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="repo">
+        <div class="rhd">
+          <span class="origin" title="On this drive only — no remote answered">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="o-on"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="o-off"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.8 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.8-3.8-9S9.5 5.7 12 3z"/></svg>
+          </span>
+          <div class="rav" style="background:#c0392b">FR</div>
+          <div style="flex:1;min-width:0"><div class="rti">AvertXAI-Focal-Registry <span class="pill info">private</span></div>
+            <div class="rds">Photography archive tooling — Electron shell, Scan, Rename, MindMerge, Vault</div></div>
+          <div class="rst"><span><span class="ld" style="background:#3178c6"></span>TypeScript</span><span class="rn">v0.2.6</span></div>
+          <span class="rcar">▶</span>
+        </div>
+      </div>
+
+      <div class="repo">
+        <div class="rhd">
+          <span class="origin" title="Watch-only — online, not cloned here">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="o-off"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="o-on"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.8 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.8-3.8-9S9.5 5.7 12 3z"/></svg>
+          </span>
+          <div class="rav" style="background:#2b7a4b">SC</div>
+          <div style="flex:1;min-width:0"><div class="rti">scrapy/scrapy <span class="pill grey">public</span> <span class="pill ok">BSD-3</span> <span class="pill info">watching</span></div>
+            <div class="rds">A fast high-level web crawling &amp; scraping framework for Python</div></div>
+          <div class="rst"><span><span class="ld" style="background:#3572A5"></span>Python</span><span>★ 63.8k</span><span class="rn">2.17.0</span></div>
+          <span class="rcar">▶</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <div class="cap">Interest-only repos are the same row with the database icon greyed — no separate list to keep in sync.</div>
+
+  <div class="q">
+    <b>On shields.io — I would not fetch them, and I think that is the “something better” you were after.</b>
+    A shields.io badge is an SVG served from <span class="rn">img.shields.io</span>, so five badges on nine repos is 45
+    image requests to a third party every time the page opens, each one telling that party which repositories you track
+    — the exact leak the MindMerge split exists to contain. They also render at fixed colours that ignore your three
+    themes, and they show as broken images offline.
+    <br><br>
+    Every badge in this mockup is <b>drawn in HTML and CSS from data already fetched</b> — same shape, same colour
+    conventions, about 20 lines of CSS, no network, no third party, theme-aware. The one thing lost is exotic
+    third-party badges (Codecov, a CI provider); if you want one of those specifically it is a per-badge decision, not a
+    blanket one.
+  </div>
+</div>
+
+<!-- ================================================================= 5. PACKAGE LEDGER -->
+<div class="sec">
+  <h2>5 · Package ledger — moved to Infrastructure, and already built</h2>
+  <div class="why">
+    <b>Relocated and shipped this session</b>, between <b>SSH keys</b> and <b>Import records</b> exactly as asked —
+    tab strip, sidebar row and component all moved. It sits here because it reads like the rest of Infrastructure: an
+    inventory of what this machine stands on, with a verdict attached.
+    <br><br>
+    You asked what it looks like once the app pulls the data. Below is the answer, and the important part is that
+    <b>every column is derivable with no network at all</b>: <span class="rn">package.json</span> and the lockfile give
+    name and version, each installed package's own manifest gives its declared licence, and size is a folder walk. The
+    ledger never needed the internet — which is why it stays in the Vault while the repo reader goes to MindMerge.
+  </div>
+
+  <div class="frame">
+    <div class="head">
+      <div class="seg"><button>Servers &amp; DNS</button><button>SSH keys</button><button class="on">Package ledger</button><button>Import records</button></div>
+      <span style="margin-left:auto;display:flex;gap:7px">
+        <button class="btn sm">Rescan</button><button class="btn sm">Export CSV</button>
+      </span>
+    </div>
+    <div class="body">
+      <div class="chips">
+        <div class="chip"><span class="k">Tracked</span><span class="v">518</span></div>
+        <div class="chip"><span class="k">Approved</span><span class="v" style="color:var(--green)">509</span></div>
+        <div class="chip"><span class="k">Banned</span><span class="v" style="color:var(--red)">2</span></div>
+        <div class="chip"><span class="k">Needs ruling</span><span class="v" style="color:var(--amber)">7</span></div>
+        <div class="chip"><span class="k">On disk</span><span class="v" style="font-size:15px">549 MB</span></div>
+        <div class="chip"><span class="k">Ships in build</span><span class="v" style="font-size:15px">31 MB</span></div>
+      </div>
+
+      <div style="display:flex;gap:6px;margin-bottom:11px;flex-wrap:wrap">
+        <span class="fchip on">All</span><span class="fchip">Needs ruling <span class="n">7</span></span>
+        <span class="fchip">Banned <span class="n">2</span></span><span class="fchip">Over 20 MB <span class="n">5</span></span>
+        <span class="fchip">Ships in the installer <span class="n">44</span></span>
+      </div>
+
+      <div class="card">
+        <table class="dt">
+          <thead><tr><th>Package</th><th>Version</th><th>Licence</th><th>Size on disk</th><th>Verdict</th><th>Why · where</th></tr></thead>
+          <tbody>
+            <tr><td><b>@markdoc/markdoc</b></td><td class="rn">0.5.9</td><td><span class="pill ok">MIT</span></td>
+              <td><span class="rn">2.2 MB</span><div class="bar"><i style="width:6%;background:var(--green)"></i></div></td>
+              <td><span class="pill ok">approved</span></td><td class="rn">Markdown rendering · Vault notes</td></tr>
+            <tr><td><b>@milkdown/kit</b></td><td class="rn">7.22.0</td><td><span class="pill ok">MIT</span></td>
+              <td><span class="rn">9.6 MB</span><div class="bar"><i style="width:26%;background:var(--green)"></i></div></td>
+              <td><span class="pill ok">approved</span></td><td class="rn">Notes editor · pulls 16 prosemirror-*</td></tr>
+            <tr><td><b>exifr</b></td><td class="rn">7.1.3</td><td><span class="pill ok">MIT</span></td>
+              <td><span class="rn">1.5 MB</span><div class="bar"><i style="width:4%;background:var(--green)"></i></div></td>
+              <td><span class="pill ok">approved</span></td><td class="rn">Header-only stills · Scan</td></tr>
+            <tr><td><b>electron</b></td><td class="rn">41.9.2</td><td><span class="pill ok">MIT</span></td>
+              <td><span class="rn">349 MB</span><div class="bar"><i style="width:100%;background:var(--amber)"></i></div></td>
+              <td><span class="pill ok">approved</span></td><td class="rn">Dev only — not shipped as a dependency</td></tr>
+            <tr style="background:#fff7f7"><td><b>@ffprobe-installer/ffprobe</b></td><td class="rn">—</td><td><span class="pill no">GPL v3</span></td>
+              <td><span class="rn">78 MB</span><div class="bar"><i style="width:100%;background:var(--red)"></i></div></td>
+              <td><span class="pill no">banned</span></td><td class="rn">Ships a GPL binary — do not reintroduce</td></tr>
+            <tr style="background:#fffdf5"><td><b>some-chart-lib</b></td><td class="rn">3.0.1</td><td><span class="pill warn">undeterminable</span></td>
+              <td><span class="rn">12 MB</span><div class="bar"><i style="width:33%;background:var(--amber)"></i></div></td>
+              <td><span class="pill warn">needs ruling</span></td><td class="rn">§2.10 stops the line — no LICENSE file, no licence field</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:12px;border:1px solid var(--bd);border-radius:9px;padding:12px 14px;background:var(--panel)">
+        <b style="font-size:12px">The only two things the network would add — and neither belongs in the Vault</b>
+        <ul class="tight" style="color:var(--dim);font-size:11.5px">
+          <li><b>Newer version available</b> — the registry knows; your lockfile does not.</li>
+          <li><b>Known advisories</b> — the same data <span class="rn">npm audit</span> prints.</li>
+        </ul>
+        <div style="font-size:11.5px;color:var(--dim);margin-top:7px">
+          Everything else here is read off your own disk, so the ledger is fully useful offline. If you ever want those
+          two, they follow the same rule as the repo reader: <b>MindMerge fetches, the Vault does not.</b>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="cap">The licence column is the point of this table: it is §2.10 made visible, so a GPL dependency is caught on the
+  screen rather than in a review three weeks later. “Needs ruling” is a real state — undeterminable is not the same as permissive.</div>
+</div>
+
+<div class="sec">
+  <h2>Open questions</h2>
+  <div class="why">Four, in the order they block work.</div>
+  <div class="q">
+    <b style="color:var(--green)">✓ Network — ANSWERED.</b> MindMerge fetches, the Vault does not. Package ledger moved
+    to Infrastructure and shipped. Both closed 08-11-2026.<br><br>
+    <b>1 · Private repos.</b> Reading those needs a Personal Access Token. Design assumes an ordinary <b>Vault entry</b>
+    that MindMerge resolves by locator through the logged read — never a second secret store.
+    <b>My lean: ship public-only first</b>, which removes the question entirely and still covers “repos I'm interested
+    in”.<br><br>
+    <b>2 · Hidden-by-filter group</b> in search (§1) — keep the dimmed “6 more” group, or return nothing?<br><br>
+    <b>3 · Package ledger scope.</b> Section 5 is this repo's own tree. Should it also read the other repos it finds on
+    D:\dev, making it a cross-project licence view? Meaningfully bigger build.<br><br>
+    <b>4 · Scan D:\dev</b> (§4) — filesystem-only, no network, reads each <span class="rn">.git/config</span> for its
+    remote. Confirm that is wanted, since it is what makes the two origin icons meaningful without the Vault ever
+    calling out.
+  </div>
+</div>
+
+</div>
+</body>
+</html>

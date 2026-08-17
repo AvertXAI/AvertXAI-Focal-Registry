@@ -1,0 +1,1254 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* Secured Vault module styles — shell tokens (--mc-*) read, never redefined; module tokens
+   --vault-* declared on .vault-shell (never :root), role names spelled in full. Built to the
+   approved mockup MOCKUP-vault-v3-8-options-08-02-2026. Tab strip follows the house standard
+   (Config-As-Data-SOP-electron §10) exactly — boxed tab joined to the panel beneath it. */
+
+.vault-shell {
+  --vault-rail-width: 232px;
+  --vault-selection-background: color-mix(in srgb, var(--mc-accent-primary) 12%, var(--mc-panels));
+  --vault-strong-color: var(--mc-green);
+  --vault-warn-color: #e0a53a; /* attention — NOT --mc-orange, which is the not-built glow */
+  --vault-danger-color: #e0574f;
+  --vault-masked-color: var(--mc-dimmer);
+  --vault-modal-width: 640px;
+  --vault-modal-scrim: color-mix(in srgb, var(--mc-base) 62%, transparent);
+  --vault-on-accent-ink: #07101f;
+  /* Search-result highlighter. Its own pair rather than MindMerge's — a module never reads another
+     module's tokens — and a FIXED pair in all three themes on purpose: a highlighter that dims to
+     suit the theme is not one. The dark ink is what keeps it legible on yellow. */
+  --vault-highlighter-background: #ffe14d;
+  --vault-highlighter-foreground: #1a1500;
+  display: flex;
+  height: calc(100vh - 58px - var(--mc-footer-height, 0px));
+  background: var(--mc-base);
+  color: var(--mc-text);
+  overflow: hidden;
+  position: relative; /* anchors the modal scrim to the module, not the window */
+}
+/* ⚠ THE SPECIFICITY TRAP: globals.css has `.view.shown{display:block}` at 0,2,0, which BEATS a
+   single module class at 0,1,0 — the rail would stack ABOVE the content. Three classes (0,3,0)
+   reclaim the row. The compiler cannot see this; only a render can. */
+.view.shown.vault-shell { display: flex; }
+[data-theme="light"] .vault-shell,
+[data-theme="dark"] .vault-shell { --vault-on-accent-ink: #ffffff; }
+
+/* ---------- the lock screen ---------- */
+.vault-lock { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.vault-lockcard { width: 100%; max-width: 380px; background: var(--mc-panels); border: 1px solid var(--mc-border);
+  border-radius: 12px; padding: 26px 26px 22px; text-align: center; }
+.vault-lockglyph { font-size: 26px; line-height: 1; margin-bottom: 12px; }
+.vault-lockcard h2 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.vault-locksub { font-size: 12.5px; color: var(--mc-muted); line-height: 1.6; margin-bottom: 18px; }
+.vault-lockcard input { width: 100%; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 10px 12px; font-size: 13px; color: var(--mc-text); text-align: center; }
+.vault-lockcard input:focus { outline: none; border-color: var(--mc-accent-primary); }
+.vault-lockerror { margin-top: 10px; font-size: 12px; color: var(--vault-danger-color); }
+.vault-lockplaceholder { margin-top: 16px; font-size: 11px; color: var(--mc-dimmer); line-height: 1.6;
+  border-top: 1px solid var(--mc-border); padding-top: 12px; }
+
+/* ================================================================
+   REDESIGN SHELL (08-10-2026, MOCKUP-vault-full-v2)
+   One-row navbar above a [collapsible sidebar | body] row. The old strip carried six tabs needing
+   ~498 of the 508px available at the 740 floor — full before a new surface existed. Tools moved
+   into the sidebar; Settings moved to a gear pinned at its foot.
+   ================================================================ */
+.vault-shell { flex-direction: column; }
+.view.shown.vault-shell { flex-direction: column; }
+.vault-main-col { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.vault-shellbody { display: flex; flex: 1; min-height: 0; min-width: 0; }
+
+.vault-navbar { display: flex; gap: 4px; align-items: flex-end; flex: none; padding: 11px 18px 0;
+  background: var(--mc-panels); border-bottom: 1px solid var(--mc-border); }
+.vault-navhome { background: none; border: none; font-size: 14px; font-weight: 700; color: var(--mc-text);
+  padding: 0 12px 12px 2px; cursor: pointer; position: relative; font-family: inherit; }
+.vault-navhome.on::after { content: ""; position: absolute; left: 2px; right: 12px; bottom: 0; height: 2px;
+  background: var(--mc-accent-primary); }
+.vault-navtab { background: none; border: 1px solid transparent; border-bottom: 0; border-radius: 9px 9px 0 0;
+  font-size: 13px; color: var(--mc-muted); padding: 8px 15px; cursor: pointer; margin-bottom: -1px;
+  white-space: nowrap; font-family: inherit; }
+.vault-navtab:hover { color: var(--mc-text); }
+.vault-navtab.on { color: var(--mc-text); font-weight: 600; background: var(--mc-base); border-color: var(--mc-border); }
+
+/* ---------- the draggable vertical dividers (Jason 08-12-2026) --------------------------------- */
+/* A 6-pixel grab strip on a pane's right edge, sitting ON its border rather than beside it — so the
+   divider you drag is visually the divider that moves. It only shows itself on hover, because a
+   permanently visible handle on two columns is two pieces of furniture nobody asked to look at. */
+/* INSIDE the pane, not straddling its edge: both panes clip their overflow, and a handle hanging
+   past the border would need overflow:visible — which would also let a long folder name spill out of
+   the sidebar. Six pixels in from the right is the same grab target with none of that risk. */
+.vault-resizer { position: absolute; top: 0; right: 0; bottom: 0; width: 6px; z-index: 5;
+  cursor: col-resize; background: transparent; transition: background .12s ease; }
+.vault-resizer:hover, .vault-resizer:focus-visible { background: var(--mc-accent-primary); outline: none; }
+/* THE DIAL — the live pixel readout, so a width can be reported as a number instead of estimated
+   off a screenshot. It sits INSIDE the pane (right of nothing, left of the handle) because both
+   panes clip their overflow; hanging it outside would simply cut it in half. It follows the pointer
+   down the strip so the number appears where you are already looking. */
+.vault-dial { position: absolute; right: 12px; transform: translateY(-50%); z-index: 6;
+  pointer-events: none; white-space: nowrap; background: var(--mc-panels); color: var(--mc-text);
+  border: 1px solid var(--mc-accent-primary); border-radius: var(--mc-radius);
+  padding: 3px 8px; font-family: var(--mc-mono); font-size: 10.5px; line-height: 1.35;
+  box-shadow: 0 2px 10px rgb(0 0 0 / .30); }
+.vault-dial b { font-size: 12px; }
+/* The limit tag answers "is this where I stopped, or where it stopped me?" — the two look identical
+   without it and mean opposite things. */
+.vault-dial .lim { color: var(--mc-accent-primary); font-weight: 600; }
+/* While a drag is live the cursor is pinned window-wide and every width transition is off — see the
+   comment in Resizer.tsx for why both are necessary rather than cosmetic. */
+body.vault-resizing { cursor: col-resize !important; user-select: none; }
+body.vault-resizing .vault-side,
+body.vault-resizing .vault-notelist { transition: none !important; }
+
+/* ---------- sidebar ---------- */
+/* WIDTH IS AN INLINE STYLE NOW, not the token: the token is shared with .vault-rail (the Passwords
+   folder rail), and dragging one column must not silently move a different one. `position: relative`
+   is what the resize handle anchors to. */
+.vault-side { width: var(--vault-rail-width); flex: 0 0 var(--vault-rail-width); display: flex; flex-direction: column;
+  background: var(--mc-panels); border-right: 1px solid var(--mc-border); min-height: 0;
+  position: relative; transition: width .16s ease, flex-basis .16s ease; overflow: hidden; }
+/* Collapsed hides the handle — there is nothing to widen, and a grab strip on a 46px rail is a trap. */
+.vault-side.collapsed .vault-resizer { display: none; }
+/* Collapsed is 46px — the New-entry glyph and the collapse chevron, nothing else. */
+.vault-side.collapsed { width: 46px; flex-basis: 46px; }
+.vault-side.collapsed .sbtxt,
+.vault-side.collapsed .vault-sidesearch,
+.vault-side.collapsed .vault-railcount,
+.vault-side.collapsed .vault-railhead,
+.vault-side.collapsed .vault-scx { display: none; }
+.vault-sidetop { display: flex; align-items: center; gap: 7px; padding: 12px 10px 6px; }
+.vault-collapse { flex: none; background: none; border: 1px solid var(--mc-border); border-radius: 6px;
+  color: var(--mc-muted); cursor: pointer; font-size: 11px; padding: 4px 7px; font-family: var(--mc-mono); }
+.vault-collapse:hover { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
+.vault-sidescroll { flex: 1; overflow-y: auto; min-height: 0; padding: 0 8px 12px; }
+.vault-sidesearch { width: 100%; background: var(--mc-field); border: 1px solid var(--mc-border); border-radius: 8px;
+  padding: 8px 11px; font-size: 12px; color: var(--mc-text); margin-bottom: 4px; }
+.vault-sidesearch:focus { outline: none; border-color: var(--mc-accent-primary); }
+.vault-sidefoot { flex: none; border-top: 1px solid var(--mc-border); padding: 8px; }
+.vault-gear { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 9px; border-radius: 7px;
+  background: none; border: none; color: var(--mc-text); font-size: 12.5px; cursor: pointer; text-align: left; }
+.vault-gear:hover { background: var(--mc-nested); }
+.vault-gear.on { background: var(--vault-selection-background); font-weight: 600; box-shadow: inset 3px 0 0 var(--mc-accent-primary); }
+.vault-gearicon { flex: none; font-size: 15px; line-height: 1; }
+/* Shortcuts — user-composed, above the section groups. */
+.vault-addsc { margin-left: auto; background: none; border: none; color: var(--mc-accent-primary); cursor: pointer;
+  font-size: 11px; font-weight: 700; font-family: inherit; padding: 0 2px; }
+.vault-addsc:hover { text-decoration: underline; }
+.vault-railrow.shortcut { cursor: pointer; }
+.vault-sbadge { flex: none; width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center;
+  justify-content: center; font-size: 8.5px; font-weight: 800; color: #fff; background: var(--mc-accent-primary); }
+.vault-scx { margin-left: auto; background: none; border: none; color: var(--mc-dimmer); cursor: pointer;
+  font-size: 11px; padding: 0 3px; opacity: 0; }
+.vault-railrow.shortcut:hover .vault-scx { opacity: 1; }
+.vault-scx:hover { color: var(--vault-danger-color); }
+
+/* ---------- rail ---------- */
+.vault-rail { width: var(--vault-rail-width); flex: none; display: flex; flex-direction: column;
+  background: var(--mc-panels); border-right: 1px solid var(--mc-border); min-height: 0; }
+.vault-railsearch { padding: 12px 12px 8px; }
+.vault-railsearch input { width: 100%; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 7px 11px; font-size: 12px; color: var(--mc-text); }
+.vault-railsearch input:focus { outline: none; border-color: var(--mc-accent-primary); }
+.vault-raillist { flex: 1; overflow-y: auto; min-height: 0; padding: 0 8px 12px; }
+.vault-railhead { font-size: 9.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--mc-muted);
+  margin: 14px 0 5px 9px; font-weight: 700; }
+.vault-railrow { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border-radius: 7px;
+  background: none; border: none; color: var(--mc-text); font-size: 12.5px; cursor: pointer; text-align: left;
+  position: relative; }
+.vault-railrow:hover { background: var(--mc-nested); }
+.vault-railrow.on { background: var(--vault-selection-background); font-weight: 600; }
+.vault-railrow.on::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 3px;
+  border-radius: 0 2px 2px 0; background: var(--mc-accent-primary); }
+.vault-raildot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.vault-railname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-railcount { flex: none; font-family: var(--mc-mono); font-size: 11px; color: var(--mc-dimmer); }
+
+/* ---------- main column + the house tab strip (SOP §10, verbatim) ---------- */
+.vault-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vault-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 12px 18px 0;
+  border-bottom: 1px solid var(--mc-border); flex: none; }
+.vault-tab { background: none; border: 1px solid transparent; border-radius: 7px 7px 0 0; padding: 7px 14px;
+  font-size: 12.5px; color: var(--mc-muted); cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+.vault-tab:hover { color: var(--mc-text); }
+.vault-tab.on { color: var(--mc-text); font-weight: 600; border-color: var(--mc-border);
+  border-bottom-color: var(--mc-base); background: var(--mc-base); }
+.vault-body { flex: 1; overflow-y: auto; min-height: 0; padding: 16px 18px 22px; }
+
+/* ---------- cards, states ---------- */
+.vault-card { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 10px;
+  padding: 15px 17px; margin-bottom: 14px; }
+.vault-cardhead { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 12px; flex-wrap: wrap; }
+.vault-cardtitle { font-size: 10.5px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700;
+  color: var(--mc-accent-primary); }
+.vault-hint { font-size: 12px; color: var(--mc-muted); line-height: 1.6; }
+/* Three states are three visibly different things — an empty list NEVER stands in for a failed read. */
+.vault-state { padding: 26px 18px; text-align: center; font-size: 12.5px; color: var(--mc-muted); }
+.vault-state.error { color: var(--vault-danger-color); }
+.vault-state button { margin-top: 10px; }
+
+/* ---------- buttons ---------- */
+.vault-btn { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 7px;
+  padding: 6px 12px; font-size: 12px; color: var(--mc-text); cursor: pointer; white-space: nowrap; }
+.vault-btn:hover { border-color: var(--mc-accent-primary); }
+.vault-btn.primary { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary);
+  color: var(--vault-on-accent-ink); font-weight: 600; }
+.vault-btn.danger { border-color: var(--vault-danger-color); color: var(--vault-danger-color); }
+.vault-btn:disabled { opacity: .5; cursor: default; }
+.vault-btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- table ---------- */
+.vault-table { width: 100%; border-collapse: collapse; }
+.vault-table th { text-align: left; font-size: 9.5px; letter-spacing: 1.3px; text-transform: uppercase;
+  color: var(--mc-muted); padding: 0 10px 9px 0; font-weight: 700; border-bottom: 1px solid var(--mc-border); }
+.vault-table td { padding: 10px 10px 10px 0; border-bottom: 1px solid var(--mc-border); font-size: 12.5px;
+  vertical-align: middle; }
+.vault-table tr:last-child td { border-bottom: 0; }
+/* CENTRED, and the asymmetric padding is the reason it now looks it (Jason 08-11-2026, on the
+   "0 LOCAL" / "1 WITH A REMOTE" pills). letter-spacing adds a trailing space AFTER the last
+   character that is inside the text box, so a symmetrically-padded pill always reads a pixel
+   left-heavy. The right padding is 1px short to absorb exactly that. */
+.vault-kind { display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; border: 1px solid var(--mc-border);
+  border-radius: 5px; padding: 2px 6px 2px 7px; color: var(--mc-muted); white-space: nowrap; }
+.vault-masked { font-family: var(--mc-mono); color: var(--vault-masked-color); letter-spacing: 2px; }
+.vault-revealed { font-family: var(--mc-mono); color: var(--mc-text); background: var(--mc-nested);
+  padding: 2px 7px; border-radius: 5px; word-break: break-all; }
+.vault-mono { font-family: var(--mc-mono); font-size: 11.5px; }
+.vault-who { font-size: 11px; color: var(--mc-dimmer); }
+.vault-star { background: none; border: none; cursor: pointer; font-size: 13px; color: var(--mc-dimmer); padding: 0 4px; }
+.vault-star.on { color: var(--vault-warn-color); }
+.vault-acts { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* ---------- view switcher (Grid / List / Panes / Folders) ---------- */
+.vault-modeswitch { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.vault-viewsw { display: flex; gap: 6px; flex-wrap: wrap; }
+.vault-swbtn { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 7px;
+  padding: 6px 12px; font-size: 12px; color: var(--mc-muted); cursor: pointer; white-space: nowrap; }
+.vault-swbtn:hover { color: var(--mc-text); }
+.vault-swbtn.on { color: var(--mc-seg-on-icon); background: var(--mc-seg-on-background);
+  border-color: var(--mc-seg-on-icon); font-weight: 600; }
+
+/* ---------- the brand mark, shared by every view ---------- */
+.vault-mark { flex: none; border-radius: 9px; display: inline-flex; align-items: center;
+  justify-content: center; font-weight: 800; letter-spacing: .3px; overflow: hidden; }
+/* A real full-colour logo carries its own colours, so it sits on a neutral plate — a light one in
+   every theme, because most brand marks are drawn to sit on white and vanish on a dark ground. */
+.vault-mark-icon { background: #ffffff; padding: 4px; }
+.vault-mark-icon img { width: 100%; height: 100%; display: block; object-fit: contain; }
+
+/* ---------- work in progress: a long job must never look like a frozen application ---------- */
+.vault-spinner { flex: none; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--mc-border); border-top-color: var(--mc-accent-primary);
+  animation: vault-spin .7s linear infinite; }
+@keyframes vault-spin { to { transform: rotate(360deg); } }
+.vault-progbar { flex: 1; min-width: 80px; height: 6px; border-radius: 4px; background: var(--mc-nested);
+  overflow: hidden; }
+.vault-progbar i { display: block; height: 100%; background: var(--mc-accent-primary);
+  border-radius: 4px; transition: width .3s ease; }
+/* Someone who has asked not to see motion still needs to know the job is running — the bar and the
+   counter carry that on their own, so only the spin is dropped. */
+@media (prefers-reduced-motion: reduce) { .vault-spinner { animation: none; } }
+
+/* ---------- collage ---------- */
+/* Tiles are sized so four fit at the 740px floor with the rail up: 740 − 232 rail − 36 padding
+   = 472 usable; minmax(112px) with a 12px gap gives 4 × 112 + 3 × 12 = 484 → wraps to 3, which is
+   the intended floor behaviour. At 1280 the same track yields 8-9 per row. */
+.vault-collage { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
+.vault-tile { position: relative; aspect-ratio: 1.15; border: 1px solid var(--mc-border);
+  border-radius: 11px; background: var(--mc-panels); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 7px; padding: 10px 8px; cursor: pointer;
+  color: var(--mc-text); font-family: inherit; }
+.vault-tile:hover { border-color: var(--mc-accent-primary); }
+.vault-tile.on { border-color: var(--mc-accent-primary);
+  box-shadow: 0 0 0 1px var(--mc-accent-primary) inset; }
+.vault-tile .vault-mark { width: 44px; height: 44px; font-size: 16px; }
+.vault-tilename { font-size: 11.5px; line-height: 1.25; text-align: center; color: var(--mc-text);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.vault-tileuser { font-size: 10px; color: var(--mc-dimmer); max-width: 100%; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.vault-tilestar { position: absolute; top: 6px; right: 8px; font-size: 11px; color: var(--vault-warn-color); }
+.vault-tile.add { border-style: dashed; color: var(--mc-muted); }
+.vault-tileplus { font-size: 22px; line-height: 1; color: var(--mc-muted); }
+/* Detail opens beside the grid; below 1100px it stacks under, because a 300px detail beside a
+   3-column grid leaves neither readable. */
+.vault-collagesplit { display: flex; gap: 14px; align-items: flex-start; }
+.vault-collagemain { flex: 1; min-width: 0; }
+.vault-collagedetail { width: 340px; flex: none; }
+@media (max-width: 1100px) {
+  .vault-collagesplit { flex-direction: column; }
+  .vault-collagedetail { width: 100%; }
+}
+
+/* ---------- three-pane ---------- */
+.vault-pane3 { display: flex; border: 1px solid var(--mc-border); border-radius: 11px;
+  overflow: hidden; background: var(--mc-panels); min-height: 520px; }
+.vault-pnav { width: 172px; flex: none; background: var(--mc-nested);
+  border-right: 1px solid var(--mc-border); padding: 10px 8px; overflow-y: auto; }
+.vault-plist { width: 268px; flex: none; border-right: 1px solid var(--mc-border); overflow-y: auto; }
+.vault-pdetail { flex: 1; min-width: 0; padding: 4px; overflow-y: auto; }
+.vault-prow { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 9px;
+  border-radius: 7px; background: none; border: none; color: var(--mc-text); font-size: 12.5px;
+  cursor: pointer; text-align: left; }
+.vault-prow:hover { background: var(--mc-panels); }
+.vault-prow.on { background: var(--vault-selection-background); font-weight: 600; }
+/* The pane's own folder rows are drop targets too — same lit-up affordance as the outer rail. */
+.vault-prow.drop { background: var(--vault-selection-background); box-shadow: inset 0 0 0 1px var(--mc-accent-primary); }
+.vault-irow { display: flex; align-items: center; gap: 11px; width: 100%; padding: 10px 13px;
+  border: none; border-bottom: 1px solid var(--mc-border); background: none; color: var(--mc-text);
+  cursor: pointer; text-align: left; position: relative; }
+.vault-irow:hover { background: var(--mc-nested); }
+.vault-irow.on { background: var(--vault-selection-background); }
+.vault-irow.on::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--mc-accent-primary); }
+.vault-irowtitle { display: block; font-size: 12.5px; font-weight: 600; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-irowsub { display: block; font-size: 11px; color: var(--mc-dimmer); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+/* Below 980px three panes cannot all stay legible — the nav collapses into the list column. */
+@media (max-width: 980px) {
+  .vault-pane3 { flex-direction: column; min-height: 0; }
+  .vault-pnav, .vault-plist { width: 100%; border-right: 0; border-bottom: 1px solid var(--mc-border); }
+  .vault-plist { max-height: 300px; }
+}
+
+/* ---------- detail pane (shared by collage + panes) ---------- */
+.vault-detail { padding: 14px 15px; }
+.vault-detailhead { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; flex-wrap: wrap; }
+.vault-detailhead h3 { font-size: 14.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.vault-detailacts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.vault-fbox { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 9px;
+  padding: 10px 12px; margin-bottom: 10px; }
+.vault-flabel { font-size: 10px; color: var(--mc-dimmer); margin-bottom: 5px; letter-spacing: .5px;
+  text-transform: uppercase; }
+.vault-fvalue { font-size: 12.5px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  word-break: break-word; }
+.vault-facts { margin-left: auto; display: flex; gap: 6px; }
+
+/* ---------- folder tree ---------- */
+.vault-folderwrap { display: flex; gap: 14px; align-items: flex-start; }
+.vault-foldertree { width: 300px; flex: none; margin-bottom: 0; }
+.vault-tnoderow { display: flex; align-items: center; gap: 4px; }
+.vault-tnode { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 7px 9px;
+  border-radius: 7px; background: none; border: none; color: var(--mc-text); font-size: 12.5px;
+  cursor: pointer; text-align: left; }
+.vault-tnode:hover { background: var(--mc-nested); }
+.vault-tnode.on { background: var(--vault-selection-background); font-weight: 600; }
+.vault-linkrow { display: flex; align-items: center; gap: 9px; background: none; border: none;
+  color: var(--mc-text); cursor: pointer; font-size: 12.5px; font-family: inherit; padding: 0; }
+.vault-linkrow:hover b { color: var(--mc-accent-primary); }
+@media (max-width: 980px) {
+  .vault-folderwrap { flex-direction: column; }
+  .vault-foldertree { width: 100%; }
+}
+
+/* ---------- generator ---------- */
+.vault-genout { display: flex; align-items: center; gap: 12px; background: var(--mc-field);
+  border: 1px solid var(--mc-border); border-radius: 9px; padding: 13px 15px; flex-wrap: wrap; }
+.vault-genout .value { flex: 1; min-width: 180px; font-family: var(--mc-mono); font-size: 17px;
+  letter-spacing: .5px; word-break: break-all; }
+.vault-meter { height: 7px; border-radius: 4px; display: flex; gap: 3px; margin: 13px 0 7px; }
+.vault-meter i { display: block; flex: 1; background: var(--mc-nested); border-radius: 3px; }
+.vault-meter i.on { background: var(--vault-strong-color); }
+.vault-meter i.warn { background: var(--vault-warn-color); }
+.vault-meter i.bad { background: var(--vault-danger-color); }
+.vault-strengthrow { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  font-size: 12px; flex-wrap: wrap; }
+.vault-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 9px 20px;
+  margin-top: 15px; font-size: 12.5px; }
+/* min-width:0 is what lets the label shrink inside its grid cell instead of forcing the column
+   wider than the track — the same auto-sizing trap the code-appearance grid hit. The checkbox is
+   flex:none so a long label never squashes the control itself. */
+.vault-opt { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.vault-opt > span { min-width: 0; overflow-wrap: anywhere; }
+.vault-opt input[type="checkbox"] { flex: none; }
+.vault-opt input[type="range"] { flex: 1; accent-color: var(--mc-accent-primary); }
+.vault-opt input[type="checkbox"] { accent-color: var(--mc-accent-primary); }
+
+/* ---------- health ---------- */
+.vault-hgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;
+  margin-bottom: 14px; }
+.vault-hcard { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 9px;
+  padding: 12px 14px; }
+.vault-hlabel { display: block; font-size: 9px; letter-spacing: .8px; text-transform: uppercase;
+  color: var(--mc-muted); margin-bottom: 4px; }
+.vault-hvalue { display: block; font-family: var(--mc-mono); font-size: 22px; font-weight: 700; }
+.vault-score { font-family: var(--mc-mono); font-size: 12px; font-weight: 700; }
+.vault-reasons { margin: 3px 0 0; padding-left: 16px; color: var(--mc-muted); font-size: 11.5px; line-height: 1.6; }
+
+/* ---------- confirm dialog (replaces window.confirm's bare OS box) ---------- */
+.vault-confirm { max-width: 460px; }
+.vault-confirmbody { font-size: 13px; line-height: 1.65; color: var(--mc-text); margin: 4px 0 4px; }
+.vault-confirmbody p { margin-bottom: 9px; }
+.vault-confirmbody p:last-child { margin-bottom: 0; }
+.vault-confirmbody .vault-hint { font-size: 12px; }
+/* A destructive action is solid red — the one place in the vault where a button shouts. */
+.vault-btn.danger.solid { background: var(--vault-danger-color); border-color: var(--vault-danger-color);
+  color: #fff; font-weight: 600; }
+.vault-btn.danger.solid:hover { filter: brightness(1.07); }
+
+/* THE CLASS THAT WAS NEVER WRITTEN (Jason 08-12-2026: "under import records, theres a bug, im
+   seeing triple views"). Four surfaces set className="vault-tscroll" with an inline maxHeight and
+   nothing defined it, so `max-height` bounded the BOX and not the content: 35 table rows spilled
+   straight out of a 190-pixel container, over the modal's own Cancel/Import footer, and on down the
+   page. With no background of their own the page text showed through them — which is what read as
+   three views stacked on each other. max-height without overflow is not a limit, it is a suggestion. */
+.vault-tscroll { overflow: auto; border: 1px solid var(--mc-border); border-radius: 8px;
+  background: var(--mc-base); }
+/* The header has to stay put or a scrolled review table is a grid of unlabelled columns. */
+.vault-tscroll thead th { position: sticky; top: 0; z-index: 1; background: var(--mc-panels); }
+
+/* ---------- modal ---------- */
+.vault-modalback { position: absolute; inset: 0; background: var(--vault-modal-scrim); display: flex;
+  align-items: flex-start; justify-content: center; padding: 28px 18px; overflow-y: auto; z-index: 40; }
+.vault-modal { width: 100%; max-width: var(--vault-modal-width); background: var(--mc-panels);
+  border: 1px solid var(--mc-border); border-radius: 12px; padding: 20px 22px; }
+.vault-modal h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 3px; }
+.vault-modalsub { font-size: 12px; color: var(--mc-muted); margin-bottom: 15px; }
+.vault-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; }
+.vault-field label { font-size: 11px; color: var(--mc-muted); }
+.vault-field input, .vault-field select, .vault-field textarea { background: var(--mc-field);
+  border: 1px solid var(--mc-border); border-radius: 8px; padding: 9px 11px; font-size: 12.5px;
+  color: var(--mc-text); font-family: inherit; width: 100%; }
+.vault-field input:focus, .vault-field select:focus, .vault-field textarea:focus { outline: none;
+  border-color: var(--mc-accent-primary); }
+.vault-field textarea { resize: vertical; min-height: 58px; }
+.vault-two { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.vault-modalacts { display: flex; gap: 9px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+
+/* At the 740px floor the two-column rows would squeeze both fields below legibility — one column
+   is correct there, and the rail is the only other thing competing for the width. */
+@media (max-width: 860px) { .vault-two { grid-template-columns: 1fr; } }
+
+/* ---------- the not-built convention (§3.6: plain page, no orange glow, in THIS product) ---------- */
+.vault-soon { border: 1px dashed var(--mc-border); border-radius: 9px; padding: 22px 18px; text-align: center;
+  color: var(--mc-muted); font-size: 12.5px; line-height: 1.7; }
+
+/* ---------- bulk generator output ---------- */
+.vault-bulklist { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
+.vault-bulklist code, .vault-bulkpick { font-family: var(--mc-mono); font-size: 12px; background: var(--mc-field);
+  border: 1px solid var(--mc-border); border-radius: 6px; padding: 6px 9px; word-break: break-all; }
+/* In the entry form the point of a bulk list is to PICK one, so each is a button. */
+.vault-bulkpick { color: var(--mc-text); text-align: left; cursor: pointer; }
+.vault-bulkpick:hover { border-color: var(--mc-accent-primary); }
+
+/* ---------- rail: New entry, folders, drop targets ---------- */
+.vault-railhead { display: flex; align-items: center; }
+.vault-railadd { margin-left: auto; background: none; border: none; color: var(--mc-muted); cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 4px; }
+.vault-railadd:hover { color: var(--mc-accent-primary); }
+/* A folder lights up when a row is dragged over it — without this, dropping is a guess. */
+.vault-railrow.drop { background: var(--vault-selection-background); box-shadow: inset 0 0 0 1px var(--mc-accent-primary); }
+.vault-folderadd { display: flex; gap: 6px; padding: 4px 9px 8px; }
+.vault-folderadd input { flex: 1; min-width: 0; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 7px; padding: 6px 9px; font-size: 12px; color: var(--mc-text); }
+.vault-folderadd input:focus { outline: none; border-color: var(--mc-accent-primary); }
+/* The nudge only appears when there is something to file — see FolderRail. */
+.vault-foldernudge { display: block; width: calc(100% - 18px); margin: 2px 9px 6px; text-align: left;
+  background: color-mix(in srgb, var(--mc-accent-primary) 10%, var(--mc-panels));
+  border: 1px solid var(--mc-accent-primary); border-radius: 8px; padding: 9px 11px; cursor: pointer;
+  color: var(--mc-text); font-family: inherit; }
+.vault-foldernudge b { display: block; font-size: 12px; margin-bottom: 3px; }
+.vault-foldernudge span { display: block; font-size: 11px; color: var(--mc-muted); line-height: 1.5; }
+
+/* ---------- right-click filing menu ---------- */
+.vault-ctxmenu { position: fixed; z-index: 60; min-width: 190px; max-height: 60vh; overflow-y: auto;
+  background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 9px; padding: 5px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .28); }
+.vault-ctxhead { font-size: 10px; letter-spacing: .6px; text-transform: uppercase; color: var(--mc-muted);
+  padding: 5px 9px 7px; }
+.vault-ctxitem { display: block; width: 100%; text-align: left; background: none; border: none;
+  color: var(--mc-text); font-size: 12.5px; padding: 7px 9px; border-radius: 6px; cursor: pointer; font-family: inherit; }
+.vault-ctxitem:hover { background: var(--mc-nested); }
+.vault-ctxempty { font-size: 11.5px; color: var(--mc-dimmer); padding: 7px 9px; }
+/* A draggable row should say so before it is dragged. */
+.vault-table tbody tr[draggable="true"] { cursor: grab; }
+.vault-table tbody tr[draggable="true"]:active { cursor: grabbing; }
+
+/* ---------- import sources ---------- */
+.vault-sourcegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 9px; }
+.vault-source { display: flex; align-items: center; justify-content: center; padding: 14px 8px;
+  background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 9px; cursor: pointer;
+  color: var(--mc-text); font-family: inherit; }
+.vault-source:hover { border-color: var(--mc-accent-primary); }
+.vault-source.on { border-color: var(--mc-accent-primary); background: var(--vault-selection-background); font-weight: 600; }
+.vault-sourcename { font-size: 12px; }
+
+/* ================================================================
+   SECURED NOTES · INFRASTRUCTURE · REPOS · SIDEBAR EDITOR
+   ================================================================ */
+.vault-shell { --vault-note-color: #6355d8; }
+.vault-seg { display: inline-flex; border: 1px solid var(--mc-border); border-radius: 8px; overflow: hidden; }
+.vault-seg button { background: none; border: none; border-right: 1px solid var(--mc-border); color: var(--mc-muted);
+  font-size: 12px; padding: 6px 13px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.vault-seg button:last-child { border-right: 0; }
+.vault-seg button.on { background: var(--vault-selection-background); color: var(--mc-accent-primary); font-weight: 600; }
+.vault-btn.sm { padding: 4px 9px; font-size: 11.5px; }
+.vault-kind.warn { color: var(--vault-warn-color); border-color: var(--vault-warn-color); }
+.vault-kind.danger { color: var(--vault-danger-color); border-color: var(--vault-danger-color); }
+.vault-kind.ok { color: var(--vault-strong-color); border-color: var(--vault-strong-color); }
+.vault-clip { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-derived { font-size: 9px; letter-spacing: .6px; text-transform: uppercase; color: #17838f;
+  border: 1px solid #17838f; border-radius: 4px; padding: 0 5px; }
+.vault-chips { display: flex; gap: 9px; flex-wrap: wrap; margin-bottom: 14px; }
+.vault-chip-stat { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 9px;
+  padding: 9px 13px; min-width: 96px; text-align: left; }
+.vault-chip-stat.as-button { cursor: pointer; color: var(--mc-text); font-family: inherit; }
+.vault-chip-stat.as-button:hover { border-color: var(--mc-accent-primary); }
+.vault-chip-stat .k { display: block; font-size: 9px; letter-spacing: .9px; text-transform: uppercase;
+  color: var(--mc-muted); margin-bottom: 3px; }
+.vault-chip-stat .v { font-family: var(--mc-mono); font-size: 19px; font-weight: 700; line-height: 1; }
+
+/* ---------- notes ---------- */
+/* THE HEIGHT CHAIN, and it is why the toolbars scrolled away (Jason 08-12-2026).
+   .vault-notewrap had min-height and no height, so it grew past the viewport and .vault-body — which
+   is the scrolling element — scrolled the WHOLE surface, carrying the list header and the editor
+   toolbar off the top with it. The panes inside already scroll on their own; they just never got the
+   chance because nothing above them was bounded.
+   Scoped with :has() so only the notes surface changes — every other view keeps the body scroll it
+   expects. Chromium 105+; Electron 41 is far past it. No calc(100vh - N) literal, deliberately:
+   canon already records that duplicated 58px arithmetic as a drift that has bitten this repo. */
+.vault-body:has(.vault-notewrap) { display: flex; overflow: hidden; }
+.vault-notewrap { display: flex; flex: 1; min-height: 0; border: 1px solid var(--mc-border);
+  border-radius: 12px; overflow: hidden; background: var(--mc-panels); }
+/* Width is an inline style now, driven by notes.list_width and the drag handle. `position: relative`
+   anchors that handle; the 266px here is the fallback if the setting never loads. */
+.vault-notelist { position: relative; width: 266px; flex: none; border-right: 1px solid var(--mc-border); display: flex;
+  flex-direction: column; overflow: hidden; transition: width .16s ease; }
+.vault-notelist.collapsed { width: 44px; }
+.vault-notelist.collapsed .vault-nlbody,
+.vault-notelist.collapsed .vault-nlsearch,
+.vault-notelist.collapsed .vault-nlimport,
+.vault-notelist.collapsed .vault-nlshelf,
+.vault-notelist.collapsed .vault-nlstyles,
+.vault-notelist.collapsed .vault-nltitle,
+/* The Import button lives in the header now, so it has to hide with everything else — it was
+   showing as a truncated "↓ Im" in a 44px rail (Jason 08-12-2026). */
+.vault-notelist.collapsed .vault-collapse.import { display: none; }
+/* …and the chevron must stay, centred, so there is something to press to get the list back. */
+.vault-notelist.collapsed .vault-nltop { padding: 0; justify-content: center; }
+/* ONE HEIGHT for the list header and the editor toolbar, so they sit on the same horizontal line
+   (Jason 08-12-2026). They were both padded 9px but hold different content — a text title against a
+   row of buttons — so the button row was taller and the two never lined up. */
+.vault-nltop { display: flex; align-items: center; gap: 7px; padding: 0 11px; min-height: 46px;
+  flex: none; border-bottom: 1px solid var(--mc-border); }
+.vault-nltitle { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-nlstyles { display: flex; gap: 3px; padding: 8px 9px; border-bottom: 1px solid var(--mc-border); }
+.vault-nlstyles button { flex: 1; background: none; border: 1px solid transparent; border-radius: 6px;
+  color: var(--mc-muted); font-size: 11px; padding: 5px 4px; cursor: pointer; font-family: inherit; }
+.vault-nlstyles button.on { background: var(--vault-selection-background); color: var(--mc-accent-primary);
+  font-weight: 600; border-color: var(--mc-accent-primary); }
+/* Active ⇄ Archived. The archive is a place, not a euphemism — see NotesView. */
+.vault-nlshelf { display: flex; gap: 3px; padding: 7px 9px 0; }
+.vault-nlshelf button { flex: 1; background: none; border: 1px solid transparent; border-radius: 6px;
+  color: var(--mc-muted); font-size: 11px; padding: 5px 4px; cursor: pointer; font-family: inherit; }
+.vault-nlshelf button.on { background: var(--mc-nested); color: var(--mc-text); font-weight: 600; border-color: var(--mc-border); }
+/* Import lives in the list HEADER, left of the collapse chevron (Jason 08-11-2026). Icon plus the
+   one word — the file dialog's own filter already states the extensions. */
+.vault-collapse.import { width: auto; padding: 0 9px; gap: 5px; display: inline-flex; align-items: center;
+  font-size: 11px; white-space: nowrap; }
+.vault-collapse.import:hover { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
+.vault-nlsearch { display: flex; gap: 6px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--mc-border); }
+/* Import + delete live in the search row: both act on the LIST, not on one row. */
+.vault-iconbtn { flex: none; width: 28px; height: 28px; border: 1px solid var(--mc-border); background: var(--mc-panels);
+  border-radius: 7px; color: var(--mc-muted); cursor: pointer; font-size: 12.5px; line-height: 1; display: flex;
+  align-items: center; justify-content: center; font-family: inherit; }
+.vault-iconbtn:hover { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
+.vault-iconbtn:disabled { opacity: .4; cursor: default; }
+.vault-iconbtn.trash.armed { width: auto; padding: 0 8px; gap: 3px; border-color: var(--vault-danger-color);
+  color: var(--vault-danger-color); font-weight: 700; font-size: 11.5px; }
+.vault-iconbtn.trash:not(:disabled):hover { border-color: var(--vault-danger-color); color: var(--vault-danger-color); }
+/* The tick only appears on hover or when it is on — a column of empty boxes is noise. */
+.vault-nsel { position: absolute; top: 11px; right: 11px; opacity: 0; accent-color: var(--mc-accent-primary); }
+.vault-nrow { position: relative; }
+.vault-nrow:hover .vault-nsel, .vault-nrow.picked .vault-nsel { opacity: 1; }
+.vault-nrow.picked { background: var(--vault-selection-background); }
+.vault-nlsearch input { flex: 1; min-width: 0; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 7px; padding: 6px 9px; font-size: 12px; color: var(--mc-text); }
+.vault-nlbody { flex: 1; overflow-y: auto; min-height: 0; }
+.vault-nrow { display: block; width: 100%; text-align: left; padding: 10px 13px; border: none;
+  border-bottom: 1px solid var(--mc-border); background: none; color: var(--mc-text); cursor: pointer; font-family: inherit; }
+.vault-nrow:hover { background: var(--mc-nested); }
+.vault-nrow.on { background: var(--vault-selection-background); box-shadow: inset 3px 0 0 var(--mc-accent-primary); }
+.vault-nrow .t { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; }
+.vault-nrow .s { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 11px; color: var(--mc-dimmer); margin-top: 3px; line-height: 1.45; }
+/* Created AND edited, both labelled (Jason 08-11-2026). Wraps rather than truncating — a date you
+   cannot read is the same as no date, and this is the column that proves an old import stayed old. */
+.vault-nrow .m { display: flex; flex-wrap: wrap; gap: 3px 9px; font-size: 10px; color: var(--mc-dimmer);
+  margin-top: 5px; font-family: var(--mc-mono); }
+.vault-nrow .m .d { white-space: nowrap; }
+.vault-ticon { flex: none; width: 16px; height: 16px; border-radius: 5px; display: inline-flex; align-items: center;
+  justify-content: center; font-size: 9px; font-weight: 800; color: #fff; }
+.vault-noteedit { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vault-edbar { display: flex; align-items: center; gap: 5px; padding: 0 12px; min-height: 46px; flex: none; border-bottom: 1px solid var(--mc-border);
+  flex-wrap: wrap; }
+.vault-tbtn { min-width: 28px; height: 27px; padding: 0 7px; border: 1px solid transparent; background: none;
+  border-radius: 6px; color: var(--mc-muted); cursor: pointer; font-size: 12.5px; font-family: inherit; }
+.vault-tbtn:hover { background: var(--mc-nested); border-color: var(--mc-border); }
+.vault-tbtn.hot { color: var(--mc-accent-primary); border-color: var(--mc-accent-primary); background: var(--vault-selection-background); }
+.vault-help { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--mc-border); background: var(--mc-panels);
+  color: var(--mc-muted); cursor: pointer; font-weight: 700; font-family: inherit; margin-left: 3px; }
+.vault-help:hover { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
+.vault-modeseg { margin-left: auto; }
+.vault-notesplit { flex: 1; display: flex; min-height: 0; }
+.vault-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; }
+.vault-pane.prev { border-right: 1px solid var(--mc-border); }
+.vault-panehdr { flex: none; font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mc-dimmer);
+  margin-bottom: 11px; display: flex; align-items: center; gap: 7px; }
+.vault-editdot { width: 6px; height: 6px; border-radius: 50%; background: var(--vault-strong-color); }
+.vault-notetitle { flex: none; background: var(--mc-field); border: 1px solid var(--mc-border); border-radius: 8px;
+  padding: 8px 11px; font-size: 13px; font-weight: 600; color: var(--mc-text); margin-bottom: 8px; }
+.vault-notearea { flex: 1; min-height: 260px; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 11px 13px; font-family: var(--mc-mono); font-size: 12px; line-height: 1.7;
+  color: var(--mc-text); resize: none; }
+.vault-notearea:focus, .vault-notetitle:focus { outline: none; border-color: var(--mc-accent-primary); }
+/* ---- Milkdown. It emits plain semantic HTML, so the theme is OUR css, not a second stylesheet —
+   one place to change a colour, and no vendor theme to drift from the tokens. ---- */
+.vault-milkdown { flex: 1; min-height: 260px; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 8px; overflow: auto; }
+.vault-milkdown .ProseMirror { padding: 13px 15px; min-height: 240px; outline: none; font-size: 13.5px;
+  line-height: 1.7; color: var(--mc-text); }
+.vault-milkdown .ProseMirror:focus { outline: none; }
+.vault-milkdown:focus-within { border-color: var(--mc-accent-primary); }
+.vault-milkdown h1 { font-size: 20px; margin: 0 0 11px; }
+.vault-milkdown h2 { font-size: 15.5px; margin: 17px 0 8px; }
+.vault-milkdown h3 { font-size: 13.5px; margin: 14px 0 7px; }
+.vault-milkdown p { margin: 0 0 10px; }
+.vault-milkdown ul, .vault-milkdown ol { margin: 0 0 11px 22px; }
+.vault-milkdown li { margin-bottom: 4px; }
+.vault-milkdown blockquote { border-left: 3px solid var(--mc-border); padding-left: 12px; color: var(--mc-muted); margin: 0 0 10px; }
+.vault-milkdown code { font-family: var(--mc-mono); font-size: 11.5px; background: var(--mc-nested);
+  border: 1px solid var(--mc-border); border-radius: 4px; padding: 1px 5px; }
+/* THE EDITOR'S FENCES WEAR THE SAME PALETTE (Jason 08-13-2026: "the editor and preview window still
+   doesnt show the code blocks color"). Half of that was an untagged `text` fence, which is plain by
+   design — but the other half was real: the editor pane never read --vault-code-* at all, so a fence
+   changed appearance the moment you switched from Edit to Preview.
+
+   SURFACE ONLY, not tokens. Colouring the WORDS inside the editor means a ProseMirror decoration
+   that re-runs on every keystroke, which is a different and much larger piece of machinery than a
+   render. The background, the ink and the font now match, so the two panes stop disagreeing about
+   what a code block looks like; per-token colour in the editor is its own build. */
+.vault-milkdown pre { background: var(--vault-code-background); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 11px 13px; overflow-x: auto; margin: 0 0 11px; color: var(--vault-code-plain); }
+.vault-milkdown pre code { background: none; border: none; padding: 0; font-size: 11.5px; line-height: 1.6;
+  font-family: var(--vault-code-font, var(--mc-mono)); color: inherit; }
+.vault-milkdown hr { border: 0; border-top: 1px solid var(--mc-border); margin: 14px 0; }
+.vault-milkdown a { color: var(--mc-accent-primary); }
+/* The read-side source view — what actually gets stored. Still used by surfaces that want the raw
+   text; the NOTES preview pane no longer does, it renders (Jason 08-11-2026). */
+.vault-srcview { flex: 1; background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 8px;
+  padding: 12px 14px; font-family: var(--mc-mono); font-size: 11.5px; line-height: 1.7; color: var(--mc-muted);
+  white-space: pre-wrap; word-break: break-word; overflow: auto; margin-bottom: 8px; }
+/* The rendered preview. Scrolls on its own so a long note cannot push the pane header away. */
+.vault-preview { flex: 1; min-height: 0; overflow: auto; }
+/* Task lists — Markdoc has no native support, so markdown.tsx rewrites "- [ ] x" into a tag. The
+   box is READ-ONLY on purpose: ticking here would have to write back through the markdown to mean
+   anything, and a checkbox that forgets is worse than one that plainly does not move. */
+.vault-task { display: inline-flex; align-items: flex-start; gap: 8px; }
+.vault-task input { margin: 3px 0 0; accent-color: var(--mc-accent-primary); pointer-events: none; }
+.vault-task.done > span { color: var(--mc-muted); text-decoration: line-through; }
+/* GFM tables — arrive free with Markdoc, so they need to look like they belong. */
+.vault-pane.prev table, .vault-readme table { border-collapse: collapse; width: 100%; margin: 0 0 13px; font-size: 12.5px; }
+.vault-pane.prev th, .vault-pane.prev td,
+.vault-readme th, .vault-readme td { border: 1px solid var(--mc-border); padding: 6px 9px; text-align: left; }
+.vault-pane.prev th, .vault-readme th { background: var(--mc-nested); font-weight: 600; }
+.vault-pane.prev s, .vault-readme s { color: var(--mc-muted); }
+.vault-pane.prev h1 { font-size: 21px; margin: 0 0 12px; }
+.vault-pane.prev h2 { font-size: 15.5px; margin: 18px 0 8px; }
+.vault-pane.prev h3 { font-size: 13.5px; margin: 14px 0 7px; }
+.vault-pane.prev p { font-size: 13.5px; line-height: 1.7; margin: 0 0 11px; }
+.vault-pane.prev ul, .vault-pane.prev ol { margin: 0 0 12px 22px; }
+.vault-pane.prev li { font-size: 13.5px; line-height: 1.7; margin-bottom: 4px; }
+.vault-pane.prev blockquote { border-left: 3px solid var(--mc-border); padding-left: 12px; color: var(--mc-muted); margin: 0 0 11px; }
+.vault-pane.prev code, .vault-readme code { font-family: var(--mc-mono); font-size: 11.5px; background: var(--mc-nested);
+  border: 1px solid var(--mc-border); border-radius: 4px; padding: 1px 5px; }
+.vault-cblock { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 9px; margin: 0 0 13px; overflow: hidden; }
+.vault-cblock .cb { display: flex; align-items: center; gap: 8px; padding: 6px 11px; border-bottom: 1px solid var(--mc-border);
+  font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--mc-dimmer); }
+.vault-cblock .cb button { margin-left: auto; background: none; border: 1px solid var(--mc-border); border-radius: 5px;
+  color: var(--mc-muted); font-size: 10px; padding: 2px 8px; cursor: pointer; font-family: inherit; }
+/* ---- code-block appearance (MOCKUP-vault-code-appearance-v1, approved 08-13-2026) --------------
+   The palette arrives as --vault-code-* on .vault-shell, written by VaultModule from the stored
+   theme for the CURRENT light/dark mode. Colours as variables rather than props is what lets the
+   Markdoc-constructed CodeBlock stay prop-free: a theme change is one repaint of an ancestor, not a
+   rebuild of the renderer config. Defaults here mirror Focal Dark so an unstyled boot is never
+   invisible. ------------------------------------------------------------------------------- */
+.vault-shell {
+  --vault-code-background: var(--mc-nested);
+  --vault-code-plain: var(--mc-text);
+  --vault-code-comment: var(--mc-dimmer);
+  --vault-code-string: #9ecb8a;
+  --vault-code-keyword: #d98a70;
+  --vault-code-number: #d9b970;
+  --vault-code-function: #7fb8e6;
+  --vault-code-variable: var(--mc-text);
+  --vault-code-type: #c39ae0;
+  --vault-code-punct: var(--mc-muted);
+  --vault-code-comment-style: italic;
+  --vault-code-font: var(--mc-mono);
+}
+.vault-cblock pre { padding: 11px 13px; overflow-x: auto; font-family: var(--vault-code-font, var(--mc-mono));
+  font-size: 11.5px; line-height: 1.6; background: var(--vault-code-background); color: var(--vault-code-plain); }
+/* One letter per class on purpose — a 400-line fence is thousands of spans and the class name is
+   the bulk of each one. */
+.vault-cblock .cc, .vault-csample .cc { color: var(--vault-code-comment); font-style: var(--vault-code-comment-style); }
+.vault-cblock .cs, .vault-csample .cs { color: var(--vault-code-string); }
+.vault-cblock .ck, .vault-csample .ck { color: var(--vault-code-keyword); }
+.vault-cblock .cn, .vault-csample .cn { color: var(--vault-code-number); }
+.vault-cblock .cf, .vault-csample .cf { color: var(--vault-code-function); }
+.vault-cblock .cv, .vault-csample .cv { color: var(--vault-code-variable); }
+.vault-cblock .ct, .vault-csample .ct { color: var(--vault-code-type); }
+.vault-cblock .cp, .vault-csample .cp { color: var(--vault-code-punct); }
+/* The settings preview and any other sample — same painter, same variables, so a preview cannot
+   show you something the real block will not. */
+.vault-csample { margin: 0; padding: 12px 14px; overflow-x: auto; border-radius: 9px;
+  font-family: var(--vault-code-font, var(--mc-mono)); font-size: 11.5px; line-height: 1.62;
+  background: var(--vault-code-background); color: var(--vault-code-plain); white-space: pre; }
+.vault-csample .cln { display: inline-block; width: 2.1em; text-align: right; margin-right: 1.1em;
+  color: var(--vault-code-punct); opacity: .65; user-select: none; }
+/* THE TWO PREVIEW COLUMNS, and why this is not `.vault-two` (Jason 08-13-2026: "the code appearance
+   is truncated with the sidebar is opened, and it corrects itself when its closed").
+
+   TWO separate faults, and fixing either alone leaves it broken:
+
+   1. A grid ITEM defaults to `min-width: auto`, which means "at least as wide as my content". The
+      preview inside is a <pre> of unwrapped code, so each column refused to shrink below the widest
+      line and the pair overflowed the card — which is why closing the 270-pixel sidebar "fixed" it
+      and reopening broke it again. `min-width: 0` is what lets the column shrink so the <pre>'s own
+      overflow-x can finally do its job.
+   2. Two 1fr columns stay two columns at ANY width. auto-fit with a 300-pixel floor drops to one
+      column instead of squeezing both into unreadability — and at the 740-pixel window floor with
+      the rail open there is roughly 400 pixels of card, so one column is the only honest answer. */
+.vault-codegrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 18px; align-items: start; }
+.vault-codegrid > * { min-width: 0; }
+
+/* The by-hand palette editor. Two columns so nine roles plus a background fit without scrolling the
+   settings page — one per line would push the second preview off screen. Collapses to one on a
+   narrow card for the same reason as the grid above. */
+.vault-swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 6px 10px; margin-top: 10px; }
+.vault-swatch { display: flex; align-items: center; gap: 8px; border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 4px 7px; min-width: 0; }
+.vault-swatch .chip { width: 18px; height: 18px; border-radius: 5px; flex: none;
+  border: 1px solid var(--mc-border); }
+.vault-swatch .nm { flex: 1; font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.vault-swatch input { width: 82px; flex: none; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 6px; padding: 3px 6px; color: var(--mc-text); font-family: var(--mc-mono); font-size: 11px; }
+.vault-checklist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13.5px; }
+.vault-checklist label { display: flex; align-items: center; gap: 8px; }
+/* The credential chip — a note references, never contains. */
+.vault-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--vault-selection-background);
+  border: 1px solid var(--mc-accent-primary); border-radius: 7px; padding: 2px 5px 2px 9px; font-size: 11.5px;
+  vertical-align: middle; }
+.vault-chip .lk { color: var(--mc-accent-primary); font-weight: 700; white-space: nowrap; }
+.vault-chip button { border: 1px solid var(--mc-border); background: var(--mc-panels); color: var(--mc-muted);
+  border-radius: 5px; font-size: 10px; padding: 2px 7px; cursor: pointer; font-family: inherit; }
+.vault-chip.missing { border-style: dashed; color: var(--mc-dimmer); }
+/* runbook run mode */
+.vault-runhead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 14px; flex-wrap: wrap; }
+.vault-runhead .vault-hint { margin-left: auto; }
+.vault-step { display: flex; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--mc-border); }
+.vault-step:last-child { border-bottom: 0; }
+.vault-step.done .vault-sbody { opacity: .5; }
+.vault-snum { flex: none; width: 25px; height: 25px; border-radius: 50%; border: 1.5px solid var(--mc-border);
+  background: none; color: var(--mc-muted); font-family: var(--mc-mono); font-size: 12px; font-weight: 700; cursor: pointer; }
+.vault-step.done .vault-snum { background: var(--vault-strong-color); border-color: var(--vault-strong-color); color: #fff; }
+.vault-sbody { flex: 1; min-width: 0; }
+.vault-stitle { font-size: 13px; font-weight: 600; margin-bottom: 7px; }
+.vault-stepprose { font-size: 12.5px; color: var(--mc-muted); }
+.vault-stepprose p { font-size: 12.5px; margin-bottom: 7px; }
+.vault-cmd { display: flex; align-items: center; gap: 9px; background: var(--mc-nested); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 8px 11px; font-family: var(--mc-mono); font-size: 11.5px; margin-bottom: 7px; }
+.vault-cmd .c { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; }
+/* help modal rows */
+.vault-helprow { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; font-size: 12.5px; }
+.vault-kbd { flex: none; min-width: 84px; font-family: var(--mc-mono); font-size: 11px; background: var(--mc-nested);
+  border: 1px solid var(--mc-border); border-radius: 5px; padding: 2px 7px; color: var(--mc-muted); }
+
+/* ---------- infrastructure ---------- */
+.vault-art { font-family: var(--mc-mono); font-size: 12px; line-height: 1.3; background: var(--mc-nested);
+  border: 1px solid var(--mc-border); border-radius: 9px; padding: 12px 14px; display: inline-block; white-space: pre; }
+.vault-keybox { font-family: var(--mc-mono); font-size: 11px; background: var(--mc-nested); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 10px 12px; line-height: 1.5; word-break: break-all; color: var(--mc-muted);
+  max-height: 92px; overflow: auto; }
+.vault-paths { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 11px; margin-bottom: 14px; }
+.vault-path { display: block; text-align: left; border: 1px solid var(--mc-border); border-radius: 11px; padding: 14px 15px;
+  cursor: pointer; background: var(--mc-panels); color: var(--mc-text); font-family: inherit; }
+.vault-path.on { border-color: var(--mc-accent-primary); background: var(--vault-selection-background); }
+.vault-path .pi { display: block; font-size: 19px; margin-bottom: 7px; }
+.vault-path .pt { display: block; font-size: 13px; font-weight: 700; margin-bottom: 5px; }
+.vault-path .pd { display: block; font-size: 11.5px; color: var(--mc-dimmer); line-height: 1.55; }
+.vault-zone { width: 100%; min-height: 150px; background: var(--mc-nested); border: 1px solid var(--mc-border);
+  border-radius: 9px; padding: 11px 13px; font-family: var(--mc-mono); font-size: 11px; color: var(--mc-text);
+  line-height: 1.6; resize: vertical; }
+.vault-zone:focus { outline: none; border-color: var(--mc-accent-primary); }
+.vault-domainin { background: var(--mc-field); border: 1px solid var(--mc-border); border-radius: 7px; padding: 6px 10px;
+  font-size: 12px; color: var(--mc-text); min-width: 180px; }
+.vault-drop { display: block; width: 100%; border: 2px dashed var(--mc-border); border-radius: 11px; padding: 26px 18px;
+  text-align: center; color: var(--mc-muted); font-size: 12.5px; background: var(--mc-nested); cursor: pointer;
+  font-family: inherit; }
+.vault-drop:hover { border-color: var(--mc-accent-primary); background: var(--vault-selection-background); }
+.vault-drop b { color: var(--mc-text); font-size: 13px; }
+.vault-drop:disabled { opacity: .6; cursor: default; }
+/* Which extensions are read — stated on screen, because "only these three" is a rule the user set. */
+.vault-ftypes { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; margin-top: 11px; }
+.vault-ftype { font-size: 11px; border: 1px solid var(--mc-border); border-radius: 20px; padding: 3px 10px;
+  color: var(--mc-muted); background: var(--mc-panels); }
+.vault-ftype.on { border-color: var(--vault-strong-color); color: var(--vault-strong-color); font-weight: 600; }
+.vault-ftype.off { opacity: .5; text-decoration: line-through; }
+.vault-folderline { display: flex; align-items: center; gap: 9px; padding: 8px 11px; border: 1px solid var(--mc-border);
+  border-radius: 9px; margin-bottom: 6px; background: var(--mc-panels); font-size: 12.5px; }
+.vault-filelist { max-height: 210px; overflow-y: auto; margin-top: 12px; border: 1px solid var(--mc-border);
+  border-radius: 9px; padding: 7px; background: var(--mc-base); }
+.vault-frow { display: flex; align-items: center; gap: 9px; padding: 5px 7px; font-size: 11.5px; }
+.vault-frow + .vault-frow { border-top: 1px solid var(--mc-border); }
+
+/* ---------- repos ---------- */
+.vault-repo { border: 1px solid var(--mc-border); border-radius: 11px; margin-bottom: 9px; background: var(--mc-panels); overflow: hidden; }
+.vault-repohead { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 15px; background: none;
+  border: none; cursor: pointer; text-align: left; color: var(--mc-text); font-family: inherit; }
+.vault-repohead:hover { background: var(--mc-nested); }
+.vault-rav { flex: none; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center;
+  justify-content: center; font-weight: 800; font-size: 12px; border: 1px solid var(--mc-border); }
+.vault-rmeta { flex: 1; min-width: 0; }
+.vault-rtitle { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 13.5px; font-weight: 700; }
+.vault-rdesc { display: block; font-size: 11.5px; color: var(--mc-dimmer); margin-top: 3px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.vault-rstats { flex: none; display: flex; gap: 13px; font-size: 11px; color: var(--mc-muted); flex-wrap: wrap; align-items: center; }
+.vault-rcar { flex: none; color: var(--mc-dimmer); transition: transform .15s ease; }
+.vault-repo.open .vault-rcar { transform: rotate(90deg); }
+.vault-repobody { border-top: 1px solid var(--mc-border); background: var(--mc-base); }
+.vault-vstrip { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; padding: 10px 14px;
+  background: var(--vault-selection-background); border-bottom: 1px solid var(--mc-border); font-size: 11.5px; }
+.vault-readme { padding: 16px 20px; max-width: 900px; }
+.vault-readme h1 { font-size: 22px; padding-bottom: 8px; border-bottom: 1px solid var(--mc-border); margin-bottom: 12px; }
+.vault-readme h2 { font-size: 16px; padding-bottom: 6px; border-bottom: 1px solid var(--mc-border); margin: 18px 0 10px; }
+.vault-readme p, .vault-readme li { font-size: 13px; line-height: 1.7; color: var(--mc-muted); }
+.vault-readme ul, .vault-readme ol { margin: 0 0 12px 20px; }
+
+/* ---------- sidebar editor ---------- */
+.vault-editpane { border: 1px solid var(--mc-border); border-radius: 11px; overflow: hidden; background: var(--mc-base); }
+.vault-editpaneh { display: flex; align-items: center; gap: 9px; padding: 11px 14px; border-bottom: 1px solid var(--mc-border);
+  font-size: 12.5px; flex-wrap: wrap; }
+.vault-editbody { padding: 9px; max-height: 340px; overflow-y: auto; }
+.vault-edititem { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--mc-border);
+  border-radius: 9px; margin-bottom: 6px; background: var(--mc-panels); }
+.vault-edititem.over { border-color: var(--mc-accent-primary); box-shadow: inset 0 2px 0 var(--mc-accent-primary); }
+.vault-edititem.dragging { opacity: .45; }
+.vault-grip { flex: none; cursor: grab; color: var(--mc-dimmer); letter-spacing: -2px; font-size: 14px; }
+.vault-editnm { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-editct { flex: none; font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--mc-dimmer); }
+/* the shortcut pick list */
+.vault-picklist { max-height: 46vh; overflow-y: auto; margin-bottom: 4px; }
+.vault-pick { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: 9px; }
+.vault-pick:hover { background: var(--mc-nested); }
+.vault-pickname { flex: 1; min-width: 0; }
+.vault-pickname b { display: block; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-pickname .s { font-size: 10.5px; color: var(--mc-dimmer); text-transform: uppercase; letter-spacing: .4px; }
+
+/* ---------- import: found files + how-to ---------- */
+.vault-found { margin: 12px 0 4px; }
+.vault-foundrow { display: flex; align-items: center; gap: 11px; width: 100%; text-align: left; cursor: pointer;
+  background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 9px; padding: 10px 12px;
+  margin-bottom: 7px; color: var(--mc-text); font-family: inherit; }
+.vault-foundrow:hover { border-color: var(--mc-accent-primary); background: var(--vault-selection-background); }
+.vault-foundicon { font-size: 17px; flex: none; }
+.vault-foundname { display: block; font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-foundmeta { display: block; font-size: 11px; color: var(--mc-dimmer); margin-top: 2px; }
+.vault-foundgo { flex: none; font-size: 11.5px; color: var(--mc-accent-primary); font-weight: 600; }
+/* The "how do I make the export" line — quiet, and only until a file is chosen. */
+.vault-howto { display: flex; gap: 9px; align-items: flex-start; margin-top: 12px; font-size: 12px;
+  color: var(--mc-muted); line-height: 1.6; }
+.vault-howto .vault-kind { flex: none; margin-top: 1px; }
+
+/* ---------- import mapping ---------- */
+.vault-fileline { display: flex; align-items: center; gap: 9px; font-size: 12.5px; margin-bottom: 12px; flex-wrap: wrap; }
+/* One row per field: label above, column picker below. At the 740px floor a 2-column grid gives
+   each picker roughly 200px with the rail up (740 − 232 rail − 36 body pad − 34 card pad = 438,
+   less the 10px gap, halved) — enough for a header name; one column below that. */
+.vault-maprows { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); gap: 10px; margin: 12px 0 0; }
+.vault-maprow { display: flex; flex-direction: column; gap: 5px; }
+.vault-maprow label { font-size: 11px; color: var(--mc-muted); }
+.vault-required { color: var(--vault-danger-color); }
+.vault-maprow select { background: var(--mc-field); border: 1px solid var(--mc-border); border-radius: 8px;
+  padding: 8px 10px; font-size: 12.5px; color: var(--mc-text); font-family: inherit; width: 100%; }
+.vault-maprow select:focus { outline: none; border-color: var(--mc-accent-primary); }
+/* The sample table is as wide as the file has columns — it scrolls in its own box so the page
+   never does, whatever the exporter decided to include. */
+.vault-samplewrap { overflow-x: auto; margin-top: 12px; border: 1px solid var(--mc-border); border-radius: 9px; }
+.vault-sample { min-width: 100%; }
+.vault-sample th, .vault-sample td { padding: 7px 11px; white-space: nowrap; font-size: 11.5px; }
+.vault-sample th { border-bottom: 1px solid var(--mc-border); }
+/* A mapped column is tinted down its whole height — the point is to SEE the mapping at a glance. */
+.vault-sample th.on, .vault-sample td.on { background: var(--vault-selection-background); }
+.vault-sample th.on { color: var(--mc-text); }
+.vault-mapped { font-size: 9px; color: var(--mc-accent-primary); letter-spacing: .4px; margin-top: 3px;
+  text-transform: none; font-weight: 600; }
+
+/* ---------- the generator inside the entry form ---------- */
+/* The SAME panel the Generator tab renders, so only the fit is restated here: a 640px modal is
+   narrower than the tab, and the output line and the option grid both need to give ground. */
+.vault-inlinegen { margin-top: 8px; background: var(--mc-nested); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 11px 12px; }
+.vault-inlinegen .vault-genout { padding: 10px 12px; }
+.vault-inlinegen .vault-genout .value { min-width: 130px; font-size: 14px; }
+/* 150, not 180: with the shorter labels two columns now fit comfortably in the modal, and dropping
+   the floor means it reaches two columns rather than one at the narrow end. */
+.vault-inlinegen .vault-opts { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px;
+  margin-top: 12px; font-size: 12px; }
+.vault-inlinegen .vault-bulklist { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+
+/* ---- The event log (Jason 08-11-2026) ------------------------------------------------------
+   The user is shown a sentence and a reference; THIS is where the reference is cashed in. Colour
+   carries the level so a screen of rows can be scanned without reading — but never colour ALONE:
+   the level word is always printed beside it. ------------------------------------------------ */
+.vault-logsearch { flex: 1; min-width: 160px; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 7px; padding: 6px 10px; font-size: 12px; color: var(--mc-text); font-family: inherit; }
+.vault-logsearch:focus { outline: none; border-color: var(--mc-accent-primary); }
+.vault-logrows { border: 1px solid var(--mc-border); border-radius: 8px; overflow: hidden; max-height: 340px; overflow-y: auto; }
+.vault-logrow { border-bottom: 1px solid var(--mc-border); }
+.vault-logrow:last-child { border-bottom: 0; }
+.vault-loghead { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; cursor: pointer;
+  background: none; border: 0; padding: 7px 11px; font-family: inherit; color: var(--mc-text); font-size: 12px; }
+.vault-loghead:hover { background: var(--mc-nested); }
+.vault-loglevel { flex: none; font-size: 9px; letter-spacing: .8px; text-transform: uppercase; font-weight: 700;
+  border: 1px solid; border-radius: 4px; padding: 1px 6px; }
+.vault-loglevel.debug { color: var(--mc-dimmer); border-color: var(--mc-border); }
+.vault-loglevel.info  { color: var(--mc-muted); border-color: var(--mc-border); }
+.vault-loglevel.warn  { color: var(--mc-orange); border-color: var(--mc-orange); }
+.vault-loglevel.error { color: var(--vault-weak-color, #e5534b); border-color: var(--vault-weak-color, #e5534b); }
+.vault-logmsg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The reference. Monospace and highlighted because its whole job is being read aloud or retyped. */
+.vault-logref { flex: none; font-family: var(--mc-mono); font-size: 10.5px; color: var(--mc-accent-primary);
+  background: var(--vault-selection-background); border-radius: 4px; padding: 1px 6px; }
+.vault-logts { flex: none; font-size: 10px; color: var(--mc-dimmer); }
+.vault-logdetail { padding: 0 11px 10px 11px; background: var(--mc-nested); }
+.vault-logdetail pre { font-family: var(--mc-mono); font-size: 11px; line-height: 1.6; color: var(--mc-muted);
+  white-space: pre-wrap; word-break: break-word; margin: 7px 0 0; max-height: 220px; overflow: auto; }
+
+/* ---- The house loading panel (Jason 08-11-2026) — MindMerge's, adopted verbatim -------------
+   Ring, sentence, and an OPTIONAL monospace counter. See Loading.tsx for why the counter is
+   optional: a SQLite read has no "672 of 1,965" and faking one would be a bar that lies. ------ */
+.vault-loading { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 15px; padding: 64px 20px; min-height: 260px; text-align: center; }
+.vault-loading.compact { padding: 26px 16px; min-height: 0; gap: 11px; }
+.vault-loadring { width: 46px; height: 46px; border-radius: 50%;
+  border: 3px solid var(--mc-border); border-bottom-color: var(--mc-accent-primary);
+  animation: vault-spin .85s linear infinite; }
+.vault-loading.compact .vault-loadring { width: 30px; height: 30px; border-width: 2px; }
+.vault-loadmsg { font-size: 15px; font-weight: 600; color: var(--mc-text); }
+.vault-loading.compact .vault-loadmsg { font-size: 13px; }
+.vault-loadcount { font-family: var(--mc-mono); font-size: 11.5px; color: var(--mc-muted); }
+/* Same reduced-motion contract as .vault-spinner — the words and the counter carry the meaning. */
+@media (prefers-reduced-motion: reduce) { .vault-loadring { animation: none; } }
+
+/* ---- Import destination cards (Jason 08-11-2026) — where it goes is the FIRST question -------- */
+.vault-dests { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 9px; margin-bottom: 15px; }
+.vault-dcard { text-align: left; border: 1px solid var(--mc-border); border-radius: 10px; padding: 10px 12px;
+  background: var(--mc-panels); cursor: pointer; font-family: inherit; color: var(--mc-text); }
+.vault-dcard:hover { border-color: var(--mc-accent-primary); }
+.vault-dcard.on { border-color: var(--vault-strong-color); background: var(--vault-selection-background);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--vault-strong-color) 20%, transparent); }
+.vault-dcard b { display: block; font-size: 12.5px; margin-bottom: 3px; }
+.vault-dcard span { display: block; font-size: 10.5px; color: var(--mc-muted); line-height: 1.45; }
+.vault-dcard .ex { margin-top: 6px; font-family: var(--mc-mono); font-size: 9.5px; color: var(--mc-dimmer); }
+/* Present but refusing — it states its reason on screen rather than vanishing. A missing card is a
+   question the user cannot ask; a refusing one answers it. */
+.vault-dcard.off { opacity: .62; }
+.vault-dcard.off b { color: var(--mc-muted); }
+.vault-dcard.off.on { border-color: var(--vault-warn-color); box-shadow: none;
+  background: color-mix(in srgb, var(--vault-warn-color) 9%, transparent); }
+
+/* ---- ONE global search (Jason 08-11-2026) — replaces the sidebar box and the notes box ---------
+   Sits at the top of the module. In the real shell this row merges into the Mission Control
+   topbar, which is a root-lane task; the component is written so only its wrapper moves. ------- */
+.vault-topsearch { padding: 9px 12px 0; }
+.vault-gsearch { position: relative; max-width: 720px; }
+.vault-gsin { display: flex; align-items: center; gap: 7px; background: var(--mc-field);
+  border: 1px solid var(--mc-border); border-radius: 9px; padding: 6px 10px; }
+.vault-gsin.focus { border-color: var(--mc-accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-accent-primary) 16%, transparent); }
+.vault-gsin input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: 13px var(--mc-font);
+  color: var(--mc-text); }
+.vault-gsin .mag { color: var(--mc-dimmer); flex: none; }
+.vault-gsclear { flex: none; border: 0; background: none; color: var(--mc-dimmer); cursor: pointer;
+  font-size: 12px; padding: 0 2px; font-family: inherit; }
+.vault-gsclear:hover { color: var(--mc-text); }
+.vault-kbd { flex: none; font-family: var(--mc-mono); font-size: 9.5px; color: var(--mc-dimmer);
+  border: 1px solid var(--mc-border); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px;
+  background: var(--mc-nested); }
+/* The active filters ride INSIDE the box, so what you are searching is never off-screen. */
+.vault-scope { flex: none; display: inline-flex; align-items: center; gap: 5px; background: var(--vault-selection-background);
+  color: var(--mc-accent-primary); border: 1px solid var(--mc-accent-primary); border-radius: 6px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; padding: 2px 7px; white-space: nowrap; }
+.vault-scope button { border: 0; background: none; color: inherit; cursor: pointer; font-weight: 700;
+  padding: 0; line-height: 1; font-family: inherit; }
+
+.vault-gsheet { position: absolute; left: 0; right: 0; top: calc(100% + 7px); z-index: 400;
+  background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 11px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .28); overflow: hidden; max-height: 62vh; overflow-y: auto; }
+.vault-gsfilters { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px;
+  border-bottom: 1px solid var(--mc-border); background: var(--mc-nested); }
+.vault-fchip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--mc-border);
+  background: var(--mc-panels); border-radius: 20px; padding: 4px 11px; font-size: 11.5px; cursor: pointer;
+  color: var(--mc-muted); font-family: inherit; }
+.vault-fchip:hover { border-color: var(--mc-accent-primary); }
+.vault-fchip.on { background: var(--vault-selection-background); border-color: var(--mc-accent-primary);
+  color: var(--mc-accent-primary); font-weight: 600; }
+.vault-fchip .n { font-family: var(--mc-mono); font-size: 10px; opacity: .75; }
+.vault-fsep { width: 1px; background: var(--mc-border); margin: 2px 4px; }
+
+.vault-gsgroup { padding: 5px 0; }
+/* Matches your filters are HIDING — dimmed, never dropped. "3 results" when there are nine is how
+   a user concludes the search is broken. */
+.vault-gsgroup.dim { border-top: 1px solid var(--mc-border); opacity: .58; }
+/* STICKY, now that a group can be forty rows deep instead of six — scrolling past the heading and
+   losing track of which scope you are in is the cost of uncapping the list, and this is the fix. */
+.vault-gshd { position: sticky; top: 0; z-index: 1; background: var(--mc-panels);
+  font-size: 9.5px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--mc-dimmer);
+  padding: 8px 13px 4px; }
+.vault-gsrow { display: flex; align-items: center; gap: 10px; padding: 7px 13px; width: 100%;
+  text-align: left; border: 0; background: none; cursor: pointer; font-family: inherit; color: var(--mc-text); }
+.vault-gsrow:hover { background: var(--vault-selection-background); }
+.vault-gsico { width: 22px; height: 22px; border-radius: 5px; display: grid; place-items: center;
+  font-size: 10px; font-weight: 700; color: #fff; flex: none; }
+.vault-gsmain { flex: 1; min-width: 0; }
+.vault-gsmain b { display: block; font-size: 12.5px; font-weight: 600; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.vault-gsmain .s { display: block; font-size: 11px; color: var(--mc-muted); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+/* Row actions: copy then delete, never wrapping — the pair must stay side by side or the harmless
+   button slides under the destructive one. */
+.vault-rowacts { display: flex; gap: 4px; justify-content: flex-end; white-space: nowrap; }
+
+/* A primary that refused, and said why. NOT `disabled` — a greyed button with no explanation is the
+   thing that made this a bug report. It stays clickable so it can answer. */
+.vault-btn.held { opacity: .62; }
+.vault-confirmnag { margin: 10px 0 0; padding: 8px 10px; border-radius: var(--mc-radius);
+  border: 1px solid var(--vault-warn-color); background: color-mix(in srgb, var(--vault-warn-color) 12%, transparent);
+  color: var(--mc-text); font-size: 12px; line-height: 1.5; }
+
+/* The matched words, marked. `inherit` on font-weight matters: the title is 600 and the browser's
+   default <mark> is not, so an unstyled mark would make the matched half of a title look lighter
+   than the rest of it. */
+.vault-gsmain mark { background: var(--vault-highlighter-background); color: var(--vault-highlighter-foreground);
+  font-weight: inherit; border-radius: 2px; padding: 0 1px; }
+.vault-gswhere { flex: none; font-family: var(--mc-mono); font-size: 10px; color: var(--mc-dimmer); white-space: nowrap; }
+.vault-gsfoot { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--mc-border);
+  padding: 7px 13px; background: var(--mc-nested); font-size: 10.5px; color: var(--mc-muted); }
+
+/* ---- Repo origin pair (Jason 08-11-2026) — local and online, both always drawn -----------------
+   The globe means a REMOTE IS RECORDED, not that anything was fetched. The Vault never reaches the
+   network; .git/config supplies this locally. ------------------------------------------------- */
+.vault-origin { flex: none; display: inline-flex; align-items: center; gap: 3px; }
+.vault-origin svg { width: 15px; height: 15px; display: block; }
+.vault-origin svg.on { color: var(--vault-strong-color); }
+.vault-origin svg.off { color: var(--mc-border); }
+
+/* The search now renders INTO the host's 58px title bar (Jason 08-11-2026). Two consequences:
+   the wrapper must fill the slot rather than cap itself at 720, and the results sheet must be
+   allowed to hang out of a bar that is only 58px tall — hence the high z-index above. */
+#vault-topbar-search .vault-gsearch { max-width: none; }
+#vault-topbar-search .vault-gsin { padding: 4px 10px; }
+
+/* ---- Secured Notes folder tree, in the sidebar under Shortcuts (Jason 08-11-2026) ------------- */
+.vault-frow { display: flex; align-items: center; gap: 6px; padding: 4px 10px; cursor: pointer;
+  font-size: 12px; color: var(--mc-text); border-radius: 6px; }
+.vault-frow:hover { background: var(--mc-nested); }
+.vault-frow.on { background: var(--vault-selection-background); box-shadow: inset 3px 0 0 var(--mc-accent-primary); font-weight: 600; }
+/* THE ROW A DRAGGED NOTE WOULD LAND IN. The Passwords rail has had this since it shipped
+   (.vault-railrow.drop, line ~385) and this tree never got it — so dragging a note over a folder lit
+   nothing up and the whole gesture read as unsupported (Jason 08-12-2026: "i cant drag the notes
+   inside the new folder"). Same treatment, so the two trees behave alike. */
+.vault-frow.drop { background: var(--vault-selection-background); box-shadow: inset 0 0 0 1px var(--mc-accent-primary); }
+/* The list rows say they can be picked up, the way the table rows already do. */
+.vault-nrow[draggable="true"] { cursor: grab; }
+.vault-nrow[draggable="true"]:active { cursor: grabbing; }
+.vault-fcar { width: 12px; flex: none; border: 0; background: none; color: var(--mc-dimmer);
+  font-size: 8px; cursor: pointer; padding: 0; font-family: inherit; }
+.vault-fic { flex: none; font-size: 11px; }
+.vault-fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-fn { flex: none; font-family: var(--mc-mono); font-size: 9.5px; color: var(--mc-dimmer); }
+/* Row actions stay hidden until hover — three glyphs on every row is noise on a 142-folder tree. */
+.vault-facts { display: none; gap: 2px; flex: none; }
+.vault-frow:hover .vault-facts { display: flex; }
+.vault-facts button { border: 0; background: none; color: var(--mc-dimmer); cursor: pointer;
+  font-size: 10px; padding: 0 3px; font-family: inherit; }
+.vault-facts button:hover { color: var(--mc-accent-primary); }
+.vault-fnew { width: calc(100% - 20px); margin: 3px 10px; background: var(--mc-field);
+  border: 1px solid var(--mc-accent-primary); border-radius: 6px; padding: 4px 8px;
+  font-size: 12px; color: var(--mc-text); font-family: inherit; }
+.vault-fnew:focus { outline: none; }
+/* Collapsed rail: the tree is names, so it has nothing to show at 58px. */
+.vault-side.collapsed .vault-frow,
+.vault-side.collapsed .vault-fnew { display: none; }
+
+/* The import's mirror choice. */
+.vault-mirror { display: flex; gap: 9px; align-items: flex-start; margin-top: 12px;
+  border: 1px solid var(--mc-border); border-radius: 9px; padding: 10px 12px; cursor: pointer; }
+.vault-mirror input { margin-top: 2px; accent-color: var(--mc-accent-primary); }
+.vault-mirror b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+.vault-mirror .vault-hint { display: block; }
+
+/* ---- The idle-save flash (Jason 08-12-2026). Brief, and ONLY after the timed save — a permanent
+   "Saved" is wallpaper nobody reads, which is how you end up unsure whether it saved. ---------- */
+.vault-savebar { display: flex; align-items: center; gap: 9px; min-height: 18px; }
+.vault-savedflash { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px;
+  font-weight: 700; letter-spacing: .4px; color: var(--vault-strong-color);
+  background: color-mix(in srgb, var(--vault-strong-color) 13%, transparent);
+  border: 1px solid var(--vault-strong-color); border-radius: 20px; padding: 1px 8px;
+  opacity: 0; transform: translateY(2px); transition: opacity .18s ease, transform .18s ease; }
+.vault-savedflash.on { opacity: 1; transform: none; }
+
+/* ---- The toast. Bottom-right, above everything, never blocking. ------------------------------ */
+.vault-toast { position: fixed; right: 18px; bottom: 18px; z-index: 900;
+  display: flex; align-items: center; gap: 10px; max-width: 420px;
+  background: var(--mc-panels); border: 1px solid var(--vault-strong-color); border-left-width: 3px;
+  border-radius: 10px; padding: 10px 13px; font-size: 12.5px; color: var(--mc-text);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .3);
+  animation: vault-toast-in .22s ease; }
+.vault-toast.leaving { opacity: 0; transform: translateY(6px); transition: opacity .3s ease, transform .3s ease; }
+.vault-toastdot { width: 8px; height: 8px; border-radius: 50%; background: var(--vault-strong-color); flex: none; }
+.vault-toastx { margin-left: auto; border: 0; background: none; color: var(--mc-dimmer); cursor: pointer;
+  font-size: 11px; padding: 0 2px; font-family: inherit; }
+.vault-toastx:hover { color: var(--mc-text); }
+@keyframes vault-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .vault-toast { animation: none; }
+  .vault-savedflash { transition: none; }
+}
+
+/* Compaction pressure — the arithmetic made visible, so the trigger is inspectable. */
+.vault-pressure { margin-top: 4px; }
+.vault-pbar { height: 8px; border-radius: 4px; background: var(--mc-field);
+  border: 1px solid var(--mc-border); overflow: hidden; }
+.vault-pbar i { display: block; height: 100%; background: var(--vault-warn-color); transition: width .3s ease; }
+
+/* The error indicator in the nav row. Present only when something has actually failed — it is not
+   a tab, and a clean vault shows nothing at all. */
+.vault-naverr { margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+  background: color-mix(in srgb, var(--vault-danger-color) 13%, transparent);
+  border: 1px solid var(--vault-danger-color); color: var(--vault-danger-color);
+  border-radius: 20px; padding: 3px 11px; font-size: 11.5px; font-weight: 600;
+  cursor: pointer; font-family: inherit; white-space: nowrap; }
+.vault-naverr:hover { background: color-mix(in srgb, var(--vault-danger-color) 22%, transparent); }
+
+/* Indeterminate progress — SQLite reports nothing from VACUUM, so an honest bar is a moving one
+   with no claimed percentage. */
+.vault-progress { height: 4px; border-radius: 3px; background: var(--mc-nested); overflow: hidden; margin-top: 9px; }
+.vault-progress i { display: block; height: 100%; width: 34%; border-radius: 3px;
+  background: var(--vault-strong-color); animation: vault-indet 1.1s ease-in-out infinite; }
+@keyframes vault-indet { 0% { transform: translateX(-110%); } 100% { transform: translateX(320%); } }
+@media (prefers-reduced-motion: reduce) { .vault-progress i { animation: none; width: 100%; opacity: .5; } }
+
+/* ---- Sidebar editor: PREVIEW LEFT drawn as the real rail, editor right (Jason 08-12-2026) ----
+   The preview used to be a second list panel on the right, so what you arranged and what you would
+   get looked nothing alike. It now reuses .vault-side itself — same width, same surface. -------- */
+.vault-editwrap { display: grid; grid-template-columns: 300px 1fr; gap: 14px; align-items: start; }
+.vault-editpreview { border: 1px solid var(--mc-border); border-radius: 10px; overflow: hidden; background: var(--mc-sidebar, var(--mc-panels)); }
+.vault-editpvh { padding: 7px 11px; background: var(--mc-nested); border-bottom: 1px solid var(--mc-border);
+  font-size: 9.5px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--mc-dimmer); }
+/* The rail inside the preview must not try to be full height or fixed. */
+.vault-editpreview .vault-side { width: 100%; min-height: 0; border-right: 0; }
+.vault-editpreview .vault-sidescroll { max-height: 340px; }
+/* What the real rail shows beneath your shortcuts — inert, so it reads as context not as controls. */
+.vault-editghost { opacity: .42; pointer-events: none; margin-top: 4px; }
+.vault-railrow.over { box-shadow: inset 0 2px 0 var(--mc-accent-primary); }
+.vault-railrow.dragging { opacity: .45; }
+@media (max-width: 900px) { .vault-editwrap { grid-template-columns: 1fr; } }
+
+/* Zero dead space is HEALTHY, not missing — a full green bar says so; an empty one reads as a
+   failed render, which is exactly how it was read (Jason 08-12-2026). */
+.vault-pbar.clean i { background: var(--vault-strong-color); }
+
+/* Belt on top of the height fix: even if a future surface reintroduces an outer scroll, these two
+   rows stay put rather than leaving the screen. */
+.vault-nltop, .vault-edbar { position: sticky; top: 0; z-index: 3; background: var(--mc-panels); }
+/* The notes list and the editor column must each be a bounded flex column, or their inner scroll
+   areas have nothing to scroll within. */
+.vault-notelist, .vault-noteedit { min-height: 0; }
+.vault-nlbody { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* ---- ACTIVITY & ERRORS — the terminal (MOCKUP-vault-errors-and-home §1, approved 08-12-2026) ----
+   Fixed-width timestamps and a coloured level in the left gutter so the eye finds an ERROR in a
+   screen of INFO without reading any of it. COLOUR IS NEVER THE ONLY SIGNAL — the level word is
+   printed beside it, so this survives being colour-blind or printed in black and white.
+   The palette is DELIBERATELY its own dark scheme rather than the theme tokens: a log reads as a
+   log in all three modes, and a terminal that turns white in light mode stops being scannable. -- */
+.vault-termwrap { border: 1px solid var(--mc-border); border-radius: 11px; overflow: hidden; }
+.vault-termbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: #0c1117; border-bottom: 1px solid #1c232c; padding: 7px 12px;
+  font-family: var(--mc-mono); font-size: 11px; color: #6b7a8d; }
+.vault-termdot { width: 9px; height: 9px; border-radius: 50%; background: #2f3b49; flex: none; }
+.vault-termdot.hot { background: #f2685f; }
+.vault-tg { border: 1px solid #1c232c; background: #161d26; color: #6b7a8d; border-radius: 5px;
+  padding: 2px 9px; cursor: pointer; font: 10px var(--mc-mono); }
+.vault-tg:hover { color: #c8d3e0; }
+.vault-tg.on { color: #c8d3e0; border-color: #5aa9f0; }
+.vault-termbar input { flex: 1; min-width: 130px; background: #161d26; border: 1px solid #1c232c;
+  border-radius: 6px; padding: 4px 9px; color: #c8d3e0; font: 11px var(--mc-mono); outline: none; }
+.vault-termbar input:focus { border-color: #5aa9f0; }
+.vault-termlive { display: inline-flex; align-items: center; gap: 5px; color: #4ec9a7; flex: none; }
+.vault-termlive i { width: 7px; height: 7px; border-radius: 50%; background: #4ec9a7; display: block;
+  animation: vault-pulse 2s ease-in-out infinite; }
+@keyframes vault-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+.vault-term { background: #11161d; padding: 10px 12px; font-family: var(--mc-mono);
+  font-size: 11.5px; line-height: 1.75; color: #c8d3e0; max-height: 52vh; overflow: auto; }
+.vault-termempty { color: #6b7a8d; padding: 22px 4px; text-align: center; }
+.vault-tln { display: flex; gap: 10px; padding: 1px 0; }
+.vault-tln:hover { background: #1c232c; }
+/* A rule between sessions — "this launch" and "last night" must never blur, which is exactly the
+   confusion the stale timestamps caused. */
+.vault-tln.grp { border-top: 1px solid #1c232c; margin-top: 6px; padding-top: 6px; }
+.vault-tln .ts { color: #6b7a8d; flex: none; }
+.vault-tln .lv { flex: none; font-weight: 700; width: 48px; }
+.vault-tln .lv.error { color: #f2685f; }
+.vault-tln .lv.warn  { color: #e2b341; }
+.vault-tln .lv.info  { color: #5aa9f0; }
+.vault-tln .lv.debug { color: #6b7a8d; }
+.vault-tln .ch { color: #b48ef0; flex: none; }
+.vault-tln .msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The reference is the thing you copy into a message — green, and never truncated. */
+.vault-tln .ref { color: #4ec9a7; flex: none; }
+.vault-term.wrap .vault-tln { flex-wrap: wrap; }
+.vault-term.wrap .vault-tln .msg { white-space: pre-wrap; word-break: break-word; overflow: visible; }
+.vault-tstack { color: #6b7a8d; padding: 2px 0 6px 60px; white-space: pre-wrap; word-break: break-word; }
+@media (prefers-reduced-motion: reduce) { .vault-termlive i { animation: none; } }
+
+.vault-termfoot { display: flex; align-items: flex-start; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
+.vault-termfoot .vault-hint { flex: 1; min-width: 240px; }
+.vault-recfrom { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.vault-recfrom label { font-size: 11px; color: var(--mc-muted); }
+.vault-recfrom select { background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 6px 10px; color: var(--mc-text); font: 12px var(--mc-font); }
+
+/* ---- The two collapse chevrons (Jason 08-12-2026) ------------------------------------------------
+   The sidebar one was truncated and mis-aligned in the 58px rail, and the notes-list one vanished
+   entirely when collapsed. Both are now a fixed square, centred, and never squeezed by a flex
+   sibling. The orange ring was a focus style bleeding into the resting state — it is scoped to
+   :focus-visible so it appears on keyboard focus and nowhere else. ------------------------------- */
+.vault-collapse { flex: none; width: 26px; height: 26px; display: inline-flex; align-items: center;
+  justify-content: center; padding: 0; border: 1px solid var(--mc-border); border-radius: 6px;
+  background: var(--mc-panels); color: var(--mc-muted); cursor: pointer; font-family: inherit;
+  font-size: 12px; line-height: 1; }
+.vault-collapse:hover { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
+.vault-collapse:focus { outline: none; }
+.vault-collapse:focus-visible { outline: 2px solid var(--mc-accent-primary); outline-offset: 1px; }
+/* The collapsed sidebar centres its chevron instead of leaving it hard against the left edge. */
+.vault-side.collapsed .vault-sidetop { padding: 9px 0; justify-content: center; }
+
+/* The module must FILL the space #root gives it rather than growing past it — the other half of the
+   fix above. Without this the shell still sizes to its content and the inner scrolls never engage. */
+.view.shown.vault-shell { height: 100%; min-height: 0; overflow: hidden; }
+/* The tab strip and the module body: strip fixed, body scrolls. Applies to all four tabs, which is
+   why the bug looked like four separate bugs. */
+.vault-navbar { flex: none; }
+.vault-body { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* [master-password-placeholder] — the lock screen's dev-mode reveal; removed with the wizard. */
+.vault-lockdev { margin-top: 12px; }
+.vault-lockdev-value { display: inline-block; padding: 6px 10px; border: 1px solid var(--mc-border);
+  border-radius: 6px; background: var(--mc-nested); color: var(--mc-text);
+  font-family: var(--mc-mono, monospace); font-size: 13px; letter-spacing: 1.5px; user-select: all; }

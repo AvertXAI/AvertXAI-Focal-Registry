@@ -8,6 +8,7 @@
 // File: CRM_v2/src/shared/types.ts
 //------------------------------------------------------------
 import type { RenameSettings, RenameSourceFile } from "./renamePreview";
+import type { VaultApi } from "../modules/vault/vaultApi";
 
 // ---- Data Viewer (read-only SQLite browser) ----
 export interface DbTable {
@@ -1122,31 +1123,16 @@ export interface EmployeeBalance {
   hours: number;
 }
 
-export interface VaultSecretInput {
-  kind: string; // open set — 'api_key', 'password', 'taxpayer_id', …
-  label: string;
-  value: string;
-}
-
-/** Vault METADATA — every list/create/supersede/archive surface returns this shape, which has no
- *  value field to leak. The uuid is the public locator other modules hold (never the value —
- *  MindMerge's vault_pointer convention). */
-export interface VaultSecretMeta {
-  id: number;
-  uuid: string;
-  kind: string;
-  label: string;
-  version: number;
-  archived_at: string | null;
-  archive_reason: string | null;
-  created_at: string;
-  updated_at: string | null;
-}
-
-/** The single value-bearing shape — vault.read() alone returns it, and the read is access-logged. */
-export interface VaultSecretWithValue extends VaultSecretMeta {
-  value: string;
-}
+// Vault shapes were WIDENED and moved to live with the module at the mount (08-14-2026) — the
+// module's vaultApi.ts is the single home (credential extras, presentation fields, folders,
+// favourites, public keys). Re-exported here so shared-types consumers keep one import site.
+export type {
+  VaultApi,
+  VaultSecretExtras,
+  VaultSecretInput,
+  VaultSecretMeta,
+  VaultSecretWithValue,
+} from "../modules/vault/vaultApi";
 
 export interface Api {
   /** Read-only SQLite browser (Data Viewer module) — introspection only, never writes. */
@@ -1559,18 +1545,12 @@ export interface Api {
     /** F6 — developer-mode-only wipe of every TimeTracker + Employees row. */
     resetOrg: () => Promise<{ ok: boolean; error?: string; removed?: number }>;
   };
-  /** Secured Vault — thin typed surface over vault:* IPC against the vault's OWN SQLCipher file.
-   *  A secret VALUE crosses this bridge on exactly ONE method: read(), which is access-logged
-   *  main-side, misses included. list() is metadata-only by construction; create/supersede return
-   *  metadata. Note what is ABSENT and cannot be added by accident: no update-in-place (a new
-   *  version supersedes), no delete (retirement is a soft archive), no access-log channel yet. */
-  vault: {
-    create: (input: VaultSecretInput) => Promise<VaultSecretMeta>;
-    list: (includeArchived?: boolean) => Promise<VaultSecretMeta[]>;
-    read: (uuid: string) => Promise<VaultSecretWithValue>;
-    supersede: (uuid: string, value: string) => Promise<VaultSecretMeta>;
-    archive: (uuid: string, reason?: string | null) => Promise<VaultSecretMeta>;
-  };
+  /** Secured Vault — the FULL module surface over vault:* IPC against the vault's OWN SQLCipher
+   *  file (mounted 08-14-2026; the five-method thin bridge is history). The shape lives with the
+   *  module — src/modules/vault/vaultApi.ts — one home, no drift. A credential still crosses on
+   *  exactly ONE method, read(), access-logged main-side with misses included, and every data
+   *  channel refuses while the vault is locked. */
+  vault: VaultApi;
   /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the
    *  channel (progress tickers for scan / mindmerge / rename, live drive lists for scan). */
   on: <T>(channel: PushChannel, cb: (payload: T) => void) => void;

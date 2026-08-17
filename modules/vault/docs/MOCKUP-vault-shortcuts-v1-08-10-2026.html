@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Secured Vault — one-row tabs + sidebar shortcuts · 08-10-2026</title>
+<style>
+:root{
+  --win:#f4f6fa; --bar:#ffffff; --side:#eef1f7; --panel:#ffffff; --panel2:#f3f6fb;
+  --field:#ffffff; --sel:#fdf2e9; --bd:#dde4ee; --bd2:#c2ccdb;
+  --txt:#111a2b; --dim:#586a86; --dimmer:#8492a8; --lock:#a9b4c5;
+  --green:#128a4b; --greenbtn:#1f9d44; --purple:#6355d8; --red:#cf3b45;
+  --orange:#d2691e; --blue:#2f6fd0; --amber:#c9821a; --teal:#17838f;
+  --code:#f6f8fb; --shadow:rgba(23,38,64,.13);
+  --mono:'Cascadia Mono','Consolas',monospace; --sans:'Segoe UI',system-ui,sans-serif;
+}
+body.dark{
+  --win:#0a0e17; --bar:#0d1320; --side:#0b1019; --panel:#0e1626; --panel2:#111d31;
+  --field:#15233b; --sel:#1d1710; --bd:#1b2942; --bd2:#24365a;
+  --txt:#e9eef7; --dim:#7e92b0; --dimmer:#54678a; --lock:#3a465f;
+  --green:#38d982; --orange:#e08a3a; --blue:#4f8df0; --amber:#e0a93a; --teal:#2bb5c4; --red:#e8636d;
+  --code:#0c1524; --shadow:rgba(0,0,0,.55);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#e7ebf2;font-family:var(--sans);color:var(--txt);padding:20px 16px 60px}
+body.dark{background:#05080f}
+
+.optbar{max-width:1560px;margin:0 auto 12px;display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.optbar .lead{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--dimmer);margin-right:4px}
+.obtn{background:var(--panel);border:1px solid var(--bd);color:var(--dim);font-size:12px;padding:8px 13px;border-radius:8px;cursor:pointer;font-family:var(--sans)}
+.obtn.on{background:var(--sel);border-color:var(--orange);color:var(--txt);font-weight:600}
+.obtn b{font-family:var(--mono);color:var(--dimmer);margin-right:6px}.obtn.on b{color:var(--orange)}
+.obtn.theme{margin-left:auto}
+
+.app{max-width:1560px;margin:0 auto;background:var(--win);border-radius:12px;box-shadow:0 18px 50px var(--shadow);overflow:hidden;border:1px solid var(--bd);position:relative}
+.top{display:flex;align-items:center;gap:14px;background:var(--bar);padding:11px 18px;border-bottom:1px solid var(--bd)}
+.logo{width:30px;height:30px;border-radius:50%;background:var(--txt);color:var(--bar);font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;flex:0 0 30px}
+.crumb{font-size:13px;color:var(--dim);white-space:nowrap}.crumb b{color:var(--txt)}.crumb .lk{color:var(--lock)}
+.search{flex:1;max-width:440px;background:var(--field);border:1px solid var(--bd);border-radius:8px;padding:7px 12px;font-size:12px;color:var(--dimmer)}
+.wc{margin-left:auto;display:flex;gap:12px;color:var(--dim);font-size:14px;align-items:center}
+
+/* ONE-ROW NAVBAR — Vault · Passwords · Secured Notes · Infrastructure · Repos */
+.navbar{display:flex;gap:4px;padding:11px 18px 0;border-bottom:1px solid var(--bd);background:var(--bar);align-items:flex-end}
+.home{font-size:14px;color:var(--txt);font-weight:700;padding:0 12px 12px 2px;cursor:pointer;position:relative}
+.home.on::after{content:"";position:absolute;left:2px;right:12px;bottom:0;height:2px;background:var(--orange)}
+.ntab{font-size:13px;color:var(--dim);padding:8px 15px;border:1px solid transparent;border-bottom:0;border-radius:9px 9px 0 0;cursor:pointer;margin-bottom:-1px;white-space:nowrap}
+.ntab:hover{color:var(--txt)}
+.ntab.on{color:var(--txt);font-weight:600;background:var(--win);border-color:var(--bd)}
+
+.shellbody{display:flex;min-height:660px}
+.side{width:230px;flex:0 0 230px;background:var(--side);border-right:1px solid var(--bd);display:flex;flex-direction:column;transition:width .16s,flex-basis .16s;overflow:hidden}
+.side.collapsed{width:46px;flex-basis:46px}
+.side.collapsed .sbtxt,.side.collapsed .srch,.side.collapsed .newbtn span,.side.collapsed .rn,.side.collapsed .shead span:first-child,.side.collapsed .addsc{display:none}
+.sidetop{padding:12px 11px 6px;display:flex;align-items:center;gap:8px}
+.collapse{margin-left:auto;background:none;border:1px solid var(--bd);border-radius:6px;color:var(--dim);cursor:pointer;font-size:11px;padding:3px 7px;font-family:var(--mono)}
+.sidescroll{flex:1;overflow:auto;padding:0 11px}
+.srch{width:100%;background:var(--field);border:1px solid var(--bd);border-radius:8px;padding:8px 11px;font-size:12px;color:var(--dimmer);margin-bottom:9px}
+.newbtn{width:100%;background:var(--greenbtn);color:#fff;border:0;border-radius:8px;padding:9px 12px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:var(--sans);margin:0;display:flex;align-items:center;justify-content:center;gap:6px}
+.shead{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--dimmer);margin:14px 0 5px 6px;font-weight:700;display:flex;align-items:center}
+.addsc{margin-left:auto;background:none;border:none;color:var(--orange);cursor:pointer;font-size:11px;font-weight:700;font-family:var(--sans);letter-spacing:.3px}
+.addsc:hover{text-decoration:underline}
+.srow{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:7px;font-size:12.5px;color:var(--txt);cursor:pointer;position:relative}
+.srow:hover{background:var(--panel2)}
+.srow.on{background:var(--sel);font-weight:600;box-shadow:inset 3px 0 0 var(--orange)}
+.srow .x{margin-left:auto;color:var(--dimmer);font-size:12px;opacity:0;padding:0 3px}
+.srow:hover .x{opacity:1}
+.sdot{width:8px;height:8px;border-radius:50%;flex:none}
+.sbadge{width:18px;height:18px;border-radius:5px;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:8.5px;font-weight:800;color:#fff}
+.sbtxt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rn{font-family:var(--mono);font-size:11px;color:var(--dimmer)}
+.sidefoot{border-top:1px solid var(--bd);padding:9px 11px}
+.gear{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:7px;cursor:pointer;font-size:12.5px;color:var(--txt)}
+.gear:hover{background:var(--panel2)}.gear.on{background:var(--sel);font-weight:600;box-shadow:inset 3px 0 0 var(--orange)}
+
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.content{flex:1;min-width:0;overflow:auto;padding:16px 20px 22px}
+.view{display:none}.view.on{display:block}
+.mlabel{font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:var(--orange);font-weight:700}
+.btn{border-radius:8px;padding:7px 13px;font-size:12.5px;font-weight:600;border:1px solid var(--bd2);background:var(--panel2);color:var(--txt);font-family:var(--sans);cursor:pointer;white-space:nowrap}
+.btn.pri{background:var(--orange);border-color:var(--orange);color:#fff}.btn.go{background:var(--greenbtn);border-color:var(--greenbtn);color:#fff}
+.btn.sm{padding:5px 10px;font-size:11.5px}
+.seg{display:inline-flex;border:1px solid var(--bd2);border-radius:8px;overflow:hidden}
+.seg button{background:none;border:0;border-right:1px solid var(--bd2);color:var(--dim);font-size:12px;padding:6px 13px;cursor:pointer;font-family:var(--sans)}
+.seg button:last-child{border-right:0}.seg button.on{background:var(--sel);color:var(--orange);font-weight:600}
+.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:12px}
+.tile{aspect-ratio:1.12;border:1px solid var(--bd);border-radius:12px;background:var(--panel);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:10px 8px;cursor:pointer}
+.tile:hover{border-color:var(--orange)}
+.mg{width:44px;height:44px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#fff}
+.tn{font-size:11.5px;font-weight:600;text-align:center}.tu{font-size:10px;color:var(--dimmer);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile.add{border-style:dashed;color:var(--dim)}.plus{font-size:22px;color:var(--dim)}
+.ph{border:1px dashed var(--bd2);border-radius:11px;padding:40px 20px;text-align:center;color:var(--dim);font-size:13px;background:var(--panel)}
+
+/* modal */
+.scrim{position:absolute;inset:0;background:rgba(20,25,40,.5);display:none;align-items:flex-start;justify-content:center;padding:36px 18px;overflow:auto;z-index:80}
+.scrim.on{display:flex}
+.modal{width:100%;max-width:560px;background:var(--panel);border:1px solid var(--bd);border-radius:14px;box-shadow:0 24px 60px var(--shadow)}
+.mhd{display:flex;align-items:center;gap:10px;padding:17px 20px;border-bottom:1px solid var(--bd)}
+.mhd h3{font-size:16px;font-weight:700}.mhd .sub{font-size:12px;color:var(--dimmer)}
+.mx{margin-left:auto;background:none;border:1px solid var(--bd);border-radius:7px;color:var(--dim);cursor:pointer;padding:5px 10px}
+.mbody{padding:8px 12px 14px;max-height:60vh;overflow:auto}
+.mcat{font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dimmer);font-weight:700;margin:12px 8px 5px}
+.pick{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:9px;cursor:pointer}
+.pick:hover{background:var(--panel2)}
+.pickname{flex:1;min-width:0}.pickname b{font-size:12.5px}.pickname .s{font-size:11px;color:var(--dimmer)}
+.pickadd{border:1px solid var(--bd2);background:var(--panel);color:var(--orange);border-radius:7px;font-size:11.5px;font-weight:600;padding:4px 12px;cursor:pointer}
+.pick.added .pickadd{color:var(--green);border-color:var(--green);cursor:default}
+.mfoot{padding:12px 20px;border-top:1px solid var(--bd);display:flex;justify-content:flex-end;gap:9px}
+
+/* settings sidebar editor — dual pane */
+.setwrap{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:980px){.setwrap{grid-template-columns:1fr}}
+.pane{background:var(--panel);border:1px solid var(--bd);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.paneh{padding:12px 15px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:9px}
+.paneh b{font-size:12.5px}.paneh .s{font-size:11px;color:var(--dimmer)}
+.panebody{padding:9px;min-height:340px}
+.item{display:flex;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--bd);border-radius:9px;margin-bottom:7px;background:var(--panel2)}
+.grip{color:var(--dimmer);cursor:grab;font-size:14px;flex:none;letter-spacing:-2px}
+.item .nm{flex:1;min-width:0;font-size:12.5px}
+.item .ct{font-size:10px;color:var(--dimmer);text-transform:uppercase;letter-spacing:.5px}
+.iadd{margin-left:auto;border:1px solid var(--bd2);background:var(--panel);color:var(--orange);border-radius:7px;font-size:11px;font-weight:600;padding:3px 10px;cursor:pointer}
+.irem{margin-left:auto;border:1px solid var(--bd2);background:var(--panel);color:var(--red);border-radius:7px;font-size:11px;padding:3px 9px;cursor:pointer}
+.drophint{border:2px dashed var(--bd2);border-radius:9px;padding:14px;text-align:center;color:var(--dimmer);font-size:11.5px;margin-top:4px}
+.setcat{font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dimmer);font-weight:700;margin:11px 4px 5px}
+</style>
+</head>
+<body>
+
+<div class="optbar">
+  <span class="lead">Shortcuts + one-row tabs</span>
+  <button class="obtn on" data-view="passwords"><b>1</b>Tabs + sidebar</button>
+  <button class="obtn" id="addopt"><b>2</b>+ Add shortcut (modal)</button>
+  <button class="obtn" data-view="settings"><b>3</b>Settings › Sidebar editor</button>
+  <button class="obtn theme" id="themebtn">◐ Dark</button>
+</div>
+
+<div class="app" id="app">
+  <div class="top">
+    <div class="logo">A</div>
+    <div class="crumb">AvertXAI · Focal Registry / <b>Secured Vault</b> <span class="lk">🔒</span></div>
+    <div class="search">Search everything — passwords, notes, servers, repos</div>
+    <div class="wc"><span>☀</span><span>◐</span><span style="letter-spacing:5px">— ▢ ✕</span></div>
+  </div>
+
+  <!-- ONE ROW: Vault (home) · Passwords · Secured Notes · Infrastructure · Repos -->
+  <div class="navbar">
+    <div class="home" data-view="home">Vault</div>
+    <div class="ntab on" data-view="passwords">Passwords</div>
+    <div class="ntab" data-view="notes">Secured Notes</div>
+    <div class="ntab" data-view="infra">Infrastructure</div>
+    <div class="ntab" data-view="repos">Repos</div>
+  </div>
+
+  <div class="shellbody">
+    <div class="side" id="side">
+      <div class="sidetop">
+        <button class="newbtn"><span>+ New entry</span></button>
+        <button class="collapse" id="collapse" title="Collapse the sidebar">«</button>
+      </div>
+      <div class="sidescroll">
+        <input class="srch" placeholder="Search secrets">
+
+        <!-- USER SHORTCUTS — always at the top, user-composed -->
+        <div class="shead"><span>Shortcuts</span><button class="addsc" id="addbtn">+ Add shortcut</button></div>
+        <div id="scList">
+          <div class="srow"><span class="sbadge" style="background:var(--teal)">G</span><span class="sbtxt">Generator</span><span class="x">✕</span></div>
+          <div class="srow"><span class="sbadge" style="background:var(--orange)">F</span><span class="sbtxt">Financial folder</span><span class="x">✕</span></div>
+          <div class="srow"><span class="sbadge" style="background:var(--teal)">R</span><span class="sbtxt">Coolify Postgres</span><span class="x">✕</span></div>
+          <div class="srow"><span class="sbadge" style="background:var(--green)">H</span><span class="sbtxt">hetzner-01</span><span class="x">✕</span></div>
+          <div class="srow"><span class="sbadge" style="background:#1f2933">W</span><span class="sbtxt">world-monitor</span><span class="x">✕</span></div>
+        </div>
+
+        <!-- context groups still below the shortcuts -->
+        <div class="shead"><span>Folders</span></div>
+        <div class="srow"><span class="sdot" style="background:var(--dimmer)"></span><span class="sbtxt">Unfiled</span><span class="rn">44</span></div>
+        <div class="srow"><span class="sdot" style="background:var(--orange)"></span><span class="sbtxt">Financial</span><span class="rn">1</span></div>
+        <div class="shead"><span>Types</span></div>
+        <div class="srow on"><span class="sdot" style="background:var(--green)"></span><span class="sbtxt">Logins</span><span class="rn">38</span></div>
+        <div class="srow"><span class="sdot" style="background:var(--blue)"></span><span class="sbtxt">API keys</span><span class="rn">2</span></div>
+        <div class="srow"><span class="sdot" style="background:var(--amber)"></span><span class="sbtxt">Financial</span><span class="rn">6</span></div>
+      </div>
+      <div class="sidefoot"><div class="gear" id="gearbtn"><span style="font-size:15px">⚙</span><span class="sbtxt">Settings</span></div></div>
+    </div>
+
+    <div class="main"><div class="content">
+
+      <!-- HOME (Vault) -->
+      <div class="view" data-panel="home">
+        <div class="head"><span class="mlabel">Vault · overview</span></div>
+        <div class="row" style="gap:12px">
+          <div class="card" style="flex:1;min-width:150px;margin:0"><div class="rn" style="font-size:26px;font-weight:700;font-family:var(--mono)">46</div><div class="mlabel" style="color:var(--dimmer)">Passwords</div></div>
+          <div class="card" style="flex:1;min-width:150px;margin:0"><div class="rn" style="font-size:26px;font-weight:700;font-family:var(--mono)">67</div><div class="mlabel" style="color:var(--dimmer)">Notes</div></div>
+          <div class="card" style="flex:1;min-width:150px;margin:0"><div class="rn" style="font-size:26px;font-weight:700;font-family:var(--mono)">35</div><div class="mlabel" style="color:var(--dimmer)">DNS records</div></div>
+          <div class="card" style="flex:1;min-width:150px;margin:0"><div class="rn" style="font-size:26px;font-weight:700;font-family:var(--mono)">9</div><div class="mlabel" style="color:var(--dimmer)">Repos</div></div>
+        </div>
+        <div class="ph" style="margin-top:6px">Vault home / overview — recent activity, health at a glance, jump-to cards.<br><span class="rn">(“Vault” is the first tab; the four sections follow it on the same row.)</span></div>
+      </div>
+
+      <!-- PASSWORDS -->
+      <div class="view on" data-panel="passwords">
+        <div class="head">
+          <div class="seg" id="pv"><button class="on">▦ Grid</button><button>☰ List</button><button>◫ Panes</button></div>
+          <div class="row"><div class="seg"><button class="on">Popular</button><button>Recently used</button><button>A–Z</button></div><button class="btn pri">+ New entry</button></div>
+        </div>
+        <div class="grid">
+          <div class="tile"><div class="mg" style="background:#e2411c">A</div><div class="tn">Adobe</div><div class="tu">paulcruz@brightflas…</div></div>
+          <div class="tile"><div class="mg" style="background:#ff9900;color:#111">a</div><div class="tn">Amazon</div><div class="tu">paulcruz@brightflas…</div></div>
+          <div class="tile"><div class="mg" style="background:#111">🍎</div><div class="tn">Apple</div><div class="tu">paulcruz@brightflas…</div></div>
+          <div class="tile"><div class="mg" style="background:#00a8e0">AT</div><div class="tn">AT&amp;T</div><div class="tu">pcruz210</div></div>
+          <div class="tile"><div class="mg" style="background:#e0301e">BO</div><div class="tn">Bank of America</div><div class="tu">paulcruz1968</div></div>
+          <div class="tile"><div class="mg" style="background:#0061fe">DB</div><div class="tn">Dropbox</div><div class="tu">paulcruz@brightflas…</div></div>
+          <div class="tile"><div class="mg" style="background:#1877f2">f</div><div class="tn">Facebook</div><div class="tu">paulcruz@brightflas…</div></div>
+          <div class="tile"><div class="mg" style="background:#ea4335">M</div><div class="tn">Google / Gmail</div><div class="tu">paulcruz@brightflas…</div></div>
+          <div class="tile"><div class="mg" style="background:#635bff">S</div><div class="tn">Stripe</div><div class="tu">paulcruz@brightflas…</div></div>
+          <div class="tile add"><div class="plus">+</div><div class="tn">New entry</div></div>
+        </div>
+      </div>
+
+      <div class="view" data-panel="notes"><div class="ph">Secured Notes — 3 list styles, preview-left / edit-right, Milkdown + help modal, runbook run-mode. (Built in the redesign mockup; here it is one tab in the new row.)</div></div>
+      <div class="view" data-panel="infra"><div class="ph">Infrastructure — SSH keys + randomart, servers &amp; DNS, Import records. (One tab in the new row.)</div></div>
+      <div class="view" data-panel="repos"><div class="ph">Repos — accordion + package ledger. (One tab in the new row.)</div></div>
+
+      <!-- SETTINGS · SIDEBAR EDITOR -->
+      <div class="view" data-panel="settings">
+        <div class="head"><span class="mlabel">Settings › Sidebar editor</span>
+          <button class="btn" id="addfromsettings">+ Add shortcut</button></div>
+        <div class="setwrap">
+          <div class="pane">
+            <div class="paneh"><b>Available</b><span class="s">— click + to pin, or drag across</span></div>
+            <div class="panebody" id="availBody">
+              <div class="setcat">Sections</div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">Passwords</span><span class="ct">section</span><button class="iadd">+</button></div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">Secured Notes</span><span class="ct">section</span><button class="iadd">+</button></div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">Infrastructure</span><span class="ct">section</span><button class="iadd">+</button></div>
+              <div class="setcat">Tools</div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">Health</span><span class="ct">tool</span><button class="iadd">+</button></div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">Access log</span><span class="ct">tool</span><button class="iadd">+</button></div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">Import / Export</span><span class="ct">tool</span><button class="iadd">+</button></div>
+              <div class="setcat">Folders · entries · servers · repos</div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">Photography folder</span><span class="ct">folder</span><button class="iadd">+</button></div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">Release runbook</span><span class="ct">runbook</span><button class="iadd">+</button></div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">mcp-node</span><span class="ct">server</span><button class="iadd">+</button></div>
+            </div>
+          </div>
+          <div class="pane">
+            <div class="paneh"><b>Your sidebar</b><span class="s">— drag ⠿ to reorder · ✕ to remove</span></div>
+            <div class="panebody" id="yourBody">
+              <div class="item"><span class="grip">⠿</span><span class="nm">Generator</span><span class="ct">tool</span><button class="irem">✕</button></div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">Financial folder</span><span class="ct">folder</span><button class="irem">✕</button></div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">Coolify Postgres</span><span class="ct">runbook</span><button class="irem">✕</button></div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">hetzner-01</span><span class="ct">server</span><button class="irem">✕</button></div>
+              <div class="item"><span class="grip">⠿</span><span class="nm">world-monitor</span><span class="ct">repo</span><button class="irem">✕</button></div>
+              <div class="drophint">Drag an item here from Available — or use its + button</div>
+            </div>
+          </div>
+        </div>
+        <div class="ph" style="margin-top:2px;text-align:left;font-size:12px">
+          <b>Two ways in, on purpose.</b> The <b>+ Add shortcut</b> button on the sidebar is the quick everyday add — a
+          pick-list, one click. This <b>editor</b> is for arranging: reorder by dragging ⠿, remove with ✕. Same shortcuts,
+          managed either place.
+        </div>
+      </div>
+
+    </div></div>
+  </div>
+
+  <!-- ADD SHORTCUT MODAL -->
+  <div class="scrim" id="scrim">
+    <div class="modal">
+      <div class="mhd"><span style="font-size:17px">🔖</span><div><h3>Add a shortcut</h3><div class="sub">Pin anything you jump to often — it appears at the top of the sidebar.</div></div><button class="mx" id="mx">Close ✕</button></div>
+      <div class="mbody">
+        <input class="srch" placeholder="Search sections, tools, folders, entries, servers, repos" style="margin:8px 4px 4px;width:calc(100% - 8px)">
+        <div class="mcat">Sections</div>
+        <div class="pick"><span class="sbadge" style="background:var(--purple)">S</span><span class="pickname"><b>Secured Notes</b><div class="s">section</div></span><button class="pickadd">Add</button></div>
+        <div class="pick"><span class="sbadge" style="background:var(--teal)">I</span><span class="pickname"><b>Infrastructure</b><div class="s">section</div></span><button class="pickadd">Add</button></div>
+        <div class="mcat">Tools</div>
+        <div class="pick added"><span class="sbadge" style="background:var(--teal)">G</span><span class="pickname"><b>Generator</b><div class="s">tool</div></span><button class="pickadd">Added ✓</button></div>
+        <div class="pick"><span class="sbadge" style="background:var(--teal)">H</span><span class="pickname"><b>Health</b><div class="s">tool</div></span><button class="pickadd">Add</button></div>
+        <div class="pick"><span class="sbadge" style="background:var(--teal)">A</span><span class="pickname"><b>Access log</b><div class="s">tool</div></span><button class="pickadd">Add</button></div>
+        <div class="mcat">Folders</div>
+        <div class="pick added"><span class="sbadge" style="background:var(--orange)">F</span><span class="pickname"><b>Financial folder</b><div class="s">folder</div></span><button class="pickadd">Added ✓</button></div>
+        <div class="pick"><span class="sbadge" style="background:var(--orange)">P</span><span class="pickname"><b>Photography folder</b><div class="s">folder</div></span><button class="pickadd">Add</button></div>
+        <div class="mcat">Notes &amp; runbooks</div>
+        <div class="pick"><span class="sbadge" style="background:var(--purple)">R</span><span class="pickname"><b>Release runbook</b><div class="s">runbook</div></span><button class="pickadd">Add</button></div>
+        <div class="mcat">Servers &amp; repos</div>
+        <div class="pick"><span class="sbadge" style="background:var(--green)">M</span><span class="pickname"><b>mcp-node</b><div class="s">server</div></span><button class="pickadd">Add</button></div>
+        <div class="pick"><span class="sbadge" style="background:#c0392b">F</span><span class="pickname"><b>AvertXAI-Focal-Registry</b><div class="s">repo</div></span><button class="pickadd">Add</button></div>
+      </div>
+      <div class="mfoot"><button class="btn" id="mx2">Done</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const views=[...document.querySelectorAll('.view')];
+function show(v){
+  views.forEach(x=>x.classList.toggle('on',x.dataset.panel===v));
+  document.querySelectorAll('.ntab').forEach(t=>t.classList.toggle('on',t.dataset.view===v));
+  document.querySelector('.home').classList.toggle('on',v==='home');
+  document.getElementById('gearbtn').classList.toggle('on',v==='settings');
+  document.querySelectorAll('.obtn[data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
+}
+document.querySelectorAll('.ntab,.home').forEach(t=>t.addEventListener('click',()=>show(t.dataset.view)));
+document.querySelectorAll('.obtn[data-view]').forEach(b=>b.addEventListener('click',()=>{show(b.dataset.view);window.scrollTo({top:0,behavior:'smooth'});}));
+document.getElementById('gearbtn').addEventListener('click',()=>show('settings'));
+
+document.getElementById('themebtn').addEventListener('click',e=>{document.body.classList.toggle('dark');e.target.textContent=document.body.classList.contains('dark')?'◐ Light':'◐ Dark';});
+document.getElementById('collapse').addEventListener('click',()=>{const s=document.getElementById('side');s.classList.toggle('collapsed');document.getElementById('collapse').textContent=s.classList.contains('collapsed')?'»':'«';});
+document.querySelectorAll('#pv button').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('#pv button').forEach(x=>x.classList.remove('on'));b.classList.add('on');}));
+
+// modal open/close
+function openM(){document.getElementById('scrim').classList.add('on');}
+function closeM(){document.getElementById('scrim').classList.remove('on');}
+document.getElementById('addbtn').addEventListener('click',openM);
+document.getElementById('addopt').addEventListener('click',()=>{show('passwords');openM();});
+document.getElementById('addfromsettings').addEventListener('click',openM);
+document.getElementById('mx').addEventListener('click',closeM);
+document.getElementById('mx2').addEventListener('click',closeM);
+document.getElementById('scrim').addEventListener('click',e=>{if(e.target.id==='scrim')closeM();});
+
+// modal Add → pin to sidebar shortcuts + mark added
+document.querySelectorAll('.pick .pickadd').forEach(btn=>btn.addEventListener('click',()=>{
+  const pick=btn.closest('.pick'); if(pick.classList.contains('added'))return;
+  pick.classList.add('added'); btn.textContent='Added ✓';
+  const name=pick.querySelector('.pickname b').textContent;
+  const badge=pick.querySelector('.sbadge').cloneNode(true);
+  const row=document.createElement('div'); row.className='srow';
+  row.appendChild(badge);
+  const t=document.createElement('span'); t.className='sbtxt'; t.textContent=name; row.appendChild(t);
+  const x=document.createElement('span'); x.className='x'; x.textContent='✕'; row.appendChild(x);
+  x.addEventListener('click',()=>row.remove());
+  document.getElementById('scList').appendChild(row);
+}));
+// sidebar ✕ remove
+document.querySelectorAll('#scList .x').forEach(x=>x.addEventListener('click',()=>x.closest('.srow').remove()));
+
+// settings editor add/remove (mock of drag)
+document.querySelectorAll('#availBody .iadd').forEach(b=>b.addEventListener('click',()=>{
+  const it=b.closest('.item'); const nm=it.querySelector('.nm').textContent; const ct=it.querySelector('.ct').textContent;
+  const el=document.createElement('div'); el.className='item';
+  el.innerHTML='<span class="grip">⠿</span><span class="nm">'+nm+'</span><span class="ct">'+ct+'</span><button class="irem">✕</button>';
+  el.querySelector('.irem').addEventListener('click',()=>el.remove());
+  const hint=document.querySelector('#yourBody .drophint'); document.getElementById('yourBody').insertBefore(el,hint);
+}));
+document.querySelectorAll('#yourBody .irem').forEach(b=>b.addEventListener('click',()=>b.closest('.item').remove()));
+</script>
+</body>
+</html>

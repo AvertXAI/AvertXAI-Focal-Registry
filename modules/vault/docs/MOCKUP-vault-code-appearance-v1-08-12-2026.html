@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP — Code appearance — v1 08-12-2026</title>
+<style>
+:root{
+  --bg:#efece7; --modal:#ffffff; --ink:#1f2937; --label:#6b7280; --hint:#9aa0a8;
+  --line:#e5e7eb; --salmon:#e2795c; --green:#16a34a; --bar:#f5f4f1; --req:#e2603d;
+  --sans:'Segoe UI',system-ui,sans-serif; --mono:Consolas,'Cascadia Mono',monospace;
+
+  /* SynthWave '84 — read from robbowen.synthwave-vscode-0.1.20 on this machine, 08-12-2026 */
+  --sw-bg:#262335; --sw-fg:#f2f0ff; --sw-comment:#848bbd; --sw-string:#ff8b39;
+  --sw-keyword:#fede5d; --sw-number:#f97e72; --sw-fn:#36f9f6; --sw-var:#ff7edb;
+  --sw-type:#fe4450; --sw-punct:#b6b1b1; --sw-line:#ffffff40;
+
+  /* a neutral light pair we author ourselves, so there is a default that ships nothing third-party */
+  --lt-bg:#fbfaf8; --lt-fg:#24292f; --lt-comment:#6e7781; --lt-string:#0a3069;
+  --lt-keyword:#cf222e; --lt-number:#0550ae; --lt-fn:#8250df; --lt-var:#953800;
+  --lt-type:#116329; --lt-punct:#57606a; --lt-line:#8c959f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--sans);padding:22px 20px 70px}
+h2{margin:0;font-size:19px;font-weight:700}
+.nav{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:20px}
+.nav button{border:1px solid var(--line);background:var(--modal);border-radius:8px;padding:5px 12px;
+  font:12px var(--sans);cursor:pointer;color:var(--label)}
+.nav button.on{background:var(--salmon);border-color:var(--salmon);color:#fff;font-weight:600}
+.stage{max-width:940px;margin:0 auto}
+.card{background:var(--modal);border-radius:16px;padding:26px 28px;box-shadow:0 12px 44px rgba(30,25,20,.16)}
+.sub{color:var(--label);font-size:13.5px;margin-top:6px}
+.sub b{color:var(--ink)}
+.state{display:none}.state.on{display:block}
+.slab{font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:var(--label);margin:24px 0 10px}
+.hint{font-size:12px;color:var(--hint);margin-top:7px;line-height:1.55}
+.hint b{color:var(--label)}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.row{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row .grow{flex:1}
+.row .t{font-weight:600;font-size:13.5px}
+.row .d{color:var(--label);font-size:12.5px;margin-top:2px}
+
+select,input[type=text]{border:1px solid var(--line);border-radius:9px;padding:8px 11px;
+  font:13px var(--sans);background:var(--modal);color:var(--ink);width:100%}
+.btn{border:1px solid var(--line);background:var(--modal);border-radius:8px;padding:7px 13px;
+  font:13px var(--sans);cursor:pointer;color:var(--ink);white-space:nowrap}
+.btn.primary{background:var(--salmon);border-color:var(--salmon);color:#fff;font-weight:600}
+.btn.sm{padding:4px 10px;font-size:12px}
+
+/* the live preview */
+.prev{border:1px solid var(--line);border-radius:11px;overflow:hidden;margin-top:9px}
+.prevhd{display:flex;align-items:center;gap:8px;padding:6px 11px;font-size:10.5px;letter-spacing:.9px;
+  text-transform:uppercase;color:var(--label);background:var(--bar);border-bottom:1px solid var(--line)}
+.prevhd .grow{flex:1}
+pre.code{margin:0;padding:13px 14px;font-family:var(--mono);font-size:11.5px;line-height:1.62;
+  overflow-x:auto;white-space:pre}
+pre.code .ln{opacity:.55;user-select:none;display:inline-block;width:1.6em;text-align:right;margin-right:1.1em}
+
+.dark{background:var(--sw-bg);color:var(--sw-fg)}
+.dark .c{color:var(--sw-comment);font-style:italic}
+.dark .s{color:var(--sw-string)}.dark .k{color:var(--sw-keyword)}.dark .n{color:var(--sw-number)}
+.dark .f{color:var(--sw-fn)}.dark .v{color:var(--sw-var)}.dark .t{color:var(--sw-type)}
+.dark .p{color:var(--sw-punct)}.dark .ln{color:var(--sw-line)}
+
+.light{background:var(--lt-bg);color:var(--lt-fg)}
+.light .c{color:var(--lt-comment);font-style:italic}
+.light .s{color:var(--lt-string)}.light .k{color:var(--lt-keyword)}.light .n{color:var(--lt-number)}
+.light .f{color:var(--lt-fn)}.light .v{color:var(--lt-var)}.light .t{color:var(--lt-type)}
+.light .p{color:var(--lt-punct)}.light .ln{color:var(--lt-line)}
+
+/* manual palette editor */
+.pal{display:grid;grid-template-columns:repeat(2,1fr);gap:9px 20px;margin-top:12px}
+.sw{display:flex;align-items:center;gap:10px;padding:6px 9px;border:1px solid var(--line);border-radius:9px}
+.sw .chip{width:22px;height:22px;border-radius:6px;border:1px solid rgba(0,0,0,.18);flex:none}
+.sw .nm{flex:1;font-size:12.5px}
+.sw .hex{font-family:var(--mono);font-size:11px;color:var(--label)}
+
+.found{display:flex;align-items:center;gap:11px;border:1px solid var(--green);border-radius:11px;
+  padding:11px 14px;background:#f2fbf4;margin-top:10px}
+.found .ok{color:var(--green);font-weight:700}
+.found .grow{flex:1}
+.found .path{font-family:var(--mono);font-size:11px;color:var(--label);word-break:break-all}
+
+.why{max-width:940px;margin:22px auto 0;background:var(--modal);border-radius:14px;padding:20px 24px;
+  box-shadow:0 6px 22px rgba(30,25,20,.09);font-size:13.5px;line-height:1.65}
+.why h3{margin:0 0 10px;font-size:14px}
+.why p{margin:0 0 11px}.why p:last-child{margin-bottom:0}
+.why code{font-family:var(--mono);font-size:12px;background:var(--bar);padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <button class="on" data-go="a">1 · Code appearance</button>
+  <button data-go="b">2 · Import a VS Code theme</button>
+  <button data-go="c">3 · Adjust it by hand</button>
+  <button data-go="d">4 · In the note</button>
+</div>
+
+<!-- ═══════════════════════════════════ 1 -->
+<div class="stage state on" id="a">
+  <div class="card">
+    <h2>Settings · Code appearance</h2>
+    <p class="sub">
+      One theme for light mode, one for dark, each with the preview beside it. The vault follows whichever
+      mode the shell is in — a single theme would be unreadable in half of them.
+    </p>
+
+    <div class="two" style="margin-top:20px">
+      <div>
+        <label class="slab" style="margin-top:0">Light mode</label>
+        <select><option>Focal Light</option><option>GitHub Light</option><option>SynthWave '84</option><option>Solarized Light</option><option>+ Imported theme…</option></select>
+        <div class="prev">
+          <div class="prevhd"><span class="grow">javascript</span><span>Focal Light</span></div>
+<pre class="code light"><span class="ln">1</span><span class="c">// Electron Main / Preload Process</span>
+<span class="ln">2</span><span class="k">const</span> <span class="p">{</span> <span class="v">desktopCapturer</span> <span class="p">}</span> = <span class="f">require</span><span class="p">(</span><span class="s">'electron'</span><span class="p">);</span>
+<span class="ln">3</span>
+<span class="ln">4</span><span class="k">async function</span> <span class="f">getScreenStream</span><span class="p">()</span> <span class="p">{</span>
+<span class="ln">5</span>  <span class="k">const</span> <span class="v">sources</span> = <span class="k">await</span> <span class="t">desktopCapturer</span><span class="p">.</span><span class="f">getSources</span><span class="p">({</span> <span class="v">types</span>: <span class="p">[</span><span class="s">'screen'</span><span class="p">]</span> <span class="p">});</span>
+<span class="ln">6</span>  <span class="v">minFrameRate</span>: <span class="n">30</span><span class="p">,</span>
+<span class="ln">7</span><span class="p">}</span></pre>
+        </div>
+      </div>
+
+      <div>
+        <label class="slab" style="margin-top:0">Dark mode</label>
+        <select><option>SynthWave '84 — imported</option><option>Focal Dark</option><option>Monokai</option><option>One Dark</option><option>+ Imported theme…</option></select>
+        <div class="prev">
+          <div class="prevhd"><span class="grow">javascript</span><span>SynthWave '84</span></div>
+<pre class="code dark"><span class="ln">1</span><span class="c">// Electron Main / Preload Process</span>
+<span class="ln">2</span><span class="k">const</span> <span class="p">{</span> <span class="v">desktopCapturer</span> <span class="p">}</span> = <span class="f">require</span><span class="p">(</span><span class="s">'electron'</span><span class="p">);</span>
+<span class="ln">3</span>
+<span class="ln">4</span><span class="k">async function</span> <span class="f">getScreenStream</span><span class="p">()</span> <span class="p">{</span>
+<span class="ln">5</span>  <span class="k">const</span> <span class="v">sources</span> = <span class="k">await</span> <span class="t">desktopCapturer</span><span class="p">.</span><span class="f">getSources</span><span class="p">({</span> <span class="v">types</span>: <span class="p">[</span><span class="s">'screen'</span><span class="p">]</span> <span class="p">});</span>
+<span class="ln">6</span>  <span class="v">minFrameRate</span>: <span class="n">30</span><span class="p">,</span>
+<span class="ln">7</span><span class="p">}</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="slab">Code font</div>
+    <div class="row" style="padding-top:0">
+      <div class="grow">
+        <div class="t">Monospace family for code blocks</div>
+        <div class="d">Any font installed on this machine. Empty falls back to the shell's <code>--mc-mono</code>.</div>
+      </div>
+      <div style="width:280px"><input type="text" value="Cascadia Mono" placeholder="e.g. JetBrains Mono"></div>
+    </div>
+    <div class="row">
+      <div class="grow">
+        <div class="t">Show line numbers</div>
+        <div class="d">Off by default — a four-line fence does not need them, and they break copy-paste in some terminals.</div>
+      </div>
+      <div><button class="btn sm">Off</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ 2 -->
+<div class="stage state" id="b">
+  <div class="card">
+    <h2>Import a VS Code theme</h2>
+    <p class="sub">
+      Point at a theme file already on this machine. Nothing is downloaded, and no third-party theme ships
+      inside Focal Registry — <b>your</b> theme is read from <b>your</b> extensions folder and stored as a
+      palette in your vault.
+    </p>
+
+    <div class="slab">already installed here</div>
+    <div class="found">
+      <span class="ok">✓</span>
+      <span class="grow">
+        <b>SynthWave '84</b> — dark · 21 token scopes mapped
+        <div class="path">C:\Users\lurpz\.vscode\extensions\robbowen.synthwave-vscode-0.1.20\themes\synthwave-color-theme.json</div>
+      </span>
+      <button class="btn primary">Use for dark</button>
+    </div>
+    <div class="hint">
+      Found by scanning <code>%USERPROFILE%\.vscode\extensions\*\themes\*.json</code> and reading
+      <code>workbench.colorTheme</code> out of your VS Code settings, so the one you are actually using is
+      offered first. <b>Choose a file…</b> takes any theme JSON from anywhere.
+    </div>
+
+    <div class="slab">what gets mapped</div>
+    <div class="pal">
+      <div class="sw"><span class="chip" style="background:#262335"></span><span class="nm">Background</span><span class="hex">#262335</span></div>
+      <div class="sw"><span class="chip" style="background:#848bbd"></span><span class="nm">Comment</span><span class="hex">#848bbd</span></div>
+      <div class="sw"><span class="chip" style="background:#ff8b39"></span><span class="nm">String</span><span class="hex">#ff8b39</span></div>
+      <div class="sw"><span class="chip" style="background:#fede5d"></span><span class="nm">Keyword</span><span class="hex">#fede5d</span></div>
+      <div class="sw"><span class="chip" style="background:#f97e72"></span><span class="nm">Number</span><span class="hex">#f97e72</span></div>
+      <div class="sw"><span class="chip" style="background:#36f9f6"></span><span class="nm">Function</span><span class="hex">#36f9f6</span></div>
+      <div class="sw"><span class="chip" style="background:#ff7edb"></span><span class="nm">Variable</span><span class="hex">#ff7edb</span></div>
+      <div class="sw"><span class="chip" style="background:#fe4450"></span><span class="nm">Type</span><span class="hex">#fe4450</span></div>
+    </div>
+    <div class="hint">
+      Nine roles, not two hundred. A VS Code theme colours a whole IDE — the gutter, the minimap, the
+      breadcrumbs, git decorations. A markdown code block has code in it and nothing else, so the importer
+      reads the scopes that matter (<code>comment</code>, <code>string</code>, <code>keyword</code>,
+      <code>constant.numeric</code>, <code>entity.name.function</code>, <code>variable</code>,
+      <code>entity.name.type</code>, <code>punctuation</code>) and ignores the rest. Italic on comments is
+      carried across, because SynthWave sets it and losing it changes the feel.
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ 3 -->
+<div class="stage state" id="c">
+  <div class="card">
+    <h2>Adjust it by hand</h2>
+    <p class="sub">Any imported or built-in theme can be edited. The moment you change one, it becomes
+      <b>Custom (from SynthWave '84)</b> — the original is never overwritten, so Revert always has somewhere
+      to go back to.</p>
+
+    <div class="two" style="margin-top:18px;align-items:start">
+      <div>
+        <div class="pal" style="grid-template-columns:1fr">
+          <div class="sw"><span class="chip" style="background:#262335"></span><span class="nm">Background</span><input type="text" value="#262335" style="width:96px;font-family:var(--mono);font-size:11px;padding:4px 7px"></div>
+          <div class="sw"><span class="chip" style="background:#f2f0ff"></span><span class="nm">Plain text</span><input type="text" value="#f2f0ff" style="width:96px;font-family:var(--mono);font-size:11px;padding:4px 7px"></div>
+          <div class="sw"><span class="chip" style="background:#848bbd"></span><span class="nm">Comment</span><input type="text" value="#848bbd" style="width:96px;font-family:var(--mono);font-size:11px;padding:4px 7px"></div>
+          <div class="sw"><span class="chip" style="background:#ff8b39"></span><span class="nm">String</span><input type="text" value="#ff8b39" style="width:96px;font-family:var(--mono);font-size:11px;padding:4px 7px"></div>
+          <div class="sw"><span class="chip" style="background:#fede5d"></span><span class="nm">Keyword</span><input type="text" value="#fede5d" style="width:96px;font-family:var(--mono);font-size:11px;padding:4px 7px"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn">Revert to SynthWave '84</button>
+          <button class="btn primary">Save</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="slab" style="margin-top:0">Live</div>
+        <div class="prev" style="margin-top:0">
+          <div class="prevhd"><span class="grow">javascript</span><span>Custom</span></div>
+<pre class="code dark"><span class="c">// changes land here as you type</span>
+<span class="k">const</span> <span class="v">theme</span> = <span class="p">{</span> <span class="v">name</span>: <span class="s">'Custom'</span><span class="p">,</span> <span class="v">base</span>: <span class="n">84</span> <span class="p">};</span>
+<span class="k">export function</span> <span class="f">apply</span><span class="p">(</span><span class="v">t</span><span class="p">)</span> <span class="p">{</span> <span class="k">return</span> <span class="t">Object</span><span class="p">.</span><span class="f">freeze</span><span class="p">(</span><span class="v">t</span><span class="p">);</span> <span class="p">}</span></pre>
+        </div>
+        <div class="hint">
+          Stored as one JSON value in <code>vault_settings</code> under <code>code.theme_dark</code> /
+          <code>code.theme_light</code> — one key per mode, so a new colour role never needs a new whitelist
+          entry. Same reason <code>sidebar.widths</code> is one map.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ 4 -->
+<div class="stage state" id="d">
+  <div class="card">
+    <h2>What it looks like in a note</h2>
+    <p class="sub">The Copy button and the language label stay exactly where they are. Only the body is painted.</p>
+
+    <div class="prev" style="max-width:720px">
+      <div class="prevhd"><span class="grow">javascript</span><button class="btn sm">Copy</button></div>
+<pre class="code dark"><span class="c">// Electron Main / Preload Process</span>
+<span class="k">const</span> <span class="p">{</span> <span class="v">desktopCapturer</span> <span class="p">}</span> = <span class="f">require</span><span class="p">(</span><span class="s">'electron'</span><span class="p">);</span>
+
+<span class="k">async function</span> <span class="f">getScreenStream</span><span class="p">()</span> <span class="p">{</span>
+  <span class="k">const</span> <span class="v">sources</span> = <span class="k">await</span> <span class="t">desktopCapturer</span><span class="p">.</span><span class="f">getSources</span><span class="p">({</span> <span class="v">types</span>: <span class="p">[</span><span class="s">'screen'</span><span class="p">]</span> <span class="p">});</span>
+  <span class="k">const</span> <span class="v">primarySource</span> = <span class="v">sources</span><span class="p">[</span><span class="n">0</span><span class="p">];</span> <span class="c">// Select primary monitor</span>
+
+  <span class="k">const</span> <span class="v">stream</span> = <span class="k">await</span> <span class="t">navigator</span><span class="p">.</span><span class="v">mediaDevices</span><span class="p">.</span><span class="f">getUserMedia</span><span class="p">({</span>
+    <span class="v">audio</span>: <span class="k">false</span><span class="p">,</span>
+    <span class="v">video</span>: <span class="p">{</span> <span class="v">minFrameRate</span>: <span class="n">30</span><span class="p">,</span> <span class="v">maxFrameRate</span>: <span class="n">60</span> <span class="p">}</span>
+  <span class="p">});</span>
+  <span class="k">return</span> <span class="v">stream</span><span class="p">;</span>
+<span class="p">}</span></pre>
+    </div>
+
+    <div class="slab">a fence with no language tag</div>
+    <div class="prev" style="max-width:720px">
+      <div class="prevhd"><span class="grow">text</span><button class="btn sm">Copy</button></div>
+<pre class="code dark">+----------------+    WebRTC Offer/Answer &amp; ICE    +----------------+
+|   Host Agent   | &lt;=============================&gt; |   Client View  |
++----------------+                                 +----------------+</pre>
+    </div>
+    <div class="hint">
+      Untagged stays plain on the themed background — no guessing. Your ASCII diagrams would be shredded by a
+      language detector that decided they were Perl, and a wrong guess is worse than none.
+    </div>
+  </div>
+</div>
+
+<div class="why">
+  <h3>Decisions in here, and the one open question</h3>
+  <p>
+    <b>Nothing third-party ships.</b> SynthWave '84 is MIT (Robb Owen, 2019) so bundling it would be legal
+    with the notice — but importing from your own machine is better anyway: it costs no licence bookkeeping,
+    it works for any theme you install later, and it is the thing you actually asked for. The built-ins
+    (<i>Focal Light</i>, <i>Focal Dark</i>) are ours.
+  </p>
+  <p>
+    <b>The tokeniser is hand-written, roughly sixty lines</b> — comment, string, number, keyword, function
+    call, type, punctuation — over JavaScript, TypeScript, JSON, shell, SQL, Python, YAML. No Prism, no
+    highlight.js, no new dependency in a tree being kept lean on purpose. The ceiling is real and worth
+    stating: it is regex-based, so a pathological string full of quote characters can mis-colour a line, and
+    an unlisted language renders plain. Neither loses you any text — colour is the only thing at stake.
+  </p>
+  <p>
+    <b>Open question.</b> The Milkdown editor pane and the Markdoc preview pane render code separately. This
+    themes the PREVIEW. Do you want the editor's fences painted the same way? It is the same palette but a
+    different mechanism — a ProseMirror decoration rather than a render — so it is worth knowing whether you
+    want it before I build one of them.
+  </p>
+</div>
+
+<script>
+document.querySelectorAll('.nav button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.querySelectorAll('.nav button').forEach(function (x) { x.classList.remove('on'); });
+    document.querySelectorAll('.state').forEach(function (s) { s.classList.remove('on'); });
+    b.classList.add('on');
+    document.getElementById(b.dataset.go).classList.add('on');
+  });
+});
+</script>
+</body>
+</html>

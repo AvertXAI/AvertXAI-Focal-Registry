@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Secured Vault — notes v3: categories, steps, imports · 08-11-2026</title>
+<style>
+:root{
+  --win:#f4f6fa; --bar:#ffffff; --side:#eef1f7; --panel:#ffffff; --panel2:#f3f6fb;
+  --field:#ffffff; --sel:#fdf2e9; --bd:#dde4ee; --bd2:#c2ccdb;
+  --txt:#111a2b; --dim:#586a86; --dimmer:#8492a8; --lock:#a9b4c5;
+  --green:#128a4b; --greenbtn:#1f9d44; --purple:#6355d8; --red:#cf3b45;
+  --orange:#d2691e; --blue:#2f6fd0; --amber:#c9821a; --teal:#17838f;
+  --code:#f6f8fb; --shadow:rgba(23,38,64,.13);
+  --mono:'Cascadia Mono','Consolas',monospace; --sans:'Segoe UI',system-ui,sans-serif;
+}
+body.dark{
+  --win:#0a0e17; --bar:#0d1320; --side:#0b1019; --panel:#0e1626; --panel2:#111d31;
+  --field:#15233b; --sel:#1d1710; --bd:#1b2942; --bd2:#24365a;
+  --txt:#e9eef7; --dim:#7e92b0; --dimmer:#54678a; --lock:#3a465f;
+  --green:#38d982; --orange:#e08a3a; --blue:#4f8df0; --amber:#e0a93a; --teal:#2bb5c4; --red:#e8636d;
+  --code:#0c1524; --shadow:rgba(0,0,0,.55);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#e7ebf2;font-family:var(--sans);color:var(--txt);padding:18px 14px 60px}
+body.dark{background:#05080f}
+.optbar{max-width:1600px;margin:0 auto 12px;display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.optbar .lead{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--dimmer);margin-right:4px}
+.jump{background:var(--panel);border:1px solid var(--bd);color:var(--dim);font-size:12px;padding:7px 12px;border-radius:8px;cursor:pointer;font-family:var(--sans)}
+.jump.on{background:var(--sel);border-color:var(--orange);color:var(--txt);font-weight:600}
+.jump b{font-family:var(--mono);color:var(--dimmer);margin-right:6px}.jump.on b{color:var(--orange)}
+.theme{margin-left:auto}
+.app{max-width:1600px;margin:0 auto;background:var(--win);border-radius:12px;box-shadow:0 18px 50px var(--shadow);overflow:hidden;border:1px solid var(--bd);position:relative}
+.top{display:flex;align-items:center;gap:14px;background:var(--bar);padding:11px 18px;border-bottom:1px solid var(--bd)}
+.logo{width:30px;height:30px;border-radius:50%;background:var(--txt);color:var(--bar);font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;flex:0 0 30px}
+.crumb{font-size:13px;color:var(--dim)}.crumb b{color:var(--txt)}
+.gsearch{flex:1;max-width:430px;background:var(--field);border:1px solid var(--bd);border-radius:8px;padding:7px 12px;font-size:12px;color:var(--dimmer)}
+.navbar{display:flex;gap:4px;padding:11px 18px 0;border-bottom:1px solid var(--bd);background:var(--bar);align-items:flex-end}
+.navhome{background:none;border:none;font-size:14px;font-weight:700;color:var(--txt);padding:0 12px 12px 2px;cursor:pointer}
+.ntab{font-size:13px;color:var(--dim);padding:8px 15px;border:1px solid transparent;border-bottom:0;border-radius:9px 9px 0 0;cursor:pointer;margin-bottom:-1px;background:none;font-family:inherit}
+.ntab.on{color:var(--txt);font-weight:600;background:var(--win);border-color:var(--bd)}
+.body{padding:16px 20px 22px}
+.view{display:none}.view.on{display:block}
+.mlabel{font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:var(--orange);font-weight:700}
+.btn{border-radius:8px;padding:7px 13px;font-size:12.5px;font-weight:600;border:1px solid var(--bd2);background:var(--panel2);color:var(--txt);font-family:inherit;cursor:pointer;white-space:nowrap}
+.btn.pri{background:var(--orange);border-color:var(--orange);color:#fff}
+.btn.go{background:var(--greenbtn);border-color:var(--greenbtn);color:#fff}
+.btn.sm{padding:4px 9px;font-size:11.5px}
+.btn.dgr{border-color:var(--red);color:var(--red)}
+.btn.ghost{background:none;border-color:transparent;color:var(--dim)}
+.seg{display:inline-flex;border:1px solid var(--bd2);border-radius:8px;overflow:hidden}
+.seg button{background:none;border:0;border-right:1px solid var(--bd2);color:var(--dim);font-size:12px;padding:6px 13px;cursor:pointer;font-family:inherit}
+.seg button:last-child{border-right:0}.seg button.on{background:var(--sel);color:var(--orange);font-weight:600}
+.head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:15px 17px;margin-bottom:14px}
+.hint{font-size:12px;color:var(--dimmer);line-height:1.6}
+.mono{font-family:var(--mono)}
+.pill{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.4px;padding:2px 8px;border-radius:20px;text-transform:uppercase}
+.pill.ok{background:rgba(18,138,75,.12);color:var(--green)}
+.pill.warn{background:rgba(201,130,26,.14);color:var(--amber)}
+.pill.no{background:rgba(207,59,69,.12);color:var(--red)}
+.pill.grey{background:var(--panel2);color:var(--dimmer)}
+
+/* ---------- notes 3-column: categories | list | editor ---------- */
+.notewrap{display:flex;border:1px solid var(--bd);border-radius:12px;overflow:hidden;min-height:600px;background:var(--panel)}
+.cats{width:186px;flex:none;border-right:1px solid var(--bd);background:var(--panel2);padding:10px 9px;overflow:auto}
+.cathead{font-size:9.5px;letter-spacing:1.3px;text-transform:uppercase;color:var(--dimmer);font-weight:700;margin:10px 0 6px 6px;display:flex;align-items:center}
+.catadd{margin-left:auto;background:none;border:none;color:var(--orange);cursor:pointer;font-size:13px;padding:0 4px}
+.cat{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:7px;font-size:12.5px;cursor:pointer;color:var(--txt);border:1px solid transparent}
+.cat:hover{background:var(--panel)}
+.cat.on{background:var(--sel);font-weight:600;box-shadow:inset 3px 0 0 var(--orange)}
+.cat.drop{border:1.5px dashed var(--orange);background:var(--sel)}
+.catdot{width:8px;height:8px;border-radius:50%;flex:none}
+.catn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.catc{font-family:var(--mono);font-size:11px;color:var(--dimmer)}
+
+.list{width:262px;flex:none;border-right:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden}
+.ltop{padding:9px 11px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:7px}
+.lstyles{display:flex;gap:3px;padding:8px 9px;border-bottom:1px solid var(--bd)}
+.lstyles button{flex:1;background:none;border:1px solid transparent;border-radius:6px;color:var(--dim);font-size:11px;padding:5px 4px;cursor:pointer;font-family:inherit}
+.lstyles button.on{background:var(--sel);color:var(--orange);font-weight:600;border-color:var(--orange)}
+/* SEARCH ROW + TRASH + IMPORT (Jason 08-11-2026) */
+.lsearch{display:flex;gap:6px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--bd)}
+.lsearch input{flex:1;min-width:0;background:var(--field);border:1px solid var(--bd);border-radius:7px;padding:6px 9px;font-size:12px;color:var(--txt)}
+.iconbtn{flex:none;width:28px;height:28px;border:1px solid var(--bd);background:var(--panel);border-radius:7px;color:var(--dim);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center}
+.iconbtn:hover{border-color:var(--orange);color:var(--orange)}
+.iconbtn.trash:hover{border-color:var(--red);color:var(--red)}
+.lbody{flex:1;overflow:auto}
+.nrow{padding:10px 13px;border-bottom:1px solid var(--bd);cursor:grab;position:relative}
+.nrow:hover{background:var(--panel2)}
+.nrow.on{background:var(--sel);box-shadow:inset 3px 0 0 var(--orange)}
+.nrow.dragging{opacity:.4}
+.nrow .t{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px}
+.nrow .s{font-size:11px;color:var(--dimmer);margin-top:3px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.nrow .m{font-size:10px;color:var(--lock);margin-top:4px;font-family:var(--mono)}
+.nrow .sel{position:absolute;top:10px;right:10px;opacity:0}
+.nrow:hover .sel,.nrow.picked .sel{opacity:1}
+.nrow.picked{background:var(--sel)}
+.ticon{width:16px;height:16px;border-radius:5px;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff}
+
+.editor{flex:1;min-width:0;display:flex;flex-direction:column}
+.edbar{display:flex;align-items:center;gap:5px;padding:9px 12px;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.tbtn{min-width:28px;height:27px;padding:0 7px;border:1px solid transparent;background:none;border-radius:6px;color:var(--dim);cursor:pointer;font-size:12.5px;font-family:inherit}
+.tbtn:hover{background:var(--panel2);border-color:var(--bd)}
+.tbtn.hot{color:var(--orange);border-color:var(--orange);background:var(--sel)}
+.help{width:26px;height:26px;border-radius:50%;border:1px solid var(--bd2);background:var(--panel);color:var(--dim);cursor:pointer;font-weight:700;margin-left:3px}
+.modeseg{margin-left:auto}
+.split{flex:1;display:flex;min-height:0}
+.pane{flex:1;min-width:0;overflow:auto;padding:15px 18px;display:flex;flex-direction:column}
+.pane.left{border-right:1px solid var(--bd)}
+.phdr{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dimmer);margin-bottom:10px;display:flex;align-items:center;gap:7px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.dot.ro{background:var(--dimmer)}
+.ta{flex:1;min-height:220px;background:var(--field);border:1px solid var(--bd);border-radius:8px;padding:11px 13px;font-family:var(--mono);font-size:12px;line-height:1.7;color:var(--txt);resize:none}
+.ta:focus{outline:none;border-color:var(--orange)}
+.titlein{background:var(--field);border:1px solid var(--bd);border-radius:8px;padding:8px 11px;font-size:13px;font-weight:600;color:var(--txt);margin-bottom:8px}
+.prev h1{font-size:20px;margin:0 0 11px}.prev h2{font-size:15px;margin:16px 0 8px}
+.prev p{font-size:13.5px;line-height:1.7;margin:0 0 11px}
+.prev code{font-family:var(--mono);font-size:11.5px;background:var(--code);border:1px solid var(--bd);border-radius:4px;padding:1px 5px}
+.cblock{background:var(--code);border:1px solid var(--bd);border-radius:9px;margin:0 0 12px;overflow:hidden}
+.cblock .cb{display:flex;padding:6px 11px;border-bottom:1px solid var(--bd);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--dimmer)}
+.cblock pre{padding:11px 13px;overflow-x:auto;font-family:var(--mono);font-size:11.5px;line-height:1.6}
+.vref{display:inline-flex;align-items:center;gap:6px;background:var(--sel);border:1px solid var(--orange);border-radius:7px;padding:2px 4px 2px 9px;font-size:11.5px}
+.vref .lk{color:var(--orange);font-weight:700}
+.vref button{border:1px solid var(--bd2);background:var(--panel);color:var(--dim);border-radius:5px;font-size:10px;padding:2px 7px;cursor:pointer;font-family:inherit}
+
+/* ---------- runbook step builder ---------- */
+.step{display:flex;gap:11px;padding:12px;border:1px solid var(--bd);border-radius:10px;margin-bottom:9px;background:var(--panel2)}
+.snum{width:26px;height:26px;flex:none;border-radius:50%;background:var(--orange);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700}
+.sbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:7px}
+.sin{background:var(--field);border:1px solid var(--bd);border-radius:7px;padding:7px 10px;font-size:12.5px;color:var(--txt);font-family:inherit;width:100%}
+.sin:focus{outline:none;border-color:var(--orange)}
+.sin.cmd{font-family:var(--mono);font-size:11.5px}
+.srow{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.sacts{display:flex;flex-direction:column;gap:5px;flex:none}
+.minibtn{width:24px;height:22px;border:1px solid var(--bd2);background:var(--panel);border-radius:5px;color:var(--dim);cursor:pointer;font-size:11px;line-height:1}
+.minibtn:hover{border-color:var(--orange);color:var(--orange)}
+.minibtn.del:hover{border-color:var(--red);color:var(--red)}
+.addstep{width:100%;border:1.5px dashed var(--bd2);background:none;border-radius:10px;padding:11px;color:var(--dim);cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600}
+.addstep:hover{border-color:var(--orange);color:var(--orange);background:var(--sel)}
+.fm{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:11px;margin-bottom:14px}
+.f{display:flex;flex-direction:column;gap:5px}
+.f label{font-size:11px;color:var(--dim)}
+.f input,.f select{background:var(--field);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;font-size:12.5px;color:var(--txt);font-family:inherit}
+.f input:focus,.f select:focus{outline:none;border-color:var(--orange)}
+.req{color:var(--red)}
+
+/* ---------- import modal ---------- */
+.scrim{position:absolute;inset:0;background:rgba(20,25,40,.5);display:none;align-items:flex-start;justify-content:center;padding:34px 18px;overflow:auto;z-index:80}
+.scrim.on{display:flex}
+.modal{width:100%;max-width:660px;background:var(--panel);border:1px solid var(--bd);border-radius:14px;box-shadow:0 24px 60px var(--shadow)}
+.mhd{display:flex;align-items:center;gap:10px;padding:17px 20px;border-bottom:1px solid var(--bd)}
+.mhd h3{font-size:16px}.mhd .sub{font-size:12px;color:var(--dimmer)}
+.mx{margin-left:auto;background:none;border:1px solid var(--bd);border-radius:7px;color:var(--dim);cursor:pointer;padding:5px 10px}
+.mb{padding:16px 20px;max-height:62vh;overflow:auto}
+.mf{padding:12px 20px;border-top:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;gap:9px;flex-wrap:wrap}
+.drop{border:2px dashed var(--bd2);border-radius:11px;padding:26px 18px;text-align:center;color:var(--dim);font-size:12.5px;background:var(--panel2);cursor:pointer}
+.drop:hover{border-color:var(--orange);background:var(--sel)}
+.drop b{color:var(--txt)}
+.ftypes{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px;align-items:center}
+.ftype{font-size:11px;border:1px solid var(--bd2);border-radius:20px;padding:3px 10px;color:var(--dim);cursor:pointer;background:var(--panel)}
+.ftype.on{border-color:var(--green);color:var(--green);background:rgba(18,138,75,.08);font-weight:600}
+.ftype.off{opacity:.45;text-decoration:line-through}
+.frow{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--bd);border-radius:8px;margin-bottom:6px;background:var(--panel2);font-size:12.5px}
+.frow .fn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:11.5px}
+.frow .fs{font-size:10.5px;color:var(--dimmer);flex:none}
+.folderline{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid var(--bd);border-radius:9px;margin-bottom:7px;background:var(--panel)}
+.tree{font-family:var(--mono);font-size:11.5px;line-height:1.75;color:var(--dim);background:var(--code);border:1px solid var(--bd);border-radius:9px;padding:11px 13px;max-height:190px;overflow:auto}
+.tree .ok{color:var(--green)}.tree .skip{color:var(--dimmer);opacity:.6}
+</style>
+</head>
+<body>
+
+<div class="optbar">
+  <span class="lead">Notes v3 · new features</span>
+  <button class="jump on" data-v="notes"><b>1</b>Categories + trash + drag</button>
+  <button class="jump" data-v="editor"><b>2</b>Editor order — the fork</button>
+  <button class="jump" data-v="steps"><b>3</b>Runbook step builder</button>
+  <button class="jump" data-v="import"><b>4</b>Import — notes/repos/infra</button>
+  <button class="jump theme" id="themebtn">◐ Dark</button>
+</div>
+
+<div class="app" id="app">
+  <div class="top">
+    <div class="logo">A</div>
+    <div class="crumb">AvertXAI · Focal Registry / <b>Secured Vault</b> 🔒</div>
+    <div class="gsearch">🔍 Search everything — FTS5 across notes, runbooks, snippets</div>
+  </div>
+  <div class="navbar">
+    <button class="navhome">Vault</button>
+    <button class="ntab">Passwords</button>
+    <button class="ntab on">Secured Notes</button>
+    <button class="ntab">Infrastructure</button>
+    <button class="ntab">Repos</button>
+  </div>
+
+  <div class="body">
+
+  <!-- ============ 1. CATEGORIES + TRASH + DRAG ============ -->
+  <div class="view on" data-p="notes">
+    <div class="notewrap">
+      <!-- CATEGORIES column — drag a note onto one -->
+      <div class="cats">
+        <div class="cathead">Categories <button class="catadd" title="New category">+</button></div>
+        <div class="cat on" data-cat="all"><span class="catdot" style="background:var(--orange)"></span><span class="catn">All</span><span class="catc">31</span></div>
+        <div class="cat" data-cat="uncat"><span class="catdot" style="background:var(--dimmer)"></span><span class="catn">Uncategorised</span><span class="catc">18</span></div>
+        <div class="cat" data-cat="infra"><span class="catdot" style="background:var(--teal)"></span><span class="catn">Infrastructure</span><span class="catc">6</span></div>
+        <div class="cat" data-cat="code"><span class="catdot" style="background:var(--blue)"></span><span class="catn">Code</span><span class="catc">4</span></div>
+        <div class="cat" data-cat="biz"><span class="catdot" style="background:var(--amber)"></span><span class="catn">Business</span><span class="catc">3</span></div>
+        <div class="cathead" style="margin-top:16px">Tags</div>
+        <div class="cat"><span class="catdot" style="background:var(--purple)"></span><span class="catn">postgres</span><span class="catc">3</span></div>
+        <div class="cat"><span class="catdot" style="background:var(--purple)"></span><span class="catn">hetzner</span><span class="catc">5</span></div>
+        <div class="hint" style="padding:10px 6px 0;font-size:11px">Drag a note from the list onto a category to file it.</div>
+      </div>
+
+      <!-- LIST — search row now carries TRASH + IMPORT -->
+      <div class="list">
+        <div class="ltop"><b style="font-size:12.5px;flex:1">Secured Notes</b><button class="iconbtn">«</button></div>
+        <div class="lstyles" id="styles">
+          <button class="on">Notes</button><button>Runbooks</button><button>Snippets</button>
+        </div>
+        <div class="lsearch">
+          <input placeholder="Search notes (FTS5)">
+          <button class="iconbtn" id="impbtn" title="Import .md, .txt, .pdf">⭳</button>
+          <button class="iconbtn trash" id="trashbtn" title="Delete selected">🗑</button>
+        </div>
+        <div class="lbody" id="lbody">
+          <div class="nrow on" draggable="true"><input type="checkbox" class="sel">
+            <div class="t"><span class="ticon" style="background:var(--purple)">N</span> Hetzner VPS — GitHub SSH</div>
+            <div class="s">178.63.17.184 · Coolify dashboard on core.avertxai.com · deploy key in the vault</div>
+            <div class="m">Infrastructure · 08-07-2026</div></div>
+          <div class="nrow" draggable="true"><input type="checkbox" class="sel">
+            <div class="t"><span class="ticon" style="background:var(--purple)">N</span> Chrome Extension Info</div>
+            <div class="s">Manifest v3 notes, isolated-world content script pattern.</div>
+            <div class="m">Uncategorised · 07-28-2026</div></div>
+          <div class="nrow" draggable="true"><input type="checkbox" class="sel">
+            <div class="t"><span class="ticon" style="background:var(--purple)">N</span> AvertXAI Toolforge</div>
+            <div class="s">Two standalone scripts he runs by hand from D:\dev\0 - AvertXAI Tools\</div>
+            <div class="m">Code · 08-10-2026</div></div>
+          <div class="nrow" draggable="true"><input type="checkbox" class="sel">
+            <div class="t"><span class="ticon" style="background:var(--purple)">N</span> Reddit Notes</div>
+            <div class="s">Threads worth keeping on colour management and tethered capture.</div>
+            <div class="m">Uncategorised · 07-19-2026</div></div>
+        </div>
+      </div>
+
+      <!-- EDITOR — editor LEFT, preview RIGHT (Jason 08-11-2026) -->
+      <div class="editor">
+        <div class="edbar">
+          <button class="tbtn"><b>B</b></button><button class="tbtn"><i>I</i></button><button class="tbtn">H</button>
+          <button class="tbtn hot">{;}</button><button class="tbtn">☑</button><button class="tbtn">🖼</button>
+          <button class="tbtn hot">@ entry</button>
+          <button class="help" title="Editing help">?</button>
+          <div class="seg modeseg"><button>Edit</button><button class="on">Split</button><button>Preview</button></div>
+        </div>
+        <div class="split">
+          <div class="pane left">
+            <div class="phdr"><span class="dot"></span> Editor — type here</div>
+            <input class="titlein" value="Hetzner VPS — GitHub SSH">
+            <textarea class="ta"># Hetzner VPS — GitHub SSH
+
+The box is `178.63.17.184`. Coolify runs the dashboard
+on `core.avertxai.com`; the deploy key lives in the
+vault, never in a file.
+
+## Getting in
+
+Use the key, not a password:
+@[[vault:Hetzner root — ed25519]]
+
+```bash
+ssh root@178.63.17.184
+```</textarea>
+            <div class="hint" style="margin-top:6px">Saved. Ctrl+S or click away.</div>
+          </div>
+          <div class="pane prev">
+            <div class="phdr"><span class="dot ro"></span> Preview — read-only</div>
+            <h1>Hetzner VPS — GitHub SSH</h1>
+            <p>The box is <code>178.63.17.184</code>. Coolify runs the dashboard on <code>core.avertxai.com</code>; the deploy key lives in the vault, never in a file.</p>
+            <h2>Getting in</h2>
+            <p>Use the key, not a password: <span class="vref"><span class="lk">🔑 Hetzner root — ed25519</span><button>Reveal</button><button>Copy</button></span></p>
+            <div class="cblock"><div class="cb"><span>bash</span><span style="margin-left:auto">copy</span></div><pre>ssh root@178.63.17.184</pre></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 2. EDITOR ORDER — THE FORK ============ -->
+  <div class="view" data-p="editor">
+    <div class="card" style="border-color:var(--orange);background:var(--sel)">
+      <div class="mlabel">The correction</div>
+      <p style="font-size:13px;line-height:1.7;margin-top:9px">
+        <b>Tiptap was never installed — it is not why preview is read-only.</b> Root <span class="mono">package.json</span> has six
+        dependencies: argon2, better-sqlite3-multiple-ciphers, electron-updater, exifr, gray-matter, music-metadata.
+        No Tiptap, no Milkdown, no ProseMirror. Preview is read-only because the placeholder renderer builds React
+        elements, and React elements are not editable. That is mine, not Tiptap's.
+      </p>
+      <p style="font-size:13px;line-height:1.7;margin-top:10px">
+        <b>Milkdown does fix it</b> — typing straight into the rendered view is what WYSIWYG means. So this is a real fork,
+        not a workaround. Both are below.
+      </p>
+    </div>
+
+    <div class="head"><span class="mlabel">A · Ships today — editor left, preview right</span><span class="pill ok">no install needed</span></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="split" style="min-height:230px">
+        <div class="pane left"><div class="phdr"><span class="dot"></span> Editor — you type here</div>
+          <textarea class="ta" style="min-height:150px">## Getting in
+
+Use the key, not a password:
+@[[vault:Hetzner root]]</textarea></div>
+        <div class="pane prev"><div class="phdr"><span class="dot ro"></span> Preview — read-only mirror</div>
+          <h2>Getting in</h2><p>Use the key, not a password: <span class="vref"><span class="lk">🔑 Hetzner root</span><button>Reveal</button></span></p></div>
+      </div>
+    </div>
+    <p class="hint" style="margin-bottom:20px">Your markdown on the left, the render on the right. This is the order you asked for, and it works right now.</p>
+
+    <div class="head"><span class="mlabel">B · With Milkdown — one pane, type in the render</span><span class="pill warn">needs a root-lane install</span></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="pane" style="min-height:230px">
+        <div class="phdr"><span class="dot"></span> Editor — this IS the render, and it is editable</div>
+        <h2 style="font-size:15px;margin:0 0 8px">Getting in</h2>
+        <p style="font-size:13.5px">Use the key, not a password: <span class="vref"><span class="lk">🔑 Hetzner root</span><button>Reveal</button></span></p>
+        <p class="hint" style="margin-top:10px">Type <span class="mono">##</span> and it becomes a heading as you type. No second pane — the preview <i>is</i> the editor. A "Markdown source" toggle stays available for when you want the raw text.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div class="mlabel">What it costs</div>
+      <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:10px">
+        <span class="pill ok">MIT — passes §2.10</span><span class="pill ok">3.5 MB — under the 20 MB §2.11 flag</span>
+        <span class="pill warn">writes root package.json — outside my lane</span><span class="pill grey">@milkdown/crepe 7.22.0</span>
+      </div>
+      <p class="hint" style="margin-top:11px">Licence and size already checked with <span class="mono">npm view</span> — nothing installed. Say go and I do it as an authorized root task; until then <b>A</b> is what ships.</p>
+    </div>
+  </div>
+
+  <!-- ============ 3. RUNBOOK STEP BUILDER ============ -->
+  <div class="view" data-p="steps">
+    <div class="head">
+      <div><span class="mlabel">New runbook</span>
+        <div style="font-size:16px;font-weight:700;margin-top:5px">Log into the Coolify Postgres</div></div>
+      <div style="display:flex;gap:8px"><button class="btn">Cancel</button><button class="btn go">Save runbook</button></div>
+    </div>
+
+    <div class="card">
+      <div class="mlabel">Frontmatter</div>
+      <div class="fm" style="margin-top:12px">
+        <div class="f"><label>ID <span class="req">·  required</span></label><input value="RB-DB-001"></div>
+        <div class="f"><label>Title <span class="req">· required</span></label><input value="Log into the Coolify Postgres"></div>
+        <div class="f"><label>Severity</label><select><option>SEV1</option><option selected>SEV2</option><option>SEV3</option><option>none</option></select></div>
+        <div class="f"><label>Status</label><select><option selected>active</option><option>draft</option><option>deprecated</option></select></div>
+        <div class="f"><label>Owner</label><input value="solo-ops"></div>
+        <div class="f"><label>Service</label><input value="postgres-primary"></div>
+        <div class="f"><label>Trigger</label><input value="App cannot connect to the database"></div>
+        <div class="f"><label>Tags</label><input value="database, postgres, hetzner"></div>
+      </div>
+      <p class="hint">Matches the MindMerge frontmatter schema already in this repo — <span class="mono">id · title · type · status · severity · owner · client · description · service · trigger · version · updated</span> — so a runbook written here and one dropped in the watched folder land in the same shape.</p>
+    </div>
+
+    <div class="card">
+      <div class="head" style="margin-bottom:12px">
+        <span class="mlabel">Steps</span>
+        <span class="hint" id="stepcount">4 steps — a new runbook starts with four</span>
+      </div>
+      <div id="steps"></div>
+      <button class="addstep" id="addstep">+ Add step</button>
+      <p class="hint" style="margin-top:11px">Each step is a title, an optional command (gets a Copy button in Run mode), and an optional vault reference. ↑↓ reorders; ✕ removes. Numbers renumber themselves.</p>
+    </div>
+  </div>
+
+  <!-- ============ 4. IMPORT ============ -->
+  <div class="view" data-p="import">
+    <div class="head"><span class="mlabel">Import — three surfaces, one reviewer</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:16px">
+      <div class="card" style="margin:0"><div style="font-size:20px;margin-bottom:8px">📄</div>
+        <div style="font-size:13.5px;font-weight:700;margin-bottom:5px">Notes · Runbooks · Snippets</div>
+        <p class="hint">Pick one folder or many. Walks them, finds <b>.md · .txt · .pdf</b> only, reads YAML frontmatter with gray-matter, previews before writing.</p>
+        <button class="btn pri sm" style="margin-top:10px" onclick="openImp('notes')">Open importer</button></div>
+      <div class="card" style="margin:0"><div style="font-size:20px;margin-bottom:8px">📦</div>
+        <div style="font-size:13.5px;font-weight:700;margin-bottom:5px">Repos</div>
+        <p class="hint">Point at a folder of repos. Each child folder with a <span class="mono">.git</span> becomes a repo row; its README.md is pulled in as the offline snapshot.</p>
+        <button class="btn pri sm" style="margin-top:10px" onclick="openImp('repos')">Open importer</button></div>
+      <div class="card" style="margin:0"><div style="font-size:20px;margin-bottom:8px">🌐</div>
+        <div style="font-size:13.5px;font-weight:700;margin-bottom:5px">Infrastructure</div>
+        <p class="hint">Zone files, CSV exports, or a folder of them. Exact parse — no model, no guessing. Screenshot reading stays the fallback.</p>
+        <button class="btn pri sm" style="margin-top:10px" onclick="openImp('infra')">Open importer</button></div>
+    </div>
+    <div class="card">
+      <div class="mlabel">Why only .md, .txt and .pdf</div>
+      <p class="hint" style="margin-top:9px">Your rule, and it is the right one. A folder walk that accepts everything drags in node_modules, images and binaries, and the review list becomes unusable. The three types are what a runbook or note is actually written in. <b>Everything else is listed as skipped, never silently ignored</b> — you can see what was passed over.</p>
+    </div>
+  </div>
+
+  </div><!-- /body -->
+
+  <!-- IMPORT MODAL -->
+  <div class="scrim" id="scrim">
+    <div class="modal">
+      <div class="mhd"><span style="font-size:17px">⭳</span>
+        <div><h3 id="imptitle">Import notes, runbooks and snippets</h3>
+          <div class="sub">Nothing is written until you press Import.</div></div>
+        <button class="mx" onclick="closeImp()">Close ✕</button></div>
+      <div class="mb">
+        <div class="drop" id="dropzone"><b>Choose folders</b> — or drag them here<br>
+          <span class="hint">Pick one, or several at once. Subfolders are walked.</span></div>
+
+        <div class="ftypes" id="ftypes">
+          <span class="hint" style="margin-right:2px">Reads:</span>
+          <button class="ftype on">.md</button><button class="ftype on">.txt</button><button class="ftype on">.pdf</button>
+          <span class="ftype off">.docx</span><span class="ftype off">everything else</span>
+        </div>
+
+        <div style="margin-top:16px">
+          <div class="mlabel" style="margin-bottom:9px">2 folders chosen</div>
+          <div class="folderline"><span>📁</span><span class="fn mono" style="flex:1">D:\dev\_source\AvertXAI-RUNBOOKS</span><span class="hint">14 files</span><button class="btn sm dgr">✕</button></div>
+          <div class="folderline"><span>📁</span><span class="fn mono" style="flex:1">D:\dev\_source\AvertXAI-Focal-Registry\reports</span><span class="hint">9 files</span><button class="btn sm dgr">✕</button></div>
+        </div>
+
+        <div style="margin-top:16px">
+          <div class="mlabel" style="margin-bottom:9px">What the walk found</div>
+          <div class="tree"><span class="ok">✓</span> AvertXAI-RUNBOOKS\RB-001-restart-coolify.md      <span class="hint">runbook · frontmatter ok</span>
+<span class="ok">✓</span> AvertXAI-RUNBOOKS\RB-002-postgres-failover.md   <span class="hint">runbook · frontmatter ok</span>
+<span class="ok">✓</span> AvertXAI-RUNBOOKS\RUNBOOK-TEMPLATE.md           <span class="hint">runbook · frontmatter ok</span>
+<span style="color:var(--amber)">!</span> AvertXAI-RUNBOOKS\RB-009-draft.md               <span style="color:var(--amber)">malformed YAML line 4 — imports quarantined</span>
+<span class="ok">✓</span> reports\REPORT-vault-phase2-mockups.md          <span class="hint">note</span>
+<span class="ok">✓</span> reports\zone-notes.txt                          <span class="hint">note · no frontmatter</span>
+<span class="ok">✓</span> reports\AvertXAI-RUNBOOKS-Recon.pdf             <span class="hint">note · text extracted</span>
+<span class="skip">–</span> node_modules\...                                <span class="skip">skipped · not .md/.txt/.pdf</span>
+<span class="skip">–</span> assets\screenshot-01.png                        <span class="skip">skipped · not .md/.txt/.pdf</span></div>
+        </div>
+
+        <div style="margin-top:14px;display:flex;gap:9px;flex-wrap:wrap;align-items:center">
+          <span class="pill ok">6 will import</span>
+          <span class="pill warn">1 quarantined — kept, flagged, never dropped</span>
+          <span class="pill grey">412 skipped</span>
+        </div>
+        <p class="hint" style="margin-top:10px">A file whose frontmatter will not parse is <b>imported with an error status and shown in a "needs attention" list</b> — never silently discarded. That is the failure mode your research doc names, and the one MindMerge already avoids.</p>
+
+        <div class="fm" style="margin-top:16px">
+          <div class="f"><label>Import as</label><select><option>Match by frontmatter type</option><option>All as Notes</option><option>All as Runbooks</option><option>All as Snippets</option></select></div>
+          <div class="f"><label>Category</label><select><option>Uncategorised</option><option>Infrastructure</option><option>Code</option><option>Business</option><option>— new category —</option></select></div>
+        </div>
+      </div>
+      <div class="mf"><span class="hint">Files are copied into the encrypted vault. The originals are not moved or changed.</span>
+        <span style="display:flex;gap:9px"><button class="btn" onclick="closeImp()">Cancel</button><button class="btn go">Import 6</button></span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// views
+var views=[].slice.call(document.querySelectorAll('.view'));
+document.querySelectorAll('.jump[data-v]').forEach(function(b){b.addEventListener('click',function(){
+  document.querySelectorAll('.jump[data-v]').forEach(function(x){x.classList.remove('on');});b.classList.add('on');
+  views.forEach(function(v){v.classList.toggle('on',v.dataset.p===b.dataset.v);});
+  window.scrollTo({top:0,behavior:'smooth'});});});
+document.getElementById('themebtn').addEventListener('click',function(e){document.body.classList.toggle('dark');
+  e.target.textContent=document.body.classList.contains('dark')?'◐ Light':'◐ Dark';});
+
+// list style switch
+document.querySelectorAll('#styles button').forEach(function(b,i){b.addEventListener('click',function(){
+  document.querySelectorAll('#styles button').forEach(function(x){x.classList.remove('on');});b.classList.add('on');
+  document.querySelector('.ltop b').textContent=['Secured Notes','Runbooks','Snippets'][i];});});
+
+// note select + trash
+document.querySelectorAll('.nrow').forEach(function(r){
+  r.addEventListener('click',function(e){if(e.target.classList.contains('sel'))return;
+    document.querySelectorAll('.nrow').forEach(function(x){x.classList.remove('on');});r.classList.add('on');});
+  r.querySelector('.sel').addEventListener('change',function(){r.classList.toggle('picked',this.checked);});
+  r.addEventListener('dragstart',function(){r.classList.add('dragging');window.__drag=r;});
+  r.addEventListener('dragend',function(){r.classList.remove('dragging');window.__drag=null;});
+});
+document.getElementById('trashbtn').addEventListener('click',function(){
+  var picked=document.querySelectorAll('.nrow.picked');
+  if(picked.length===0){alert('Tick the notes you want to delete first.');return;}
+  if(confirm('Delete '+picked.length+' note'+(picked.length>1?'s':'')+'? They move to Archived — the body is kept and can be restored.'))
+    picked.forEach(function(p){p.remove();});
+});
+
+// drag a note onto a category
+document.querySelectorAll('.cat[data-cat]').forEach(function(c){
+  c.addEventListener('dragover',function(e){e.preventDefault();c.classList.add('drop');});
+  c.addEventListener('dragleave',function(){c.classList.remove('drop');});
+  c.addEventListener('drop',function(e){e.preventDefault();c.classList.remove('drop');
+    if(!window.__drag)return;
+    var name=c.querySelector('.catn').textContent;
+    var m=window.__drag.querySelector('.m');
+    m.textContent=name+' · '+m.textContent.split('· ')[1];
+    var n=c.querySelector('.catc');n.textContent=(parseInt(n.textContent,10)||0)+1;
+  });
+  c.addEventListener('click',function(){document.querySelectorAll('.cat').forEach(function(x){x.classList.remove('on');});c.classList.add('on');});
+});
+
+// ---- runbook step builder ----
+var steps=[
+ {t:'Open a tunnel to the Hetzner box. Never expose 5432 to the internet.',c:'ssh -L 5432:localhost:5432 root@178.63.17.184 -N',v:'Hetzner root — ed25519'},
+ {t:'If the agent refuses, it is the Git Bash problem — use PowerShell.',c:'',v:''},
+ {t:'Find the database container.',c:'docker ps --filter name=postgres',v:''},
+ {t:'Connect. Reveal the password here, never paste it into a file.',c:'psql -h localhost -p 5432 -U coolify -d coolify',v:'Coolify Postgres'}
+];
+function renderSteps(){
+  var host=document.getElementById('steps');host.innerHTML='';
+  steps.forEach(function(s,i){
+    var d=document.createElement('div');d.className='step';
+    d.innerHTML='<div class="snum">'+(i+1)+'</div>'+
+      '<div class="sbody">'+
+        '<input class="sin" value="'+s.t.replace(/"/g,'&quot;')+'" placeholder="What to do in this step">'+
+        '<input class="sin cmd" value="'+s.c.replace(/"/g,'&quot;')+'" placeholder="Command (optional) — gets a Copy button in Run mode">'+
+        '<div class="srow"><span class="hint">Uses:</span>'+
+          (s.v?'<span class="vref"><span class="lk">🔒 '+s.v+'</span><button>change</button></span>':'<button class="btn sm">+ link a vault entry</button>')+
+        '</div>'+
+      '</div>'+
+      '<div class="sacts">'+
+        '<button class="minibtn" data-a="up" title="Move up">▲</button>'+
+        '<button class="minibtn" data-a="dn" title="Move down">▼</button>'+
+        '<button class="minibtn del" data-a="rm" title="Remove">✕</button>'+
+      '</div>';
+    d.querySelectorAll('.minibtn').forEach(function(b){b.addEventListener('click',function(){
+      var a=b.dataset.a;
+      if(a==='rm'){steps.splice(i,1);}
+      else if(a==='up'&&i>0){var t=steps[i-1];steps[i-1]=steps[i];steps[i]=t;}
+      else if(a==='dn'&&i<steps.length-1){var t2=steps[i+1];steps[i+1]=steps[i];steps[i]=t2;}
+      renderSteps();});});
+    host.appendChild(d);
+  });
+  document.getElementById('stepcount').textContent=steps.length+' step'+(steps.length===1?'':'s')+
+    (steps.length===4?' — a new runbook starts with four':'');
+}
+document.getElementById('addstep').addEventListener('click',function(){
+  steps.push({t:'',c:'',v:''});renderSteps();
+  var all=document.querySelectorAll('#steps .sin');if(all.length)all[all.length-2].focus();
+});
+renderSteps();
+
+// import modal
+var TITLES={notes:'Import notes, runbooks and snippets',repos:'Import repositories',infra:'Import infrastructure records'};
+function openImp(kind){document.getElementById('imptitle').textContent=TITLES[kind]||TITLES.notes;
+  document.getElementById('scrim').classList.add('on');}
+function closeImp(){document.getElementById('scrim').classList.remove('on');}
+document.getElementById('impbtn').addEventListener('click',function(){openImp('notes');});
+document.getElementById('scrim').addEventListener('click',function(e){if(e.target.id==='scrim')closeImp();});
+document.querySelectorAll('.ftype').forEach(function(f){if(!f.classList.contains('off'))
+  f.addEventListener('click',function(){f.classList.toggle('on');});});
+</script>
+</body>
+</html>

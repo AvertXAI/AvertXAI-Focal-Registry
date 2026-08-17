@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Secured Notes — folder structure — v1 08-11-2026</title>
+<style>
+:root{
+  --win:#f4f6fa; --bar:#ffffff; --side:#eef1f7; --panel:#ffffff; --panel2:#f3f6fb;
+  --field:#ffffff; --sel:#fdf2e9; --bd:#dde4ee; --bd2:#c2ccdb;
+  --txt:#111a2b; --dim:#586a86; --dimmer:#8492a8;
+  --green:#128a4b; --purple:#6355d8; --red:#cf3b45; --orange:#d2691e;
+  --blue:#2f6fd0; --amber:#c9821a; --teal:#17838f;
+  --code:#f6f8fb; --shadow:rgba(23,38,64,.13);
+  --mono:'Cascadia Mono','Consolas',monospace; --sans:'Segoe UI',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--win);color:var(--txt);font:13px/1.55 var(--sans)}
+h1,h2,h3{margin:0}
+.rn{font-family:var(--mono)}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 20px 90px}
+.doc h1{font-size:23px;letter-spacing:-.2px}
+.doc .sub{color:var(--dim);margin-top:7px;max-width:880px}
+.sec{margin:44px 0 0}
+.sec>h2{font-size:17px;padding-bottom:9px;border-bottom:2px solid var(--bd);margin-bottom:5px}
+.sec>.why{color:var(--dim);margin:11px 0 17px;max-width:900px}
+.frame{border:1px solid var(--bd2);border-radius:12px;overflow:hidden;box-shadow:0 3px 14px var(--shadow);background:var(--panel)}
+.cap{font-size:11px;color:var(--dimmer);margin:8px 2px 22px}
+.q{background:#eef4ff;border:1px solid #cfe0ff;border-left:3px solid var(--blue);border-radius:8px;padding:12px 15px;margin:16px 0;max-width:900px}
+.q b{color:var(--blue)}
+.note{background:#fffbf4;border:1px solid #f0dcc0;border-left:3px solid var(--orange);border-radius:8px;padding:12px 15px;margin:16px 0;max-width:900px}
+.note b{color:var(--orange)}
+ul.tight{margin:9px 0 0 19px;padding:0}
+ul.tight li{margin-bottom:5px}
+.btn{border:1px solid var(--bd2);background:var(--panel);border-radius:8px;padding:6px 13px;font:12px var(--sans);cursor:pointer;color:var(--txt)}
+.btn.go{background:var(--orange);border-color:var(--orange);color:#fff;font-weight:600}
+.btn.sm{padding:3px 9px;font-size:11px}
+.pill{display:inline-flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:700;letter-spacing:.7px;
+  padding:2px 6px 2px 7px;border-radius:5px;text-transform:uppercase;border:1px solid}
+.pill.ok{color:var(--green);border-color:var(--green)}
+.pill.info{color:var(--blue);border-color:var(--blue)}
+.pill.grey{color:var(--dimmer);border-color:var(--bd2)}
+
+/* ---- the notes surface ---- */
+.notewrap{display:flex;min-height:430px;background:var(--panel)}
+/* NEW: the folder tree */
+.ftree{width:194px;flex:none;border-right:1px solid var(--bd);background:var(--panel2);display:flex;flex-direction:column}
+.fhead{display:flex;align-items:center;gap:6px;padding:9px 11px;border-bottom:1px solid var(--bd)}
+.fhead b{flex:1;font-size:12.5px}
+.ficon{width:22px;height:22px;border:1px solid var(--bd2);border-radius:6px;background:var(--panel);
+  display:grid;place-items:center;font-size:12px;cursor:pointer;color:var(--dim)}
+.fbody{flex:1;overflow:auto;padding:5px 0}
+.frow{display:flex;align-items:center;gap:6px;padding:4px 10px;cursor:pointer;font-size:12px;color:var(--txt)}
+.frow:hover{background:var(--panel)}
+.frow.on{background:var(--sel);box-shadow:inset 3px 0 0 var(--orange);font-weight:600}
+.frow .car{width:10px;color:var(--dimmer);font-size:8px;flex:none}
+.frow .fic{flex:none}
+.frow .fname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frow .fn{font:10px var(--mono);color:var(--dimmer)}
+.d1{padding-left:24px}.d2{padding-left:40px}.d3{padding-left:56px}
+.frow.drop{outline:2px dashed var(--orange);outline-offset:-2px;background:var(--sel)}
+
+.nlist{width:250px;flex:none;border-right:1px solid var(--bd);display:flex;flex-direction:column}
+.nltop{display:flex;align-items:center;gap:7px;padding:9px 11px;border-bottom:1px solid var(--bd)}
+.nltop b{flex:1;font-size:12.5px}
+.nlstyles{display:flex;gap:3px;padding:8px 9px;border-bottom:1px solid var(--bd)}
+.nlstyles button{flex:1;background:none;border:1px solid transparent;border-radius:6px;color:var(--dim);
+  font-size:11px;padding:5px 4px;cursor:pointer;font-family:inherit}
+.nlstyles button.on{background:var(--sel);color:var(--orange);font-weight:600;border-color:var(--orange)}
+.crumb{padding:6px 11px;border-bottom:1px solid var(--bd);font-size:10.5px;color:var(--dim);background:var(--panel2)}
+.crumb b{color:var(--txt)}
+.nrow{padding:9px 12px;border-bottom:1px solid var(--bd);cursor:grab}
+.nrow.on{background:var(--sel);box-shadow:inset 3px 0 0 var(--orange)}
+.nrow .t{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600}
+.nrow .tic{width:17px;height:17px;border-radius:4px;display:grid;place-items:center;font-size:9px;color:#fff;background:var(--purple)}
+.nrow .s{font-size:11px;color:var(--dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nrow .m{display:flex;gap:9px;font:10px var(--mono);color:var(--dimmer);margin-top:5px;flex-wrap:wrap}
+.ed{flex:1;padding:16px 20px;color:var(--dimmer);display:grid;place-items:center}
+
+/* ---- import mapping ---- */
+.mback{background:rgba(17,26,43,.32);padding:24px;display:grid;place-items:center}
+.modal{background:var(--panel);border-radius:13px;box-shadow:0 18px 46px rgba(17,26,43,.3);width:100%;max-width:680px;padding:20px 22px}
+.modal h3{font-size:16px;margin-bottom:3px}
+.msub{color:var(--dim);font-size:12px;margin-bottom:15px}
+.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--bd2);border-radius:10px;padding:11px 13px;margin-bottom:8px;cursor:pointer}
+.opt.on{border-color:var(--orange);background:var(--sel);box-shadow:0 0 0 2px rgba(210,105,30,.13)}
+.opt .rad{width:15px;height:15px;border-radius:50%;border:2px solid var(--bd2);flex:none;margin-top:2px}
+.opt.on .rad{border-color:var(--orange);background:radial-gradient(circle,var(--orange) 0 42%,transparent 44%)}
+.opt b{display:block;font-size:12.5px;margin-bottom:3px}
+.opt span{display:block;font-size:11px;color:var(--dim);line-height:1.5}
+.prev{margin-top:12px;border:1px solid var(--bd);border-radius:9px;overflow:hidden}
+.prevhd{padding:7px 11px;background:var(--panel2);border-bottom:1px solid var(--bd);font-size:11px;color:var(--dim)}
+.prevbody{display:grid;grid-template-columns:1fr 26px 1fr;gap:0;font:11px var(--mono)}
+.prevcol{padding:9px 11px}
+.prevcol.r{border-left:1px solid var(--bd);background:var(--panel2)}
+.arrow{display:grid;place-items:center;color:var(--dimmer);border-left:1px solid var(--bd)}
+.prevbody div.l{padding:2px 0;color:var(--dim)}
+.prevbody div.n{padding:2px 0;color:var(--txt)}
+.macts{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;align-items:center}
+table.dt{width:100%;border-collapse:collapse;font-size:12px}
+table.dt th{text-align:left;background:var(--panel2);border-bottom:1px solid var(--bd);padding:8px 11px;font-size:10px;
+  letter-spacing:.7px;text-transform:uppercase;color:var(--dim)}
+table.dt td{border-bottom:1px solid var(--bd);padding:8px 11px;vertical-align:top}
+table.dt tr:last-child td{border-bottom:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="doc">
+  <h1>Secured Notes — a real folder structure</h1>
+  <div class="sub">Mockup v1 · 08-11-2026. Static HTML, nothing built. Answering “I need to create a folder
+  structure, add it to where the notes are showing now, that way it will help me with the folder location.”</div>
+
+  <div class="note">
+    <b>Why this is a real build and not a rail you can bolt on.</b> Notes today have a <b>flat text column</b> —
+    <span class="rn">vault_notes.folder</span>, one string, no nesting, no rename, nothing to click. Passwords have
+    something completely different: <span class="rn">vault_folders</span>, a proper table with
+    <span class="rn">parent_id</span>, counts, and a rail. So Secured Notes is not missing a UI; it is missing
+    the model underneath it. That is also exactly why importing <span class="rn">D:\dev\_source</span> was
+    disappointing — <b>2,000 files from a deeply nested tree all collapsed into one “Category” box.</b>
+  </div>
+</div>
+
+<div class="sec">
+  <h2>0 · Where notes actually live — and what delete does</h2>
+  <div class="why">
+    Jason asked both on 08-11-2026 and called them huge. They are. Answered from the code, with receipts, because a
+    wrong answer here loses somebody's work.
+  </div>
+
+  <div class="note" style="background:#f2fbf5;border-color:#bfe6cd;border-left-color:var(--green)">
+    <b style="color:var(--green)">THE VAULT CANNOT DELETE, MOVE, RENAME OR OVERWRITE A FILE OF YOURS. There is no code
+    path that does it.</b>
+    <div style="margin-top:9px">An audit of every filesystem call in the whole vault service layer found
+    <b>zero</b> <span class="rn">unlinkSync</span>, <span class="rn">rmSync</span>,
+    <span class="rn">renameSync</span> or <span class="rn">copyFileSync</span>. Exactly three writes exist anywhere,
+    and none of them is a document of yours:</div>
+    <ul class="tight">
+      <li><span class="rn">crypto.ts:36</span> — the vault's own key file, in the app's data folder.</li>
+      <li><span class="rn">transfer.ts:108</span> and <span class="rn">:152</span> — the <b>Export</b> feature, writing
+      to the exact file you chose in a Save dialog.</li>
+    </ul>
+    <div style="margin-top:8px">Every other filesystem call in the vault is <span class="rn">readFileSync</span>,
+    <span class="rn">statSync</span>, <span class="rn">readdirSync</span> or <span class="rn">existsSync</span>.
+    Read-only, all of it.</div>
+  </div>
+
+  <div class="frame">
+    <table class="dt">
+      <thead><tr><th style="width:210px">You do this</th><th>What actually happens</th><th style="width:250px">Your disk</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>Create a note / runbook / snippet</b></td>
+          <td>One row is inserted into <span class="rn">vault_notes</span> inside the encrypted vault database.
+            <b>It is not a file and there is no folder to find it in.</b>
+            <span class="rn">notes.ts</span> imports only a UUID helper and the database — it has
+            <b>no filesystem access at all</b>.</td>
+          <td>Nothing is written anywhere.</td>
+        </tr>
+        <tr>
+          <td><b>Import a folder of files</b></td>
+          <td>Each file is <b>read</b>, and its text is copied into a new row. The vault holds a
+            <b>copy</b>, from that moment independent of the original.</td>
+          <td>Originals untouched — not moved, not modified, not marked.</td>
+        </tr>
+        <tr>
+          <td><b>Edit an imported note</b></td>
+          <td>The row changes. The file it came from does not — there is no link back and no write-back.</td>
+          <td><b>Untouched.</b> The two have diverged, on purpose.</td>
+        </tr>
+        <tr>
+          <td><b>Archive a note</b></td>
+          <td>Sets <span class="rn">archived_at</span> on the row. Full text kept, restorable.</td>
+          <td>Untouched.</td>
+        </tr>
+        <tr style="background:#fff7f7">
+          <td><b>Delete a note for good</b></td>
+          <td><span class="rn">DELETE FROM vault_notes WHERE id = ?</span> — one database row, and only if it is
+            already archived (<span class="rn">notes.ts:76-80</span>). <b>The row is gone for good; that is a real
+            loss of anything you typed IN the app.</b></td>
+          <td><b>Untouched.</b> If the note came from a file, that file is still exactly where it was.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="cap">Read the last row twice: delete is destructive <b>to the vault</b> and harmless <b>to your disk</b>.</div>
+
+  <div class="q">
+    <b>The consequence worth planning for.</b> A note you write in the app exists in <i>one</i> place — the encrypted
+    database — so it is only as safe as your backup of it. There is no folder of markdown files to fall back on.
+    <br><br>
+    Two things follow, neither built yet: the vault's <b>Export</b> should be part of your routine, and a
+    <b>&quot;write notes back out as .md files&quot;</b> option would give you a plain-text safety net. MindMerge is the
+    opposite model — it watches a real folder and the files are the truth — so if you would rather notes lived as files
+    on disk, that is a design conversation worth having before this gets big rather than after.
+  </div>
+</div>
+
+<!-- ============================================================ 1 -->
+<div class="sec">
+  <h2>1 · The tree lives in the SIDEBAR, under Shortcuts</h2>
+  <div class="why">
+    <b>Corrected from v1 (Jason 08-11-2026: "move the folders under the shortcuts sidebar").</b> The first pass drew a
+    third column beside the note list — wrong, and inconsistent: Passwords already puts its folder rail in the sidebar
+    directly under Shortcuts, and Notes should read the same way. It also costs nothing horizontally, which matters at
+    the 740-pixel floor where a third column would have left the editor about 200 pixels wide.
+    <br><br>
+    Selecting a folder filters the list; the breadcrumb above the list says where you are.
+  </div>
+
+  <div class="frame">
+    <div class="notewrap">
+      <div class="ftree">
+        <div class="fhead"><b>Shortcuts</b><button class="ficon" title="Add shortcut">+</button></div>
+        <div style="padding:4px 11px 8px;font-size:11px;color:var(--dimmer)">Nothing pinned yet.</div>
+
+        <div class="fhead" style="border-top:1px solid var(--bd)">
+          <b>Folders</b>
+          <button class="ficon" title="New folder">+</button>
+        </div>
+        <div class="fbody">
+          <div class="frow"><span class="car"></span><span class="fic">🗂</span><span class="fname">All notes</span><span class="fn">2,041</span></div>
+          <div class="frow"><span class="car">▼</span><span class="fic">📁</span><span class="fname">AvertXAI</span><span class="fn">1,204</span></div>
+          <div class="frow d1"><span class="car">▼</span><span class="fic">📁</span><span class="fname">Focal-Registry</span><span class="fn">318</span></div>
+          <div class="frow d2 on"><span class="car"></span><span class="fic">📁</span><span class="fname">docs</span><span class="fn">94</span></div>
+          <div class="frow d2"><span class="car"></span><span class="fic">📁</span><span class="fname">reports</span><span class="fn">61</span></div>
+          <div class="frow d2"><span class="car">▶</span><span class="fic">📁</span><span class="fname">R&amp;D-Backlogs</span><span class="fn">12</span></div>
+          <div class="frow d1"><span class="car">▶</span><span class="fic">📁</span><span class="fname">AFFiNE</span><span class="fn">688</span></div>
+          <div class="frow d1"><span class="car">▶</span><span class="fic">📁</span><span class="fname">RUNBOOKS</span><span class="fn">198</span></div>
+          <div class="frow drop"><span class="car">▶</span><span class="fic">📁</span><span class="fname">Clients</span><span class="fn">44</span></div>
+          <div class="frow" style="color:var(--dimmer)"><span class="car"></span><span class="fic">📥</span><span class="fname">Unfiled</span><span class="fn">784</span></div>
+        </div>
+        <div style="border-top:1px solid var(--bd);padding:8px 11px;font-size:11px;color:var(--dim)">⚙ Settings</div>
+      </div>
+
+      <div class="nlist">
+        <div class="nltop"><b>Secured Notes</b><button class="btn sm">⭳ Import</button><button class="ficon">«</button></div>
+        <div class="nlstyles"><button class="on">Notes</button><button>Runbooks</button><button>Snippets</button></div>
+        <div class="crumb">AvertXAI / Focal-Registry / <b>docs</b> · 94 notes</div>
+        <div class="nrow on">
+          <div class="t"><span class="tic">N</span> BASEPLATE-SOP-electron.md</div>
+          <div class="s">The baseplate standard operating procedure for every Electron module…</div>
+          <div class="m"><span>Created 07-18-2026</span><span>Edited 08-06-2026</span></div>
+        </div>
+        <div class="nrow">
+          <div class="t"><span class="tic">N</span> HANDOFF-vault-standalone.md</div>
+          <div class="s">Everything a fresh agent needs to pick the vault lane up…</div>
+          <div class="m"><span>Created 08-02-2026</span><span>Edited 08-10-2026</span></div>
+        </div>
+        <div class="nrow">
+          <div class="t"><span class="tic">N</span> VAULT-CANON-UPDATES.md</div>
+          <div class="s">Discrepancies between canon and the code, with receipts…</div>
+          <div class="m"><span>Created 08-01-2026</span><span>Edited 08-11-2026</span></div>
+        </div>
+      </div>
+
+      <div class="ed">the editor and preview, unchanged</div>
+    </div>
+  </div>
+  <div class="cap">Counts are <b>inclusive of subfolders</b> — “AvertXAI 1,204” means everything beneath it, because a parent
+  reading 0 while its children hold a thousand notes is the kind of number that makes people distrust the whole tree.
+  <b>Unfiled is always last and always visible</b>, even at zero: it is where anything without a folder goes, and a hidden
+  Unfiled is how notes get lost. The dashed outline on <b>Clients</b> is a drag-hover — dragging a note from the list onto
+  a folder moves it.</div>
+</div>
+
+<!-- ============================================================ 2 -->
+<div class="sec">
+  <h2>2 · Import — mirror the folders you already have</h2>
+  <div class="why">
+    This is the part that matters for what you just did. You pointed at <span class="rn">D:\dev\_source</span>, which has
+    a structure you have already thought about — and the importer threw it away and asked you to type one word.
+  </div>
+
+  <div class="frame"><div class="mback">
+    <div class="modal">
+      <h3>Where should these 2,041 notes go?</h3>
+      <div class="msub">Nothing is written until you press Import.</div>
+
+      <div class="opt on">
+        <span class="rad"></span>
+        <span>
+          <b>Mirror the folders on disk <span class="pill ok" style="margin-left:5px">recommended</span></b>
+          <span>Rebuild the source tree inside the vault, so a note is where you would look for it.
+          <b>142 folders</b> would be created.</span>
+        </span>
+      </div>
+      <div class="opt">
+        <span class="rad"></span>
+        <span><b>Mirror, but flatten below a depth</b>
+        <span>Keep the top levels and put everything deeper into the nearest kept parent. Useful when a tree is deep
+        but only the first two levels mean anything.</span></span>
+      </div>
+      <div class="opt">
+        <span class="rad"></span>
+        <span><b>All into one folder</b>
+        <span>The old behaviour — every file lands in a single folder you name. Fine for a small pile, wrong for 2,041.</span></span>
+      </div>
+
+      <div class="prev">
+        <div class="prevhd">What that produces — <b>first five of 142</b></div>
+        <div class="prevbody">
+          <div class="prevcol">
+            <div class="l">_source\AvertXAI-AFFiNE\BUILDING.md</div>
+            <div class="l">_source\AvertXAI-AFFiNE\Club12\affine…</div>
+            <div class="l">_source\AvertXAI-Focal-Registry\docs\SOP.md</div>
+            <div class="l">_source\AvertXAI-Focal-Registry\reports\R-01.md</div>
+            <div class="l">_source\RUNBOOKS\RB-004-release.md</div>
+          </div>
+          <div class="arrow">→</div>
+          <div class="prevcol r">
+            <div class="n">AvertXAI-AFFiNE</div>
+            <div class="n">AvertXAI-AFFiNE / Club12</div>
+            <div class="n">AvertXAI-Focal-Registry / docs</div>
+            <div class="n">AvertXAI-Focal-Registry / reports</div>
+            <div class="n">RUNBOOKS</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:11px;font-size:11.5px;color:var(--dim)">
+        The folder you chose becomes the root and is <b>not</b> recreated as a level — you picked
+        <span class="rn">_source</span>, so its children are the top of the tree, not children of a folder called
+        “_source”. <b>Existing folders are reused, never duplicated.</b>
+      </div>
+
+      <div class="macts">
+        <span style="margin-right:auto;font-size:11px;color:var(--dim)">2,041 notes · 142 folders</span>
+        <button class="btn">Cancel</button><button class="btn go">Import</button>
+      </div>
+    </div>
+  </div></div>
+  <div class="cap">The right-hand column is generated from the real paths, so what you approve is what you get — no “import and
+  find out”.</div>
+
+  <div class="q">
+    <b>On the 2,000 cap you hit — already fixed, and here is the honest version.</b> That number was a guard against
+    picking <span class="rn">C:\</span> by mistake and hanging the app; it was a guess, not a measurement, and it refused
+    a legitimate import. It is now <b>25,000</b> and a setting (<span class="rn">import.max_files</span>) so it never
+    needs a build to change.
+    <br><br>
+    A ceiling still exists because the walk is cheap but the <i>import</i> is not — it reads every file. At 2,041 files
+    that is fine. If you ever point it at something genuinely enormous, the honest fix is a progress bar with a Stop
+    button, not a bigger number.
+  </div>
+</div>
+
+<!-- ============================================================ 3 -->
+<div class="sec">
+  <h2>3 · What each action does — and what it never does</h2>
+  <div class="why">The rules, so folders cannot quietly eat a note. Same doctrine the Passwords rail already follows.</div>
+  <div class="frame">
+    <table class="dt">
+      <thead><tr><th style="width:150px">Action</th><th>What happens</th><th style="width:230px">What does NOT happen</th></tr></thead>
+      <tbody>
+        <tr><td><b>New folder</b></td><td>Created empty, at the top level or inside whatever is selected.</td><td>—</td></tr>
+        <tr><td><b>Rename</b></td><td>The folder's name changes. Notes are untouched.</td><td>Nothing on your disk is renamed. The vault holds copies.</td></tr>
+        <tr><td><b>Move a folder</b></td><td>Re-parented with its whole subtree.</td><td>Cannot be dropped inside itself — the tree stays a tree.</td></tr>
+        <tr><td><b>Drag a note in</b></td><td>That note's folder changes. One note, one folder.</td><td>No copy is made. It moves, it does not duplicate.</td></tr>
+        <tr><td><b>Delete a folder</b></td><td>The folder goes; its notes move to <b>Unfiled</b>, its subfolders move up one level.</td><td><b>A note is NEVER deleted by deleting a folder.</b> Confirm dialog says the count out loud.</td></tr>
+        <tr><td><b>Archive a note</b></td><td>Moves to the Archived shelf, remembering its folder.</td><td>Restoring puts it back in the same folder, not Unfiled.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="cap">The delete rule is the important one and it matches the Passwords rail exactly: a container is not its contents.</div>
+</div>
+
+<!-- ============================================================ 4 -->
+<div class="sec">
+  <h2>4 · What it costs to build</h2>
+  <div class="why">So the size is on the table before you say go.</div>
+  <div class="frame">
+    <table class="dt">
+      <thead><tr><th style="width:190px">Piece</th><th>What is involved</th></tr></thead>
+      <tbody>
+        <tr><td><b>Schema</b></td><td>New <span class="rn">vault_note_folders</span> table (id, uuid, org_id, name, parent_id, sort_order) plus a guarded
+          <span class="rn">ADD COLUMN folder_id</span> on <span class="rn">vault_notes</span>. Additive and re-runnable, per the migration rule.</td></tr>
+        <tr><td><b>The existing text column</b></td><td><b>Kept, not dropped</b> — dropping is banned, and it is the migration path: on first run, every distinct
+          <span class="rn">folder</span> string becomes a top-level folder and its notes get the matching
+          <span class="rn">folder_id</span>. Nothing to do by hand, nothing lost.</td></tr>
+        <tr><td><b>Services</b></td><td>Create, rename, move, delete-and-reflow, list-with-counts. A close copy of <span class="rn">folders.ts</span>, which
+          already solves all of it for Passwords.</td></tr>
+        <tr><td><b>Import mapping</b></td><td>Turn each file's relative path into a folder chain, create missing links, reuse existing ones. The walk already
+          returns <span class="rn">rel</span>, so the data is there.</td></tr>
+        <tr><td><b>UI</b></td><td>The tree column above, the breadcrumb, drag-to-move, and the three-option import step.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="q">
+    <b>Three questions before I build it.</b><br><br>
+    <b>1 · Should Notes share the Passwords folder tree, or have its own?</b> My lean is <b>its own</b> — “Financial” and
+    “Photography” are password folders, and a tree holding both credentials and 2,000 markdown files gets unusable fast.
+    Separate trees, same behaviour.<br><br>
+    <b>2 · One folder per note, or many?</b> Lean: <b>one.</b> Tags do the many-places job better, and a note in two
+    folders makes “delete this folder” ambiguous. Say if you want tags too — that is a separate, smaller build.<br><br>
+    <b>3 · Do Runbooks and Snippets share the tree with Notes, or get their own?</b> Lean: <b>share it.</b> They are one
+    stored shape with three list styles, and three parallel trees over the same table would be three places to file the
+    same thing.
+  </div>
+</div>
+
+</div>
+</body>
+</html>

@@ -3,7 +3,7 @@
 // shared spine: the local SQLite org DB (focalregistry_{org_id}.db) and the Data Viewer IPC channels.
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
 import path from "node:path";
-import { getDb, initDb, openDb } from "./core/services/db";
+import { closeAllDbs, getDb, initDb, openDb } from "./core/services/db";
 import { ensureAllModuleSchemas } from "./core/services/db/allSchemas";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
 import { getSetting, setSetting } from "./core/services/settings";
@@ -68,6 +68,10 @@ let isQuitting = false;
 app.on("before-quit", () => {
   isQuitting = true;
 });
+// Checkpoint and close every open connection BEFORE the process goes, so each WAL sidecar is folded
+// into its database file and what is on disk after quit is the complete story. Mirrors the vault
+// lane's dev host (Jason's 08-12-2026 ruling); mounted root-lane with the vault, 08-14-2026.
+app.on("will-quit", () => closeAllDbs());
 // The Software Update window's Quit (required mode) must beat hide-to-tray exactly like the tray's
 // own Exit does — set the real-quit flag in THIS scope first; update-window.ts's handler on the same
 // channel then destroys its window and calls app.quit(). (Second listener, no import cycle.)
@@ -101,6 +105,33 @@ function hardenWebContents(win: BrowserWindow): void {
   win.webContents.on("will-navigate", (event, url) => {
     event.preventDefault();
     openExternally(url);
+  });
+
+  /**
+   * THE RIGHT-CLICK MENU (Jason 08-16-2026: "if i highlight to select some text, and right click
+   * on the mouse, nothing happens"). Electron ships NO default context menu — every app builds its
+   * own, and this one never had, so cut/copy/paste were keyboard-only in every module. Roles do
+   * the actual work (the OS-standard behaviours); editFlags say what is honest to enable at THIS
+   * click. In the Milkdown editor, Paste lands in ProseMirror's paste path, so the vault's
+   * markdown-aware paste handler still runs — a right-click paste and a Ctrl+V are the same event.
+   */
+  win.webContents.on("context-menu", (_event, params) => {
+    const template: Electron.MenuItemConstructorOptions[] = [];
+    if (params.isEditable) {
+      template.push(
+        { label: "Cut", role: "cut", enabled: params.editFlags.canCut },
+        { label: "Copy", role: "copy", enabled: params.editFlags.canCopy },
+        { label: "Paste", role: "paste", enabled: params.editFlags.canPaste },
+        { label: "Paste without formatting", role: "pasteAndMatchStyle", enabled: params.editFlags.canPaste },
+        { type: "separator" },
+        { label: "Select all", role: "selectAll", enabled: params.editFlags.canSelectAll }
+      );
+    } else if (params.selectionText.trim() !== "") {
+      // Read-only surfaces (the preview, tables, the log): copying a selection is the one thing
+      // a right-click must always offer.
+      template.push({ label: "Copy", role: "copy" });
+    }
+    if (template.length > 0) Menu.buildFromTemplate(template).popup({ window: win });
   });
 }
 
@@ -257,6 +288,13 @@ app.whenReady().then(async () => {
   registerIpcHandlers();
   const win = createWindow();
   setMainWindow(win);
+  // Crash visibility (added at the 08-14 mount gate): a dead or hung renderer paints a silent
+  // black window and writes NOTHING to the console — these two lines are the difference between
+  // "it went black" and a reason. Log-only; recovery stays a human decision.
+  win.webContents.on("render-process-gone", (_e, details) =>
+    console.error(`[shell] renderer gone: reason=${details.reason} exitCode=${details.exitCode}`)
+  );
+  win.webContents.on("unresponsive", () => console.error("[shell] renderer unresponsive"));
   applyThemeOverlay(bootThemeMode); // seed the funnel's theme; boot flag keeps the frame boot-dark
   if (bootSkip) setBooting(false); // Skip Fast Boot: no terminal → clear the boot flag so the frame paints theme now (no boot-dark flash). The renderer's boot:done re-asserts idempotently.
   // Tray defaults ON (§3.11). Read the persisted setting once the org DB is open; "0" = user turned

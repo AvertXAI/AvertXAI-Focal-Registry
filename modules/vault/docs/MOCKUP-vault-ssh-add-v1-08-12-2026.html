@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP — Add an SSH key — v1 08-12-2026</title>
+<style>
+:root{
+  --bg:#efece7; --modal:#ffffff; --ink:#1f2937; --label:#6b7280; --hint:#9aa0a8;
+  --line:#e5e7eb; --salmon:#e2795c; --salmon-soft:#f0b39e; --req:#e2603d;
+  --green:#16a34a; --bar:#f5f4f1; --violet:#6355d8;
+  --sans:'Segoe UI',system-ui,sans-serif; --mono:Consolas,'Cascadia Mono',monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--sans);padding:22px 20px 70px}
+h2{margin:0;font-size:19px;font-weight:700}
+.mono{font-family:var(--mono)}
+.nav{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:20px}
+.nav button{border:1px solid var(--line);background:var(--modal);border-radius:8px;padding:5px 12px;
+  font:12px var(--sans);cursor:pointer;color:var(--label)}
+.nav button.on{background:var(--salmon);border-color:var(--salmon);color:#fff;font-weight:600}
+.stage{max-width:860px;margin:0 auto}
+.card{background:var(--modal);border-radius:16px;padding:26px 28px;box-shadow:0 12px 44px rgba(30,25,20,.16)}
+.sub{color:var(--label);font-size:13.5px;margin-top:6px}
+.sub b{color:var(--ink)}
+.state{display:none}.state.on{display:block}
+.slab{font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:var(--label);margin:22px 0 9px}
+
+/* the pane itself */
+.pane{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--modal)}
+.panehd{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bar);
+  border-bottom:1px solid var(--line);font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:var(--label)}
+.panehd .grow{flex:1}
+.empty{padding:34px 24px;text-align:center;color:var(--label);font-size:13.5px}
+.empty b{color:var(--ink)}
+
+.btn{border:1px solid var(--line);background:var(--modal);border-radius:8px;padding:6px 13px;
+  font:13px var(--sans);cursor:pointer;color:var(--ink)}
+.btn.primary{background:var(--salmon);border-color:var(--salmon);color:#fff;font-weight:600}
+.btn.sm{padding:3px 9px;font-size:12px}
+
+.keyrow{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--line);cursor:pointer}
+.keyrow:last-child{border-bottom:0}
+.keyrow.on{background:#f6f1ee;box-shadow:inset 3px 0 0 var(--salmon);font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--violet);flex:none}
+.keyrow .grow{flex:1}
+.keyrow .n{font-family:var(--mono);font-size:11px;color:var(--hint)}
+
+/* form */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.field{margin-top:14px}
+.field label{display:block;font-size:12px;color:var(--label);margin-bottom:5px;font-weight:600}
+.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:8px;
+  padding:8px 10px;font:13px var(--sans);background:var(--modal);color:var(--ink)}
+.field textarea{font-family:var(--mono);font-size:11.5px;line-height:1.5;resize:vertical;min-height:78px}
+.field .req{color:var(--req)}
+.tag{display:inline-block;border:1px solid var(--line);border-radius:20px;padding:1px 8px;
+  font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;color:var(--label);margin-left:7px;vertical-align:2px}
+.tag.secret{border-color:var(--req);color:var(--req)}
+.tag.open{border-color:var(--green);color:var(--green)}
+.tag.derived{border-color:var(--violet);color:var(--violet)}
+.hint{font-size:12px;color:var(--hint);margin-top:6px;line-height:1.5}
+
+.new{border:1px dashed var(--salmon-soft);border-radius:12px;padding:14px 16px;margin-top:16px;background:#fdf7f4}
+.new .slab{margin-top:0}
+
+.art{font-family:var(--mono);font-size:11px;line-height:1.25;white-space:pre;background:var(--bar);
+  border:1px solid var(--line);border-radius:10px;padding:12px 14px;color:var(--ink)}
+.fp{font-family:var(--mono);font-size:11.5px;word-break:break-all}
+
+.acts{display:flex;gap:8px;justify-content:flex-end;margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
+
+.why{max-width:860px;margin:22px auto 0;background:var(--modal);border-radius:14px;padding:20px 24px;
+  box-shadow:0 6px 22px rgba(30,25,20,.09);font-size:13.5px;line-height:1.65}
+.why h3{margin:0 0 10px;font-size:14px}
+.why p{margin:0 0 11px}
+.why p:last-child{margin-bottom:0}
+.why b{color:var(--ink)}
+.why code{font-family:var(--mono);font-size:12px;background:var(--bar);padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <button class="on" data-go="a">1 · The pane today (broken)</button>
+  <button data-go="b">2 · The pane, fixed</button>
+  <button data-go="c">3 · New entry — SSH key kind</button>
+  <button data-go="d">4 · After saving</button>
+</div>
+
+<!-- ══════════════════════════════════════════════ 1 — what is on screen now -->
+<div class="stage state on" id="a">
+  <div class="card">
+    <h2>Infrastructure · SSH keys — as it ships today</h2>
+    <p class="sub">
+      The pane is not empty because you have no keys. It is empty because <b>there is no way to make one.</b>
+    </p>
+
+    <div class="slab">what you see</div>
+    <div class="pane">
+      <div class="panehd"><span class="grow">SSH keys</span></div>
+      <div class="empty">
+        No SSH keys yet. Add one with <b>+ New entry</b> and pick the <b>SSH key</b> kind — the fingerprint
+        and randomart appear here automatically.
+      </div>
+    </div>
+
+    <div class="hint" style="margin-top:14px">
+      Both halves of that sentence are wrong on this screen. <b>+ New entry</b> is a Passwords-tab button and is
+      not drawn here. And the <b>SSH key</b> kind is not in the picker at all — the list is Login, API key,
+      Financial, Taxpayer ID, Secure note. An SSH key can currently only reach this vault through the seed
+      loader or a transfer import.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════ 2 — the fixed pane -->
+<div class="stage state" id="b">
+  <div class="card">
+    <h2>The pane, fixed</h2>
+    <p class="sub">One button, in the place you are already looking, and an empty state that names a control on the same screen.</p>
+
+    <div class="slab">empty</div>
+    <div class="pane">
+      <div class="panehd">
+        <span class="grow">SSH keys</span>
+        <button class="btn sm primary">+ Add SSH key</button>
+      </div>
+      <div class="empty">
+        No SSH keys yet. <b>Add one</b> and paste its public key — the fingerprint and randomart are
+        derived here and never stored.
+        <div style="margin-top:14px"><button class="btn primary">+ Add SSH key</button></div>
+      </div>
+    </div>
+
+    <div class="slab">and once there are some</div>
+    <div class="pane">
+      <div class="panehd">
+        <span class="grow">SSH keys</span>
+        <button class="btn sm primary">+ Add SSH key</button>
+      </div>
+      <div class="keyrow on"><span class="dot"></span><span class="grow">Hetzner — core node</span><span class="n">ed25519</span></div>
+      <div class="keyrow"><span class="dot"></span><span class="grow">GitHub — signing</span><span class="n">ed25519</span></div>
+      <div class="keyrow"><span class="dot"></span><span class="grow">Backblaze — rsync</span><span class="n">rsa</span></div>
+    </div>
+
+    <div class="hint" style="margin-top:14px">
+      The button sits in the card head, not the empty state alone — you need it most on the second key, when
+      the empty state is long gone.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════ 3 — the entry editor -->
+<div class="stage state" id="c">
+  <div class="card">
+    <h2>New entry <span class="tag">SSH key</span></h2>
+    <p class="sub">
+      The same entry editor every other kind uses. Choosing <b>SSH key</b> reveals two fields and hides the
+      ones that mean nothing for a key.
+    </p>
+
+    <div class="two">
+      <div class="field">
+        <label for="m-label">Company / name <span class="req">*</span></label>
+        <input id="m-label" value="Hetzner — core node">
+      </div>
+      <div class="field">
+        <label for="m-kind">Kind</label>
+        <select id="m-kind"><option>SSH key</option><option>Login</option><option>API key</option><option>Financial</option><option>Taxpayer ID</option><option>Secure note</option></select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="m-user">Username on the host</label>
+      <input id="m-user" value="root" placeholder="root">
+      <div class="hint">What goes before the <code>@</code>. Not a secret.</div>
+    </div>
+
+    <div class="new">
+      <div class="slab">shown only for this kind</div>
+
+      <div class="field" style="margin-top:0">
+        <label for="m-pub">Public key <span class="tag open">not secret</span></label>
+        <textarea id="m-pub" spellcheck="false">ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH8kQ2vJ7pXqR4mZbN1tYcF3wLsD9eK0gVuPxA6nHrTj jason@core</textarea>
+        <div class="hint">
+          Paste the whole line from <code>id_ed25519.pub</code>. This is the half you hand to a server — it is
+          public by design, and it is what the fingerprint and randomart are derived from.
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="m-pass">Passphrase <span class="tag secret">secret</span></label>
+        <div style="display:flex;gap:8px">
+          <input id="m-pass" type="password" value="correct-horse-battery-staple" style="flex:1">
+          <button class="btn">Show</button>
+        </div>
+        <div class="hint">
+          The thing the IDE keeps asking for. Encrypted with everything else, and every read of it lands in
+          the access log.
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="m-notes">Notes</label>
+      <input id="m-notes" placeholder="Which machines this opens, and who else holds it">
+    </div>
+
+    <div class="hint" style="margin-top:16px">
+      <b>The PRIVATE key is not asked for and has no field.</b> It stays in <code>~/.ssh</code> where the agent
+      expects it. This vault records what a key <i>is</i>, what opens it, and which machines it reaches —
+      moving the private key in here would make the vault a second place it can leak from, and would not save
+      you a single step.
+    </div>
+
+    <div class="acts">
+      <button class="btn">Cancel</button>
+      <button class="btn primary">Save entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════ 4 — result -->
+<div class="stage state" id="d">
+  <div class="card">
+    <h2>Saved — and the derived half appears on its own</h2>
+    <p class="sub">Nothing extra was stored. Both panels below are computed from the public key on every render.</p>
+
+    <div class="two" style="margin-top:18px;align-items:start">
+      <div>
+        <div class="pane">
+          <div class="panehd"><span class="grow">SSH keys</span><button class="btn sm primary">+ Add</button></div>
+          <div class="keyrow on"><span class="dot"></span><span class="grow">Hetzner — core node</span><span class="n">ed25519</span></div>
+        </div>
+
+        <div class="field">
+          <label>Passphrase <span class="tag secret">secret</span></label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="mono" style="flex:1;letter-spacing:2px;color:var(--hint)">••••••••••••••</span>
+            <button class="btn sm">Reveal</button>
+            <button class="btn sm primary">Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="slab" style="margin-top:0">Derived — never stored</div>
+        <div class="field" style="margin-top:0">
+          <label>Fingerprint <span class="tag derived">derived</span></label>
+          <div class="fp">SHA256:9kQ2vJ7pXqR4mZbN1tYcF3wLsD9eK0gVuPxA6nHrTj0</div>
+        </div>
+        <div style="margin-top:12px" class="art">+--[ED25519 256]--+
+|      .o+*=B+    |
+|       o.=.O o   |
+|      . + O =    |
+|       o = * .   |
+|      . S o .    |
+|       o o .     |
+|      . . o      |
+|         E       |
+|                 |
++----[SHA256]-----+</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="why">
+  <h3>What this changes, and what it does not</h3>
+  <p>
+    <b>The service already does all of this.</b> <code>store.ts</code> accepts a <code>publicKey</code> on
+    create and a <code>passphrase</code> in extras; <code>sshArt</code> derives the fingerprint and randomart;
+    the Infrastructure pane filters on <code>kind === "ssh_key"</code> and renders both. The only missing
+    pieces are in the renderer: <code>ssh_key</code> is absent from the editor's kind list, the two fields it
+    needs are not drawn, and the pane has no button to open the editor. This is wiring, not new capability.
+  </p>
+  <p>
+    <b>Two fields appear, and some disappear.</b> A key has no website and no password strength, so the URL
+    row and the generator collapse for this kind. A generator meter under a passphrase you did not generate
+    is noise, and offering to invent a passphrase for a key that already exists on disk would be actively
+    wrong.
+  </p>
+  <p>
+    <b>The private key is out of scope, permanently.</b> Storing it would create a second place it can leak
+    from and save nobody a step — <code>ssh-agent</code> already holds it. If that is ever reconsidered it is
+    a canon decision, not a form field.
+  </p>
+  <p>
+    <b>Open question for Jason.</b> Should <b>+ Add SSH key</b> open the shared entry editor with the kind
+    pre-selected, or a trimmed SSH-only dialog? My lean is the shared editor: one form to maintain, and the
+    kind selector stays honest about the fact that a key is an entry like any other. Say the word if you want
+    the trimmed one.
+  </p>
+</div>
+
+<script>
+document.querySelectorAll('.nav button').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.querySelectorAll('.nav button').forEach(function (x) { x.classList.remove('on'); });
+    document.querySelectorAll('.state').forEach(function (s) { s.classList.remove('on'); });
+    b.classList.add('on');
+    document.getElementById(b.dataset.go).classList.add('on');
+  });
+});
+</script>
+</body>
+</html>

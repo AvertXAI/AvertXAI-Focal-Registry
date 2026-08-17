@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Secured Vault — redesign · 08-10-2026</title>
+<style>
+:root{
+  --win:#f4f6fa; --bar:#ffffff; --side:#eef1f7; --panel:#ffffff; --panel2:#f3f6fb;
+  --field:#ffffff; --sel:#fdf2e9; --bd:#dde4ee; --bd2:#c2ccdb;
+  --txt:#111a2b; --dim:#586a86; --dimmer:#8492a8; --lock:#a9b4c5;
+  --green:#128a4b; --greenbtn:#1f9d44; --purple:#6355d8; --red:#cf3b45;
+  --orange:#d2691e; --blue:#2f6fd0; --amber:#c9821a; --teal:#17838f;
+  --code:#f6f8fb; --shadow:rgba(23,38,64,.13);
+  --mono:'Cascadia Mono','Consolas',monospace; --sans:'Segoe UI',system-ui,sans-serif;
+}
+body.dark{
+  --win:#0a0e17; --bar:#0d1320; --side:#0b1019; --panel:#0e1626; --panel2:#111d31;
+  --field:#15233b; --sel:#1d1710; --bd:#1b2942; --bd2:#24365a;
+  --txt:#e9eef7; --dim:#7e92b0; --dimmer:#54678a; --lock:#3a465f;
+  --green:#38d982; --orange:#e08a3a; --blue:#4f8df0; --amber:#e0a93a; --teal:#2bb5c4;
+  --red:#e8636d; --code:#0c1524; --shadow:rgba(0,0,0,.55);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#e7ebf2;font-family:var(--sans);color:var(--txt);padding:20px 16px 60px}
+body.dark{background:#05080f}
+
+.optbar{max-width:1560px;margin:0 auto 12px;display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+.optbar .lead{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--dimmer);margin-right:4px}
+.obtn{background:var(--panel);border:1px solid var(--bd);color:var(--dim);font-size:12px;padding:8px 13px;border-radius:8px;cursor:pointer;font-family:var(--sans)}
+.obtn.on{background:var(--sel);border-color:var(--orange);color:var(--txt);font-weight:600}
+.obtn b{font-family:var(--mono);color:var(--dimmer);margin-right:6px}
+.obtn.on b{color:var(--orange)}
+.obtn.theme{margin-left:auto}
+
+.app{max-width:1560px;margin:0 auto;background:var(--win);border-radius:12px;box-shadow:0 18px 50px var(--shadow);overflow:hidden;border:1px solid var(--bd)}
+.top{display:flex;align-items:center;gap:14px;background:var(--bar);padding:11px 18px;border-bottom:1px solid var(--bd)}
+.logo{width:30px;height:30px;border-radius:50%;background:var(--txt);color:var(--bar);font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;flex:0 0 30px}
+.crumb{font-size:13px;color:var(--dim);white-space:nowrap} .crumb b{color:var(--txt)} .crumb .lk{color:var(--lock)}
+.search{flex:1;max-width:440px;background:var(--field);border:1px solid var(--bd);border-radius:8px;padding:7px 12px;font-size:12px;color:var(--dimmer)}
+.wc{margin-left:auto;display:flex;gap:12px;color:var(--dim);font-size:14px;align-items:center}
+
+/* top navbar: TWO tabs only */
+.navbar{display:flex;gap:22px;padding:12px 20px 0;border-bottom:1px solid var(--bd);background:var(--bar)}
+.ntab{font-size:14px;color:var(--dim);padding-bottom:12px;cursor:pointer;font-weight:500}
+.ntab.on{color:var(--txt);font-weight:700;box-shadow:inset 0 -2px 0 var(--orange)}
+
+.shellbody{display:flex;min-height:660px}
+.side{width:224px;flex:0 0 224px;background:var(--side);border-right:1px solid var(--bd);display:flex;flex-direction:column;transition:width .16s,flex-basis .16s;overflow:hidden}
+.side.collapsed{width:46px;flex-basis:46px}
+.side.collapsed .sbtxt,.side.collapsed .srch,.side.collapsed .newbtn span,.side.collapsed .rn,.side.collapsed .shead{display:none}
+.side.collapsed .newbtn{padding:9px 0}
+.sidetop{padding:12px 11px 6px;display:flex;align-items:center;gap:8px}
+.collapse{margin-left:auto;background:none;border:1px solid var(--bd);border-radius:6px;color:var(--dim);cursor:pointer;font-size:11px;padding:3px 7px;font-family:var(--mono)}
+.sidescroll{flex:1;overflow:auto;padding:0 11px}
+.srch{width:100%;background:var(--field);border:1px solid var(--bd);border-radius:8px;padding:8px 11px;font-size:12px;color:var(--dimmer);margin-bottom:9px}
+.newbtn{width:100%;background:var(--greenbtn);color:#fff;border:0;border-radius:8px;padding:9px 12px;font-size:12.5px;font-weight:600;cursor:pointer;font-family:var(--sans);margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:6px}
+.shead{font-size:9.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--dimmer);margin:14px 0 5px 6px;font-weight:700}
+.srow{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:7px;font-size:12.5px;color:var(--txt);cursor:pointer}
+.srow:hover{background:var(--panel2)}
+.srow.on{background:var(--sel);font-weight:600;box-shadow:inset 3px 0 0 var(--orange)}
+.sdot{width:8px;height:8px;border-radius:50%;flex:none}
+.sbtxt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rn{font-family:var(--mono);font-size:11px;color:var(--dimmer)}
+.sidefoot{border-top:1px solid var(--bd);padding:9px 11px}
+.gear{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:7px;cursor:pointer;font-size:12.5px;color:var(--txt)}
+.gear:hover{background:var(--panel2)}
+
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+/* Vault sub-tabs */
+.subtabs{display:flex;gap:6px;padding:12px 20px 0;border-bottom:1px solid var(--bd);background:var(--win)}
+.subtab{font-size:13px;color:var(--dim);padding:8px 15px;border:1px solid transparent;border-bottom:0;border-radius:9px 9px 0 0;cursor:pointer;margin-bottom:-1px}
+.subtab.on{color:var(--txt);font-weight:600;background:var(--panel);border-color:var(--bd)}
+.content{flex:1;min-width:0;overflow:auto;padding:16px 20px 22px}
+
+.view{display:none}.view.on{display:block}
+.mlabel{font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:var(--orange);font-weight:700}
+.btn{border-radius:8px;padding:7px 13px;font-size:12.5px;font-weight:600;border:1px solid var(--bd2);background:var(--panel2);color:var(--txt);font-family:var(--sans);cursor:pointer;white-space:nowrap}
+.btn.pri{background:var(--orange);border-color:var(--orange);color:#fff}
+.btn.go{background:var(--greenbtn);border-color:var(--greenbtn);color:#fff}
+.btn.sm{padding:5px 10px;font-size:11.5px}
+.btn.dgr{border-color:var(--red);color:var(--red)}
+.seg{display:inline-flex;border:1px solid var(--bd2);border-radius:8px;overflow:hidden}
+.seg button{background:none;border:0;border-right:1px solid var(--bd2);color:var(--dim);font-size:12px;padding:6px 13px;cursor:pointer;font-family:var(--sans)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--sel);color:var(--orange);font-weight:600}
+.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+
+/* passwords grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:12px}
+.tile{aspect-ratio:1.12;border:1px solid var(--bd);border-radius:12px;background:var(--panel);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:10px 8px;cursor:pointer}
+.tile:hover{border-color:var(--orange)}
+.mg{width:44px;height:44px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;color:#fff}
+.tn{font-size:11.5px;font-weight:600;text-align:center}
+.tu{font-size:10px;color:var(--dimmer);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile.add{border-style:dashed;color:var(--dim)}
+.plus{font-size:22px;color:var(--dim)}
+/* list */
+.ltable{width:100%;border-collapse:collapse}
+.ltable td{padding:9px 10px;border-bottom:1px solid var(--bd);font-size:12.5px}
+.ltable tr:hover{background:var(--panel2)}
+
+/* notes */
+.notewrap{display:flex;border:1px solid var(--bd);border-radius:12px;overflow:hidden;min-height:560px;background:var(--panel)}
+.notelist{width:264px;flex:none;border-right:1px solid var(--bd);display:flex;flex-direction:column;transition:width .16s;overflow:hidden}
+.notelist.collapsed{width:44px}
+.notelist.collapsed .nl-body,.notelist.collapsed .nl-search{display:none}
+.nl-top{padding:9px 11px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:7px}
+.nl-styles{display:flex;gap:2px;padding:8px 9px;border-bottom:1px solid var(--bd)}
+.nl-styles button{flex:1;background:none;border:1px solid transparent;border-radius:6px;color:var(--dim);font-size:11px;padding:5px 4px;cursor:pointer;font-family:var(--sans)}
+.nl-styles button.on{background:var(--sel);color:var(--orange);font-weight:600;border-color:var(--orange)}
+.nl-search{padding:8px 10px;border-bottom:1px solid var(--bd)}
+.nl-body{flex:1;overflow:auto}
+.nrow{padding:10px 13px;border-bottom:1px solid var(--bd);cursor:pointer}
+.nrow:hover{background:var(--panel2)}
+.nrow.on{background:var(--sel);box-shadow:inset 3px 0 0 var(--orange)}
+.nrow .t{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:7px}
+.nrow .s{font-size:11px;color:var(--dimmer);margin-top:3px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.nrow .m{font-size:10px;color:var(--lock);margin-top:4px;font-family:var(--mono)}
+.ticon{width:16px;height:16px;border-radius:5px;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff}
+.noteedit{flex:1;min-width:0;display:flex;flex-direction:column}
+.edbar{display:flex;align-items:center;gap:6px;padding:9px 12px;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.tbtn{min-width:28px;height:27px;padding:0 7px;border:1px solid transparent;background:none;border-radius:6px;color:var(--dim);cursor:pointer;font-size:13px;font-family:var(--sans)}
+.tbtn:hover{background:var(--panel2);border-color:var(--bd)}
+.tbtn.hot{color:var(--orange);border-color:var(--orange);background:var(--sel)}
+.help{margin-left:4px;width:26px;height:26px;border-radius:50%;border:1px solid var(--bd2);background:var(--panel);color:var(--dim);cursor:pointer;font-weight:700}
+.help:hover{border-color:var(--orange);color:var(--orange)}
+.modeseg{margin-left:auto}
+.split{flex:1;display:flex;min-height:0}
+.pane{flex:1;min-width:0;overflow:auto;padding:16px 20px}
+.pane.prev{border-right:1px solid var(--bd)}
+.pane.src{font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--panel2);color:var(--dim)}
+.pane.src .h{color:var(--orange)} .pane.src .k{color:var(--purple)} .pane.src .f{color:var(--dimmer)}
+.panehdr{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dimmer);margin-bottom:11px;display:flex;align-items:center;gap:7px}
+.editdot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.prev h1{font-size:21px;margin:0 0 12px}
+.prev h2{font-size:15px;margin:18px 0 8px}
+.prev p{margin:0 0 11px;font-size:13.5px;line-height:1.7}
+.prev code{font-family:var(--mono);font-size:12px;background:var(--code);border:1px solid var(--bd);border-radius:4px;padding:1px 5px}
+.cblock{background:var(--code);border:1px solid var(--bd);border-radius:9px;margin:0 0 13px;overflow:hidden}
+.cblock .cb{display:flex;gap:8px;padding:6px 11px;border-bottom:1px solid var(--bd);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--dimmer)}
+.cblock pre{padding:11px 13px;overflow-x:auto;font-family:var(--mono);font-size:12px;line-height:1.6}
+.vref{display:inline-flex;align-items:center;gap:6px;background:var(--sel);border:1px solid var(--orange);border-radius:7px;padding:2px 4px 2px 9px;font-size:11.5px}
+.vref .lk{color:var(--orange);font-weight:700}
+.vref button{border:1px solid var(--bd2);background:var(--panel);color:var(--dim);border-radius:5px;font-size:10px;padding:2px 7px;cursor:pointer;font-family:var(--sans)}
+.caret{cursor:pointer;color:var(--orange);font-family:var(--mono)}
+
+/* runbook run-mode in the preview pane */
+.step{display:flex;gap:12px;padding:13px 0;border-bottom:1px solid var(--bd)}
+.step:last-child{border-bottom:0}
+.snum{width:25px;height:25px;flex:none;border-radius:50%;border:1.5px solid var(--bd2);color:var(--dim);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer}
+.step.done .snum{background:var(--greenbtn);border-color:var(--greenbtn);color:#fff}
+.step.done .sb{opacity:.5}
+.sb{flex:1;min-width:0}
+.st{font-size:13px;font-weight:600;margin-bottom:7px}
+.cmd{display:flex;align-items:center;gap:9px;background:var(--code);border:1px solid var(--bd);border-radius:8px;padding:8px 11px;font-family:var(--mono);font-size:11.5px;margin-bottom:7px}
+.cmd .c{flex:1;min-width:0;overflow-x:auto;white-space:nowrap}
+
+/* infra */
+.card{background:var(--panel);border:1px solid var(--bd);border-radius:12px;padding:15px 17px;margin-bottom:14px}
+.chips{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px}
+.chip{background:var(--panel);border:1px solid var(--bd);border-radius:9px;padding:9px 13px;min-width:96px}
+.chip .k{display:block;font-size:9px;letter-spacing:.9px;text-transform:uppercase;color:var(--dimmer);margin-bottom:3px}
+.chip .v{font-family:var(--mono);font-size:19px;font-weight:700}
+table.dt{width:100%;border-collapse:collapse}
+table.dt th{text-align:left;font-size:9.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dimmer);padding:0 10px 8px 0;font-weight:700;border-bottom:1px solid var(--bd)}
+table.dt td{padding:9px 10px 9px 0;border-bottom:1px solid var(--bd);font-size:12.5px}
+.pill{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.4px;padding:2px 8px;border-radius:20px;text-transform:uppercase}
+.pill.warn{background:rgba(201,130,26,.14);color:var(--amber)}
+.pill.grey{background:var(--panel2);color:var(--dimmer)}
+.pill.info{background:rgba(47,111,208,.12);color:var(--blue)}
+.art{font-family:var(--mono);font-size:12px;line-height:1.3;background:var(--code);border:1px solid var(--bd);border-radius:9px;padding:12px 14px;display:inline-block;white-space:pre}
+.fbox{background:var(--panel2);border:1px solid var(--bd);border-radius:9px;padding:10px 12px;margin-bottom:10px}
+.fl{font-size:10px;color:var(--dimmer);margin-bottom:5px;letter-spacing:.5px;text-transform:uppercase;display:flex;gap:8px;align-items:center}
+.fv{font-size:12.5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;word-break:break-all}
+.fv .facts{margin-left:auto;display:flex;gap:6px}
+.derived{font-size:9px;letter-spacing:.6px;text-transform:uppercase;color:var(--teal);border:1px solid var(--teal);border-radius:4px;padding:0 5px}
+.masked{font-family:var(--mono);color:var(--dimmer);letter-spacing:2px}
+.split2{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+@media(max-width:1100px){.split2{grid-template-columns:1fr}}
+.paths{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:11px}
+.path{border:1px solid var(--bd);border-radius:11px;padding:14px 15px;cursor:pointer;background:var(--panel)}
+.path.on{border-color:var(--orange);background:var(--sel)}
+.path .pi{font-size:19px;margin-bottom:7px}
+.path .pt{font-size:13px;font-weight:700;margin-bottom:5px}
+.path .pd{font-size:11.5px;color:var(--dimmer);line-height:1.5}
+
+/* repos */
+.repo{border:1px solid var(--bd);border-radius:11px;margin-bottom:9px;background:var(--panel);overflow:hidden}
+.rhd{display:flex;align-items:center;gap:12px;padding:12px 15px;cursor:pointer}
+.rhd:hover{background:var(--panel2)}
+.rav{width:32px;height:32px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:#fff}
+.rti{font-size:13.5px;font-weight:700;display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.rds{font-size:11.5px;color:var(--dimmer);margin-top:3px}
+.rst{display:flex;gap:13px;font-size:11px;color:var(--dim);flex:none;flex-wrap:wrap;align-items:center}
+.ld{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px}
+.rbody{display:none;border-top:1px solid var(--bd);background:var(--win);padding:14px 18px}
+.repo.open .rbody{display:block}
+.repo.open .rcar{transform:rotate(90deg)}
+.rcar{color:var(--dimmer);transition:transform .15s}
+.vstrip{display:flex;gap:9px;flex-wrap:wrap;align-items:center;padding:10px 13px;background:var(--sel);border:1px solid var(--orange);border-radius:9px;margin-bottom:12px;font-size:11.5px}
+
+/* modal */
+.scrim{position:fixed;inset:0;background:rgba(20,25,40,.5);display:none;align-items:flex-start;justify-content:center;padding:40px 18px;overflow:auto;z-index:80}
+.scrim.on{display:flex}
+.modal{width:100%;max-width:720px;background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:0;box-shadow:0 24px 60px var(--shadow)}
+.mhd{display:flex;align-items:center;gap:10px;padding:18px 22px;border-bottom:1px solid var(--bd)}
+.mhd h3{font-size:16px;font-weight:700}
+.mx{margin-left:auto;background:none;border:1px solid var(--bd);border-radius:7px;color:var(--dim);cursor:pointer;padding:5px 10px}
+.mbody{padding:18px 22px;display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:640px){.mbody{grid-template-columns:1fr}}
+.mgrp h4{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--orange);margin-bottom:9px}
+.mrow{display:flex;align-items:baseline;gap:10px;margin-bottom:8px;font-size:12.5px}
+.mrow .kbd{font-family:var(--mono);font-size:11px;background:var(--code);border:1px solid var(--bd);border-radius:5px;padding:2px 7px;color:var(--dim);white-space:nowrap;flex:none;min-width:76px}
+.mrow .d{color:var(--dim);line-height:1.5}
+.mfoot{padding:12px 22px;border-top:1px solid var(--bd);font-size:11.5px;color:var(--dimmer)}
+</style>
+</head>
+<body>
+
+<div class="optbar">
+  <span class="lead">Redesign · what goes where</span>
+  <button class="obtn on" data-view="passwords"><b>1</b>Vault › Passwords</button>
+  <button class="obtn" data-view="notes"><b>2</b>Vault › Secured Notes</button>
+  <button class="obtn" data-view="infra"><b>3</b>Vault › Infrastructure</button>
+  <button class="obtn" data-view="repos"><b>4</b>Repos</button>
+  <button class="obtn" id="helpopt"><b>?</b>Milkdown help</button>
+  <button class="obtn theme" id="themebtn">◐ Dark</button>
+</div>
+
+<div class="app" id="app">
+  <div class="top">
+    <div class="logo">A</div>
+    <div class="crumb">AvertXAI · Focal Registry / <b>Secured Vault</b> <span class="lk">🔒</span></div>
+    <div class="search">Search everything — passwords, notes, servers, repos</div>
+    <div class="wc"><span>☀</span><span>◐</span><span style="letter-spacing:5px">— ▢ ✕</span></div>
+  </div>
+
+  <!-- TOP NAVBAR: two tabs -->
+  <div class="navbar">
+    <div class="ntab on" data-nav="vault">Vault</div>
+    <div class="ntab" data-nav="repos">Repos</div>
+  </div>
+
+  <div class="shellbody">
+    <!-- SIDEBAR (collapsible; Settings gear pinned bottom) -->
+    <div class="side" id="side">
+      <div class="sidetop">
+        <button class="newbtn" style="margin:0"><span>+ New entry</span></button>
+        <button class="collapse" id="collapse" title="Collapse the sidebar">«</button>
+      </div>
+      <div class="sidescroll">
+        <input class="srch" placeholder="Search secrets">
+        <!-- context: PASSWORDS -->
+        <div class="sctx" data-ctx="passwords">
+          <div class="shead">Folders</div>
+          <div class="srow"><span class="sdot" style="background:var(--dimmer)"></span><span class="sbtxt">Unfiled</span><span class="rn">44</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--orange)"></span><span class="sbtxt">Financial</span><span class="rn">1</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--orange)"></span><span class="sbtxt">Photography</span><span class="rn">1</span></div>
+          <div class="shead">Types</div>
+          <div class="srow on"><span class="sdot" style="background:var(--green)"></span><span class="sbtxt">Logins</span><span class="rn">38</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--blue)"></span><span class="sbtxt">API keys</span><span class="rn">2</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--amber)"></span><span class="sbtxt">Financial</span><span class="rn">6</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--red)"></span><span class="sbtxt">Taxpayer IDs</span><span class="rn">0</span></div>
+          <div class="shead">Password tools</div>
+          <div class="srow"><span class="sdot" style="background:var(--teal)"></span><span class="sbtxt">Generator</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--teal)"></span><span class="sbtxt">Health</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--teal)"></span><span class="sbtxt">Access log</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--teal)"></span><span class="sbtxt">Import / Export</span></div>
+        </div>
+        <!-- context: NOTES -->
+        <div class="sctx" data-ctx="notes" style="display:none">
+          <div class="shead">Note folders</div>
+          <div class="srow on"><span class="sdot" style="background:var(--purple)"></span><span class="sbtxt">All notes</span><span class="rn">67</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--teal)"></span><span class="sbtxt">Infrastructure</span><span class="rn">14</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--blue)"></span><span class="sbtxt">Code</span><span class="rn">22</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--amber)"></span><span class="sbtxt">Business</span><span class="rn">9</span></div>
+          <div class="shead">Pinned</div>
+          <div class="srow"><span class="sdot" style="background:var(--orange)"></span><span class="sbtxt">Coolify Postgres</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--orange)"></span><span class="sbtxt">Release runbook</span></div>
+        </div>
+        <!-- context: INFRA -->
+        <div class="sctx" data-ctx="infra" style="display:none">
+          <div class="shead">Servers</div>
+          <div class="srow on"><span class="sdot" style="background:var(--green)"></span><span class="sbtxt">hetzner-01</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--dimmer)"></span><span class="sbtxt">mcp-node</span></div>
+          <div class="shead">Domains</div>
+          <div class="srow"><span class="sdot" style="background:var(--orange)"></span><span class="sbtxt">avertxai.com</span><span class="rn">35</span></div>
+          <div class="shead">SSH keys</div>
+          <div class="srow"><span class="sdot" style="background:var(--teal)"></span><span class="sbtxt">Hetzner root</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--teal)"></span><span class="sbtxt">MCP node</span></div>
+        </div>
+        <!-- context: REPOS -->
+        <div class="sctx" data-ctx="repos" style="display:none">
+          <div class="shead">Repositories</div>
+          <div class="srow on"><span class="sdot" style="background:var(--txt)"></span><span class="sbtxt">All</span><span class="rn">9</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--blue)"></span><span class="sbtxt">Private</span><span class="rn">6</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--green)"></span><span class="sbtxt">Public</span><span class="rn">3</span></div>
+          <div class="shead">Packages</div>
+          <div class="srow"><span class="sdot" style="background:var(--amber)"></span><span class="sbtxt">Needs ruling</span><span class="rn">3</span></div>
+          <div class="srow"><span class="sdot" style="background:var(--red)"></span><span class="sbtxt">Banned</span><span class="rn">4</span></div>
+        </div>
+      </div>
+      <div class="sidefoot">
+        <div class="gear"><span style="font-size:15px">⚙</span><span class="sbtxt">Settings</span></div>
+      </div>
+    </div>
+
+    <div class="main">
+      <!-- Vault sub-tabs (hidden when Repos is active) -->
+      <div class="subtabs" id="subtabs">
+        <div class="subtab on" data-view="passwords">Passwords</div>
+        <div class="subtab" data-view="notes">Secured Notes</div>
+        <div class="subtab" data-view="infra">Infrastructure</div>
+      </div>
+
+      <div class="content">
+        <!-- ============ PASSWORDS ============ -->
+        <div class="view on" data-panel="passwords">
+          <div class="head">
+            <div class="seg" id="pv"><button class="on">▦ Grid</button><button>☰ List</button><button>◫ Panes</button></div>
+            <div class="row"><div class="seg"><button class="on">Popular</button><button>Recently used</button><button>A–Z</button></div>
+              <button class="btn pri">+ New entry</button></div>
+          </div>
+          <div id="pgrid" class="grid">
+            <div class="tile"><div class="mg" style="background:#e2411c">A</div><div class="tn">Adobe</div><div class="tu">paulcruz@brightflas…</div></div>
+            <div class="tile"><div class="mg" style="background:#ff9900;color:#111">a</div><div class="tn">Amazon</div><div class="tu">paulcruz@brightflas…</div></div>
+            <div class="tile"><div class="mg" style="background:#111">🍎</div><div class="tn">Apple</div><div class="tu">paulcruz@brightflas…</div></div>
+            <div class="tile"><div class="mg" style="background:#00a8e0">AT</div><div class="tn">AT&amp;T</div><div class="tu">pcruz210</div></div>
+            <div class="tile"><div class="mg" style="background:#e0301e">BO</div><div class="tn">Bank of America</div><div class="tu">paulcruz1968</div></div>
+            <div class="tile"><div class="mg" style="background:#0061fe">DB</div><div class="tn">Dropbox</div><div class="tu">paulcruz@brightflas…</div></div>
+            <div class="tile"><div class="mg" style="background:#1877f2">f</div><div class="tn">Facebook</div><div class="tu">paulcruz@brightflas…</div></div>
+            <div class="tile"><div class="mg" style="background:#ea4335">M</div><div class="tn">Google / Gmail</div><div class="tu">paulcruz@brightflas…</div></div>
+            <div class="tile"><div class="mg" style="background:#0a66c2">in</div><div class="tn">LinkedIn</div><div class="tu">paulcruz@brightflas…</div></div>
+            <div class="tile"><div class="mg" style="background:#635bff">S</div><div class="tn">Stripe</div><div class="tu">paulcruz@brightflas…</div></div>
+            <div class="tile"><div class="mg" style="background:#1db954">♪</div><div class="tn">Spotify</div><div class="tu">paulcruz@brightflas…</div></div>
+            <div class="tile"><div class="mg" style="background:#0f9d58">SM</div><div class="tn">SmugMug</div><div class="tu">paulcruz@brightflas…</div></div>
+            <div class="tile add"><div class="plus">+</div><div class="tn">New entry</div></div>
+          </div>
+          <div id="plist" style="display:none"><table class="ltable"><tbody>
+            <tr><td style="width:34px"><span class="mg" style="width:26px;height:26px;font-size:11px;background:#e2411c">A</span></td><td><b>Adobe</b></td><td class="rn">paulcruz@brightflashmedia.com</td><td><span class="pill grey">login</span></td><td style="text-align:right"><button class="btn sm">Reveal</button> <button class="btn sm">Copy</button></td></tr>
+            <tr><td><span class="mg" style="width:26px;height:26px;font-size:11px;background:#00a8e0">AT</span></td><td><b>AT&amp;T</b></td><td class="rn">pcruz210</td><td><span class="pill grey">login</span></td><td style="text-align:right"><button class="btn sm">Reveal</button> <button class="btn sm">Copy</button></td></tr>
+            <tr><td><span class="mg" style="width:26px;height:26px;font-size:11px;background:#635bff">S</span></td><td><b>Stripe</b></td><td class="rn">paulcruz@brightflashmedia.com</td><td><span class="pill info">api key</span></td><td style="text-align:right"><button class="btn sm">Reveal</button> <button class="btn sm">Copy</button></td></tr>
+          </tbody></table></div>
+          <div id="ppanes" style="display:none" class="card">Three-pane view — nav · list · detail. (Kept as-is; toggled here.)</div>
+        </div>
+
+        <!-- ============ SECURED NOTES ============ -->
+        <div class="view" data-panel="notes">
+          <div class="notewrap">
+            <div class="notelist" id="notelist">
+              <div class="nl-top">
+                <b style="font-size:12.5px;flex:1">Secured Notes</b>
+                <button class="collapse" id="nlcollapse" title="Collapse the list">«</button>
+              </div>
+              <div class="nl-styles" id="nlstyles">
+                <button class="on">Notes</button><button>Runbooks</button><button>Snippets</button>
+              </div>
+              <div class="nl-search"><input class="srch" style="margin:0" placeholder="Search notes"></div>
+              <div class="nl-body" id="nlbody">
+                <div class="nrow on" data-kind="note"><div class="t"><span class="ticon" style="background:var(--purple)">N</span> Hetzner VPS — GitHub SSH</div><div class="s">178.63.17.184 · Coolify dashboard on core.avertxai.com · deploy key in the vault</div><div class="m">08-07-2026 · 3 linked entries</div></div>
+                <div class="nrow" data-kind="note"><div class="t"><span class="ticon" style="background:var(--purple)">N</span> Chrome Extension Info</div><div class="s">Manifest v3 notes, isolated-world content script, why raw-secret executeJavaScript is banned.</div><div class="m">07-28-2026</div></div>
+                <div class="nrow" data-kind="note"><div class="t"><span class="ticon" style="background:var(--purple)">N</span> Reddit Notes</div><div class="s">Threads worth keeping on colour management and tethered capture.</div><div class="m">07-19-2026</div></div>
+              </div>
+            </div>
+            <div class="noteedit">
+              <div class="edbar">
+                <button class="tbtn"><b>B</b></button><button class="tbtn"><i>I</i></button><button class="tbtn">H</button>
+                <button class="tbtn">🔗</button><button class="tbtn hot">{;}</button><button class="tbtn">☑</button>
+                <button class="tbtn">🖼</button><button class="tbtn hot">@ entry</button>
+                <button class="help" id="helpbtn" title="How do I use this editor?">?</button>
+                <div class="seg modeseg" id="modeseg"><button>Edit</button><button class="on">Split</button><button>Preview</button></div>
+              </div>
+              <div class="split" id="notesplit">
+                <!-- PREVIEW LEFT (editable) -->
+                <div class="pane prev" id="prevpane">
+                  <div class="panehdr"><span class="editdot"></span> Preview · you can type right here <span class="derived" style="color:var(--teal)">live</span></div>
+                  <h1>Hetzner VPS — GitHub SSH</h1>
+                  <p>The box is <code>178.63.17.184</code>. Coolify runs the dashboard on
+                    <code>core.avertxai.com</code>; the deploy key lives in the vault, never in a file.</p>
+                  <h2>Getting in</h2>
+                  <p>Use the key, not a password:
+                    &nbsp;<span class="vref"><span class="lk">🔑 Hetzner root — ed25519</span><button>Reveal</button><button>Copy</button></span></p>
+                  <div class="cblock"><div class="cb"><span>bash</span><span style="margin-left:auto">copy</span></div><pre>ssh root@178.63.17.184</pre></div>
+                  <p style="color:var(--dimmer);font-size:12px">Milkdown: type markdown and it becomes the thing as you go. This
+                    pane is the editor — the source on the right mirrors it. Press <b>?</b> above for the full cheat-sheet.</p>
+                </div>
+                <!-- EDIT (markdown source) RIGHT -->
+                <div class="pane src" id="srcpane">
+                  <div class="panehdr">Markdown · source</div>
+<span class="h"># Hetzner VPS — GitHub SSH</span>
+
+The box is <span class="k">`178.63.17.184`</span>. Coolify runs the
+dashboard on <span class="k">`core.avertxai.com`</span>; the deploy
+key lives in the vault, never in a file.
+
+<span class="h">## Getting in</span>
+
+Use the key, not a password:
+<span class="f">@[[vault:Hetzner root — ed25519]]</span>
+
+<span class="f">```bash</span>
+<span class="f">ssh root@178.63.17.184</span>
+<span class="f">```</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ INFRASTRUCTURE ============ -->
+        <div class="view" data-panel="infra">
+          <div class="head">
+            <div class="seg"><button class="on">Servers &amp; DNS</button><button>SSH keys</button><button>Import records</button></div>
+            <button class="btn go">+ Import records</button>
+          </div>
+          <div class="split2">
+            <div class="card">
+              <div class="mlabel">SSH key · Hetzner root — ed25519</div>
+              <div style="margin-top:12px">
+                <div class="fbox" style="border-color:var(--orange)">
+                  <div class="fl">Passphrase <span class="pill grey">secret</span><span style="margin-left:auto;text-transform:none;letter-spacing:0;color:var(--dimmer)">what the IDE keeps asking for</span></div>
+                  <div class="fv"><span class="masked">••••••••••••••</span><span class="facts"><button class="btn sm">Reveal</button><button class="btn pri sm">Copy</button></span></div>
+                </div>
+                <div class="fl" style="margin:8px 0">Randomart <span class="derived">derived</span> — drawn from the fingerprint, never stored</div>
+                <div class="art">+--[ED25519 256]--+
+|       o+.       |
+|      . o. .     |
+|     . .  o      |
+|      o  . .     |
+|     . oS.  .    |
+|      +.=o.o     |
+|     o *.Booo    |
+|    . = *+O= .   |
+|     . o.**E=    |
++----[SHA256]-----+</div>
+                <div class="fl" style="margin:12px 0 5px">Fingerprint <span class="derived">derived</span></div>
+                <div class="fv rn" style="font-size:11.5px">SHA256:Yx4qL8nR2vB7mKp0aZcWtE6sJhF3dQoU9iN1gTrXbVs</div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="mlabel">Servers</div>
+              <table class="dt" style="margin-top:12px">
+                <thead><tr><th>Host</th><th>Address</th><th>Opens with</th></tr></thead>
+                <tbody>
+                  <tr><td><b>hetzner-01</b></td><td class="rn">178.63.17.184</td><td><span class="vref"><span class="lk">🔑 Hetzner root</span><button>Reveal</button></span></td></tr>
+                  <tr><td><b>mcp-node</b></td><td class="rn">100.78.248.15</td><td><span class="vref"><span class="lk">🔑 MCP node</span><button>Reveal</button></span></td></tr>
+                </tbody>
+              </table>
+              <div class="mlabel" style="margin-top:18px">DNS · avertxai.com</div>
+              <div class="chips" style="margin-top:10px"><div class="chip"><span class="k">Records</span><span class="v">35</span></div><div class="chip"><span class="k">A</span><span class="v">17</span></div><div class="chip"><span class="k">Proxied</span><span class="v" style="color:var(--orange)">16</span></div></div>
+              <table class="dt">
+                <tbody>
+                  <tr><td><b>core</b><span class="rn">.avertxai.com</span></td><td class="rn">A · 178.63.17.184</td><td><span class="pill warn">☁ Proxied</span></td></tr>
+                  <tr><td><b>mcp</b><span class="rn">.avertxai.com</span></td><td class="rn">A · 100.78.248.15</td><td><span class="pill grey">DNS only</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="mlabel">Import records — the 3 paths</div>
+            <div class="paths" style="margin-top:12px">
+              <div class="path on"><div class="pi">📄</div><div class="pt">Paste a zone file / CSV</div><div class="pd">Exact — a defined format, parsed here, no model. Use this whenever an export exists.</div></div>
+              <div class="path"><div class="pi">🖼</div><div class="pt">Paste a screenshot</div><div class="pd">A local vision model reads it; every field gets a confidence, nothing saved until you approve.</div></div>
+              <div class="path"><div class="pi">✎</div><div class="pt">Type one in</div><div class="pd">One record by hand — the fallback when the other two disagree with what you know.</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ REPOS (accordion + packages, one tab) ============ -->
+        <div class="view" data-panel="repos">
+          <div class="head">
+            <div class="seg" id="rv"><button class="on">Repositories</button><button>Package ledger</button></div>
+            <button class="btn go">+ Add repo</button>
+          </div>
+          <div id="reposec">
+            <div class="repo open">
+              <div class="rhd"><div class="rav" style="background:#1f2933">WM</div>
+                <div style="flex:1;min-width:0"><div class="rti">world-monitor <span class="pill grey">public</span> <span class="pill" style="background:rgba(207,59,69,.12);color:var(--red)">AGPL v3</span></div>
+                  <div class="rds">Real-time global intelligence dashboard — news, geopolitics, infrastructure</div></div>
+                <div class="rst"><span><span class="ld" style="background:#3178c6"></span>TypeScript</span><span>★ 80k</span><span class="rn">v2.5.23</span></div>
+                <span class="rcar">▶</span></div>
+              <div class="rbody">
+                <div class="vstrip"><span class="vref"><span class="lk">🔑 Deploy key — world-monitor</span><button>Reveal</button></span>
+                  <span class="rn" style="color:var(--dimmer)">D:\dev\world-monitor</span>
+                  <button class="btn sm" style="margin-left:auto">Open folder</button><button class="btn sm">Open on GitHub</button></div>
+                <h2 style="font-size:19px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-bottom:11px">World Monitor</h2>
+                <p style="font-size:13px;color:var(--dim);line-height:1.7">AI-powered news aggregation, geopolitical monitoring, and
+                  infrastructure tracking in a unified situational-awareness interface. Stored README snapshot — reads offline.</p>
+              </div>
+            </div>
+            <div class="repo">
+              <div class="rhd"><div class="rav" style="background:#c0392b">FR</div>
+                <div style="flex:1;min-width:0"><div class="rti">AvertXAI-Focal-Registry <span class="pill info">private</span></div>
+                  <div class="rds">Photography archive tooling — Electron shell, Scan, Rename, MindMerge, Vault</div></div>
+                <div class="rst"><span><span class="ld" style="background:#3178c6"></span>TypeScript</span><span class="rn">v0.2.6</span></div>
+                <span class="rcar">▶</span></div>
+              <div class="rbody"><div class="vstrip"><span class="vref"><span class="lk">🔑 Hetzner deploy key</span><button>Reveal</button></span><span class="pill warn">branch feature/vault-build</span></div></div>
+            </div>
+          </div>
+          <div id="pkgsec" style="display:none">
+            <div class="chips"><div class="chip"><span class="k">Tracked</span><span class="v">58</span></div><div class="chip"><span class="k">Approved</span><span class="v" style="color:var(--green)">51</span></div><div class="chip"><span class="k">Banned</span><span class="v" style="color:var(--red)">4</span></div><div class="chip"><span class="k">Needs ruling</span><span class="v" style="color:var(--amber)">3</span></div></div>
+            <div class="card">
+              <table class="dt">
+                <thead><tr><th>Package</th><th>Licence</th><th>Size</th><th>Verdict</th><th>Why · where</th></tr></thead>
+                <tbody>
+                  <tr><td><b>exifr</b></td><td class="rn">MIT</td><td class="rn">1.5 MB</td><td><span class="pill" style="background:rgba(18,138,75,.12);color:var(--green)">approved</span></td><td class="rn">Header-only stills · Scan</td></tr>
+                  <tr><td><b>ffprobe-static</b></td><td class="rn">GPL v3</td><td class="rn">78 MB</td><td><span class="pill" style="background:rgba(207,59,69,.12);color:var(--red)">banned</span></td><td class="rn">Ships a GPL binary — do not reintroduce</td></tr>
+                  <tr><td><b>some-chart-lib</b></td><td class="rn">?</td><td class="rn">12 MB</td><td><span class="pill warn">needs ruling</span></td><td class="rn">Licence undeterminable · §2.10 stops the line</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MILKDOWN HELP MODAL -->
+<div class="scrim" id="scrim">
+  <div class="modal">
+    <div class="mhd"><span style="font-size:18px">❓</span><h3>Editing help — Milkdown</h3><button class="mx" id="mx">Close ✕</button></div>
+    <div class="mbody">
+      <div class="mgrp">
+        <h4>Type it, watch it become</h4>
+        <div class="mrow"><span class="kbd">## Title</span><span class="d">a heading</span></div>
+        <div class="mrow"><span class="kbd">**bold**</span><span class="d">bold — or Ctrl+B on a selection</span></div>
+        <div class="mrow"><span class="kbd">*italic*</span><span class="d">italic — or Ctrl+I</span></div>
+        <div class="mrow"><span class="kbd">- item</span><span class="d">a bullet list</span></div>
+        <div class="mrow"><span class="kbd">[ ] todo</span><span class="d">a checkbox</span></div>
+        <div class="mrow"><span class="kbd">&gt; quote</span><span class="d">a block quote</span></div>
+        <div class="mrow"><span class="kbd">`code`</span><span class="d">inline code</span></div>
+        <div class="mrow"><span class="kbd">```</span><span class="d">a fenced code block (pick a language)</span></div>
+      </div>
+      <div class="mgrp">
+        <h4>The two menus</h4>
+        <div class="mrow"><span class="kbd">/</span><span class="d">the slash menu — insert a heading, code block, checklist, table, image or vault reference without leaving the keyboard</span></div>
+        <div class="mrow"><span class="kbd">@</span><span class="d">reference a vault entry. It appears as a chip you can Reveal or Copy — the password itself never enters the note</span></div>
+        <h4 style="margin-top:16px">Files &amp; runbooks</h4>
+        <div class="mrow"><span class="kbd">Ctrl+V</span><span class="d">paste a screenshot or PDF — stored encrypted, previewed inline</span></div>
+        <div class="mrow"><span class="kbd">1. step</span><span class="d">number a line to make a runbook step; Run mode then gives it a copy button and a tick</span></div>
+      </div>
+    </div>
+    <div class="mfoot">Clean markdown is what gets stored — the buttons and menus are only how you type it. The same editor writes Notes, Runbooks and Snippets.</div>
+  </div>
+</div>
+
+<script>
+const app=document.getElementById('app');
+const views=[...document.querySelectorAll('.view')];
+const subtabs=document.getElementById('subtabs');
+
+function show(view){
+  views.forEach(v=>v.classList.toggle('on',v.dataset.panel===view));
+  document.querySelectorAll('.obtn[data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===view));
+  document.querySelectorAll('.subtab').forEach(t=>t.classList.toggle('on',t.dataset.view===view));
+  // top navbar + sub-tabs: Repos hides the Vault sub-strip
+  const inVault = view!=='repos';
+  document.querySelector('.ntab[data-nav="vault"]').classList.toggle('on',inVault);
+  document.querySelector('.ntab[data-nav="repos"]').classList.toggle('on',!inVault);
+  subtabs.style.display = inVault ? 'flex' : 'none';
+  // sidebar context
+  document.querySelectorAll('.sctx').forEach(c=>c.style.display=c.dataset.ctx===view?'block':'none');
+}
+document.querySelectorAll('.obtn[data-view]').forEach(b=>b.addEventListener('click',()=>{show(b.dataset.view);window.scrollTo({top:0,behavior:'smooth'});}));
+document.querySelectorAll('.subtab').forEach(t=>t.addEventListener('click',()=>show(t.dataset.view)));
+document.querySelector('.ntab[data-nav="repos"]').addEventListener('click',()=>show('repos'));
+document.querySelector('.ntab[data-nav="vault"]').addEventListener('click',()=>show('passwords'));
+
+// theme
+document.getElementById('themebtn').addEventListener('click',e=>{document.body.classList.toggle('dark');e.target.textContent=document.body.classList.contains('dark')?'◐ Light':'◐ Dark';});
+
+// sidebar collapse
+document.getElementById('collapse').addEventListener('click',()=>{
+  const s=document.getElementById('side');s.classList.toggle('collapsed');
+  document.getElementById('collapse').textContent=s.classList.contains('collapsed')?'»':'«';
+});
+// note-list collapse
+document.getElementById('nlcollapse').addEventListener('click',()=>{
+  const n=document.getElementById('notelist');n.classList.toggle('collapsed');
+  document.getElementById('nlcollapse').textContent=n.classList.contains('collapsed')?'»':'«';
+});
+
+// passwords view toggle
+document.querySelectorAll('#pv button').forEach((b,i)=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#pv button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.getElementById('pgrid').style.display=i===0?'grid':'none';
+  document.getElementById('plist').style.display=i===1?'block':'none';
+  document.getElementById('ppanes').style.display=i===2?'block':'none';
+}));
+
+// repos vs packages
+document.querySelectorAll('#rv button').forEach((b,i)=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#rv button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.getElementById('reposec').style.display=i===0?'block':'none';
+  document.getElementById('pkgsec').style.display=i===1?'block':'none';
+}));
+document.querySelectorAll('.rhd').forEach(h=>h.addEventListener('click',()=>h.parentElement.classList.toggle('open')));
+
+// note list style + kind switch (Runbooks shows run-mode in the preview pane)
+const runSteps=`<div class="panehdr"><span class="editdot"></span> Run mode · tick as you go — <b style="margin-left:4px">Log into the Coolify Postgres</b></div>
+ <div class="step"><div class="snum">1</div><div class="sb"><div class="st">Open a tunnel to the Hetzner box. Never expose 5432.</div>
+   <div class="cmd"><span class="c">ssh -L 5432:localhost:5432 root@178.63.17.184 -N</span><button class="btn sm">Copy</button></div>
+   <div style="font-size:11.5px;color:var(--dimmer)">Uses <span class="vref"><span class="lk">🔑 Hetzner root</span><button>Reveal</button></span></div></div></div>
+ <div class="step"><div class="snum">2</div><div class="sb"><div class="st">Connect — reveal the password here, never paste it into a file.</div>
+   <div class="cmd"><span class="c">psql -h localhost -p 5432 -U coolify -d coolify</span><button class="btn sm">Copy</button></div>
+   <div style="font-size:11.5px;color:var(--dimmer)"><span class="vref"><span class="lk">🔒 Coolify Postgres</span><button>Reveal</button><button>Copy</button></span></div></div></div>
+ <div class="step"><div class="snum">3</div><div class="sb"><div class="st">Close the tunnel when you are done.</div>
+   <div style="font-size:12px;color:var(--dimmer)">Ctrl+C in the ssh window. A tunnel left open is a hole you forgot you made.</div></div></div>`;
+const noterun=`ssh -L 5432:localhost:5432 root@178.63.17.184 -N`;
+const notePrev=document.getElementById('prevpane').innerHTML;
+const noteSrc=document.getElementById('srcpane').innerHTML;
+const runSrc=`<div class="panehdr">Markdown · source</div>
+<span class="h"># Log into the Coolify Postgres</span>
+
+<span class="k">1.</span> Open a tunnel to the Hetzner box. Never expose 5432.
+<span class="f">   \`ssh -L 5432:localhost:5432 root@178.63.17.184 -N\`</span>
+   Uses <span class="f">@[[vault:Hetzner root]]</span>
+
+<span class="k">2.</span> Connect — reveal the password here.
+<span class="f">   \`psql -h localhost -p 5432 -U coolify -d coolify\`</span>
+   <span class="f">@[[vault:Coolify Postgres]]</span>
+
+<span class="k">3.</span> Close the tunnel when you are done.`;
+document.querySelectorAll('#nlstyles button').forEach((b,i)=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#nlstyles button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  const isRun=i===1;
+  document.querySelector('#notelist .nl-top b').textContent=['Secured Notes','Runbooks','Snippets'][i];
+  document.getElementById('prevpane').innerHTML=isRun?runSteps:notePrev;
+  document.getElementById('srcpane').innerHTML=isRun?runSrc:noteSrc;
+  // rewire run-mode ticks
+  document.querySelectorAll('#prevpane .snum').forEach(n=>n.addEventListener('click',()=>n.closest('.step').classList.toggle('done')));
+}));
+
+// edit/split/preview — preview LEFT, source RIGHT
+document.querySelectorAll('#modeseg button').forEach((b,i)=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#modeseg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  const prev=document.getElementById('prevpane'),src=document.getElementById('srcpane');
+  // Edit = source only, Split = both, Preview = preview only (still editable)
+  prev.style.display=i===0?'none':'block';
+  src.style.display=i===2?'none':'block';
+}));
+
+// help modal
+function openHelp(){document.getElementById('scrim').classList.add('on');}
+function closeHelp(){document.getElementById('scrim').classList.remove('on');}
+document.getElementById('helpbtn').addEventListener('click',openHelp);
+document.getElementById('helpopt').addEventListener('click',()=>{show('notes');openHelp();});
+document.getElementById('mx').addEventListener('click',closeHelp);
+document.getElementById('scrim').addEventListener('click',e=>{if(e.target.id==='scrim')closeHelp();});
+</script>
+</body>
+</html>

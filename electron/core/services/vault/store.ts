@@ -17,12 +17,26 @@
 //              slicing — silent truncation would corrupt a stored secret.
 //              NAMED store.ts, NOT secrets.ts: the repo .gitignore carries a `*secret*` guard for
 //              credential material, and a source file matching it would be silently untrackable.
+//
+//              PHASE A (08-06-2026): entry METADATA (full name, username, url, notes, favourite,
+//              folder) joins the list surfaces because none of it is a credential; backup codes and
+//              security answers do NOT — they ride `extras` on the VERSION row, versioned with the
+//              password as one atomic unit and reachable only through readSecret. The rule the file
+//              is built around is unchanged and now covers three kinds of credential instead of one.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/vault/store.ts
 //------------------------------------------------------------
 import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
-import type { VaultAction, VaultSecretInput, VaultSecretMeta, VaultSecretWithValue } from "./types";
+import type {
+  VaultAccessRow,
+  VaultAction,
+  VaultSecretExtras,
+  VaultSecretInput,
+  VaultSecretMeta,
+  VaultSecretWithValue,
+  VaultVersionRow,
+} from "./types";
 
 // ---- validators — local, throw-on-oversize (never slice: a truncated secret is a corrupted one,
 // ---- and a truncated kind/label/locator is a different ask than the caller made).
@@ -42,20 +56,74 @@ function vUuid(value: unknown, label = "secret locator"): string {
 // 64 KiB covers private keys and certificate chains with slack; kind/label/caller are short tags.
 const MAX_VALUE = 65_536;
 const MAX_TAG = 200;
+const MAX_NOTES = 4_000;
+
+/** Optional presentation text. null and "" both mean "not set" — stored as NULL either way. */
+function vOptional(value: unknown, label: string, maxLen: number): string | null {
+  if (value == null || value === "") return null;
+  return vText(value, label, maxLen);
+}
+
+/** Credential extras in, as JSON out. Shapes are checked here so no malformed blob reaches SQL,
+    and the whole thing is capped — an unbounded JSON column is a denial-of-service in a text box. */
+function vExtras(value: unknown): string | null {
+  if (value == null) return null;
+  const e = value as VaultSecretExtras;
+  const codes = Array.isArray(e.backupCodes)
+    ? e.backupCodes.filter((c): c is string => typeof c === "string" && c.trim() !== "").map((c) => c.slice(0, 200))
+    : [];
+  const questions = Array.isArray(e.securityQuestions)
+    ? e.securityQuestions
+        .filter((q) => q && typeof q.question === "string" && typeof q.answer === "string")
+        .map((q) => ({ question: q.question.slice(0, 300), answer: q.answer.slice(0, 300) }))
+    : [];
+  // SSH passphrase — a second credential riding the version row. Sliced never, THROWN on oversize,
+  // same rule as the value itself: a truncated passphrase is a corrupted one.
+  const passphrase = typeof e.passphrase === "string" && e.passphrase !== "" ? e.passphrase : null;
+  if (passphrase && passphrase.length > 1024) throw new Error("passphrase too long (max 1024 characters)");
+  if (codes.length === 0 && questions.length === 0 && !passphrase) return null;
+  const json = JSON.stringify({
+    backupCodes: codes,
+    securityQuestions: questions,
+    ...(passphrase ? { passphrase } : {}),
+  });
+  if (json.length > MAX_VALUE) throw new Error("Backup codes and security questions are too long to store.");
+  return json;
+}
+
+/** Parses the stored blob back. A corrupt row returns null rather than throwing — a secret whose
+    password reads fine must never be unreachable because its extras JSON went bad. */
+function parseExtras(raw: unknown): VaultSecretExtras | null {
+  if (typeof raw !== "string" || raw === "") return null;
+  try {
+    return JSON.parse(raw) as VaultSecretExtras;
+  } catch {
+    return null;
+  }
+}
 
 // Explicit metadata column list — the ONE place it is written, so no meta query can drift into
-// carrying a value. `version` is DERIVED from the history's highest row (nothing stores it on the
-// secret): a correlated MAX(version) that is a single descent on vault_secret_versions_uniq.
+// carrying a credential. Everything named here is presentation data (who the account belongs to,
+// where it lives, what the user wrote about it); the password, backup codes and security answers
+// are all on the version row and appear in exactly one query, below. `version` is DERIVED from the
+// history's highest row (nothing stores it on the secret): a correlated MAX(version) that is a
+// single descent on vault_secret_versions_uniq.
 const META_COLS =
-  "id, uuid, kind, label, " +
+  "id, uuid, kind, label, full_name, username, url, notes, favourite, folder_id, public_key, " +
   "(SELECT MAX(v.version) FROM vault_secret_versions v WHERE v.secret_id = vault_secrets.id) AS version, " +
   "archived_at, archive_reason, created_at, updated_at";
-// The current value, same derivation path — used by readSecret ALONE; nothing else selects it.
+// Newest access-log stamp per secret — the ledger's "Last read" column. Derived, never stored.
+const LAST_READ =
+  "(SELECT MAX(a.ts) FROM vault_access_log a WHERE a.secret_uuid = vault_secrets.uuid AND a.action = 'read' AND a.granted = 1) AS last_read_at";
+// The current credential payload, same derivation path — used by readSecret ALONE; nothing else
+// selects either column. `extras` rides the same row so one read returns one coherent version.
 const CURRENT_VALUE =
-  "(SELECT v.value FROM vault_secret_versions v WHERE v.secret_id = vault_secrets.id ORDER BY v.version DESC LIMIT 1) AS value";
+  "(SELECT v.value FROM vault_secret_versions v WHERE v.secret_id = vault_secrets.id ORDER BY v.version DESC LIMIT 1) AS value, " +
+  "(SELECT v.extras FROM vault_secret_versions v WHERE v.secret_id = vault_secrets.id ORDER BY v.version DESC LIMIT 1) AS extras";
 
-// ---- access log — module-private writer; store.ts is the only writer by design.
-function logAccess(
+// ---- access log — store.ts is the ONE writer by design. Exported so the lock and seed surfaces
+// ---- can record their own actions without a second INSERT statement existing anywhere.
+export function logAccess(
   db: Db,
   orgId: string,
   action: VaultAction,
@@ -87,17 +155,24 @@ export function createSecret(db: Db, orgId: string, caller: string, input: Vault
   const value = vText(input?.value, "value", MAX_VALUE);
   const at = nowIso();
   const uuid = generateUUIDv7();
+  const fullName = vOptional(input?.fullName, "full name", MAX_TAG);
+  const username = vOptional(input?.username, "username", MAX_TAG);
+  const url = vOptional(input?.url, "website", 500);
+  const notes = vOptional(input?.notes, "notes", MAX_NOTES);
+  const folderId = input?.folderId == null ? null : Number(input.folderId);
+  const publicKey = vOptional(input?.publicKey, "public key", 4000);
+  const extras = vExtras(input?.extras);
   const rowid = db.transaction(() => {
     const res = db
       .prepare(
-        `INSERT INTO vault_secrets (uuid, org_id, kind, label, created_at)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO vault_secrets (uuid, org_id, kind, label, full_name, username, url, notes, folder_id, public_key, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(uuid, orgId, kind, label, at);
+      .run(uuid, orgId, kind, label, fullName, username, url, notes, folderId, publicKey, at);
     db.prepare(
-      `INSERT INTO vault_secret_versions (uuid, org_id, secret_id, version, value, created_at)
-       VALUES (?, ?, ?, 1, ?, ?)`
-    ).run(generateUUIDv7(), orgId, res.lastInsertRowid, value, at);
+      `INSERT INTO vault_secret_versions (uuid, org_id, secret_id, version, value, extras, created_at)
+       VALUES (?, ?, ?, 1, ?, ?, ?)`
+    ).run(generateUUIDv7(), orgId, res.lastInsertRowid, value, extras, at);
     logAccess(db, orgId, "create", uuid, label, who, true);
     return res.lastInsertRowid;
   })();
@@ -109,7 +184,9 @@ export function createSecret(db: Db, orgId: string, caller: string, input: Vault
 export function listSecrets(db: Db, orgId: string, includeArchived = false): VaultSecretMeta[] {
   const where = includeArchived ? "" : "AND archived_at IS NULL";
   return db
-    .prepare(`SELECT ${META_COLS} FROM vault_secrets WHERE org_id = ? ${where} ORDER BY label COLLATE NOCASE ASC`)
+    .prepare(
+      `SELECT ${META_COLS}, ${LAST_READ} FROM vault_secrets WHERE org_id = ? ${where} ORDER BY label COLLATE NOCASE ASC`
+    )
     .all(orgId) as VaultSecretMeta[];
 }
 
@@ -124,13 +201,13 @@ export function readSecret(db: Db, orgId: string, caller: string, uuid: unknown)
   const locator = vUuid(uuid);
   const row = db
     .prepare(`SELECT ${META_COLS}, ${CURRENT_VALUE} FROM vault_secrets WHERE org_id = ? AND uuid = ?`)
-    .get(orgId, locator) as VaultSecretWithValue | undefined;
+    .get(orgId, locator) as (VaultSecretWithValue & { extras: unknown }) | undefined;
   if (!row) {
     logAccess(db, orgId, "read", locator, null, who, false, "not found");
     throw new Error("Secret not found");
   }
   logAccess(db, orgId, "read", row.uuid, row.label, who, true);
-  return row;
+  return { ...row, extras: parseExtras(row.extras) };
 }
 
 /** Supersede: version N+1 is APPENDED to the history and NOTHING ELSE is updated — no column on
@@ -139,10 +216,18 @@ export function readSecret(db: Db, orgId: string, caller: string, uuid: unknown)
     same N+1 twice; vault_secret_versions_uniq backstops even that. Version N is never touched, so
     every value ever stored remains recoverable. Refused for archived secrets (retirement is
     deliberate; a retired secret is frozen). */
-export function supersedeSecret(db: Db, orgId: string, caller: string, uuid: unknown, newValue: unknown): VaultSecretMeta {
+export function supersedeSecret(
+  db: Db,
+  orgId: string,
+  caller: string,
+  uuid: unknown,
+  newValue: unknown,
+  newExtras?: unknown
+): VaultSecretMeta {
   const who = vText(caller, "caller", MAX_TAG);
   const locator = vUuid(uuid);
   const value = vText(newValue, "value", MAX_VALUE);
+  const extras = vExtras(newExtras);
   const row = db
     .prepare(`SELECT ${META_COLS} FROM vault_secrets WHERE org_id = ? AND uuid = ?`)
     .get(orgId, locator) as VaultSecretMeta | undefined;
@@ -157,12 +242,22 @@ export function supersedeSecret(db: Db, orgId: string, caller: string, uuid: unk
   const at = nowIso();
   db.transaction(() => {
     const cur = db
-      .prepare(`SELECT MAX(version) AS v FROM vault_secret_versions WHERE secret_id = ?`)
-      .get(row.id) as { v: number };
+      .prepare(`SELECT version AS v, extras AS priorExtras FROM vault_secret_versions
+                WHERE secret_id = ? ORDER BY version DESC LIMIT 1`)
+      .get(row.id) as { v: number; priorExtras: string | null } | undefined;
+    // EXTRAS CARRY FORWARD (Tier-1 fix 2). Rotating a password used to STRIP backup codes, security
+    // answers and the SSH passphrase from the ACTIVE version: the entry form never pre-fills extras
+    // (deliberately — the same rule as never pre-filling the password), so every rotation arrived
+    // with extras = null and the new version row carried nothing. null here means "the caller did
+    // not edit them", NOT "delete them" — the prior version's extras ride forward unchanged, and a
+    // caller that DID edit extras sends the object and wins. There is deliberately no clear-on-
+    // rotate path: removing a credential is its own decision, never a side effect of changing
+    // another one.
+    const carried = extras ?? cur?.priorExtras ?? null;
     db.prepare(
-      `INSERT INTO vault_secret_versions (uuid, org_id, secret_id, version, value, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(generateUUIDv7(), orgId, row.id, cur.v + 1, value, at);
+      `INSERT INTO vault_secret_versions (uuid, org_id, secret_id, version, value, extras, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(generateUUIDv7(), orgId, row.id, (cur?.v ?? 0) + 1, value, carried, at);
     logAccess(db, orgId, "supersede", row.uuid, row.label, who, true);
   })();
   return metaByRowid(db, row.id);
@@ -182,7 +277,7 @@ export function archiveSecret(db: Db, orgId: string, caller: string, uuid: unkno
   }
   if (row.archived_at) return row;
   const at = nowIso();
-  const why = reason == null ? null : vText(reason, "reason", 500);
+  const why = reason == null ? null : vOptional(reason, "reason", 500);
   db.transaction(() => {
     db.prepare(`UPDATE vault_secrets SET archived_at = ?, archive_reason = ?, updated_at = ? WHERE id = ?`).run(
       at,
@@ -193,4 +288,155 @@ export function archiveSecret(db: Db, orgId: string, caller: string, uuid: unkno
     logAccess(db, orgId, "archive", row.uuid, row.label, who, true, why);
   })();
   return metaByRowid(db, row.id);
+}
+
+/** Restores an archived secret. The mirror of archive, and deliberately never capped or refused —
+    data access is never hostage to retirement (the restore-over-cap doctrine). */
+export function restoreSecret(db: Db, orgId: string, caller: string, uuid: unknown): VaultSecretMeta {
+  const who = vText(caller, "caller", MAX_TAG);
+  const locator = vUuid(uuid);
+  const row = db
+    .prepare(`SELECT ${META_COLS} FROM vault_secrets WHERE org_id = ? AND uuid = ?`)
+    .get(orgId, locator) as VaultSecretMeta | undefined;
+  if (!row) {
+    logAccess(db, orgId, "restore", locator, null, who, false, "not found");
+    throw new Error("Secret not found");
+  }
+  if (!row.archived_at) return row;
+  const at = nowIso();
+  db.transaction(() => {
+    db.prepare(`UPDATE vault_secrets SET archived_at = NULL, archive_reason = NULL, updated_at = ? WHERE id = ?`).run(
+      at,
+      row.id
+    );
+    logAccess(db, orgId, "restore", row.uuid, row.label, who, true);
+  })();
+  return metaByRowid(db, row.id);
+}
+
+/**
+ * Edits the PRESENTATION fields — never the credential. Changing a label or a username is not a
+ * new version of the password, so this deliberately does NOT touch the history: superseding is the
+ * only way a credential ever changes, and keeping the two operations apart is what makes the
+ * version number mean "how many times the secret itself changed".
+ */
+export function updateSecretMeta(db: Db, orgId: string, caller: string, uuid: unknown, input: unknown): VaultSecretMeta {
+  const who = vText(caller, "caller", MAX_TAG);
+  const locator = vUuid(uuid);
+  const patch = (input ?? {}) as Partial<VaultSecretInput>;
+  const row = db
+    .prepare(`SELECT ${META_COLS} FROM vault_secrets WHERE org_id = ? AND uuid = ?`)
+    .get(orgId, locator) as VaultSecretMeta | undefined;
+  if (!row) {
+    logAccess(db, orgId, "settings_change", locator, null, who, false, "not found");
+    throw new Error("Secret not found");
+  }
+  const at = nowIso();
+  db.prepare(
+    `UPDATE vault_secrets SET kind = ?, label = ?, full_name = ?, username = ?, url = ?, notes = ?,
+       folder_id = ?, public_key = ?, updated_at = ? WHERE id = ?`
+  ).run(
+    patch.kind === undefined ? row.kind : vText(patch.kind, "kind", MAX_TAG),
+    patch.label === undefined ? row.label : vText(patch.label, "label", MAX_TAG),
+    patch.fullName === undefined ? row.full_name : vOptional(patch.fullName, "full name", MAX_TAG),
+    patch.username === undefined ? row.username : vOptional(patch.username, "username", MAX_TAG),
+    patch.url === undefined ? row.url : vOptional(patch.url, "website", 500),
+    patch.notes === undefined ? row.notes : vOptional(patch.notes, "notes", MAX_NOTES),
+    patch.folderId === undefined ? row.folder_id : patch.folderId == null ? null : Number(patch.folderId),
+    patch.publicKey === undefined ? row.public_key : vOptional(patch.publicKey, "public key", 4000),
+    at,
+    row.id
+  );
+  return metaByRowid(db, row.id);
+}
+
+/** The favourites star. Its own tiny surface because it fires from a list row, not a form. */
+export function setFavourite(db: Db, orgId: string, uuid: unknown, on: unknown): VaultSecretMeta {
+  const locator = vUuid(uuid);
+  const row = db.prepare("SELECT id FROM vault_secrets WHERE org_id = ? AND uuid = ?").get(orgId, locator) as
+    | { id: number }
+    | undefined;
+  if (!row) throw new Error("Secret not found");
+  db.prepare("UPDATE vault_secrets SET favourite = ?, updated_at = ? WHERE id = ?").run(on === true ? 1 : 0, nowIso(), row.id);
+  return metaByRowid(db, row.id);
+}
+
+/**
+ * The version history for one secret — NUMBERS AND TIMESTAMPS ONLY. This is deliberately not a
+ * second way out for credentials: `has_extras` says whether backup codes rode along, never what
+ * they were, and no `value` column appears in the SELECT at all. Reading an OLD version's value is
+ * not offered by any surface; if it is ever wanted it must be its own explicitly logged read.
+ */
+export function listVersions(db: Db, orgId: string, uuid: unknown): VaultVersionRow[] {
+  const locator = vUuid(uuid);
+  const rows = db
+    .prepare(
+      `SELECT v.version, v.created_at, (v.extras IS NOT NULL) AS has_extras
+         FROM vault_secret_versions v
+         JOIN vault_secrets s ON s.id = v.secret_id
+        WHERE s.org_id = ? AND s.uuid = ?
+        ORDER BY v.version DESC`
+    )
+    .all(orgId, locator) as { version: number; created_at: string; has_extras: number }[];
+  return rows.map((r) => ({ version: r.version, created_at: r.created_at, has_extras: r.has_extras === 1 }));
+}
+
+/** The audit surface. Safe by construction — the table has no value column to select. */
+export function listAccessLog(db: Db, orgId: string, opts?: { limit?: number; secretUuid?: string }): VaultAccessRow[] {
+  const limit = Math.min(Math.max(1, Math.floor(opts?.limit ?? 500)), 5000);
+  if (opts?.secretUuid) {
+    return db
+      .prepare(
+        `SELECT id, ts, action, secret_uuid, secret_label, caller, granted, detail
+           FROM vault_access_log WHERE org_id = ? AND secret_uuid = ? ORDER BY id DESC LIMIT ?`
+      )
+      .all(orgId, opts.secretUuid, limit) as VaultAccessRow[];
+  }
+  return db
+    .prepare(
+      `SELECT id, ts, action, secret_uuid, secret_label, caller, granted, detail
+         FROM vault_access_log WHERE org_id = ? ORDER BY id DESC LIMIT ?`
+    )
+    .all(orgId, limit) as VaultAccessRow[];
+}
+
+/**
+ * MAIN-SIDE ONLY. Every current value, for the health analysis. This is the one function that
+ * hands out the whole set, and it exists so the ANALYSIS can run beside the data instead of the
+ * data travelling to the analysis: health.ts consumes it in-process and returns verdicts, and
+ * nothing here is reachable from IPC. Do not export it through a channel, ever.
+ */
+export interface VaultExportRow extends VaultSecretMeta {
+  value: string;
+  extras: string | null;
+  folder_name: string | null;
+}
+
+/**
+ * MAIN-SIDE ONLY — the second and last function that hands out the whole set, and it exists for the
+ * same reason the first one does: the WORK travels to the data, not the data to the work. transfer.ts
+ * consumes this in-process and writes a FILE; not one row of it crosses IPC. Same rule as
+ * readAllForAnalysis — do not export it through a channel, ever. Archived rows are included
+ * deliberately: a backup that silently drops what you retired is not a backup.
+ */
+export function readAllForExport(db: Db, orgId: string): VaultExportRow[] {
+  return db
+    .prepare(
+      `SELECT ${META_COLS}, ${CURRENT_VALUE},
+              (SELECT f.name FROM vault_folders f WHERE f.id = vault_secrets.folder_id) AS folder_name
+         FROM vault_secrets WHERE org_id = ? ORDER BY label COLLATE NOCASE ASC`
+    )
+    .all(orgId) as VaultExportRow[];
+}
+
+export function readAllForAnalysis(db: Db, orgId: string): { uuid: string; label: string; username: string | null; url: string | null; value: string; created_at: string }[] {
+  return db
+    .prepare(
+      `SELECT s.uuid, s.label, s.username, s.url,
+              (SELECT v.value FROM vault_secret_versions v WHERE v.secret_id = s.id ORDER BY v.version DESC LIMIT 1) AS value,
+              (SELECT v.created_at FROM vault_secret_versions v WHERE v.secret_id = s.id ORDER BY v.version DESC LIMIT 1) AS created_at
+         FROM vault_secrets s
+        WHERE s.org_id = ? AND s.archived_at IS NULL`
+    )
+    .all(orgId) as { uuid: string; label: string; username: string | null; url: string | null; value: string; created_at: string }[];
 }

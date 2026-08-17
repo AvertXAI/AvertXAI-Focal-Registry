@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP — Vault home tab — v1 08-12-2026</title>
+<style>
+:root{
+  --bg:#efece7; --modal:#ffffff; --ink:#1f2937; --label:#6b7280; --hint:#9aa0a8;
+  --line:#e5e7eb; --salmon:#e2795c; --salmon-soft:#f0b39e; --req:#e2603d;
+  --green:#16a34a; --bar:#f5f4f1;
+  --sans:'Segoe UI',system-ui,sans-serif; --mono:Consolas,'Cascadia Mono',monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--sans);
+  min-height:100vh;padding:22px 20px 70px}
+h2{margin:0;font-size:19px;font-weight:700}
+.mono{font-family:var(--mono)}
+
+/* nav strip */
+.nav{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:20px}
+.nav button{border:1px solid var(--line);background:var(--modal);border-radius:8px;
+  padding:5px 12px;font:12px var(--sans);cursor:pointer;color:var(--label)}
+.nav button.on{background:var(--salmon);border-color:var(--salmon);color:#fff;font-weight:600}
+
+.stage{max-width:880px;margin:0 auto}
+.card{background:var(--modal);border-radius:16px;padding:28px 30px;
+  box-shadow:0 12px 44px rgba(30,25,20,.16)}
+.sub{color:var(--label);font-size:13.5px;margin-top:6px}
+.sub b{color:var(--ink)}
+.state{display:none}
+.state.on{display:block}
+
+/* stat chips */
+.chips{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0 4px}
+.chip{background:var(--bar);border-radius:10px;padding:9px 13px;min-width:96px}
+.chip .k{display:block;font-size:10px;letter-spacing:.9px;text-transform:uppercase;color:var(--label)}
+.chip .v{display:block;font-family:var(--mono);font-size:19px;font-weight:700;margin-top:2px}
+
+/* section label */
+.slab{font-size:11px;letter-spacing:1.1px;text-transform:uppercase;color:var(--label);
+  margin:24px 0 9px}
+
+/* feed */
+.feed{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.row:hover{background:var(--bar)}
+.ic{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
+  font-size:11px;font-weight:700;color:#fff;flex:none}
+.ic.p{background:var(--salmon)} .ic.n{background:#6355d8} .ic.i{background:#17838f}
+.ic.r{background:#2b7a4b} .ic.s{background:#6b7280}
+.what{flex:1;min-width:0}
+.what .t{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.what .t b{font-weight:600}
+.what .s{font-size:11.5px;color:var(--label);margin-top:1px}
+.when{font-family:var(--mono);font-size:11px;color:var(--hint);flex:none}
+.go{border:1px solid var(--line);background:var(--modal);border-radius:8px;
+  padding:4px 11px;font:11.5px var(--sans);cursor:pointer;color:var(--label);flex:none}
+.go:hover{border-color:var(--salmon);color:var(--salmon)}
+
+.day{padding:7px 14px;background:var(--bar);font-size:11px;letter-spacing:.8px;
+  text-transform:uppercase;color:var(--label);border-bottom:1px solid var(--line)}
+
+/* filter pills */
+.pills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px}
+.pill{border:1px solid var(--line);background:var(--modal);border-radius:20px;
+  padding:4px 12px;font:12px var(--sans);cursor:pointer;color:var(--label)}
+.pill.on{background:var(--salmon);border-color:var(--salmon);color:#fff;font-weight:600}
+
+/* attention rows */
+.att{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);
+  border-radius:12px;margin-bottom:9px}
+.att .dot{width:9px;height:9px;border-radius:50%;flex:none}
+.att .txt{flex:1;font-size:13.5px}
+.att .txt .s{font-size:11.5px;color:var(--label);margin-top:1px}
+.btn{border:1px solid var(--line);background:var(--modal);border-radius:10px;
+  padding:9px 16px;font:13px var(--sans);cursor:pointer;color:var(--ink)}
+.btn.pri{background:var(--salmon);border-color:var(--salmon);color:#fff;font-weight:600}
+.acts{display:flex;gap:9px;justify-content:flex-end;margin-top:22px}
+
+/* option D — the tab strips */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:6px 0 18px}
+.tab{padding:9px 15px;font-size:13px;color:var(--label);border:1px solid transparent;
+  border-bottom:none;border-radius:9px 9px 0 0;position:relative;top:1px}
+.tab.on{background:var(--modal);border-color:var(--line);color:var(--ink);font-weight:600}
+.tab.gone{text-decoration:line-through;opacity:.4}
+.note{background:#fdf6f3;border:1px solid #f3d9cf;border-left:3px solid var(--salmon);
+  border-radius:10px;padding:13px 16px;margin-top:18px;font-size:13px}
+.note b{color:var(--req)}
+.empty{text-align:center;padding:34px 20px;color:var(--label);font-size:13.5px}
+.empty .big{font-size:15px;color:var(--ink);font-weight:600;margin-bottom:5px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <button class="on" data-go="a">A · Recent actions &amp; edits</button>
+  <button data-go="b">B · Needs attention</button>
+  <button data-go="c">C · Pinned</button>
+  <button data-go="d">D · Remove the tab</button>
+  <button data-go="e">A · empty state</button>
+</div>
+
+<div class="stage">
+
+  <!-- ============================================ A -->
+  <div class="state on" id="a">
+    <div class="card">
+      <h2>Vault</h2>
+      <div class="sub">Everything you have touched lately, across <b>Passwords</b>, <b>Secured Notes</b>,
+        <b>Infrastructure</b> and <b>Repos</b>.</div>
+
+      <div class="chips">
+        <div class="chip"><span class="k">Passwords</span><span class="v">46</span></div>
+        <div class="chip"><span class="k">Secured notes</span><span class="v">4089</span></div>
+        <div class="chip"><span class="k">Servers</span><span class="v">0</span></div>
+        <div class="chip"><span class="k">DNS records</span><span class="v">18</span></div>
+        <div class="chip"><span class="k">Repos</span><span class="v">1</span></div>
+      </div>
+
+      <div class="slab">Recent actions &amp; edits</div>
+      <div class="pills">
+        <span class="pill on" data-f="all">Everything</span>
+        <span class="pill" data-f="p">Passwords</span>
+        <span class="pill" data-f="n">Notes</span>
+        <span class="pill" data-f="i">Infrastructure</span>
+        <span class="pill" data-f="r">Repos</span>
+      </div>
+
+      <div class="feed" id="feed">
+        <div class="day">Today</div>
+
+        <div class="row" data-k="n">
+          <span class="ic n">N</span>
+          <span class="what"><span class="t">Edited <b>FocalRegistry-R&amp;D-Backlog-05</b></span>
+            <span class="s">Secured Notes · AvertXAI / Focal-Registry / docs</span></span>
+          <span class="when">4m ago</span><button class="go">Open</button>
+        </div>
+
+        <div class="row" data-k="p">
+          <span class="ic p">P</span>
+          <span class="what"><span class="t">Revealed <b>Hetzner root — avert-core-01</b></span>
+            <span class="s">Passwords · recorded in the access log</span></span>
+          <span class="when">1h ago</span><button class="go">Open</button>
+        </div>
+
+        <div class="row" data-k="i">
+          <span class="ic i">I</span>
+          <span class="what"><span class="t">Imported <b>18 DNS records</b> for avertxai.com</span>
+            <span class="s">Infrastructure · Servers &amp; DNS</span></span>
+          <span class="when">2h ago</span><button class="go">Open</button>
+        </div>
+
+        <div class="row" data-k="n">
+          <span class="ic n">R</span>
+          <span class="what"><span class="t">Ran <b>Restoring the Hetzner box from a snapshot</b></span>
+            <span class="s">Runbook · 6 of 9 steps ticked</span></span>
+          <span class="when">3h ago</span><button class="go">Resume</button>
+        </div>
+
+        <div class="day">Yesterday</div>
+
+        <div class="row" data-k="n">
+          <span class="ic n">N</span>
+          <span class="what"><span class="t">Imported <b>2,041 notes</b> from D:\dev\_source</span>
+            <span class="s">Secured Notes · 142 folders mirrored</span></span>
+          <span class="when">11:16 PM</span><button class="go">Open</button>
+        </div>
+
+        <div class="row" data-k="r">
+          <span class="ic r">R</span>
+          <span class="what"><span class="t">Added <b>scrapy/scrapy</b></span>
+            <span class="s">Repos · watching, not cloned here</span></span>
+          <span class="when">9:04 PM</span><button class="go">Open</button>
+        </div>
+
+        <div class="row" data-k="p">
+          <span class="ic p">P</span>
+          <span class="what"><span class="t">Changed <b>Cloudflare</b></span>
+            <span class="s">Passwords · version 3, previous versions kept</span></span>
+          <span class="when">8:41 PM</span><button class="go">Open</button>
+        </div>
+      </div>
+
+      <div class="acts">
+        <button class="btn">Open the access log</button>
+        <button class="btn pri">Go to Passwords</button>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>Why this one.</b> It is the only thing the other four tabs structurally cannot show — each of them is a
+      single kind of thing, and &ldquo;what did I just do&rdquo; cuts across all four. It is also close to free: every row here
+      already exists in the access log or the event log.
+    </div>
+  </div>
+
+  <!-- ============================================ B -->
+  <div class="state" id="b">
+    <div class="card">
+      <h2>Vault</h2>
+      <div class="sub">Only what has something to act on. When nothing needs you, it says so and stops.</div>
+
+      <div class="chips">
+        <div class="chip"><span class="k">Weak</span><span class="v" style="color:#cf3b45">23</span></div>
+        <div class="chip"><span class="k">Reused</span><span class="v" style="color:#c9821a">12</span></div>
+        <div class="chip"><span class="k">Errors</span><span class="v" style="color:#cf3b45">3</span></div>
+        <div class="chip"><span class="k">Unfiled</span><span class="v">784</span></div>
+      </div>
+
+      <div class="slab">Needs attention</div>
+      <div class="att">
+        <span class="dot" style="background:#cf3b45"></span>
+        <span class="txt">3 errors recorded since the last launch<span class="s">Two are the same missing handler</span></span>
+        <button class="go">Open the log</button>
+      </div>
+      <div class="att">
+        <span class="dot" style="background:#c9821a"></span>
+        <span class="txt">12 passwords are reused across sites<span class="s">Health can list them</span></span>
+        <button class="go">Fix</button>
+      </div>
+      <div class="att">
+        <span class="dot" style="background:#2f6fd0"></span>
+        <span class="txt">784 notes are unfiled<span class="s">Drag them onto a folder, or import again with mirroring on</span></span>
+        <button class="go">File them</button>
+      </div>
+
+      <div class="acts"><button class="btn pri">Open Health</button></div>
+    </div>
+
+    <div class="note">
+      <b>The catch.</b> Every one of these already has a home — errors on the log, weak and reused on Health, unfiled in
+      the notes tree. This is a roll-up of screens that already exist, so it is a shortcut rather than a new answer.
+    </div>
+  </div>
+
+  <!-- ============================================ C -->
+  <div class="state" id="c">
+    <div class="card">
+      <h2>Vault</h2>
+      <div class="sub">The things you reach for, big enough to hit.</div>
+
+      <div class="slab">Pinned</div>
+      <div class="feed">
+        <div class="row"><span class="ic p">P</span>
+          <span class="what"><span class="t"><b>Hetzner root — avert-core-01</b></span><span class="s">Password</span></span>
+          <button class="go">Copy</button></div>
+        <div class="row"><span class="ic n">R</span>
+          <span class="what"><span class="t"><b>Restoring the Hetzner box</b></span><span class="s">Runbook</span></span>
+          <button class="go">Run</button></div>
+        <div class="row"><span class="ic i">I</span>
+          <span class="what"><span class="t"><b>avert-core-01</b></span><span class="s">Server</span></span>
+          <button class="go">Open</button></div>
+        <div class="row"><span class="ic s">G</span>
+          <span class="what"><span class="t"><b>Generator</b></span><span class="s">Tool</span></span>
+          <button class="go">Open</button></div>
+      </div>
+
+      <div class="acts"><button class="btn">Edit what is pinned</button></div>
+    </div>
+
+    <div class="note">
+      <b>The catch.</b> This is the shortcuts rail, two inches to its right. The sidebar already shows it on every tab,
+      including this one — so the page restates what is permanently on screen beside it.
+    </div>
+  </div>
+
+  <!-- ============================================ D -->
+  <div class="state" id="d">
+    <div class="card">
+      <h2>Remove the tab</h2>
+      <div class="sub">Four tabs, and <b>Passwords</b> becomes where the vault opens.</div>
+
+      <div class="slab">Now</div>
+      <div class="tabs">
+        <div class="tab on">Vault</div><div class="tab">Passwords</div><div class="tab">Secured Notes</div>
+        <div class="tab">Infrastructure</div><div class="tab">Repos</div>
+      </div>
+
+      <div class="slab">After</div>
+      <div class="tabs">
+        <div class="tab gone">Vault</div><div class="tab on">Passwords</div><div class="tab">Secured Notes</div>
+        <div class="tab">Infrastructure</div><div class="tab">Repos</div>
+      </div>
+
+      <div class="empty">
+        <div class="big">Nothing is lost.</div>
+        Every number on the old tile row already appears on the tab that owns it, and the sidebar is the real
+        navigation. It buys back about <b>52 pixels</b> of a strip that is already tight at the 740-pixel floor.
+      </div>
+
+      <div class="acts"><button class="btn">Keep it</button><button class="btn pri">Remove it</button></div>
+    </div>
+
+    <div class="note">
+      <b>This is a real answer, not a filler.</b> A page that teaches a new user nothing is worse than one fewer tab.
+      If you would not open a recent-activity page, delete it.
+    </div>
+  </div>
+
+  <!-- ============================================ E -->
+  <div class="state" id="e">
+    <div class="card">
+      <h2>Vault</h2>
+      <div class="sub">Everything you have touched lately, across <b>Passwords</b>, <b>Secured Notes</b>,
+        <b>Infrastructure</b> and <b>Repos</b>.</div>
+
+      <div class="chips">
+        <div class="chip"><span class="k">Passwords</span><span class="v">0</span></div>
+        <div class="chip"><span class="k">Secured notes</span><span class="v">0</span></div>
+        <div class="chip"><span class="k">Servers</span><span class="v">0</span></div>
+        <div class="chip"><span class="k">DNS records</span><span class="v">0</span></div>
+        <div class="chip"><span class="k">Repos</span><span class="v">0</span></div>
+      </div>
+
+      <div class="slab">Recent actions &amp; edits</div>
+      <div class="feed">
+        <div class="empty">
+          <div class="big">Nothing here yet.</div>
+          As soon as you add an entry, write a note or import a file, it shows up here — so this page is where you
+          pick up where you left off.
+        </div>
+      </div>
+
+      <div class="acts">
+        <button class="btn">Load the sample data</button>
+        <button class="btn pri">Add your first entry</button>
+      </div>
+    </div>
+
+    <div class="note">
+      A home page has to survive being empty. On day one it says what it is <b>for</b> rather than showing five zeros
+      and a blank box — which is exactly how the current tab reads.
+    </div>
+  </div>
+
+</div>
+
+<script>
+  document.querySelectorAll('.nav button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.nav button').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      document.querySelectorAll('.state').forEach(function (s) { s.classList.remove('on'); });
+      document.getElementById(b.dataset.go).classList.add('on');
+      window.scrollTo(0, 0);
+    });
+  });
+
+  // The filter pills actually filter — the feed is the whole point of option A.
+  document.querySelectorAll('.pill').forEach(function (p) {
+    p.addEventListener('click', function () {
+      document.querySelectorAll('.pill').forEach(function (x) { x.classList.remove('on'); });
+      p.classList.add('on');
+      var f = p.dataset.f;
+      document.querySelectorAll('#feed .row').forEach(function (r) {
+        r.style.display = (f === 'all' || r.dataset.k === f) ? '' : 'none';
+      });
+      // A day heading with nothing under it is noise — hide it too.
+      document.querySelectorAll('#feed .day').forEach(function (d) {
+        var any = false, n = d.nextElementSibling;
+        while (n && !n.classList.contains('day')) {
+          if (n.style.display !== 'none') any = true;
+          n = n.nextElementSibling;
+        }
+        d.style.display = any ? '' : 'none';
+      });
+    });
+  });
+</script>
+</body>
+</html>

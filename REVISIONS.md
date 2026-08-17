@@ -62,3 +62,30 @@ injects the current version's Summary into the update feed, and publishes this f
 #### Removed
 
 - The legacy RunBooks-era database migration and its last remnants — no existing install carries data that needs it.
+
+## 0.2.6 — July 31, 2026
+
+**Summary:** New TimeTracker module — track hours per project, watch what you have earned as the clock runs, and see it all in charts you can export. A floating timer window stays on top while you work, and break reminders tell you when to step away. The sidebar is now grouped by what each module does.
+
+### Details
+
+#### Added
+
+- TimeTracker: a full per-project time tracker — projects grouped into folders, live timers with a running dollar figure at your hourly rate, pause and resume, and session notes.
+- TimeTracker: Logbook, Activity and Archive views, plus Adjustments for correcting hours you forgot to log without ever altering a saved session.
+- TimeTracker: Analytics with hours over time, value against costs, hours by project and costs by category — exportable to PDF straight to your Downloads folder.
+- TimeTracker: a value ledger that never overwrites a previous amount, cost line items, and a grand total across every project.
+- A floating mini timer window that stays above other applications, with per-timer pause and stop.
+- Break reminders with a choice of seventeen alert sounds, plus idle detection that asks before discarding time you did not work.
+- Marketplace: a placeholder for modules you will be able to add later.
+
+#### Changed
+
+- The sidebar is grouped: Archive Media holds Scan, Rename and Migrate; Applications holds TimeTracker; Tools holds MindMerge and Scout Viewer. Secured Vault and Marketplace sit on their own.
+- Secure Vault is now shown as "Secured Vault".
+
+#### Fixed
+
+- Settings now reopens on the section you were last using.
+- Alert sounds play correctly.
+- Buttons in the light theme are legible against their background.

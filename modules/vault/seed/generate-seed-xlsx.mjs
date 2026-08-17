@@ -19,7 +19,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), "VAULT-SEED-DATA.xlsx");
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const OUT = path.join(HERE, "VAULT-SEED-DATA.xlsx");
+// The SAME rows, emitted as TypeScript for the seed loader. One source, two artifacts: the sheet
+// Jason reads and the dataset the vault loads can never drift, because neither is hand-maintained.
+const OUT_TS = path.join(HERE, "..", "electron", "core", "services", "vault", "seed-data.ts");
 
 // ---- the dataset -----------------------------------------------------------------------------
 // Main identity per ruling: paulcruz@brightflashmedia.com. A few platform handles vary the way a
@@ -184,8 +188,63 @@ const entries = [
 ];
 fs.writeFileSync(OUT, zip(entries));
 
+// ---- the same rows as TypeScript, for the in-app seed loader -----------------------------------
+// Backup codes and security questions are split into their structured shape here, because in the
+// vault they are CREDENTIALS on the version row, not metadata — see vault/db.ts.
+const q = (s) => JSON.stringify(s ?? "");
+const tsRows = sorted
+  .map(([company, fullName, username, url, password, other, codes, questions]) => {
+    const codeList = codes ? codes.split(",").map((c) => c.trim()).filter(Boolean) : [];
+    // "First pet? Maggie" → { question: "First pet?", answer: "Maggie" }
+    const qa = questions
+      ? questions
+          .split(";")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((s) => {
+            const at = s.indexOf("?");
+            return at === -1
+              ? { question: s, answer: "" }
+              : { question: s.slice(0, at + 1).trim(), answer: s.slice(at + 1).trim() };
+          })
+      : [];
+    return `  { company: ${q(company)}, fullName: ${q(fullName)}, username: ${q(username)}, url: ${q(url)}, password: ${q(password)}, notes: ${q(other)}, backupCodes: ${JSON.stringify(codeList)}, securityQuestions: ${JSON.stringify(qa)} },`;
+  })
+  .join("\n");
+
+const tsFile = `// -----------------------------------------------------------
+// Author: Jason Cruz
+// Copyright: (c) 2026 AvertXAI. All Rights Reserved.
+// Project: AvertXAI Focal Registry
+// Description: GENERATED FILE — DO NOT EDIT BY HAND. Emitted by modules/vault/seed/
+//              generate-seed-xlsx.mjs from the same rows as VAULT-SEED-DATA.xlsx, so the workbook
+//              Jason reads and the dataset the vault loads cannot drift. Re-run the generator to
+//              change it. EVERY VALUE IS FAKE — deliberately dumb human passwords with engineered
+//              reuse and stale years, so the health surface has honest work to do.
+// License: Proprietary / Unauthorized copying of this file is strictly prohibited
+// File: electron/core/services/vault/seed-data.ts
+//------------------------------------------------------------
+
+export interface SeedEntry {
+  company: string;
+  fullName: string;
+  username: string;
+  url: string;
+  password: string;
+  notes: string;
+  backupCodes: string[];
+  securityQuestions: { question: string; answer: string }[];
+}
+
+export const SEED_ENTRIES: SeedEntry[] = [
+${tsRows}
+];
+`;
+fs.writeFileSync(OUT_TS, tsFile);
+
 // self-check: every row landed on exactly one page, none dropped
 const placed = PAGES.reduce((n, p) => n + sorted.filter((r) => p.test(r[0])).length, 0);
 if (placed !== sorted.length) throw new Error(`page split dropped rows: ${placed}/${sorted.length}`);
 console.log(`OK wrote ${path.basename(OUT)} — ${sorted.length} entries across ${PAGES.map((p) => p.name).join(" / ")}`);
 console.log(`   pages: ${PAGES.map((p) => `${p.name}=${sorted.filter((r) => p.test(r[0])).length}`).join("  ")}`);
+console.log(`OK wrote seed-data.ts — ${sorted.length} entries for the in-app loader`);

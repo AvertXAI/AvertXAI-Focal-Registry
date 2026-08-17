@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MOCKUP — Add a repo, wizard — v1 08-12-2026</title>
+<style>
+:root{
+  --bg:#efece7; --modal:#ffffff; --ink:#1f2937; --label:#6b7280; --hint:#9aa0a8;
+  --line:#e5e7eb; --salmon:#e2795c; --salmon-soft:#f0b39e; --req:#e2603d;
+  --green:#16a34a; --bar:#f5f4f1;
+  --sans:'Segoe UI',system-ui,sans-serif; --mono:Consolas,'Cascadia Mono',monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--sans);padding:22px 20px 70px}
+h2{margin:0;font-size:19px;font-weight:700}
+.mono{font-family:var(--mono)}
+.nav{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:20px}
+.nav button{border:1px solid var(--line);background:var(--modal);border-radius:8px;padding:5px 12px;
+  font:12px var(--sans);cursor:pointer;color:var(--label)}
+.nav button.on{background:var(--salmon);border-color:var(--salmon);color:#fff;font-weight:600}
+.stage{max-width:720px;margin:0 auto}
+.card{background:var(--modal);border-radius:16px;padding:26px 28px;box-shadow:0 12px 44px rgba(30,25,20,.16)}
+.sub{color:var(--label);font-size:13.5px;margin-top:6px}
+.sub b{color:var(--ink)}
+.state{display:none}.state.on{display:block}
+
+/* stepper */
+.steps{display:flex;align-items:center;gap:0;margin:18px 0 20px}
+.step{display:flex;align-items:center;gap:8px;flex:1}
+.dot{width:24px;height:24px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;
+  font-size:11px;font-weight:700;color:var(--label);flex:none;background:var(--modal)}
+.step.on .dot{border-color:var(--salmon);background:var(--salmon);color:#fff}
+.step.done .dot{border-color:var(--green);background:var(--green);color:#fff}
+.step .lb{font-size:12px;color:var(--label)}
+.step.on .lb{color:var(--ink);font-weight:600}
+.bar{height:2px;background:var(--line);flex:1;margin:0 8px}
+.bar.done{background:var(--green)}
+
+.field{margin-bottom:14px}
+.field label{display:block;font-size:13px;color:var(--label);margin-bottom:5px}
+.field .req{color:var(--req)}
+input,select,textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:11px 13px;
+  font:13px var(--sans);background:var(--modal);color:var(--ink)}
+input:focus,select:focus{outline:none;border-color:var(--salmon)}
+.pick{display:flex;gap:8px}
+.pick input{flex:1;font-family:var(--mono);font-size:12.5px}
+.btn{border:1px solid var(--line);background:var(--modal);border-radius:10px;padding:10px 16px;
+  font:13px var(--sans);cursor:pointer;color:var(--ink)}
+.btn.pri{background:var(--salmon);border-color:var(--salmon);color:#fff;font-weight:600}
+.btn.sm{padding:5px 11px;font:12px var(--sans)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.acts{display:flex;gap:9px;justify-content:flex-end;margin-top:20px;align-items:center}
+
+.found{border:1px solid #bfe6cd;background:#f2fbf5;border-radius:11px;padding:12px 14px;margin:14px 0}
+.found b{color:var(--green)}
+.frow{display:flex;align-items:center;gap:9px;font-size:12.5px;padding:3px 0}
+.frow .ic{width:18px;text-align:center;flex:none}
+.frow .p{font-family:var(--mono);font-size:11.5px;color:var(--label);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.auto{border-color:#bfe6cd!important;background:#f9fdfb!important}
+.tagauto{float:right;font-size:9.5px;color:var(--green);font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.note{background:#fdf6f3;border:1px solid #f3d9cf;border-left:3px solid var(--salmon);
+  border-radius:10px;padding:13px 15px;margin-top:16px;font-size:13px}
+.note b{color:var(--req)}
+.warn{background:#fff8f6;border:1px solid #f3cfc9;border-left:3px solid var(--req);
+  border-radius:10px;padding:13px 15px;margin:14px 0;font-size:13px}
+.warn b{color:var(--req)}
+.opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;
+  padding:11px 13px;margin-bottom:8px;cursor:pointer}
+.opt.on{border-color:var(--salmon);background:#fdf6f3;box-shadow:0 0 0 2px rgba(226,121,92,.13)}
+.opt .rad{width:15px;height:15px;border-radius:50%;border:2px solid var(--line);flex:none;margin-top:2px}
+.opt.on .rad{border-color:var(--salmon);background:radial-gradient(circle,var(--salmon) 0 42%,transparent 44%)}
+.opt b{display:block;font-size:12.5px;margin-bottom:3px}
+.opt span{display:block;font-size:11.5px;color:var(--label);line-height:1.5}
+.prev{border:1px solid var(--line);border-radius:11px;overflow:hidden;margin-top:6px}
+.prevhd{display:flex;align-items:center;gap:9px;padding:8px 12px;background:var(--bar);
+  border-bottom:1px solid var(--line);font-size:11.5px;color:var(--label)}
+.prevbody{padding:14px 16px;max-height:230px;overflow:auto;font-size:13px}
+.prevbody h1{font-size:17px;margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.prevbody h2{font-size:14px;margin:12px 0 6px}
+.prevbody p{margin:0 0 8px}
+.prevbody pre{background:var(--bar);border:1px solid var(--line);border-radius:8px;padding:9px 11px;
+  font:11.5px var(--mono);overflow-x:auto;margin:0 0 8px}
+.badges{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px}
+.bdg{display:inline-flex;font-size:10px;border-radius:4px;overflow:hidden;height:18px;line-height:18px}
+.bdg .l{background:#555;color:#fff;padding:0 6px}
+.bdg .r{color:#fff;padding:0 6px;font-weight:600}
+/* env */
+.env{border:1px solid var(--line);border-radius:11px;overflow:hidden;margin-top:6px}
+.envhd{display:flex;align-items:center;gap:9px;padding:8px 12px;background:var(--bar);
+  border-bottom:1px solid var(--line);font-size:11.5px;color:var(--label)}
+.eye{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--modal);
+  border-radius:7px;padding:3px 10px;font:11.5px var(--sans);cursor:pointer;color:var(--label)}
+.eye.on{border-color:var(--green);color:var(--green);background:#f2fbf5;font-weight:600}
+.erow{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line)}
+.erow:last-child{border-bottom:0}
+.ek{font-family:var(--mono);font-size:12px;font-weight:600;min-width:180px;flex:none}
+.ev{font-family:var(--mono);font-size:12px;color:var(--label);flex:1;min-width:0;letter-spacing:1px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev.shown{color:var(--ink);letter-spacing:0}
+.mini{border:1px solid var(--line);background:var(--modal);border-radius:7px;padding:3px 9px;
+  font:11.5px var(--sans);cursor:pointer;color:var(--label);flex:none}
+.timer{font:11px var(--mono);color:var(--green);flex:none}
+ul.tight{margin:8px 0 0 18px;padding:0}ul.tight li{margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <button class="on" data-go="s1">1 · local folder</button>
+  <button data-go="s2">2 · remote</button>
+  <button data-go="s2b">2 · private</button>
+  <button data-go="s3">3 · what it found</button>
+  <button data-go="s4">the saved row</button>
+</div>
+
+<div class="stage">
+
+  <!-- ===================================== STEP 1 -->
+  <div class="state on" id="s1">
+    <div class="card">
+      <h2>Add a repo</h2>
+      <div class="sub">Point at the folder and the app fills in the rest.</div>
+
+      <div class="steps">
+        <div class="step on"><span class="dot">1</span><span class="lb">Local folder</span></div>
+        <span class="bar"></span>
+        <div class="step"><span class="dot">2</span><span class="lb">Remote</span></div>
+        <span class="bar"></span>
+        <div class="step"><span class="dot">3</span><span class="lb">Review</span></div>
+      </div>
+
+      <div class="field">
+        <label>Where is it on this machine? · <span class="req">required</span></label>
+        <div class="pick">
+          <input value="D:\dev\world-monitor" readonly>
+          <button class="btn">Browse…</button>
+        </div>
+      </div>
+
+      <div class="sub" style="margin-bottom:4px">
+        <b>Browse</b> opens the normal Windows folder picker — you choose the repo itself, not a parent to search under.
+      </div>
+
+      <div class="note" style="margin-top:16px">
+        <b>Nothing is read until you press Next.</b> Then the app looks for
+        <span class="mono">README.md</span>, <span class="mono">.env</span>,
+        <span class="mono">package.json</span>, a licence file and <span class="mono">.git/config</span> —
+        all on your own disk, no network.
+      </div>
+
+      <div class="acts"><button class="btn">Cancel</button><button class="btn pri">Next — scan the folder</button></div>
+    </div>
+  </div>
+
+  <!-- ===================================== STEP 2 · public -->
+  <div class="state" id="s2">
+    <div class="card">
+      <h2>Where does it live online?</h2>
+      <div class="sub">Read from <span class="mono">.git/config</span> — correct it if it is wrong, or leave it empty.</div>
+
+      <div class="steps">
+        <div class="step done"><span class="dot">✓</span><span class="lb">Local folder</span></div>
+        <span class="bar done"></span>
+        <div class="step on"><span class="dot">2</span><span class="lb">Remote</span></div>
+        <span class="bar"></span>
+        <div class="step"><span class="dot">3</span><span class="lb">Review</span></div>
+      </div>
+
+      <div class="field">
+        <label>Remote URL <span class="tagauto">from .git/config</span></label>
+        <input class="auto mono" value="https://github.com/avertxai/world-monitor">
+      </div>
+
+      <div class="field">
+        <label>Is it public or private?</label>
+        <div class="opt on"><span class="rad"></span>
+          <span><b>Public</b><span>Anyone can read it. Nothing else is needed — MindMerge can fetch its README later.</span></span></div>
+        <div class="opt"><span class="rad" id="privrad"></span>
+          <span><b>Private</b><span>Reading it online needs credentials. Choose this and the next screen asks how.</span></span></div>
+        <div class="opt"><span class="rad"></span>
+          <span><b>No remote / local only</b><span>Skip this entirely. The repo is tracked from disk alone.</span></span></div>
+      </div>
+
+      <div class="acts"><button class="btn">Back</button><button class="btn pri">Next — review</button></div>
+    </div>
+  </div>
+
+  <!-- ===================================== STEP 2 · private -->
+  <div class="state" id="s2b">
+    <div class="card">
+      <h2>It is private — how should the app read it?</h2>
+      <div class="sub">Only needed for fetching it <b>online</b> later. Everything on this machine already works without it.</div>
+
+      <div class="steps">
+        <div class="step done"><span class="dot">✓</span><span class="lb">Local folder</span></div>
+        <span class="bar done"></span>
+        <div class="step on"><span class="dot">2</span><span class="lb">Remote</span></div>
+        <span class="bar"></span>
+        <div class="step"><span class="dot">3</span><span class="lb">Review</span></div>
+      </div>
+
+      <div class="opt on"><span class="rad"></span>
+        <span><b>A personal access token, stored as a vault entry <span style="color:var(--green)">— recommended</span></b>
+        <span>One field, pasted once. It becomes a normal encrypted entry you can rotate or revoke like any other
+        credential, and it is read through the same logged path.</span></span></div>
+      <div class="opt"><span class="rad"></span>
+        <span><b>Sign in to GitHub</b>
+        <span>A browser login. Friendlier, but it needs a client secret shipped inside the application — which cannot be
+        kept secret in a desktop app — and it only ever works for GitHub.</span></span></div>
+      <div class="opt"><span class="rad"></span>
+        <span><b>Not now</b>
+        <span>Track it from disk. You can add a token later without re-adding the repo.</span></span></div>
+
+      <div class="field" style="margin-top:14px">
+        <label>Token</label>
+        <input type="password" class="mono" value="ghp_xxxxxxxxxxxxxxxxxxxx">
+      </div>
+      <div class="field">
+        <label>Save it as</label>
+        <input value="GitHub token — avertxai">
+      </div>
+
+      <div class="note">
+        <b>Why the token is the recommendation.</b> An OAuth login needs a client secret inside a shipped desktop app,
+        where anyone can extract it — so it is not really a secret. A token you paste is yours, scoped by you, revocable
+        by you, and it fits the store this app already has. It also works for GitLab, Gitea and anything else with an
+        API, which a GitHub login does not.
+      </div>
+
+      <div class="acts"><button class="btn">Back</button><button class="btn pri">Next — review</button></div>
+    </div>
+  </div>
+
+  <!-- ===================================== STEP 3 -->
+  <div class="state" id="s3">
+    <div class="card">
+      <h2>Here is what it found</h2>
+      <div class="sub">Everything below was filled in from the folder. Change anything that is wrong.</div>
+
+      <div class="steps">
+        <div class="step done"><span class="dot">✓</span><span class="lb">Local folder</span></div>
+        <span class="bar done"></span>
+        <div class="step done"><span class="dot">✓</span><span class="lb">Remote</span></div>
+        <span class="bar done"></span>
+        <div class="step on"><span class="dot">3</span><span class="lb">Review</span></div>
+      </div>
+
+      <div class="found">
+        <b>5 things read from the folder</b>
+        <div class="frow"><span class="ic">📄</span><span class="p">README.md — 4.2 KB</span></div>
+        <div class="frow"><span class="ic">🔑</span><span class="p">.env — 11 values, 7 credential-shaped</span></div>
+        <div class="frow"><span class="ic">📦</span><span class="p">package.json — name, description, 42 dependencies</span></div>
+        <div class="frow"><span class="ic">⚖</span><span class="p">LICENSE — AGPL-3.0</span></div>
+        <div class="frow"><span class="ic">🌿</span><span class="p">.git/config — origin, branch main</span></div>
+      </div>
+
+      <div class="two">
+        <div class="field"><label>Name <span class="tagauto">auto</span></label><input class="auto" value="world-monitor"></div>
+        <div class="field"><label>Visibility <span class="tagauto">auto</span></label>
+          <select class="auto"><option>private</option><option>public</option></select></div>
+      </div>
+      <div class="field"><label>Description <span class="tagauto">from package.json</span></label>
+        <input class="auto" value="Real-time global intelligence dashboard — news, geopolitics, infrastructure"></div>
+      <div class="two">
+        <div class="field"><label>Primary language <span class="tagauto">auto · 71% of files</span></label>
+          <input class="auto" value="TypeScript"></div>
+        <div class="field"><label>Licence <span class="tagauto">auto</span></label><input class="auto" value="AGPL-3.0"></div>
+      </div>
+
+      <!-- ENV FIRST, above the README — quick access is the whole point -->
+      <label style="font-size:13px;color:var(--label);display:block;margin:6px 0 5px">Environment · 11 values</label>
+      <div class="env">
+        <div class="envhd">
+          <span style="flex:1">from <span class="mono">.env</span></span>
+          <button class="eye" id="eye">👁 Reveal all</button>
+          <button class="mini">Re-read the file</button>
+        </div>
+        <div class="erow"><span class="ek">STRIPE_SECRET_KEY</span><span class="ev ev1">••••••••••••••••</span>
+          <button class="mini">Reveal</button><button class="mini">Copy</button></div>
+        <div class="erow"><span class="ek">OPENAI_API_KEY</span><span class="ev ev1">••••••••••••••••</span>
+          <button class="mini">Reveal</button><button class="mini">Copy</button></div>
+        <div class="erow"><span class="ek">NODE_ENV</span><span class="ev shown">production</span>
+          <button class="mini">Copy</button></div>
+      </div>
+      <div class="sub" style="margin:6px 0 14px;font-size:12px">
+        <b>Reveal all</b> turns green while active and closes itself after <b>2 minutes</b>. Every reveal is recorded.
+      </div>
+
+      <label style="font-size:13px;color:var(--label);display:block;margin-bottom:5px">README preview</label>
+      <div class="prev">
+        <div class="prevhd"><span style="flex:1">README.md · read from disk</span><button class="mini">Edit instead</button></div>
+        <div class="prevbody">
+          <h1>World Monitor</h1>
+          <div class="badges">
+            <span class="bdg"><span class="l">license</span><span class="r" style="background:#97ca00">AGPL-3.0</span></span>
+            <span class="bdg"><span class="l">lang</span><span class="r" style="background:#3178c6">TypeScript</span></span>
+          </div>
+          <p>Real-time global intelligence dashboard — AI-powered news aggregation, geopolitical monitoring and
+          infrastructure tracking.</p>
+          <h2>Run</h2>
+          <pre>npm install
+npm run dev</pre>
+        </div>
+      </div>
+
+      <div class="acts">
+        <span style="margin-right:auto;font-size:11.5px;color:var(--label)">Nothing on disk is modified.</span>
+        <button class="btn">Back</button><button class="btn pri">Save repo</button>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>What replaced the paste box.</b> The old form asked you to paste a README snapshot by hand. The file is right
+      there on disk — so it is read, rendered, and shown. <b>Edit instead</b> is the escape hatch when you want a
+      different summary from the one the repo ships.
+      <br><br>
+      <b>If there is no licence file</b> the field reads <b>No licence</b> rather than sitting empty, because "none
+      found" and "not filled in yet" are different facts and only one of them needs your attention.
+    </div>
+  </div>
+
+  <!-- ===================================== SAVED ROW -->
+  <div class="state" id="s4">
+    <div class="card">
+      <h2>world-monitor</h2>
+      <div class="sub">The row, opened. Environment sits above the README — quick access, as asked.</div>
+
+      <label style="font-size:13px;color:var(--label);display:block;margin:16px 0 5px">Environment · 11 values</label>
+      <div class="env">
+        <div class="envhd">
+          <span style="flex:1">from <span class="mono">.env</span> · captured 08-12-2026</span>
+          <span class="timer" id="tmr" style="display:none">1:47</span>
+          <button class="eye" id="eye2">👁 Reveal all</button>
+          <button class="mini">Re-read the file</button>
+        </div>
+        <div class="erow"><span class="ek">STRIPE_SECRET_KEY</span><span class="ev ev2">••••••••••••••••</span>
+          <button class="mini">Reveal</button><button class="mini">Copy</button></div>
+        <div class="erow"><span class="ek">OPENAI_API_KEY</span><span class="ev ev2">••••••••••••••••</span>
+          <button class="mini">Reveal</button><button class="mini">Copy</button></div>
+        <div class="erow"><span class="ek">DATABASE_URL</span><span class="ev ev2">••••••••••••••••</span>
+          <button class="mini">Reveal</button><button class="mini">Copy</button></div>
+      </div>
+
+      <div class="acts">
+        <button class="btn">Copy as .env</button><button class="btn pri">Copy export lines</button>
+      </div>
+    </div>
+
+    <div class="warn">
+      <b>The two-minute timer is a real control, not decoration.</b> Reveal-all leaves every key in this repo on screen
+      at once — that is the state you want while you are pasting into a VPS, and the last state you want left behind
+      when you walk away. It closes itself, and the countdown says when.
+    </div>
+  </div>
+
+</div>
+
+<script>
+  document.querySelectorAll('.nav button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('.nav button').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      document.querySelectorAll('.state').forEach(function (s) { s.classList.remove('on'); });
+      document.getElementById(b.dataset.go).classList.add('on');
+      window.scrollTo(0, 0);
+    });
+  });
+  document.querySelectorAll('.opt').forEach(function (o) {
+    o.addEventListener('click', function () {
+      var sib = o.parentElement.querySelectorAll('.opt');
+      sib.forEach(function (x) { x.classList.remove('on'); });
+      o.classList.add('on');
+    });
+  });
+  // Reveal-all behaves, including the countdown that closes it.
+  function wire(btnId, cls, timerEl) {
+    var btn = document.getElementById(btnId); if (!btn) return;
+    var vals = ['sk_live_51Nq8fJK2mXpQ7rTv', 'sk-proj-9Fk2mQxZ7rTvB3wYzA', 'postgres://u:p@db:5432/app'];
+    var t, left = 120, tick;
+    btn.addEventListener('click', function () {
+      var on = btn.classList.toggle('on');
+      document.querySelectorAll('.' + cls).forEach(function (v, i) {
+        v.classList.toggle('shown', on);
+        v.textContent = on ? (vals[i] || 'revealed') : '••••••••••••••••';
+      });
+      btn.textContent = on ? '👁 Hide all' : '👁 Reveal all';
+      clearTimeout(t); clearInterval(tick);
+      var el = timerEl && document.getElementById(timerEl);
+      if (el) el.style.display = on ? '' : 'none';
+      if (on) {
+        left = 120;
+        tick = setInterval(function () {
+          left--;
+          if (el) el.textContent = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
+          if (left <= 0) clearInterval(tick);
+        }, 1000);
+        t = setTimeout(function () { btn.click(); }, 120000);
+      }
+    });
+  }
+  wire('eye', 'ev1', null);
+  wire('eye2', 'ev2', 'tmr');
+</script>
+</body>
+</html>

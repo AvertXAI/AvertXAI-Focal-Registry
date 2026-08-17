@@ -279,7 +279,14 @@ export default function App() {
       if (lastMod && (LEAF[lastMod] || rows.some((m) => m.slug === lastMod && m.is_enabled === 1))) {
         setView(lastMod);
       }
-      if (skip === "1") setIsBooting(false); // Skip Fast Boot: bypass the terminal, straight to shell
+      // Skip Fast Boot: bypass the terminal, straight to shell. TWO sources on purpose — the URL
+      // param (stamped at launch) decides whether a terminal EXISTS this page-load; the stored
+      // setting decides the next launch. When the param skipped, NO terminal is mounted and nothing
+      // else can end the boot, so that path must exit here even when the stored setting has since
+      // been flipped off — otherwise a Ctrl+Shift+R after flipping the toggle blanks forever
+      // (found on-device at the 08-14 mount gate).
+      const skippedThisLoad = new URLSearchParams(window.location.search).get("skipBoot") === "1";
+      if (skip === "1" || skippedThisLoad) setIsBooting(false);
     } catch (err) {
       setBootError(err instanceof Error ? err.message : String(err));
     }

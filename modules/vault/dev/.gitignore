@@ -1,0 +1,13 @@
+# Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary
+# The dev host's throwaway data and build output. NONE of this is ever committed.
+#
+# .userdata holds a REAL encrypted vault database and its key file — throwaway or not, a key file
+# has no business in a repository. Delete the folder any time; the host rebuilds it from nothing.
+.userdata/
+
+# Build output — regenerate with:  node modules/vault/dev/build.mjs
+host.cjs
+preload.cjs
+renderer.js
+renderer.css
+brand-icons/

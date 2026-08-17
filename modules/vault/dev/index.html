@@ -1,0 +1,139 @@
+<!doctype html>
+<!-- Opens in LIGHT, matching what a new organization gets (main.ts readBootTheme defaults to
+     light, Jason 08-01-2026). The pill switches all three; System clears the attribute to Hybrid. -->
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+<title>Secured Vault — dev host</title>
+<!-- the module's own stylesheet, emitted beside the renderer bundle by esbuild -->
+<link rel="stylesheet" href="./renderer.css" />
+<style>
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary
+   DEV HOST ONLY. The shell tokens the module reads, at their canon Hybrid / Dark / Light values,
+   so the module can be looked at in all three modes before it is mounted in the real shell. In the
+   app these come from src/globals.css; this file never ships. */
+/* Tokens that are the SAME in all three modes. Every colour that varies lives in the three blocks
+   below and nowhere else — a value in both places is a value that will drift. */
+:root {
+  --mc-green: #16a34a; --mc-radius: 6px;
+  --mc-footer-height: 0px; /* the dev host has no shell footer; the app reserves 65px */
+  --mc-font: 'Segoe UI', system-ui, sans-serif;
+  --mc-mono: 'Cascadia Mono', Consolas, monospace;
+}
+/* ---------------------------------------------------------------------------------------------
+   THE REAL THREE MODES, COPIED VERBATIM FROM src/globals.css:8-63 (Jason 08-13-2026: "use the FR
+   color mode already set. copy it to this app so i can use it. itsa hybrid, light and dark mode").
+
+   The block above was a HAND-TRIMMED subset and that is exactly what went wrong: it carried roughly
+   half the tokens, so dark and light inherited Hybrid's deep-navy values for everything it had
+   forgotten — --mc-sidebar, --mc-avatar, --mc-scrollbar-thumb, --mc-toggle-on, --mc-modal-border —
+   and, critically, no `color-scheme`, which is what tells Chromium to paint native <select> popups
+   and scrollbars for the right theme. Switching modes therefore changed some surfaces and not
+   others, which reads as "the switcher does not work".
+
+   These are now the SAME VALUES the shipped shell uses. Anything looked at here is what the module
+   will look like once it is mounted for real. If globals.css changes, this block is stale by
+   definition — it is a copy, not an import, because the dev host must not depend on the app it is
+   being built beside. -------------------------------------------------------------------------- */
+:root, [data-theme="hybrid"] {
+  --mc-base:#0d1320; --mc-panels:#121a2e; --mc-nested:#182238; --mc-border:#233149;
+  --mc-text:#e8edf7; --mc-muted:#8b9bb4; --mc-accent-primary:#4f8df0; --mc-orange:#ff9100;
+  --mc-topbar:#0d1320; --mc-sidebar:#121a2e; --mc-field:#0d1320; --mc-avatar:#4f8df0; --mc-dimmer:#5b6b88;
+  --mc-scrollbar-thumb:#2c3a58;
+  /* fixed in EVERY theme — these deliberately do NOT flip with the accent */
+  --mc-toggle-on:#4f8df0; --mc-seg-on-background:#303539; --mc-seg-on-icon:#4773a6;
+  /* hybrid's deep navy sits too close in value to a modal, so the dialog edge takes the accent */
+  --mc-modal-border:var(--mc-accent-primary);
+  color-scheme:dark;
+}
+[data-theme="dark"] {
+  --mc-base:#1f1f1f; --mc-panels:#2c2c2a; --mc-nested:#2c2a26; --mc-border:#61615b;
+  --mc-text:#E5E5E5; --mc-muted:#A0A0A0; --mc-dimmer:#71716B; --mc-accent-primary:#d97757; --mc-orange:#ff9100;
+  --mc-topbar:#262626; --mc-sidebar:#262626; --mc-field:#424240; --mc-avatar:#313131; --mc-scrollbar-thumb:#7c7b75;
+  --mc-toggle-on:#4f8df0; --mc-seg-on-background:#303539; --mc-seg-on-icon:#4773a6;
+  --mc-modal-border:var(--mc-border); /* dark separates on its own — no accent edge */
+  color-scheme:dark;
+}
+[data-theme="light"] {
+  --mc-base:#FAFAFA; --mc-panels:#FFFFFF; --mc-nested:#F5F5F5; --mc-border:#E5E5E5;
+  --mc-text:#1A1A1A; --mc-muted:#737373; --mc-dimmer:#A3A3A2; --mc-accent-primary:#d97757; --mc-orange:#ff9100;
+  --mc-topbar:#FFFFFF; --mc-sidebar:#FFFFFF; --mc-field:#FFFFFF; --mc-avatar:#E6E6E6; --mc-scrollbar-thumb:#B1B1B0;
+  --mc-toggle-on:#4f8df0; --mc-seg-on-background:#DCE8F5; --mc-seg-on-icon:#4773a6;
+  --mc-modal-border:var(--mc-border);
+  color-scheme:light;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+/* THE OUTER HEIGHT CHAIN, and it is why the whole window scrolled (Jason 08-12-2026: "everything
+   moves when i try scrolling down… check passwords, secured notes, infrastructure and repos").
+   ONE cause behind all four: #root was height:100% AND had a 58px .devbar SIBLING, so the body came
+   to 100% + 58px, overflowed, and the document scrolled the title bar and the tabs off the top.
+   Body is now a flex column — the bar is a fixed row, #root takes what is left, and nothing
+   overflows, so every pane scrolls inside itself instead. */
+html, body { height: 100%; background: var(--mc-base); overflow: hidden; }
+body { display: flex; flex-direction: column; font-family: var(--mc-font); color: var(--mc-text); }
+#root { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* The real shell's rule, reproduced so the three-class specificity trap behaves identically here. */
+.view { display: none; }
+.view.shown { display: block; }
+/* dev-host chrome only */
+.devbar { height: 58px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 18px;
+  background: var(--mc-topbar); border-bottom: 1px solid var(--mc-border); }
+.devbar b { font-size: 13px; }
+.devbar span { font-size: 12px; color: var(--mc-muted); }
+.devbar .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+/* The slot the module's search portals into — it must be allowed to shrink, or a long brand pushes
+   the theme control off the bar at the 740 floor. */
+.devsearch { flex: 1; min-width: 0; max-width: 640px; }
+
+/* ── the shell's OWN 3-state theme segmented control, copied verbatim from globals.css:118-126
+   so what is judged here is the real control, not a dev-host imitation. ── */
+.themeseg { display: inline-flex; border: 1px solid var(--mc-border); border-radius: var(--mc-radius); overflow: hidden; }
+.segbtn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px;
+  color: var(--mc-muted); border-right: 1px solid var(--mc-border); background: none; border-top: 0;
+  border-bottom: 0; border-left: 0; cursor: pointer; padding: 0; }
+.segbtn:last-child { border-right: 0; }
+.segbtn:hover { color: var(--mc-text); background: var(--mc-nested); }
+.segbtn.on { color: var(--mc-seg-on-icon); background: var(--mc-seg-on-background); }
+.segbtn:focus-visible { outline: none; }
+</style>
+</head>
+<body>
+  <div class="devbar">
+    <b>AvertXAI · Focal Registry / Secured Vault 🔒</b>
+    <!-- THE SEARCH MOUNT POINT (Jason 08-11-2026). The strip that lived here said "dev host —
+         throwaway database"; Jason asked for the search in this slot. The search COMPONENT stays
+         module-owned so it copies back — only the mount point is host-provided, which is exactly
+         how it will work in the real shell: Mission Control supplies this slot, the module fills
+         it. VaultModule portals into #vault-topbar-search when it exists and falls back to its own
+         first row when it does not. -->
+    <div id="vault-topbar-search" class="devsearch"></div>
+    <div class="right">
+      <div class="themeseg" role="group" aria-label="Theme">
+        <button class="segbtn" data-theme-btn="system" title="Hybrid — the default, what clearing data-theme gives you" aria-label="Hybrid theme">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="1.8" y="2.5" width="12.4" height="8" rx="1.2" />
+            <path d="M6 13.2h4M8 10.5v2.7" />
+          </svg>
+        </button>
+        <button class="segbtn on" data-theme-btn="light" title="Light theme" aria-label="Light theme">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="8" cy="8" r="3" />
+            <path d="M8 1.4v1.6M8 13v1.6M14.6 8H13M3 8H1.4M12.7 3.3l-1.1 1.1M4.4 11.6l-1.1 1.1M12.7 12.7l-1.1-1.1M4.4 4.4 3.3 3.3" />
+          </svg>
+        </button>
+        <button class="segbtn" data-theme-btn="dark" title="Dark theme" aria-label="Dark theme">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13.2 9.4A5.6 5.6 0 0 1 6.6 2.8a5.6 5.6 0 1 0 6.6 6.6Z" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+  <div id="root"></div>
+  <script type="module" src="./renderer.js"></script>
+  <!-- A FILE, not an inline block — the CSP above forbids inline script. See theme.js for the
+       full account; the pill had never worked, in any theme, since this host was written. -->
+  <script src="./theme.js"></script>
+</body>
+</html>

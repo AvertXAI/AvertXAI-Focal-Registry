@@ -298,10 +298,21 @@
 .scannotes-tbtn{flex:none;font:inherit;font-size:14px;line-height:1;min-width:42px;padding:9px 12px;border:1px solid var(--mc-border);background:var(--mc-nested);color:var(--mc-text);border-radius:10px;cursor:pointer}
 .scannotes-tbtn:hover{border-color:var(--mc-accent-primary)}
 .scannotes-tbtn.pri{background:var(--mc-accent-primary);border-color:var(--mc-accent-primary);color:#fff}
-.scannotes-track{flex:1;min-width:0;height:8px;background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:4px;position:relative;cursor:pointer}
-.scannotes-track:focus-visible{outline:2px solid var(--mc-accent-primary);outline-offset:2px}
-.scannotes-track i{position:absolute;left:0;top:0;bottom:0;background:var(--mc-accent-primary);border-radius:4px;pointer-events:none}
-/* no honest duration yet — the bar says so by refusing the click rather than seeking to nowhere */
+/* THE TRACK IS A REAL SCRUBBER, and it is bigger than it looks. Sixteen pixels tall so it can be
+   grabbed; six of them painted so it still reads as a thin bar. An eight-pixel bar is a bar you miss.
+   pointer-events:none on the fill AND the thumb is load-bearing, not decoration: without it a press
+   on the filled half — which is every BACKWARD seek — lands on the fill and never reaches the
+   element carrying the handlers, and the bar silently only ever goes forward.
+   touch-action:none stops a horizontal drag being claimed as a scroll gesture mid-scrub. */
+.scannotes-track{flex:1;min-width:0;height:16px;position:relative;cursor:pointer;touch-action:none;background:none;border:0;padding:0}
+.scannotes-track::before{content:'';position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);height:6px;box-sizing:border-box;background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:4px}
+.scannotes-track:focus-visible{outline:2px solid var(--mc-accent-primary);outline-offset:2px;border-radius:4px}
+.scannotes-track i{position:absolute;left:0;top:50%;transform:translateY(-50%);height:6px;background:var(--mc-accent-primary);border-radius:4px;pointer-events:none}
+/* the grab handle — shown on hover, on focus, and for as long as a drag is running, so the control
+   announces that it can be dragged before you find out by trying */
+.scannotes-track i::after{content:'';position:absolute;right:-6px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:var(--mc-accent-primary);box-shadow:0 0 0 2px var(--mc-panels);opacity:0;transition:opacity .12s;pointer-events:none}
+.scannotes-track:hover i::after,.scannotes-track:focus-visible i::after,.scannotes-track.scrub i::after{opacity:1}
+/* no honest duration yet — the bar says so by refusing the pointer rather than seeking to nowhere */
 .scannotes-track.dead{cursor:default;opacity:.5}
 .scannotes-tm{flex:none;font-family:var(--mc-mono);font-size:11.5px;color:var(--mc-muted);min-width:96px;text-align:right}
 .scannotes-tm .buf{color:var(--mc-accent-primary)}

@@ -51,6 +51,8 @@ export default function MediaTransport({ mediaRef }: MediaTransportProps) {
   const [muted, setMuted] = useState(lastMuted);
   const [vol, setVol] = useState(lastVolume);
   const [buffering, setBuffering] = useState(false);
+  /** Fraction 0–1 while a drag is in progress, `null` when it is not. */
+  const [scrubAt, setScrubAt] = useState<number | null>(null);
   const track = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -89,7 +91,11 @@ export default function MediaTransport({ mediaRef }: MediaTransportProps) {
   }, [mediaRef]);
 
   const seekable = Number.isFinite(dur) && dur > 0;
-  const pct = seekable ? Math.min(100, Math.max(0, (at / dur) * 100)) : 0;
+  // WHILE SCRUBBING THE DISPLAY FOLLOWS THE DRAG, not `timeupdate`. The element reports the position
+  // it has actually decoded to, which lags a fast drag by a beat and reads as the bar fighting the
+  // pointer. The drag is the truth until it ends; then the element takes the readout back.
+  const shown = scrubAt !== null && seekable ? scrubAt * dur : at;
+  const pct = scrubAt !== null ? scrubAt * 100 : seekable ? Math.min(100, Math.max(0, (at / dur) * 100)) : 0;
 
   const toggle = useCallback(() => {
     const el = mediaRef.current;
@@ -127,11 +133,37 @@ export default function MediaTransport({ mediaRef }: MediaTransportProps) {
     setVolume((el.muted ? 0 : el.volume) + delta);
   }, [mediaRef, setVolume]);
 
-  const onTrackClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  /** Position from the pointer's X and NOTHING ELSE. `clientY` is ignored on purpose: a drag that
+   *  wanders above or below a sixteen-pixel bar is how people actually scrub, and treating that as
+   *  "the pointer left the control" is how a scrub dies halfway across. Pointer capture keeps the
+   *  events arriving here even when the pointer is nowhere near the element. */
+  const fractionFrom = useCallback((clientX: number): number => {
     const rect = track.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0) return;
-    seekTo((e.clientX - rect.left) / rect.width);
-  }, [seekTo]);
+    if (!rect || rect.width === 0) return 0;
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+  }, []);
+
+  const onDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!seekable) return;
+    e.preventDefault();
+    track.current?.setPointerCapture(e.pointerId);
+    const f = fractionFrom(e.clientX);
+    setScrubAt(f);
+    seekTo(f); // a press alone is a seek — press-and-release without moving is a click
+  }, [seekable, fractionFrom, seekTo]);
+
+  const onMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (scrubAt === null) return;
+    const f = fractionFrom(e.clientX);
+    setScrubAt(f);
+    seekTo(f);
+  }, [scrubAt, fractionFrom, seekTo]);
+
+  const onUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (scrubAt === null) return;
+    try { track.current?.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+    setScrubAt(null);
+  }, [scrubAt]);
 
   // SPACE AND ARROWS, but only when focus is not already inside a control — otherwise Space would
   // both toggle playback and re-press whichever button the user just tabbed to.
@@ -161,27 +193,32 @@ export default function MediaTransport({ mediaRef }: MediaTransportProps) {
         {playing ? "⏸" : "▶"}
       </button>
 
+      {/* EVERY POINTER HANDLER IS ON THE TRACK ITSELF. The fill and its thumb are pointer-events:none
+          (scannotes.css) so a press on the FILLED half — which is every backward seek — reaches this
+          element instead of being swallowed by the thing painted on top of it.
+          No onKeyDown here: the window-level handler below already serves ArrowLeft/ArrowRight and
+          fires whether or not the track holds focus. Having both meant a focused track seeked ten
+          seconds per press instead of five. */}
       <div
         ref={track}
-        className={`scannotes-track${seekable ? "" : " dead"}`}
-        onClick={onTrackClick}
+        className={`scannotes-track${seekable ? "" : " dead"}${scrubAt !== null ? " scrub" : ""}`}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
         role="slider"
         tabIndex={0}
         aria-label="Seek"
         aria-valuemin={0}
         aria-valuemax={seekable ? Math.floor(dur) : 0}
-        aria-valuenow={Math.floor(at)}
-        aria-valuetext={`${clock(at)} of ${clock(dur)}`}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowLeft") { e.preventDefault(); nudge(-5); }
-          if (e.key === "ArrowRight") { e.preventDefault(); nudge(5); }
-        }}
+        aria-valuenow={Math.floor(shown)}
+        aria-valuetext={`${clock(shown)} of ${clock(dur)}`}
       >
         <i style={{ width: `${pct}%` }} />
       </div>
 
       <span className="scannotes-tm">
-        {clock(at)} / {clock(dur)}
+        {clock(shown)} / {clock(dur)}
         {buffering && <span className="buf" aria-hidden="true"> ·</span>}
       </span>
 

@@ -265,14 +265,46 @@
 .scannotes-tile.dead:hover{border-color:var(--mc-border)}
 .scannotes-tile .thumb{height:104px;display:flex;align-items:center;justify-content:center;font-size:26px;background:var(--mc-nested);color:var(--mc-dimmer);position:relative}
 .scannotes-tile .thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.scannotes-tile .thumb.vid::after{content:'▶';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;background:rgba(0,0,0,.28)}
+/* THE VIDEO ELEMENT IS THE THUMBNAIL — paused on one frame, in the render tree, at real size. Trap 3
+   of the six: an element that is detached, display:none, zero-height or zero-width is not guaranteed
+   to decode a frame at all, so none of those may ever be used to hide it. pointer-events:none keeps
+   the click on the tile button underneath. */
+.scannotes-tile .thumb .tvid{width:100%;height:100%;object-fit:cover;display:block;background:var(--mc-nested);pointer-events:none}
+.scannotes-tile .thumb.vid::after{content:'▶';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;background:rgba(0,0,0,.28);pointer-events:none}
 .scannotes-tile .nm{font-size:11px;font-family:var(--mc-mono);padding:6px 8px;color:var(--mc-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .scannotes-tile .nm .sub{color:var(--mc-dimmer)}
-/* lightbox + player — one modal shell, two screens */
+/* ONE MODAL SHELL, THREE LAYOUTS. Audio gets no picture area at all — a <video> holding an
+   audio-only file paints a black rectangle the height of the video box and strands the controls at
+   the bottom of that dead space. The audio card shrinks to its content and reserves nothing. */
 .scannotes-modal.lightbox,.scannotes-modal.player{max-width:760px}
+.scannotes-modal.audio{max-width:520px}
 .scannotes-modal .screen{background:var(--mc-boot-bg);border-radius:10px;height:min(56vh,420px);width:100%;display:flex;align-items:center;justify-content:center;color:var(--mc-dimmer);font-size:13px;margin:10px 0 12px;overflow:hidden}
 .scannotes-modal .screen img{max-width:100%;max-height:100%;object-fit:contain}
 .scannotes-modal video.screen{display:block;background:#000}
+/* The audio element carries no controls of its own — the footer transport is the only one — so it
+   occupies no space. display:none is safe HERE and nowhere near a video thumbnail: audio has no
+   frame to decode. */
+.scannotes-audioel{display:none}
+/* ONE LINE, AND THE EXTENSION ALWAYS SURVIVES. A plain end-ellipsis satisfies "one line" and then
+   eats the ".mp3" on exactly the long names that needed it — and the extension is how the user knows
+   what they are playing. So the STEM truncates and the extension is a separate, unshrinkable piece
+   pinned after it: `YTDown.com_YouTube_I-Tested-the-Cheap….mp3`. Full name on hover. */
+.scannotes-medianame{display:flex;align-items:baseline;font-size:17px;min-width:0}
+.scannotes-medianame .stem{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.scannotes-medianame .ext{flex:none}
+
+/* ---- the shared footer transport (both media classes) ---- */
+.scannotes-transport{display:flex;align-items:center;gap:10px;margin-top:12px}
+.scannotes-tbtn{flex:none;font:inherit;font-size:14px;line-height:1;min-width:42px;padding:9px 12px;border:1px solid var(--mc-border);background:var(--mc-nested);color:var(--mc-text);border-radius:10px;cursor:pointer}
+.scannotes-tbtn:hover{border-color:var(--mc-accent-primary)}
+.scannotes-tbtn.pri{background:var(--mc-accent-primary);border-color:var(--mc-accent-primary);color:#fff}
+.scannotes-track{flex:1;min-width:0;height:8px;background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:4px;position:relative;cursor:pointer}
+.scannotes-track:focus-visible{outline:2px solid var(--mc-accent-primary);outline-offset:2px}
+.scannotes-track i{position:absolute;left:0;top:0;bottom:0;background:var(--mc-accent-primary);border-radius:4px;pointer-events:none}
+/* no honest duration yet — the bar says so by refusing the click rather than seeking to nowhere */
+.scannotes-track.dead{cursor:default;opacity:.5}
+.scannotes-tm{flex:none;font-family:var(--mc-mono);font-size:11.5px;color:var(--mc-muted);min-width:96px;text-align:right}
+.scannotes-tm .buf{color:var(--mc-accent-primary)}
 
 /* ---------------------------------------------------------------- the rename modal */
 .scannotes-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}

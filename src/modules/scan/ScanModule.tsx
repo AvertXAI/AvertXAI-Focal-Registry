@@ -19,7 +19,7 @@ import { PRINT_STYLESHEET, renderReportPrintHtml } from "./reportPrint";
 import ScanNotesTab from "./notes/ScanNotesTab";
 import UpdatesTab from "./notes/UpdatesTab";
 import MediaGrid from "./notes/MediaGrid";
-import { signalAppToast } from "../../App";
+import { signalAppToast, withAppLoading } from "../../App";
 import { bumpRender } from "../../diag";
 import "./scan.css";
 import "./notes/scannotes.css";
@@ -543,8 +543,11 @@ export default function ScanModule() {
   };
 
   // View report → read the markdown and show it in a modal (MindMerge ingestion is the later path).
+  // Reading a large report's markdown off a drive is seconds of work with nothing on screen to say
+  // so, which read as a frozen application (Jason, on device 08-17-2026). withAppLoading raises the
+  // full-window scrim and lowers it in a `finally`, so a read that throws can never strand it.
   const viewReport = async (runId: number): Promise<void> => {
-    const r = await window.api.scan.readReport(runId);
+    const r = await withAppLoading("Loading scan report…", () => window.api.scan.readReport(runId));
     if (r.ok && typeof r.content === "string") { setExportMsg(null); setReportModal({ runId, path: r.path ?? "", content: r.content }); }
     else setError(r.error ?? "No report to open.");
   };

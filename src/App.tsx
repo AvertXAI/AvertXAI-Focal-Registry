@@ -26,6 +26,7 @@ import EmployeesModule from "./modules/employees/EmployeesModule";
 import { NAVIGATE_EVENT } from "./shared/navigate";
 import { defaultSettings, type MindMergeSettings } from "./modules/mindmerge/config.manifest";
 import { startDiagReporter, bumpRender } from "./diag";
+import AppLoading from "./components/AppLoading";
 
 // Core shell surfaces stay literal; module views are DB rows, so any slug is a valid View.
 // `string & {}` keeps literal autocomplete without collapsing the union to plain string.
@@ -134,6 +135,30 @@ export type UpdateToastSignal =
   | { stage: "ask"; title: string; text: string; actions: Array<{ label: string; primary?: boolean; onClick: () => void }> };
 export const UPDATE_TOAST_EVENT = "focal:update-toast";
 
+// ---- THE FULL-WINDOW LOADING SCRIM (shell-lane, Jason 08-17-2026) ----------------------------
+export const APP_LOADING_EVENT = "focal:app-loading";
+/**
+ * A scrim that outlives its operation locks the user out of their own application, so nothing is
+ * allowed to hold one indefinitely. Callers lower it in a `finally`; this is the second, independent
+ * guarantee for the case where the caller itself never returns.
+ */
+const LOADING_CEILING_MS = 30_000;
+
+/** Raise the scrim with a caption; pass null to lower it. ALWAYS lower in a `finally`. */
+export function signalAppLoading(caption: string | null): void {
+  window.dispatchEvent(new CustomEvent<string | null>(APP_LOADING_EVENT, { detail: caption }));
+}
+
+/** Run something under the scrim. The `finally` is the point — an error must never strand a scrim. */
+export async function withAppLoading<T>(caption: string, work: () => Promise<T>): Promise<T> {
+  signalAppLoading(caption);
+  try {
+    return await work();
+  } finally {
+    signalAppLoading(null);
+  }
+}
+
 /** Show a plain app message in the shell toast. Long refusal sentences belong here, not squeezed
     into a header strip where they truncate (the device-gate finding that created this). */
 export function signalAppToast(text: string, tone: "ok" | "err", ms?: number): void {
@@ -156,6 +181,26 @@ export function signalUpdateToast(detail: UpdateToastSignal | null): void {
   // null clears the toast — used when a manual check finds an update and the dedicated Software
   // Update window takes over (the "Checking…" line must not linger under it).
   window.dispatchEvent(new CustomEvent<UpdateToastSignal | null>(UPDATE_TOAST_EVENT, { detail }));
+}
+
+function AppLoadingHost() {
+  const [caption, setCaption] = useState<string | null>(null);
+  useEffect(() => {
+    const on = (e: Event): void => setCaption((e as CustomEvent<string | null>).detail);
+    window.addEventListener(APP_LOADING_EVENT, on);
+    return () => window.removeEventListener(APP_LOADING_EVENT, on);
+  }, []);
+  // The ceiling. It lowers the scrim regardless of what the caller did or failed to do, and says so
+  // in plain language rather than leaving the user wondering what they just watched disappear.
+  useEffect(() => {
+    if (caption === null) return;
+    const t = setTimeout(() => {
+      setCaption(null);
+      signalAppToast("That is taking longer than expected — it may still be working in the background.", "err");
+    }, LOADING_CEILING_MS);
+    return () => clearTimeout(t);
+  }, [caption]);
+  return caption === null ? null : <AppLoading caption={caption} />;
 }
 
 function UpdateToast() {
@@ -467,6 +512,9 @@ export default function App() {
       )}
       <Flyout view={view} modules={activeModules} onSelect={select} collapsed={railCollapsed} onToggle={toggleRail} onResize={onFlyoutResize} onResizeEnd={onFlyoutResizeEnd} sections={navSections} onToggleSection={toggleNavSection} />
       <UpdateToast />
+      {/* Mounted at the shell root so the scrim covers the rail and the topbar too — a spinner that
+          stops at the edge of a pane does not answer "is this application alive". */}
+      <AppLoadingHost />
       {/* Break/idle prompts must outlive the TimeTracker module's mount — App-level, like UpdateToast. */}
       <AttentionToast />
 

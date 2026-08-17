@@ -518,3 +518,26 @@ tbody tr:hover{background:var(--mc-nested)}
 .dv-resetbody { font-size: 13px; color: var(--mc-muted); line-height: 1.6; margin: 8px 0; }
 .dv-resetconfirm { display: flex; align-items: center; gap: 10px; margin: 14px 0; font-size: 13px; }
 .dv-resetconfirm .dv-keyinput { width: 120px; }
+
+/* ---- FULL-WINDOW LOADING SCRIM (shell-lane, Jason 08-17-2026) --------------------------------
+   Dead centre over the ENTIRE application: above every pane, above the nav rail (z 35), above the
+   topbar (z 30), above a module's own modals (z 50). It sits BELOW the shell toast (z 70) on
+   purpose — the 30-second ceiling surfaces a toast, and a scrim that covered its own error message
+   would be the one thing worse than the freeze it replaced.
+   Tokens only, no hardcoded colour: the scrim is the theme's own base at 72 percent, so it reads as
+   the application dimming rather than a grey sheet, and it is correct in all three modes without a
+   per-theme block. */
+.apploading{position:fixed;inset:0;z-index:65;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb, var(--mc-base) 72%, transparent)}
+.apploading-card{display:flex;flex-direction:column;align-items:center;gap:14px;padding:26px 34px;
+  background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:12px;
+  box-shadow:0 12px 44px rgba(0,0,0,.35)}
+.apploading-spinner{width:30px;height:30px;border-radius:50%;border:3px solid var(--mc-border);
+  border-top-color:var(--mc-accent-primary);animation:apploading-spin .8s linear infinite}
+@keyframes apploading-spin{to{transform:rotate(360deg)}}
+/* Reduced motion still needs to say "working" — the ring breathes instead of turning. */
+@media (prefers-reduced-motion:reduce){
+  .apploading-spinner{animation:apploading-breathe 1.2s ease-in-out infinite}
+  @keyframes apploading-breathe{0%,100%{opacity:1}50%{opacity:.3}}
+}
+.apploading-caption{font-size:13.5px;color:var(--mc-text)}

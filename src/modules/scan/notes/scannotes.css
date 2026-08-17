@@ -305,6 +305,14 @@
 .scannotes-track.dead{cursor:default;opacity:.5}
 .scannotes-tm{flex:none;font-family:var(--mc-mono);font-size:11.5px;color:var(--mc-muted);min-width:96px;text-align:right}
 .scannotes-tm .buf{color:var(--mc-accent-primary)}
+/* VOLUME IS INLINE AT EVERY WIDTH, and the seek track never gives up space for it. At the 740px
+   floor the modal is 700px wide and 648px inside its padding; the fixed pieces are play 42 + time 96
+   + mute 42 + volume 78 with four 10px gaps = 298, leaving 350px of seek track. It fits, so there is
+   no hover-reveal: the control that is always there is the one you can always reach.
+   `accent-color` is what makes the filled portion read as filled — Chromium paints the thumb and the
+   lower part of the track with it, so no custom track needs re-theming in three modes. */
+.scannotes-vol{flex:none;width:78px;margin:0;accent-color:var(--mc-accent-primary);cursor:pointer}
+.scannotes-vol:focus-visible{outline:2px solid var(--mc-accent-primary);outline-offset:3px;border-radius:4px}
 
 /* ---------------------------------------------------------------- the rename modal */
 .scannotes-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}

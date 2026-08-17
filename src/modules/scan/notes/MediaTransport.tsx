@@ -27,6 +27,17 @@ function clock(t: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
+/** VOLUME CARRIES ACROSS FILES FOR THE SESSION, and no further. Turning every clip down one at a
+ *  time is the actual complaint, and module state fixes it in two variables. It deliberately does
+ *  NOT reach `app_settings`: a persisted key needs the RENDERER_KEYS whitelist and a Settings
+ *  surface to change it from (§3.8), and that is a decision to take on purpose rather than by
+ *  drift. It resets when the window closes. */
+let lastVolume = 1;
+let lastMuted = false;
+
+/** Arrow keys move volume by five percent — one percent needs twenty presses to do anything. */
+const VOLUME_STEP = 0.05;
+
 export interface MediaTransportProps {
   /** The <video> or <audio> this drives. Read live on every interaction — the element is the
    *  authority on its own state, and mirroring it into React would be a second version of the truth. */
@@ -37,18 +48,26 @@ export default function MediaTransport({ mediaRef }: MediaTransportProps) {
   const [playing, setPlaying] = useState(false);
   const [at, setAt] = useState(0);
   const [dur, setDur] = useState(NaN);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(lastMuted);
+  const [vol, setVol] = useState(lastVolume);
   const [buffering, setBuffering] = useState(false);
   const track = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const el = mediaRef.current;
     if (!el) return;
+    // Pick up where the last clip left off, BEFORE the first sync — otherwise the readout shows the
+    // element's default of full volume for a frame and then jumps.
+    el.volume = lastVolume;
+    el.muted = lastMuted;
     const sync = (): void => {
       setAt(el.currentTime);
       setDur(el.duration);
       setPlaying(!el.paused && !el.ended);
       setMuted(el.muted || el.volume === 0);
+      setVol(el.volume);
+      lastVolume = el.volume;
+      lastMuted = el.muted;
     };
     const onWait = (): void => setBuffering(true);
     const onGo = (): void => { setBuffering(false); sync(); };
@@ -92,6 +111,22 @@ export default function MediaTransport({ mediaRef }: MediaTransportProps) {
     el.currentTime = Math.min(d, Math.max(0, el.currentTime + seconds));
   }, [mediaRef]);
 
+  /** MUTE AND LEVEL ARE TWO DIFFERENT THINGS, and the element already models both — `muted` does not
+   *  touch `volume`, so the prior level survives a mute untouched and comes straight back on unmute.
+   *  Nothing here ever writes `volume = 0` to mute; that is what destroys the level. */
+  const setVolume = useCallback((v: number) => {
+    const el = mediaRef.current;
+    if (!el) return;
+    el.volume = Math.min(1, Math.max(0, v));
+    if (el.volume > 0) el.muted = false; // reaching for the slider means you want to hear it
+  }, [mediaRef]);
+
+  const bumpVolume = useCallback((delta: number) => {
+    const el = mediaRef.current;
+    if (!el) return;
+    setVolume((el.muted ? 0 : el.volume) + delta);
+  }, [mediaRef, setVolume]);
+
   const onTrackClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = track.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return;
@@ -107,10 +142,12 @@ export default function MediaTransport({ mediaRef }: MediaTransportProps) {
       if (e.key === " ") { e.preventDefault(); toggle(); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); nudge(-5); }
       else if (e.key === "ArrowRight") { e.preventDefault(); nudge(5); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); bumpVolume(VOLUME_STEP); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); bumpVolume(-VOLUME_STEP); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, nudge]);
+  }, [toggle, nudge, bumpVolume]);
 
   return (
     <div className="scannotes-transport">
@@ -148,6 +185,7 @@ export default function MediaTransport({ mediaRef }: MediaTransportProps) {
         {buffering && <span className="buf" aria-hidden="true"> ·</span>}
       </span>
 
+      {/* The SPEAKER still mutes — the slider is a level, not a replacement for the switch. */}
       <button
         type="button"
         className="scannotes-tbtn"
@@ -157,6 +195,22 @@ export default function MediaTransport({ mediaRef }: MediaTransportProps) {
       >
         {muted ? "🔇" : "🔊"}
       </button>
+
+      {/* A NATIVE RANGE, not a hand-rolled bar: `accent-color` paints the thumb AND the filled part
+          of the track in Chromium, so "reads as filled" comes free and themed, and every keyboard
+          and assistive-technology behaviour a slider owes is already correct. It shows 0 while muted
+          without the element's `volume` ever being written to 0 — the level is intact underneath. */}
+      <input
+        type="range"
+        className="scannotes-vol"
+        min={0}
+        max={1}
+        step={VOLUME_STEP}
+        value={muted ? 0 : vol}
+        onChange={(e) => setVolume(Number(e.target.value))}
+        aria-label="Volume"
+        title={`Volume ${Math.round((muted ? 0 : vol) * 100)}% (Up/Down)`}
+      />
     </div>
   );
 }

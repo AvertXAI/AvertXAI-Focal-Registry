@@ -12,7 +12,7 @@
 // File: src/modules/scan/ScanModule.tsx
 //------------------------------------------------------------
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import type { ScanCameraCount, ScanErrorList, ScanErrorRow, ScanFolderSummary, ScanProgress, ScanRunRow, ScannedDrive, ScanVolume } from "../../shared/types";
+import type { ScanCameraCount, ScanErrorList, ScanErrorRow, ScanFolderSummary, ScanNotesDriveSync, ScanProgress, ScanRunRow, ScannedDrive, ScanVolume } from "../../shared/types";
 import { explainScanError, CATEGORY_META, type ScanErrorCategory } from "../../shared/scanErrors";
 import { formatRange, formatStamp } from "../../shared/datetime";
 import { PRINT_STYLESHEET, renderReportPrintHtml } from "./reportPrint";
@@ -331,6 +331,23 @@ export default function ScanModule() {
     const onChanged = (): void => setNotesRefresh((n) => n + 1);
     window.api.on("scan:notes:changed", onChanged);
     return () => window.api.off("scan:notes:changed", onChanged);
+  }, []);
+
+  // A drive came back and its queued work ran. TWELVE SECONDS, not the standard six: this arrives
+  // unannounced while the user is doing something else, and it reports work that already happened to
+  // their files — long enough to finish reading a sentence you were not expecting.
+  useEffect(() => {
+    const onSynced = (p: { drives: ScanNotesDriveSync[] }): void => {
+      for (const d of p.drives) {
+        signalAppToast(
+          `${d.letter}\\${d.label} (serial ${d.serial}) connected — ${d.applied} pending folder rename${d.applied === 1 ? "" : "s"}, ${d.filesWritten} file${d.filesWritten === 1 ? "" : "s"} written to drive.${d.stale > 0 ? ` ${d.stale} could not be applied — see Updated Notes.` : ""}`,
+          d.stale > 0 ? "err" : "ok",
+          12_000
+        );
+      }
+    };
+    window.api.on<{ drives: ScanNotesDriveSync[] }>("scan:notes:synced", onSynced);
+    return () => window.api.off<{ drives: ScanNotesDriveSync[] }>("scan:notes:synced", onSynced);
   }, []);
 
   // Restore the two sticky preferences. A missing row is the default, never an error.

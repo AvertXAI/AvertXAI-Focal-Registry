@@ -123,7 +123,11 @@ export type UpdateToastSignal =
   // Generic app notice (A2, 08-06) — the SAME toast, event and styling carry non-updater messages
   // (the seed's refusals and summaries) instead of a second mechanism growing beside this one.
   // ok-toned notices auto-dismiss like "you're on the latest"; err-toned ones stay until closed.
-  | { stage: "notice"; text: string; tone: "ok" | "err" }
+  // `ms` overrides the ok-tone auto-dismiss for the rare notice that has to outlive a glance. Scan
+  // Notes' drive-connect summary is the case that introduced it: it reports how many folder renames
+  // were applied and how many files were written, and six seconds is not long enough to read a
+  // sentence you did not know was coming. Omitted = the standard 6000.
+  | { stage: "notice"; text: string; tone: "ok" | "err"; ms?: number }
   // A QUESTION toast (08-06 profit build — "did you actually get paid?"). Same one mechanism,
   // extended: a title, a body, and buttons whose callbacks ride the same-window event detail.
   // Sticky until answered or dismissed — an unanswered question must not fade away.
@@ -132,9 +136,9 @@ export const UPDATE_TOAST_EVENT = "focal:update-toast";
 
 /** Show a plain app message in the shell toast. Long refusal sentences belong here, not squeezed
     into a header strip where they truncate (the device-gate finding that created this). */
-export function signalAppToast(text: string, tone: "ok" | "err"): void {
+export function signalAppToast(text: string, tone: "ok" | "err", ms?: number): void {
   window.dispatchEvent(
-    new CustomEvent<UpdateToastSignal | null>(UPDATE_TOAST_EVENT, { detail: { stage: "notice", text, tone } })
+    new CustomEvent<UpdateToastSignal | null>(UPDATE_TOAST_EVENT, { detail: { stage: "notice", text, tone, ms } })
   );
 }
 
@@ -168,7 +172,7 @@ function UpdateToast() {
   // "You're on the latest" and ok-notices leave on their own; errors stay until dismissed.
   useEffect(() => {
     if (!(state?.stage === "none" || (state?.stage === "notice" && state.tone === "ok"))) return;
-    const t = setTimeout(() => setState(null), 6000);
+    const t = setTimeout(() => setState(null), state.stage === "notice" && state.ms ? state.ms : 6000);
     return () => clearTimeout(t);
   }, [state]);
 

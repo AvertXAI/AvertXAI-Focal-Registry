@@ -22,7 +22,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 // Main → renderer push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of
 // the page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
-const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "scan:notes:changed", "mindmerge:progress", "rename:progress", "migrate:progress", "timetracker:tick", "timetracker:changed", "timetracker:break", "timetracker:idle"];
+const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "scan:notes:changed", "scan:notes:synced", "mindmerge:progress", "rename:progress", "migrate:progress", "timetracker:tick", "timetracker:changed", "timetracker:break", "timetracker:idle"];
 const wrapped = new Map<(payload: never) => void, (e: Electron.IpcRendererEvent, payload: unknown) => void>();
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);

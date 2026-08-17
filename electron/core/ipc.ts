@@ -163,8 +163,34 @@ function startDriveWatcher(): void {
       } catch {
         /* transient enumeration hiccup — the next event or a manual refresh recovers */
       }
+      // Scan Notes rides the SAME event and the SAME debounce — a second watcher would mean a second
+      // PowerShell child, a second orphan risk on quit, and two answers to "is this drive here yet".
+      drainScanNotes();
     }, 600);
   });
+}
+
+/**
+ * The reconnect consumer: apply every queued rename whose drive is now present, then rewrite both
+ * app-owned trees for it. Never throws — it runs inside a debounce callback that must survive any
+ * one drive's bad day, and the service already logs each failure to the feed.
+ *
+ * A CONNECT IS THE ONLY MOMENT SOME OF THIS CAN HAPPEN, so the summary is pushed to the renderer as
+ * a toast rather than left in a tab the user may not open. Quiet when there was nothing to do — a
+ * notification that fires on every USB stick is a notification people learn to ignore.
+ */
+function drainScanNotes(): void {
+  try {
+    const { db, orgId } = scanCtx();
+    const r = scanNotes.drainQueue(db, orgId, scanNotes.currentVolumes());
+    const win = getMainWindow();
+    win?.webContents.send("scan:notes:changed");
+    const worked = r.drives.filter((d) => d.applied > 0 || d.stale > 0 || d.filesWritten > 0);
+    if (worked.length > 0) win?.webContents.send("scan:notes:synced", { drives: worked });
+  } catch {
+    /* no org yet, or the drive list is momentarily unreadable — the next event or the manual
+       refresh button recovers, and nothing here may break the watcher */
+  }
 }
 // Kill the PowerShell child on quit so no orphan process survives the app.
 app.on("before-quit", () => {
@@ -243,6 +269,10 @@ export function registerIpcHandlers(): void {
   // Live drive detection — starts once, independent of any org (enumeration is org-agnostic). A new
   // drive now pushes scan:drives to the renderer immediately; no Ctrl+R.
   startDriveWatcher();
+  // ONE SWEEP AT STARTUP, because the watcher cannot see the past: a drive plugged in while the app
+  // was closed raises no event, and the WMI watcher can also fail to start entirely. Deferred a beat
+  // so it never sits in front of the first window paint — a queue drain is not worth a slow launch.
+  setTimeout(drainScanNotes, 3000);
   // data viewer — READ-ONLY introspection. The service whitelists `table` against sqlite_master and
   // clamps limit/offset, so the raw `unknown` args can't reach a writable or injectable statement.
   safeHandle("db:tables", () => dataviewer.listTables());

@@ -122,6 +122,10 @@ export type PushChannel =
   // Scan Notes fired-and-forgotten refresh: a queued rename applied, a sync wrote files, or the feed
   // grew. The renderer re-reads rather than trusting the payload — one channel, no per-surface fan-out.
   | "scan:notes:changed"
+  // A drive came back and its queued work ran. Separate from the refresh channel because this one
+  // has something to SAY — a connect is the only moment some of that work can happen, so the summary
+  // is pushed rather than left in a tab the user may never open.
+  | "scan:notes:synced"
   | "mindmerge:progress"
   | "rename:progress"
   | "migrate:progress"
@@ -473,12 +477,21 @@ export interface ScanMediaItem {
   streamUrl: string | null;
 }
 
+/** One drive's share of a sync — the unit the connect toast is written from. */
+export interface ScanNotesDriveSync {
+  label: string;
+  serial: string;
+  letter: string;
+  applied: number;
+  stale: number;
+  filesWritten: number;
+}
 /** What the reconnect consumer did — the payload behind the connect toast. */
 export interface ScanNotesSyncResult {
   applied: number;
   stale: number;
   filesWritten: number;
-  drives: Array<{ label: string; serial: string; letter: string; applied: number; stale: number; filesWritten: number }>;
+  drives: ScanNotesDriveSync[];
 }
 
 // ---- Auto-updater (§3.12) — available/progress/downloaded now live on the Software Update

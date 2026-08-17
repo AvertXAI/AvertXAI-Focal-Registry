@@ -228,6 +228,26 @@
 .scannotes-feed tr.error td:first-child{box-shadow:inset 3px 0 0 var(--scannotes-badge-background)}
 .scannotes-req{font-family:var(--mc-mono);font-size:10.5px;color:var(--mc-dimmer);margin-left:6px}
 
+/* ---------------------------------------------------------------- the media grid */
+/* Nothing here is saved to disk. A tile's picture is a data URL held in React state for as long as
+   the tile is mounted — no thumbnail, proxy or preview file is ever written (§4.1). */
+.scannotes-mediagrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.scannotes-tile{border:1px solid var(--mc-border);border-radius:10px;overflow:hidden;background:var(--mc-panels);cursor:pointer;padding:0;font:inherit;color:var(--mc-text);text-align:left;display:block}
+.scannotes-tile:hover{border-color:var(--mc-accent-primary)}
+/* a format this product cannot open — listed, but never pretending to be clickable */
+.scannotes-tile.dead{cursor:default;opacity:.62}
+.scannotes-tile.dead:hover{border-color:var(--mc-border)}
+.scannotes-tile .thumb{height:104px;display:flex;align-items:center;justify-content:center;font-size:26px;background:var(--mc-nested);color:var(--mc-dimmer);position:relative}
+.scannotes-tile .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.scannotes-tile .thumb.vid::after{content:'▶';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;background:rgba(0,0,0,.28)}
+.scannotes-tile .nm{font-size:11px;font-family:var(--mc-mono);padding:6px 8px;color:var(--mc-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scannotes-tile .nm .sub{color:var(--mc-dimmer)}
+/* lightbox + player — one modal shell, two screens */
+.scannotes-modal.lightbox,.scannotes-modal.player{max-width:760px}
+.scannotes-modal .screen{background:var(--mc-boot-bg);border-radius:10px;height:min(56vh,420px);width:100%;display:flex;align-items:center;justify-content:center;color:var(--mc-dimmer);font-size:13px;margin:10px 0 12px;overflow:hidden}
+.scannotes-modal .screen img{max-width:100%;max-height:100%;object-fit:contain}
+.scannotes-modal video.screen{display:block;background:#000}
+
 /* ---------------------------------------------------------------- the rename modal */
 .scannotes-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
 .scannotes-modal{background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:16px;padding:24px 26px;box-shadow:0 12px 44px rgba(0,0,0,.4);max-width:520px;width:100%;max-height:90vh;overflow:auto}

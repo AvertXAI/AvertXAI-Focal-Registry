@@ -35,6 +35,7 @@ import { ensureRenameSchema } from "./services/rename/db";
 import type { RenameSettings } from "../../src/shared/renamePreview";
 import * as scanDrives from "./services/scan/drives";
 import * as scanNotes from "./services/scan/notes";
+import * as scanMedia from "./services/scan/mediaBrowse";
 import { ensureScanNotesSchema } from "./services/scan/notesDb";
 import * as scanReport from "./services/scan/report";
 import * as scanExport from "./services/scan/export";
@@ -865,6 +866,25 @@ export function registerIpcHandlers(): void {
     return scanNotes.createDesktopShortcut(db, orgId);
   });
   safeHandle("scan:notesLocalRoot", () => scanNotes.localTreeRoot());
+  // Media browsing — LOOKING only. Stills come back as data URLs under the existing img-src;
+  // video and audio get an frmedia: URL, whose handler re-runs the same guards main-side.
+  safeHandle("scan:notesMedia", (_e, folderPath: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanMedia.listFolderMedia(db, orgId, folderPath);
+  });
+  safeHandle("scan:notesImage", async (_e, target: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanMedia.readImage(db, orgId, target);
+  });
+  // The frmedia: handler resolves its org LAZILY, on every request — an org minted mid-session by
+  // the first-run wizard must not leave the scheme permanently dead.
+  scanMedia.installMediaProtocol(() => {
+    try {
+      return scanCtx();
+    } catch {
+      return null;
+    }
+  });
 
   // --- Rename — copies only; never renames/moves/deletes an original. Long jobs stream over
   // rename:progress; the batch survives navigation and the renderer rejoins a 'running' batch. ---

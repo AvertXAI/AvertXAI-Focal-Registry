@@ -2,9 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      `media-src frmedia:` is the ONE directive Scan Notes added (ruled 08-17-2026). Video and audio
+      cannot travel as data URLs at any size, and a <video> element needs byte-range requests to seek,
+      so playback goes over the privileged frmedia: scheme instead — whose handler refuses anything
+      that is not an existing, playable file underneath a root this organization actually scanned
+      (electron/core/services/scan/mediaBrowse.ts). Stills still arrive as data URLs under the
+      existing img-src, and needed no change at all. Nothing else in this policy moved, and mini.html
+      and update.html are untouched. Do not widen this to file:, blob:, or '*'.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src frmedia:; font-src 'self'; object-src 'none'; base-uri 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Focal Registry</title>

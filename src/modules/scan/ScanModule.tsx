@@ -18,6 +18,7 @@ import { formatRange, formatStamp } from "../../shared/datetime";
 import { PRINT_STYLESHEET, renderReportPrintHtml } from "./reportPrint";
 import ScanNotesTab from "./notes/ScanNotesTab";
 import UpdatesTab from "./notes/UpdatesTab";
+import MediaGrid from "./notes/MediaGrid";
 import { signalAppToast } from "../../App";
 import { bumpRender } from "../../diag";
 import "./scan.css";
@@ -772,7 +773,12 @@ export default function ScanModule() {
         {NOTES_TABS.has(tab) && (
           <div className="scannotes-tabbody scannotes">
             {tab === "notes" ? (
-              <ScanNotesTab refreshKey={notesRefresh} mediaMode={mediaMode} onFolderChange={setNotesFolder} />
+              <ScanNotesTab
+                refreshKey={notesRefresh}
+                mediaMode={mediaMode}
+                onFolderChange={setNotesFolder}
+                mediaPane={<MediaGrid folderPath={notesFolder?.path ?? null} />}
+              />
             ) : (
               <UpdatesTab refreshKey={notesRefresh} />
             )}

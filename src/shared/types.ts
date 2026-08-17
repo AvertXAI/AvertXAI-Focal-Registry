@@ -458,6 +458,21 @@ export interface ScanRenameResult {
   message: string;
   requestId?: string;
 }
+/** One tile in the media grid. `viewable` false means this product cannot open it — the tile says
+ *  so rather than failing on click. `streamUrl` is an frmedia: address for video and audio only;
+ *  stills come over IPC as data URLs under the existing img-src. */
+export interface ScanMediaItem {
+  path: string;
+  filename: string;
+  extension: string | null;
+  kind: "image" | "video" | "audio" | "other";
+  size_bytes: number | null;
+  viewable: boolean;
+  /** true when the still is RAW/TIFF and what you see is the camera's embedded preview. */
+  embedded: boolean;
+  streamUrl: string | null;
+}
+
 /** What the reconnect consumer did — the payload behind the connect toast. */
 export interface ScanNotesSyncResult {
   applied: number;
@@ -1376,6 +1391,12 @@ export interface Api {
       shortcut: () => Promise<{ ok: boolean; existed: boolean; message: string }>;
       /** The local tree's absolute path — shown in the UI so the user knows where their files live. */
       localRoot: () => Promise<string>;
+      /** One folder's media, from the scan record — no directory walk, so an unplugged drive still
+       *  lists what it holds. */
+      media: (folderPath: string) => Promise<ScanMediaItem[]>;
+      /** One still as a data URL. RAW returns the camera's EMBEDDED preview — nothing is decoded and
+       *  nothing is ever saved (§4.1). */
+      image: (target: string) => Promise<{ ok: boolean; dataUrl?: string; embedded?: boolean; error?: string }>;
     };
   };
   /** Auto-updater (§3.12) — check/version answer in every build so the Settings button is never

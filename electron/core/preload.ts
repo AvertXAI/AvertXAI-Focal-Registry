@@ -157,6 +157,8 @@ const api: Api = {
       sync: () => invoke("scan:notesSync"),
       shortcut: () => invoke("scan:notesShortcut"),
       localRoot: () => invoke("scan:notesLocalRoot"),
+      media: (folderPath: string) => invoke("scan:notesMedia", folderPath),
+      image: (target: string) => invoke("scan:notesImage", target),
     },
   },
   identity: {

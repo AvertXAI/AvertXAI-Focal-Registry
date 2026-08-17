@@ -10,6 +10,7 @@ import { getSetting, setSetting } from "./core/services/settings";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/crypto";
 import { ensureVaultSchema } from "./core/services/vault/db";
 import { registerIpcHandlers } from "./core/ipc";
+import { registerMediaScheme } from "./core/services/scan/mediaBrowse";
 import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overlayFor, setBooting, setMainWindow, showMain } from "./core/windows";
 import { initUpdater, notifyUpdaterBootDone } from "./core/updater";
 import { initDiag } from "./diag";
@@ -21,6 +22,12 @@ import { initDiag } from "./diag";
 //   vulkan → Vulkan ANGLE backend
 //   off    → disable hardware acceleration entirely
 //   (unset)→ default Direct3D 11 behavior (NO change)
+// Scan Notes' media scheme MUST be registered before app ready — Chromium builds its scheme registry
+// once at startup and silently ignores a privileged registration that arrives later. Registering the
+// scheme only declares it; the handler (and every one of its guards) is installed after ready, from
+// registerIpcHandlers.
+registerMediaScheme();
+
 const mcGpu = process.env.MC_GPU;
 console.log("[MC_GPU] backend =", mcGpu ?? "default(d3d11)");
 if (mcGpu === "off") {

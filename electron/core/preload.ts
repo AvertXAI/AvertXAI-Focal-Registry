@@ -22,7 +22,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 
 // Main → renderer push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of
 // the page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
-const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "mindmerge:progress", "rename:progress", "migrate:progress", "timetracker:tick", "timetracker:changed", "timetracker:break", "timetracker:idle"];
+const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "scan:notes:changed", "mindmerge:progress", "rename:progress", "migrate:progress", "timetracker:tick", "timetracker:changed", "timetracker:break", "timetracker:idle"];
 const wrapped = new Map<(payload: never) => void, (e: Electron.IpcRendererEvent, payload: unknown) => void>();
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);
@@ -137,6 +137,27 @@ const api: Api = {
     restoreHistory: () => invoke("scan:restoreHistory"),
     deleteHistoryForever: () => invoke("scan:deleteHistoryForever"),
     clearedHistoryCount: () => invoke("scan:clearedHistoryCount"),
+    notes: {
+      tree: () => invoke("scan:notesTree"),
+      list: (driveId: number | null, folderPath?: string) => invoke("scan:notesList", driveId, folderPath),
+      get: (uuid: string) => invoke("scan:notesGet", uuid),
+      create: (driveId: number | null, folderPath: string, title?: string, body?: string) =>
+        invoke("scan:notesCreate", driveId, folderPath, title, body),
+      save: (uuid: string, title?: string, body?: string) => invoke("scan:notesSave", uuid, title, body),
+      archive: (uuid: string) => invoke("scan:notesArchive", uuid),
+      search: (q: string) => invoke("scan:notesSearch", q),
+      searchFolders: (q: string) => invoke("scan:notesSearchFolders", q),
+      card: (folderPath: string) => invoke("scan:notesCard", folderPath),
+      history: (folderPath: string) => invoke("scan:notesHistory", folderPath),
+      rename: (folderPath: string, newName: string) => invoke("scan:notesRename", folderPath, newName),
+      pendingRenames: () => invoke("scan:notesPendingRenames"),
+      updates: (limit?: number) => invoke("scan:notesUpdates", limit),
+      unseen: () => invoke("scan:notesUnseen"),
+      markSeen: () => invoke("scan:notesMarkSeen"),
+      sync: () => invoke("scan:notesSync"),
+      shortcut: () => invoke("scan:notesShortcut"),
+      localRoot: () => invoke("scan:notesLocalRoot"),
+    },
   },
   identity: {
     get: () => invoke("identity:get"),

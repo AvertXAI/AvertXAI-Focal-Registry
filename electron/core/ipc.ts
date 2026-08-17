@@ -34,6 +34,8 @@ import * as rename from "./services/rename";
 import { ensureRenameSchema } from "./services/rename/db";
 import type { RenameSettings } from "../../src/shared/renamePreview";
 import * as scanDrives from "./services/scan/drives";
+import * as scanNotes from "./services/scan/notes";
+import { ensureScanNotesSchema } from "./services/scan/notesDb";
 import * as scanReport from "./services/scan/report";
 import * as scanExport from "./services/scan/export";
 import * as storage from "./services/storage";
@@ -117,10 +119,18 @@ function scanCtx(): { db: ReturnType<typeof getDb>; orgId: string } {
   const db = getDb();
   if (!scanInit) {
     ensureScanSchema(db);
+    // Scan Notes shares this context — same shared database, same module. allSchemas already ensured
+    // it at boot; this is the same harmless backstop ensureScanSchema is.
+    ensureScanNotesSchema(db);
     scan.markInterruptedRuns(db); // any run still 'running' at service start is a crash
     scanInit = true;
   }
   return { db, orgId: org.org_id };
+}
+// Scan Notes' single push. Fire-and-forget: the payload is nothing, because every surface re-reads
+// what it needs — one channel beats a fan-out that drifts as surfaces are added.
+function sendNotesChanged(): void {
+  getMainWindow()?.webContents.send("scan:notes:changed");
 }
 // A scan walks thousands of files; per-folder progress can still burst on a shallow-wide tree.
 // ONLY the high-frequency in-phase updates ('counting' and 'running') are throttled. Every STATE
@@ -757,6 +767,104 @@ export function registerIpcHandlers(): void {
     const { db } = scanCtx();
     return scan.listErrors(db, Number(runId));
   });
+
+  // --- Scan Notes — per-folder notes, the folder-rename engine, and the Updated Notes feed. Every
+  // handler is a thin pass-through: validation, the transaction and the plain-sentence failures all
+  // live in the service, so this block stays a wiring list. ---
+  safeHandle("scan:notesTree", () => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.driveTree(db, orgId, scanNotes.currentVolumes());
+  });
+  safeHandle("scan:notesList", (_e, driveId: unknown, folderPath: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.listNotes(
+      db,
+      orgId,
+      driveId == null ? null : Number(driveId),
+      typeof folderPath === "string" ? folderPath : undefined
+    );
+  });
+  safeHandle("scan:notesGet", (_e, uuid: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.getNote(db, orgId, uuid);
+  });
+  safeHandle("scan:notesCreate", (_e, driveId: unknown, folderPath: unknown, title: unknown, body: unknown) => {
+    const { db, orgId } = scanCtx();
+    const note = scanNotes.createNote(db, orgId, {
+      driveId: driveId == null ? null : Number(driveId),
+      folderPath,
+      title,
+      body,
+    });
+    sendNotesChanged();
+    return note;
+  });
+  // The autosave target. NO push — a push per keystroke would loop the renderer back into a re-read.
+  safeHandle("scan:notesSave", (_e, uuid: unknown, title: unknown, body: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.saveNote(db, orgId, { uuid, title, body });
+  });
+  safeHandle("scan:notesArchive", (_e, uuid: unknown) => {
+    const { db, orgId } = scanCtx();
+    const r = scanNotes.archiveNote(db, orgId, uuid);
+    sendNotesChanged();
+    return r;
+  });
+  safeHandle("scan:notesSearch", (_e, q: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.searchNotes(db, orgId, q);
+  });
+  safeHandle("scan:notesSearchFolders", (_e, q: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.searchFolderNames(db, orgId, q);
+  });
+  safeHandle("scan:notesCard", (_e, folderPath: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.folderCard(db, orgId, folderPath);
+  });
+  safeHandle("scan:notesHistory", (_e, folderPath: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.folderHistory(db, orgId, folderPath);
+  });
+  // THE ONE DESTRUCTIVE CHANNEL in this feature. The service refuses before it touches the disk and
+  // returns the refusal as data — a bad name is never an exception the user reads as a crash.
+  safeHandle("scan:notesRename", (_e, folderPath: unknown, newName: unknown) => {
+    const { db, orgId } = scanCtx();
+    const r = scanNotes.renameFolder(db, orgId, { folderPath, newName }, scanNotes.currentVolumes());
+    sendNotesChanged();
+    return r;
+  });
+  safeHandle("scan:notesPendingRenames", () => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.pendingRenameCount(db, orgId);
+  });
+  safeHandle("scan:notesUpdates", (_e, limit: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.listUpdates(db, orgId, limit == null ? 200 : Number(limit));
+  });
+  safeHandle("scan:notesUnseen", () => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.unseenUpdateCount(db, orgId);
+  });
+  safeHandle("scan:notesMarkSeen", () => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.markUpdatesSeen(db, orgId);
+  });
+  // Manual refresh — the same work the reconnect consumer does, on demand: drain every connected
+  // drive's queue, then rewrite both trees for every drive on record.
+  safeHandle("scan:notesSync", () => {
+    const { db, orgId } = scanCtx();
+    const volumes = scanNotes.currentVolumes();
+    const drained = scanNotes.drainQueue(db, orgId, volumes);
+    const swept = scanNotes.syncAll(db, orgId, volumes);
+    sendNotesChanged();
+    return { ...drained, filesWritten: drained.filesWritten + swept.filesWritten };
+  });
+  safeHandle("scan:notesShortcut", () => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.createDesktopShortcut(db, orgId);
+  });
+  safeHandle("scan:notesLocalRoot", () => scanNotes.localTreeRoot());
 
   // --- Rename — copies only; never renames/moves/deletes an original. Long jobs stream over
   // rename:progress; the batch survives navigation and the renderer rejoins a 'running' batch. ---

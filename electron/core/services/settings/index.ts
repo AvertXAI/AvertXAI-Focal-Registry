@@ -31,6 +31,11 @@ const RENDERER_KEYS = new Set([
   "mindmerge.rail_collapsed", // module list-rail « collapse — UI-only, never restarts the engine
   "mindmerge.font_size", // detail-pane px size — UI-only, never restarts the engine
   "migrate.tabs", // Migrate scan tabs (JSON) — renderer tab state persisted so tabs survive navigation
+  // Scan Notes view state — sticky across navigation, per §3.8 (never localStorage). The local notes
+  // tree itself has NO key: it is a fixed Documents path like documentsExportsDir(), not the
+  // relocatable markdown_root tree.
+  "scan.notes_tab", // which of the five tabs is open
+  "scan.notes_media_mode", // View media toggle — collapses the 3-pane grid to two
   "tips.enabled", // helpful-tips master switch — ONE global toggle (Jason ruled: no per-tip settings), default on
   // TimeTracker UI-only pref (Phase 6A, the ONE sanctioned out-of-module addition) — the module
   // rail's « collapse, persisted like mindmerge.rail_collapsed. Licence/break keys stay OFF this

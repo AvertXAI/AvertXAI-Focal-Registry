@@ -119,6 +119,9 @@ export interface ScoutDomCard {
 export type PushChannel =
   | "scan:progress"
   | "scan:drives"
+  // Scan Notes fired-and-forgotten refresh: a queued rename applied, a sync wrote files, or the feed
+  // grew. The renderer re-reads rather than trusting the payload — one channel, no per-surface fan-out.
+  | "scan:notes:changed"
   | "mindmerge:progress"
   | "rename:progress"
   | "migrate:progress"
@@ -377,6 +380,90 @@ export interface ScanReportResult {
   path?: string;
   secureNoteCopy?: string | null;
   error?: string;
+}
+
+// ---- Scan Notes — the renderer-side mirrors of electron/core/services/scan/notes.ts. Duplicated
+// rather than imported because the renderer cannot reach into electron/; that is the standing shape
+// of this file. ----
+export type ScanRenameStatus = "pending" | "applied" | "stale";
+export type ScanNotesLevel = "debug" | "info" | "warn" | "error";
+export type ScanNotesKind = "note" | "rename" | "scan" | "sync";
+
+export interface ScanNoteMeta {
+  id: number;
+  uuid: string;
+  drive_id: number | null;
+  folder_path: string;
+  title: string;
+  excerpt: string;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+export interface ScanNote extends ScanNoteMeta {
+  body: string;
+}
+export interface ScanHistoryRow {
+  uuid: string;
+  volume_serial: string;
+  folder_path_old: string;
+  folder_path_new: string;
+  name_old: string;
+  name_new: string;
+  changed_at: string | null;
+  applied_at: string | null;
+  status: ScanRenameStatus;
+  stale_reason: string | null;
+}
+export interface ScanUpdateRow {
+  uuid: string;
+  ts: string | null;
+  level: ScanNotesLevel;
+  kind: ScanNotesKind;
+  request_id: string | null;
+  message: string;
+  detail: string | null;
+  drive_label: string | null;
+  seen_at: string | null;
+}
+/** A folder's report card — RENDERED LIVE from scan_folders, never a stored row (ruled 08-17-2026). */
+export interface ScanFolderCard {
+  path: string;
+  name: string;
+  media_files: number;
+  total_files: number;
+  image_count: number;
+  video_count: number;
+  audio_count: number;
+  unreadable_count: number;
+  total_bytes: number;
+  date_min: string | null;
+  date_max: string | null;
+  top_camera: string | null;
+  committed_at: string | null;
+}
+export interface ScanNotesDriveNode {
+  drive_id: number;
+  volume_serial: string;
+  volume_label: string | null;
+  letter: string | null; // null when the drive is not attached right now
+  connected: boolean;
+  folders: Array<{ path: string; name: string; renamedFrom: string | null }>;
+}
+/** A rename's outcome. "refused" never reached the disk; "stale" tried and could not. */
+export interface ScanRenameResult {
+  ok: boolean;
+  status: ScanRenameStatus | "refused";
+  newPath?: string;
+  message: string;
+  requestId?: string;
+}
+/** What the reconnect consumer did — the payload behind the connect toast. */
+export interface ScanNotesSyncResult {
+  applied: number;
+  stale: number;
+  filesWritten: number;
+  drives: Array<{ label: string; serial: string; letter: string; applied: number; stale: number; filesWritten: number }>;
 }
 
 // ---- Auto-updater (§3.12) — available/progress/downloaded now live on the Software Update
@@ -1258,6 +1345,38 @@ export interface Api {
     deleteHistoryForever: () => Promise<{ deleted: number }>;
     /** Count of soft-cleared runs — gates the Settings Restore / delete-forever controls. */
     clearedHistoryCount: () => Promise<number>;
+    /** Scan Notes — per-folder notes, the folder-rename engine, and the Updated Notes feed. Nested
+     *  under scan because the channels are scan:notes* and the feature ships inside the Scan module. */
+    notes: {
+      /** Drives + their scanned folders for the tree pane; `connected` is live, from the volume list. */
+      tree: () => Promise<ScanNotesDriveNode[]>;
+      list: (driveId: number | null, folderPath?: string) => Promise<ScanNoteMeta[]>;
+      get: (uuid: string) => Promise<ScanNote>;
+      /** + Add Note — creates and saves into the selected folder with no dialog. */
+      create: (driveId: number | null, folderPath: string, title?: string, body?: string) => Promise<ScanNote>;
+      save: (uuid: string, title?: string, body?: string) => Promise<ScanNote>;
+      archive: (uuid: string) => Promise<{ ok: boolean }>;
+      /** LIKE search over title + body; relevance-ordered, excerpt centred on the first term. */
+      search: (q: string) => Promise<ScanNoteMeta[]>;
+      /** Folder-name search across BOTH old and new names (ruled) — the rename history. */
+      searchFolders: (q: string) => Promise<ScanHistoryRow[]>;
+      /** The rendered report card for one folder — live from scan_folders. */
+      card: (folderPath: string) => Promise<ScanFolderCard | null>;
+      history: (folderPath: string) => Promise<ScanHistoryRow[]>;
+      /** Applied now when the drive is connected; queued and applied on reconnect when it is not. */
+      rename: (folderPath: string, newName: string) => Promise<ScanRenameResult>;
+      pendingRenames: () => Promise<number>;
+      updates: (limit?: number) => Promise<ScanUpdateRow[]>;
+      /** Unseen feed rows — the tab badge, which hides at zero. */
+      unseen: () => Promise<number>;
+      markSeen: () => Promise<{ marked: number }>;
+      /** Manual refresh: drain the queue for every connected drive, then rewrite both trees. */
+      sync: () => Promise<ScanNotesSyncResult>;
+      /** Desktop shortcut to the local notes tree; `existed` means one was already there. */
+      shortcut: () => Promise<{ ok: boolean; existed: boolean; message: string }>;
+      /** The local tree's absolute path — shown in the UI so the user knows where their files live. */
+      localRoot: () => Promise<string>;
+    };
   };
   /** Auto-updater (§3.12) — check/version answer in every build so the Settings button is never
    *  dead. Download/install belong to the Software Update window's own bridge, not window.api. */

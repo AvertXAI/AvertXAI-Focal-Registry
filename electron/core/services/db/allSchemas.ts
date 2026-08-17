@@ -26,6 +26,7 @@
 //------------------------------------------------------------
 import type Database from "better-sqlite3-multiple-ciphers";
 import { ensureScanSchema } from "../scan/db";
+import { ensureScanNotesSchema } from "../scan/notesDb";
 import { ensureRenameSchema } from "../rename/db";
 import { ensureMigrateSchema } from "../migrate/db";
 import { ensureTimeTrackerSchema } from "../timetracker/db";
@@ -35,6 +36,10 @@ import { ensureEmployeesSchema } from "../employees/db";
     reference another module's tables — but it mirrors the sidebar for readability. */
 const SHARED_SCHEMA_ENSURES: ReadonlyArray<[name: string, ensure: (db: Database.Database) => void]> = [
   ["scan", ensureScanSchema],
+  // Scan Notes ships its own ensure rather than growing scan/db.ts — same shared database, separate
+  // feature, separate file. It reads nothing from the scan tables at CREATE time, so ordering beside
+  // "scan" is for readability only.
+  ["scan-notes", ensureScanNotesSchema],
   ["rename", ensureRenameSchema],
   ["migrate", ensureMigrateSchema],
   ["timetracker", ensureTimeTrackerSchema],

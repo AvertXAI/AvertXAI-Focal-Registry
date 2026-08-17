@@ -1,15 +1,15 @@
-# FR-FACTS-3.md — Focal Registry verified facts
+# FR-FACTS-4.md — Focal Registry verified facts
 
 One line each: value — source — verified-on. Re-verify if stale.
-*(Derived 2026-07-31. Facts unrelated to this repo were dropped. Supersedes FR-FACTS-2 — delete it after upload.)*
+*(Derived 2026-08-14. Supersedes FR-FACTS-3 — delete it after placement.)*
 
 ## This repo
 - Repo: `D:\dev\AvertXAI-Focal-Registry` · remote `git@github.com:AvertXAI/AvertXAI-Focal-Registry.git`
 - Docs: `D:\dev\_source\AvertXAI-Focal-Registry\` · reference scripts in `reference\` · session reports in `reports\`
 - Real canon: `D:\dev\_source\AvertXAI-CANON\CANON PROJECT\` — now five files plus `CANON-2` index
-- **Last PUSHED commit is `d10060d`** (2026-07-28). Branch `main` sits **14 commits ahead, unpushed** — the whole TimeTracker port is local-only
-- Real canon is now `CANON-2` · `DECISIONS-50` · `RULES-39` · `STATUS-36` · `PROJECTS-9` · `FACTS-10`
-- **Version 0.2.5**; `productName` **"Focal Registry"**; npm `name` `avertxai-focal-registry`; `appId` `com.avertxai.focalregistry`; `description` "Photography Archive Tools"
+- **`origin/main` = `3e8a2d4`** (2026-08-10, purge fix). Working tree habitually on `feature/vault-build` (vault lane source commit `79e0715` pushed); route = commit there, cherry-pick to `main` in a temp worktree, push
+- Real canon is now `CANON-3` · `DECISIONS-52` · `RULES-40` · `STATUS-38` · `PROJECTS-10` · `FACTS-10`
+- **Version 0.2.6** (`Focal-Registry-Setup-0.2.6.exe` on the prerelease feed); `productName` **"Focal Registry"**; npm `name` `avertxai-focal-registry`; `appId` `com.avertxai.focalregistry`; `description` "Photography Archive Tools"
 - `artifactName` **`Focal-Registry-Setup-${version}.${ext}`** — hyphenated on purpose; spaces in artifact filenames break update-feed URLs and shell commands. `scripts/release.mjs:15` pin moves in lockstep
 - **Packaged process is `Focal Registry.exe`** — kill it AND `electron.exe` before any device gate; both share the single-instance lock and a stale window fakes false results
 - Windows `CompanyName` derives from `author`; `FileDescription` derives from `productName`, NOT from `description`
@@ -28,6 +28,10 @@ One line each: value — source — verified-on. Re-verify if stale.
 - `exifr@7.1.3` — MIT, zero deps, 1.5 MB, pure JS, header-only reads
 - `gray-matter` — the sole runbook YAML parser
 - `electron-updater` — production dependency, ships inside the app
+- `@milkdown/kit@^7.22.0` — MIT; core + presets + listener + history + utils ONLY (never `/react` or `/crepe` — both pull Vue); installed ~6.2 MB + ~3.4 MB prosemirror-*
+- `@markdoc/markdoc@0.5.9` — MIT, ZERO runtime deps, 2.17 MB unpacked; the read-only renderer
+- `assets/fonts/Inter-Variable.ttf` — 856 KB, OFL (Open Font License) — embedded in invoice PDFs
+- Licence keys (license.ts): BUSINESS `P4HN-8ZJC-6YKS-1BGM` (unlimited) · PRO `K7QM-3XVB-9TLD-2WRF` (10 people; seed refuses it by name); persist to `app_settings` `timetracker.licenseKey`; hardcoded = knowing stopgap, Keystone is the real path
 - `music-metadata@11.14.0` — **MIT**, 14-package tree (13 MIT + `ieee754` BSD-3-Clause), **0.96 MB unpacked**, zero native deps
 - `@ffprobe-installer/ffprobe` — **REJECTED** (wrapper LGPL-2.1, binary GPLv3, 78 MB)
 - `ffprobe-static` — rejected, 336 MB, vendors every platform's binary

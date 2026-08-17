@@ -15,8 +15,8 @@
 // File: test/transfer-proof.ts
 //------------------------------------------------------------
 import assert from "node:assert/strict";
-import { parseCsv } from "../electron/core/services/vault/transfer";
-import { classify, rankCandidates } from "../electron/core/services/vault/sources";
+import { parseCsv } from "../../../electron/core/services/vault/transfer";
+import { classify, rankCandidates } from "../../../electron/core/services/vault/sources";
 
 let checks = 0;
 const check = (name: string, fn: () => void): void => {

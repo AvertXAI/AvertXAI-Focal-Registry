@@ -37,6 +37,7 @@ import fs from "node:fs";
 import { FILE_FILTERS, exportDirFor, locateExports, statPickedFiles, walkForDocs } from "./sources";
 import { clearAllEvents, clearRoutine, listEvents, logEvent, newRequestId, presentableMessage, type VaultLogLevel } from "./log";
 import { copyWithClear, type ClipboardPort, type ClockPort } from "./clipboard";
+import { getAttachment, saveAttachment } from "./attachments";
 import { analyseHealth } from "./health";
 import { estimateStrength, generateBulk, generateMemorable, generatePassphrase, generatePassword, generatePin } from "./generator";
 import type { VaultGeneratorOptions, VaultSecretInput } from "./types";
@@ -662,10 +663,32 @@ export function registerVaultIpc(): void {
   safeHandle("vault:importDocs", async (_e, files: unknown, opts: unknown) => {
     const { db, orgId } = await gated();
     const list = Array.isArray(files) ? files : [];
+    /**
+     * NO MORE SILENT BLANKS, NO MORE SILENT CUTS (Jason 08-16-2026: blank notes from his _source
+     * import, a rare truncated one, and "no error logs for that side"). The old catches stored
+     * `""` — a note row that exists, opens empty, and left no trace anywhere. Now:
+     *   · a file that cannot be read imports as a PLACEHOLDER naming the actual error — visible
+     *     in the note, retryable by re-importing (the duplicate guard fills placeholder rows);
+     *   · a file a cap genuinely cuts carries a TRUNCATION NOTICE at the top, above the fence;
+     *   · both are counted here and logged after the run, files named.
+     */
+    const readFailures: string[] = [];
+    const truncated: string[] = [];
+    const FENCE_CAP = 200_000;
+    const failText = (p: string, rel: string, err: unknown): string => {
+      const reason = err instanceof Error ? err.message : String(err);
+      readFailures.push(`${rel}: ${reason}`);
+      return `> [import failure] This file could not be read when it was imported — this note is a placeholder, not the file's contents. Re-import the folder to retry it.\n>\n> File: ${p}\n> Reason: ${reason}\n`;
+    };
+    const capNote = (rel: string, total: number, kept: number): string => {
+      truncated.push(`${rel}: ${total.toLocaleString()} characters, ${kept.toLocaleString()} kept`);
+      return `> [truncated at import] This file is ${total.toLocaleString()} characters; only the first ${kept.toLocaleString()} were stored.\n\n`;
+    };
     const loaded = list.map((f) => {
       const rec = f as { path?: unknown; name?: unknown; rel?: unknown; ext?: unknown; birthtimeMs?: unknown; mtimeMs?: unknown };
       const p = typeof rec?.path === "string" ? rec.path : "";
       const ext = typeof rec?.ext === "string" ? rec.ext : "";
+      const rel = typeof rec?.rel === "string" ? rec.rel : (typeof rec?.name === "string" ? rec.name : p);
       let text = "";
       if (ext === ".pdf") {
         text = `> This PDF was imported as a placeholder — the vault has no PDF text extractor yet.\n>\n> File: ${p}\n`;
@@ -680,19 +703,42 @@ export function registerVaultIpc(): void {
       } else if (ext === ".jsonl") {
         // LINE-delimited JSON: each line is its own document. Pretty-printing would destroy the one
         // property that defines the format, so it is kept verbatim in a fence.
-        try { text = "```jsonl\n" + fs.readFileSync(p, "utf8").slice(0, 200_000) + "\n```\n"; } catch { text = ""; }
+        try {
+          const raw = fs.readFileSync(p, "utf8");
+          const head = raw.length > FENCE_CAP ? capNote(rel, raw.length, FENCE_CAP) : "";
+          text = head + "```jsonl\n" + raw.slice(0, FENCE_CAP) + "\n```\n";
+        } catch (err) { text = failText(p, rel, err); }
       } else if (ext === ".json") {
         // Pretty-print so a dumped config is readable as a note instead of one enormous line.
         try {
           const rawText = fs.readFileSync(p, "utf8");
-          text = "```json\n" + JSON.stringify(JSON.parse(rawText), null, 2).slice(0, 200_000) + "\n```\n";
-        } catch { try { text = "```\n" + fs.readFileSync(p, "utf8") + "\n```\n"; } catch { text = ""; } }
+          const pretty = JSON.stringify(JSON.parse(rawText), null, 2);
+          const head = pretty.length > FENCE_CAP ? capNote(rel, pretty.length, FENCE_CAP) : "";
+          text = head + "```json\n" + pretty.slice(0, FENCE_CAP) + "\n```\n";
+        } catch {
+          // Not valid JSON (or unreadable): keep it verbatim if it can be read at all.
+          try {
+            const raw = fs.readFileSync(p, "utf8");
+            const head = raw.length > FENCE_CAP ? capNote(rel, raw.length, FENCE_CAP) : "";
+            text = head + "```\n" + raw.slice(0, FENCE_CAP) + "\n```\n";
+          } catch (err2) { text = failText(p, rel, err2); }
+        }
       } else if (ext === ".csv" || ext === ".zone") {
         // Kept verbatim in a fence — a zone file or CSV is exact text, and reflowing it as prose
         // would destroy the alignment that makes it readable.
-        try { text = "```\n" + fs.readFileSync(p, "utf8").slice(0, 200_000) + "\n```\n"; } catch { text = ""; }
+        try {
+          const raw = fs.readFileSync(p, "utf8");
+          const head = raw.length > FENCE_CAP ? capNote(rel, raw.length, FENCE_CAP) : "";
+          text = head + "```\n" + raw.slice(0, FENCE_CAP) + "\n```\n";
+        } catch (err) { text = failText(p, rel, err); }
       } else {
-        try { text = fs.readFileSync(p, "utf8"); } catch { text = ""; }
+        try {
+          const raw = fs.readFileSync(p, "utf8");
+          // createNote hard-caps at one megabyte — when that will genuinely cut, say so AT THE
+          // TOP, where the notice survives the cut.
+          const head = raw.length > 1_000_000 ? capNote(rel, raw.length, 1_000_000) : "";
+          text = head + raw;
+        } catch (err) { text = failText(p, rel, err); }
       }
       // `path` now travels too — it is what the duplicate guard matches on. It never reaches the
       // renderer; this object is built main-side and consumed main-side.
@@ -705,12 +751,28 @@ export function registerVaultIpc(): void {
     // reproduce the import to see the numbers again.
     logEvent(db, orgId, {
       level: "info", area: "import", channel: "vault:importDocs", actor: RENDERER_CALLER,
-      message: `Imported ${r.created} of ${r.scanned} files — ${r.skipped} already in the vault, ${r.failed} could not be stored`,
+      message: `Imported ${r.created} of ${r.scanned} files — ${r.skipped} already in the vault, ${r.repaired} blank rows filled, ${r.failed} could not be stored`,
       detail: [
         `Already here: ${r.skippedFiled} filed, ${r.skippedUnfiled} unfiled, ${r.skippedArchived} archived.`,
         r.warned > 0 ? `${r.warned} had unreadable frontmatter and were imported anyway.` : null,
       ].filter(Boolean).join(" "),
     });
+    // The failures and the cuts get their own WARN lines — level info is what "Clear routine
+    // entries" deletes, and these two are evidence, not routine.
+    if (readFailures.length > 0) {
+      logEvent(db, orgId, {
+        level: "warn", area: "import", channel: "vault:importDocs", actor: RENDERER_CALLER,
+        message: `${readFailures.length} file(s) could not be read and were imported as placeholders — re-import the folder to retry them`,
+        detail: readFailures.slice(0, 100).join("\n"),
+      });
+    }
+    if (truncated.length > 0) {
+      logEvent(db, orgId, {
+        level: "warn", area: "import", channel: "vault:importDocs", actor: RENDERER_CALLER,
+        message: `${truncated.length} file(s) were larger than the import cap and were stored truncated, with a notice at the top of each note`,
+        detail: truncated.slice(0, 100).join("\n"),
+      });
+    }
     return r;
   });
 
@@ -899,6 +961,18 @@ export function registerVaultIpc(): void {
       detail: `reclaimable ${reclaimable} of ${fileBytes} (${Math.round(ratio * 100)}%), before ${r.before}, after ${r.after}`,
     });
     return { ran: true, reason: "compacted" as const, why, ...r, ...status };
+  });
+
+  // ---- Pasted-image attachments (08-16-2026): bytes into the encrypted file, a short
+  // ---- `vault://<uuid>` reference into the note body. Both gated — an image in a note is note
+  // ---- content, and note content does not leave a locked vault.
+  safeHandle("vault:saveAttachment", async (_e, input: unknown) => {
+    const { db, orgId } = await gated();
+    return saveAttachment(db, orgId, input);
+  });
+  safeHandle("vault:getAttachment", async (_e, uuid: unknown) => {
+    const { db, orgId } = await gated();
+    return getAttachment(db, orgId, uuid);
   });
 
   /**

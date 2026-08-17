@@ -21,6 +21,7 @@ import path from "node:path";
 import Database from "better-sqlite3-multiple-ciphers";
 import { importLocalRepos, listRepos, readReadme, saveRepo } from "../../../electron/core/services/vault/repos";
 import { copyWithClear, _resetForTest } from "../../../electron/core/services/vault/clipboard";
+import { getAttachment, saveAttachment } from "../../../electron/core/services/vault/attachments";
 import { ensureVaultSchema, VAULT_ACTIONS } from "../../../electron/core/services/vault/db";
 import {
   archiveSecret,
@@ -65,6 +66,7 @@ const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AN
 // 08-11-2026 added vault_event_log (the four-level log behind the reference ids).
 assert.deepEqual(tables, [
   "vault_access_log",
+  "vault_attachments", // 08-16-2026 — pasted-image bytes; the note body carries vault://<uuid>
   "vault_dns_records",
   "vault_event_log",
   "vault_folders",
@@ -621,6 +623,28 @@ ok("lock gate: locks, unlocks, and honours its own setting");
 
   fs.rmSync(tmp, { recursive: true, force: true });
   ok("repo scan: READMEs are read off disk, fill only an empty snapshot, and never clobber an edit");
+}
+
+// ── pasted-image attachments: bytes round-trip the encrypted store, references stay short ────────
+// (Jason 08-16-2026: the data-URL paste put a 200,000-character base64 wall in the note body; now
+//  the bytes live here and the body carries ![name](vault://<uuid>).)
+{
+  const AORG = "att-org";
+  // A real PNG header plus junk — enough to prove bytes survive base64 → BLOB → base64 unchanged.
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(4096, 7)]);
+  const saved = saveAttachment(db, AORG, { name: "shot.png", mime: "image/png", dataBase64: png.toString("base64") });
+  assert.equal(saved.byteCount, png.length, "the decoded size is recorded");
+  const back = getAttachment(db, AORG, saved.uuid);
+  assert.equal(back.mime, "image/png");
+  assert.ok(Buffer.from(back.dataBase64, "base64").equals(png), "bytes come back IDENTICAL");
+  assert.ok(`![${saved.name}](vault://${saved.uuid})`.length < 80, "the reference is one readable line, not a wall");
+  // The org fence: another org asking for this locator is told no, same as every vault read.
+  assert.throws(() => getAttachment(db, "someone-else", saved.uuid), /no longer in the vault/i);
+  // The gate on junk: not an image → refused with a sentence; oversize → refused with a sentence.
+  assert.throws(() => saveAttachment(db, AORG, { mime: "application/x-msdownload", dataBase64: "TVo=" }), /only images/i);
+  const defaulted = saveAttachment(db, AORG, { mime: "image/png", dataBase64: png.toString("base64") });
+  assert.equal(defaulted.name, "pasted-image.png", "a nameless paste gets an honest default name");
+  ok("attachments: bytes round-trip exactly, org-fenced, images-only, short reference");
 }
 
 // ── the clipboard clear actually happens — and never eats the user's own copy ────────────────────

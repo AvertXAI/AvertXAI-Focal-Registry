@@ -22,7 +22,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Loading from "./Loading";
 import { vaultApi, type VaultParsedServer, type VaultWalkResult, type VaultWalkedFile, type VaultZoneRecord } from "./vaultApi";
 
-export type ImportTarget = "notes" | "infra" | "repos";
+// "repos" was DELETED from this union with the mount (08-14-2026): the Repos tab's generic import
+// was removed 08-12-2026 (see ReposView.tsx) and the destination had been unreachable since.
+export type ImportTarget = "notes" | "infra";
 
 /** Every place a file can land. `docs` is the original note-shaped import. */
 type Dest = "auto" | "note" | "runbook" | "snippet" | "dns" | "servers" | "sshkeys" | "docs";
@@ -61,15 +63,11 @@ const DESTS: Record<ImportTarget, DestDef[]> = {
     { id: "runbook", title: "Runbooks", blurb: "Numbered steps get copy buttons and ticks in Run mode.", exts: ".md · .txt" },
     { id: "snippet", title: "Ideas", blurb: "Things you are thinking about — sketches, concepts, fragments.", exts: ".md · .txt" },
   ],
-  repos: [
-    { id: "docs", title: "READMEs and docs", blurb: "Markdown from a folder of repositories, kept readable offline.", exts: ".md · .txt · .pdf" },
-  ],
 };
 
 const TITLES: Record<ImportTarget, string> = {
   notes: "Import into Secured Notes",
   infra: "Import into Infrastructure",
-  repos: "Import into Repos",
 };
 
 type Result =

@@ -1,4 +1,5 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/// <reference types="vite/client" />
 // Coloured brand tiles for the collage — the icon layer.
 //
 // WHY COLOUR AND INITIALS RATHER THAN THE REAL LOGO ARTWORK. Two roads were researched (08-06-2026)
@@ -109,10 +110,32 @@ export function iconPathFor(_label: string): string | null {
  * seed/generate-brand-svgs.mjs. Returns null for anything not in the set, and the tile falls back
  * to the brand colour plus initials, so a missing icon is cosmetic and never a broken tile.
  *
- * ICON_BASE is the ONE place the asset location lives. The dev host copies the assets beside its
- * own index.html; on copy-back into the shell this single constant changes and nothing else does.
+ * ASSET ROUTE (mounted root-lane 08-14-2026): the files stay at modules/vault/assets/brand-icons —
+ * Vite's import.meta.glob maps each one to a hashed bundle URL at build time (the glob resolves
+ * from this file's APP location, src/modules/vault/). Nothing fetches at runtime, nothing phones
+ * out, and a missing file resolves null into the initials fallback. The lane dev host has no
+ * import.meta.glob (esbuild), so the guard below falls back to the ./brand-icons/ copy that
+ * dev/build.mjs places beside index.html — both hosts render the real icons.
  */
-const ICON_BASE = "./brand-icons/";
+let ICON_URLS: Record<string, string> = {};
+try {
+  // In the shell, Vite replaces this call at BUILD time with a literal map of hashed bundle URLs,
+  // so the try branch never actually calls anything at runtime. The lane dev host bundles with
+  // esbuild, which ships `import.meta` untouched — there the call THROWS (glob is not a function),
+  // and before this guard that throw happened at module evaluation and blanked the entire app
+  // (Jason 08-15-2026: "im getting a blank app").
+  ICON_URLS = import.meta.glob("../../../modules/vault/assets/brand-icons/*", {
+    eager: true,
+    query: "?url",
+    import: "default",
+  }) as Record<string, string>;
+} catch {
+  // Dev host: build.mjs copies the icon files beside index.html, so relative URLs resolve over
+  // file:// — the manifest supplies the filenames the glob would have found.
+  for (const i of MANIFEST.icons) ICON_URLS[i.file] = "./brand-icons/" + i.file;
+}
+/** basename ("1password.svg") → bundled URL. */
+const URL_BY_FILE = new Map(Object.entries(ICON_URLS).map(([p, url]) => [p.slice(p.lastIndexOf("/") + 1), url]));
 const FILE_BY_SLUG = new Map(MANIFEST.icons.map((i) => [i.slug, i.file] as const));
 /** Aliases the upstream catalogue publishes — "gmail" reaching "google-gmail" and so on. */
 for (const icon of MANIFEST.icons) {
@@ -138,13 +161,13 @@ export function iconFile(label: string): string | null {
   for (const [pattern, slug] of SLUG_ALIASES) {
     if (pattern.test(label)) {
       const hit = FILE_BY_SLUG.get(slug);
-      if (hit) return ICON_BASE + hit;
+      if (hit) return URL_BY_FILE.get(hit) ?? null;
     }
   }
   // Straight slug: "Squarespace" → "squarespace"; composites are handled by the aliases above.
   const slug = raw.replace(/\s*[/(].*$/, "").trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const hit = FILE_BY_SLUG.get(slug) ?? FILE_BY_SLUG.get(slug.replace(/-/g, ""));
-  return hit ? ICON_BASE + hit : null;
+  return hit ? URL_BY_FILE.get(hit) ?? null : null;
 }
 
 /** Deterministic hue for anything not in the table — same name, same colour, forever. */

@@ -178,14 +178,17 @@ export function initDb(dbPath: string): void {
     type: string,
     order: number,
     group: string,
-    standalone = 0
+    standalone = 0,
+    // The two seed paths must agree field-for-field (§3.5): firstrun seeds the vault with
+    // is_locked = 1, so this back-fill must be able to say the same.
+    isLocked = 0
   ): void => {
     const tenant = tenantId();
     if (!tenant || db.prepare("SELECT 1 FROM modules WHERE slug = ?").get(slug)) return;
     db.prepare(
       `INSERT INTO modules (uuid, tenant_id, name, slug, type, display_order, is_locked, is_enabled, nav_group, nav_standalone)
-       VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`
-    ).run(generateUUIDv7(), tenant, name, slug, type, order, group, standalone);
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+    ).run(generateUUIDv7(), tenant, name, slug, type, order, isLocked, group, standalone);
   };
   // Contiguous 1-10 (Jason 08-01-2026). 6 is Calendar's reserved slot — that module has no row yet
   // and none is created here; the gap is deliberate, not an omission.
@@ -197,6 +200,10 @@ export function initDb(dbPath: string): void {
   seedModule("TimeTracker", "timetracker", "tool", 5, "Applications");
   seedModule("MindMerge", "mindmerge", "notes", 7, "Tools");
   seedModule("Scout Viewer", "scout-viewer", "browser", 8, "Tools");
+  // Secured Vault back-fill (mount, 08-14-2026) — §3.5 requires BOTH seed paths; firstrun carries
+  // the identical row for fresh orgs. is_locked mirrors firstrun's 1 — the nav filters on
+  // is_enabled only, so the row renders as a normal standalone entry.
+  seedModule("Secured Vault", "vault", "secrets", 9, "Secured Vault", 1, 1);
   seedModule("Marketplace", "marketplace", "market", 10, "Marketplace", 1);
   // Row cleanup for gutted modules — idempotent, data-only (no schema change). Existing dev DBs
   // seeded these rows; without this they'd keep rendering in the nav after the module code is gone.

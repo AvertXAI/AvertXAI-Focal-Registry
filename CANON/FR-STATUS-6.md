@@ -1,11 +1,14 @@
-# FR-STATUS-4.md — Focal Registry build state
+# FR-STATUS-6.md — Focal Registry build state
 
-One line each. *(Derived 2026-07-31, verified against the local branch head. Supersedes FR-STATUS-3 — delete it after upload.)*
+One line each. *(Derived 2026-08-17 from STATUS-39 — Scan Notes ruled and recon assigned. Supersedes FR-STATUS-5 — delete it after placement.)*
 
 ## Shipped
-- **0.2.5 LIVE and verified on the feed** — installer, manifest, and `REVISIONS.md` all return 200. Branch `main`, HEAD `d10060d`, pushed.
-- **Paul is the alpha of one**, auto-updating from the live feed. Update loop proven end-to-end.
+- **0.2.6 LIVE on the prerelease feed**. `origin/main` = `3e8a2d4`; working tree habitually on `feature/vault-build`.
+- **Paul is the alpha of one**, auto-updating from the live feed. **Installed builds LAG main** — device tests run `npm run dev` at current main or a fresh package, never the stale installed app.
 - Update server live: nginx on Coolify, valid certificate, correct cache headers.
+- **Commit chain this cycle:** `ce51efc` (Employees 3B people CRUD) → `c952c86` (3B.2 wizard + employee timer) → `62206ec`/`f57edaf` (project-modal rework) → `b451944` (seed + schema-at-birth) → `4465c65` (13-item fix pass) → `e403b76` (Complete Job + Business/Employee Profiles + invoice numbering + dev-mode leaf) → `1a87d67` (invoice skill compliance, Inter embedded) → `d078aae` (profit build: one money vocabulary, payments, below-zero charts, adjustments) → `3e8a2d4` (plan-based purge, dev-gated seed tools, Reset organisation).
+- **Employees BUILT through 3B.2** — people CRUD (tier caps 5/10/unlimited), Add Time, employee timer subsystem, both TimeTracker placements. 3C (Tasks · Adjustments · Details) and Payroll OPEN; Payroll parked until Jason sits with it. Two queued fixes: four address columns on `timetracker_clients`; `phone_ext` moves beside the phone it extends.
+- **Secured Vault — STANDALONE COMPLETE 2026-08-14** at `modules/vault/` (lane source commit `79e0715` + polished uncommitted work; proofs green: engine 23 · notes 38 · redesign 20 · transfer 16 · codetheme 8). Surfaces: Passwords (versioned secrets, generator, health, access log) · Secured Notes (Milkdown + Markdoc, autosave, import, global search) · Infrastructure (DNS / servers / SSH keys / package ledger) · Repos (local scan, README snapshots) · event log with `VLT-` request ids · vault-held settings · code-theme import. **MOUNT IS THE CURRENT ASSIGNMENT** (Claude Code desktop, root-lane authorised). Sequence: merge → test → fix (`_source\fixes\vault-broken-patch.md`, in order) → wizard → test → ship.
 
 ## Built and verified
 - **Shell + identity** — gut complete. `productName` is **Focal Registry**; `artifactName` `Focal-Registry-Setup-${version}`. Nav locked at seven. Settings restructured. Not-built page replaces the orange glow. Tray a user setting, Open/Exit only.
@@ -32,11 +35,17 @@ One line each. *(Derived 2026-07-31, verified against the local branch head. Sup
 **Fixed along the way:** the `.view.shown{display:block}` specificity loss that stacked the rail above the content · the scrollbar gutter sitting inside its parent's padding · the seeded-versus-default `break_enabled` bug that shipped in the standalone · sound playback dead because the CSP has no `media-src`.
 
 ## In flight
-- **15 commits unpushed** through `3fb70de`, unless the push task has run. Last known pushed: `d10060d`.
-- `CANON-UPDATES.md` carries Jason's edits, uncommitted.
+- **Vault mount** — assigned; the lane's 21 modified + 7 untracked files commit path-explicit as part of it; outside-lane `db/index.ts` (compactDb/closeAllDbs) commits separately.
+- Root `CANON-UPDATES.md` — 12-entry pruned working copy is DELIBERATE (08-10 session); commits with the mount; the vault lane's 17-entry ledger appends to it marked applied.
+- **FIVE device-gate checklists stacked, never run** — nothing from 3A through the purge fix has fully rendered on Jason's screen beyond leaf/seed/purge spot-checks. Invoice PDF, three themes, analytics visuals, completion-rail behaviour: Unknown until gated.
+- **BuildersAudit beta tester** found, wants fake live data; same-app-or-separate OPEN.
 
 ## Designed, not started
-- **Employees — ITS OWN MODULE**, sibling of TimeTracker under Applications. The PROJECTS/PEOPLE rail toggle is DEAD. Five mockups approved (three nav options, payroll v1/v2/v3, in-shell render, Add Time / Add Task / Adjustments forms). Every ruling settled in FR-DECISIONS. No schema, no code.
+- **Scan Notes — RULED + mockup v4 approved 2026-08-17** (`MOCKUP-scan-notes-v4-08-17-2026.html`). Scan gains: folder renaming via pending queue with auto-sync on drive connect (charter amended — see FR-DECISIONS) · plaintext notes tables in the shared org database (Secured Notes stack copied, encryption removed) · the Updated Notes feed tab with unseen badge · dual-tree markdown mirroring (drive + `Documents\Focal Registry\Scan Notes\`) · same-window media browse (lightbox + H264 player; NOT a god-mode revival) · in-module search with filter dropdown. **Read-only recon assigned (`PROMPT-scan-notes-recon-08-17-2026.md`); build prompt after Jason rules the recon forks.** Never run alongside the vault Tier-1 fix session on one working tree.
+- **First-run wizard** — RULED 2026-08-14, SEQUENCED LAST (after merge + fixes): Personal/Business fork, full name · email · contact · master-password one-time change, type-specific account ID, demo seed + modal notice. No network call.
+- **MindMerge editor** — arrives by COPYING the vault's Secured Notes stack after the fixes. The Repos online reader lives here too.
+- **Settings modal** — replaces the Settings tab/page; mockup first, very basic, grow.
+- **Employees 3C + Payroll** — tabs designed, Payroll parked until Jason sits with it.
 - **Navigation restructure** — Archive Media · Applications · Tools · Secured Vault · Marketplace, plus the entitlement-aware boot screen. Shell-lane.
 - **Calendar — ITS OWN MODULE**, sibling of TimeTracker. Shares the org database. Two calendars: Google beside Focal Registry.
 - **Marketplace module** — own page, coming-soon.
@@ -50,6 +59,8 @@ One line each. *(Derived 2026-07-31, verified against the local branch head. Sup
 - `CANON/` in this repo reappears after deletion — the Canon Distributor on another machine still targets it.
 - nginx serves `.md` with no cache header; add `.md` to the no-cache block in Coolify when convenient.
 - **VHS and Hi8 capture** — research complete, viable with zero bundled binaries via `getUserMedia` plus `MediaRecorder` to WebM. Buy an STK1160 UVC grabber, not the UTV007 August VGB100. Blocked on hardware.
+- **FR scoped canon staleness in `CLAUDE.md` §0.1** — names `FR-CANON-1` literally; reword to "highest-numbered" (rides the mount).
+- Known-broken vault list — `D:\dev\_source\AvertXAI-Focal-Registry\fixes\vault-broken-patch.md`; five product-liars first. FIX PHASE, not the mount.
 
 ## Dead — do not propose
-- In-place rename · `ffprobe` / bundled FFmpeg · `ffprobe-static` · Gitea, OneDev, or any git forge as update host · Python, PySide6, or Tkinter UI · a second GitHub organization · thumbnails or pixel decode of any kind · **the Scan god-mode surface** (wizard, search, extraction, viewers, delete, nuke) · **anything named `runbooks`** — the slug, the migration, the preload global, all removed.
+- In-place rename · `ffprobe` / bundled FFmpeg · `ffprobe-static` · Gitea, OneDev, or any git forge as update host · Python, PySide6, or Tkinter UI · a second GitHub organization · thumbnails or pixel decode **from the archive** (Scan/Rename — vault note attachments are the ruled 08-12 exception) · **the Scan god-mode surface** (wizard, search, extraction, viewers, delete, nuke) · **anything named `runbooks`** — the slug, the migration, the preload global, all removed.

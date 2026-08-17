@@ -13,9 +13,12 @@ database under `dev/.userdata` — never your real vault. From the repo root:
 node modules/vault/dev/build.mjs && npx electron modules/vault/dev/host.cjs
 ```
 
-The vault opens **locked**. The master password is the placeholder one
-(`lurpz.bmt@gmail.com`). Then: **Vault settings → Load seed data** puts 46 entries in, and every
-screen has something to show. Three theme buttons in the dev bar switch Hybrid / Dark / Light.
+The vault opens **locked**. The initial master password is DERIVED from this machine's identity —
+SHA-256 over the Windows MachineGuid + SMBIOS hardware UUID, encoded to 16 alphanumerics (ruled
+2026-08-14, replacing the old personal-email placeholder). With developer mode on, the lock
+screen's "Reveal initial master — dev" control recomputes and shows it. Then: **Vault settings →
+Load seed data** puts 46 entries in, and every screen has something to show. Three theme buttons
+in the dev bar switch Hybrid / Dark / Light.
 
 Delete `modules/vault/dev/.userdata` any time to start from nothing — it is gitignored, key file
 included.
@@ -35,7 +38,7 @@ npx esbuild modules/vault/test/engine-proof.ts --bundle --platform=node --format
 
 Two steps, because the SQLite engine is built for Electron's Node version, not the system one:
 `esbuild` bundles the TypeScript, and `ELECTRON_RUN_AS_NODE=1 electron` runs it against the right
-binary. Expect `ALL 16 VAULT ENGINE CHECKS PASSED`.
+binary. Expect `ALL 25 VAULT ENGINE CHECKS PASSED`.
 
 ## Type-check the lane
 

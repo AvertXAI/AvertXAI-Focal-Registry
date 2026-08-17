@@ -1,6 +1,6 @@
-# FR-RULES-3.md — how work is done in this repo
+# FR-RULES-4.md — how work is done in this repo
 
-One line each. *(Derived 2026-07-31 from RULES-39 + repo CLAUDE.md. Rules for other products, stacks, and business administration were dropped. Supersedes FR-RULES-2 — delete it after upload.)*
+One line each. *(Derived 2026-08-14 from RULES-40 + repo CLAUDE.md + the Vault-lane promotions. Supersedes FR-RULES-3 — delete it after placement.)*
 
 ## Session bootstrap
 - **List `CANON/`, load the HIGHEST-NUMBERED `FR-CANON-*.md`, then the highest-numbered version of each of the four files it names — BEFORE reading the task.** Never reference a scoped canon file by a literal version number: rotation deletes the old one, so a hardcoded filename is guaranteed to be missing eventually. Files rotate independently; mismatched numbers are normal. A missing lower-numbered file is not an error — only an empty `CANON/` is a blocker. Not conditional on the prompt mentioning it.
@@ -82,3 +82,17 @@ One line each. *(Derived 2026-07-31 from RULES-39 + repo CLAUDE.md. Rules for ot
 - No `git add -A`, `git add .`, `git commit`, `git push`, `git checkout`, `git reset`, `git clean`, or `git stash`.
 - Never `npm run dev:clean`. Never delete or recreate a `.db` file.
 - No dependency may be installed without the licence gate above.
+
+## Module engineering (promoted from the Vault lane, 2026-08-14)
+- **Any editor holding user text autosaves on a timer AND flushes** before the record changes, before unmount, and before the window closes. Save-on-blur alone is not a save path.
+- **Every native dialog is parented** — `dialog.showOpenDialog(win, …)` via `BrowserWindow.fromWebContents(event.sender)`. Unparented hangs Windows and presents as a frozen app.
+- **Every module keeps a four-level event log with a request id** shown to the user in a plain sentence. A user never sees a raw error. Bugsink/Report-bug sit on top, never instead.
+- **Never name a source file `*secret*` or `*backup*`** — `.gitignore` silently untracks it. Vault services use store · lock · seed.
+- **Housekeeping that scales with the whole file never runs on a per-row path.** Measure before choosing automatic.
+- **Cross-module writes announce on `timetracker:changed` before resolving; derived-figure surfaces re-read on it. No swallowed catch on a read feeding a rendered figure.**
+
+## Lane map (RULED 2026-08-14)
+- **Claude Code desktop = THE main build lane for Focal Registry, root repo included.** New session per assignment.
+- **Antigravity IDE = RETIRED for now** — surgical, specifically-named recon-and-fix only.
+- **Claude Code web = Keystone / Revenue Warden repo.** Claude chat = strategy, canon pen, mockups, prompts.
+- Canon stays read-only to every agent. Suggestions travel via the ledgers.

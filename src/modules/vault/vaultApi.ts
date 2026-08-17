@@ -204,9 +204,9 @@ export interface VaultApi {
   importDocs: (
     files: VaultWalkedFile[],
     opts: { kind?: string; folder?: string | null; mirror?: boolean }
-    /** THE COUNTS RECONCILE: scanned === created + skipped + failed, always. `skipped` is "already in
-     *  the vault by source path" — a WIDER set than any one folder's tree count, because it spans
-     *  archived notes and notes filed elsewhere. Report both or neither. */
+    /** THE COUNTS RECONCILE: scanned === created + skipped + failed + repaired, always. `skipped`
+     *  is "already in the vault by source path" — a WIDER set than any one folder's tree count,
+     *  because it spans archived notes and notes filed elsewhere. Report both or neither. */
   ) => Promise<{
     scanned: number;
     created: number;
@@ -217,8 +217,15 @@ export interface VaultApi {
     skippedUnfiled: number;
     skippedArchived: number;
     failed: number;
+    /** Blank rows from an earlier silently-failed read, filled in place by this re-import. */
+    repaired: number;
     problems: { file: string; reason: string }[];
   }>;
+  /** Pasted-image attachments. The bytes live in the encrypted vault; the note body carries only
+   *  `![name](vault://<uuid>)` — one readable line in Raw instead of a base64 wall. Base64 is the
+   *  TRANSPORT (the bridge speaks JSON); at rest it is a BLOB. Images only, 20 MB ceiling. */
+  saveAttachment: (input: { name?: string; mime: string; dataBase64: string }) => Promise<{ uuid: string; name: string; mime: string; byteCount: number }>;
+  getAttachment: (uuid: string) => Promise<{ name: string; mime: string; dataBase64: string }>;
   /** THE copy funnel (Tier-1 fix 1). Every copy in the module goes through this, never through
    *  navigator.clipboard directly — the main side arms the "clear after N seconds" timer, reads
    *  `clipboard.clear_seconds` live per call, and clears only if the clipboard still holds this

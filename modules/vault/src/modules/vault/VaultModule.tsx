@@ -57,6 +57,10 @@ export default function VaultModule() {
   const [password, setPassword] = useState("");
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
+  /** [master-password-placeholder] — dev-mode reveal state (removed with the wizard). The value
+   *  lives in this state alone: recomputed main-side on click, never logged, never persisted. */
+  const [devMode, setDevMode] = useState(false);
+  const [revealed, setRevealed] = useState<string | null>(null);
 
   const [secrets, setSecrets] = useState<VaultSecretMeta[]>([]);
   const [folders, setFolders] = useState<VaultFolder[]>([]);
@@ -266,6 +270,11 @@ export default function VaultModule() {
    */
   const [searchSlot, setSearchSlot] = useState<HTMLElement | null>(null);
   useEffect(() => { setSearchSlot(document.getElementById("vault-topbar-search")); }, []);
+  // Dev-mode flag for the lock-screen reveal. The dataviewer bridge is absent in the lane dev
+  // host — the optional chain leaves the control hidden there instead of crashing the lock screen.
+  useEffect(() => {
+    void window.api.dataviewer?.getDevMode().then(setDevMode).catch(() => undefined);
+  }, []);
 
   const searchBar = (
     <GlobalSearch
@@ -362,6 +371,28 @@ export default function VaultModule() {
                   This lock protects the screen, not the file. The vault is already encrypted and still opens from this
                   computer's own credential store — tying the master password to that encryption is the next step.
                 </div>
+                {/* [master-password-placeholder] — dev-only reveal, removed when the wizard's
+                    one-time change ships. RECOMPUTED main-side from device identity on click;
+                    nothing reads stored state and nothing logs the value. */}
+                {devMode && (
+                  <div className="vault-lockdev">
+                    {revealed ? (
+                      <code className="vault-lockdev-value">{revealed}</code>
+                    ) : (
+                      <button
+                        className="vault-btn"
+                        onClick={() => {
+                          setUnlockError(null);
+                          void api.devRevealInitial()
+                            .then(setRevealed)
+                            .catch((e: unknown) => setUnlockError(e instanceof Error ? e.message : String(e)));
+                        }}
+                      >
+                        Reveal initial master — dev
+                      </button>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>

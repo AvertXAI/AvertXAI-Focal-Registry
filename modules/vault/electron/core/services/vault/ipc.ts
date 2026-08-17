@@ -16,6 +16,7 @@
 import { BrowserWindow, app, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import { compactDb, openDb } from "../db";
+import { getDevMode } from "../dataviewer";
 import { getActiveOrg } from "../db/registry";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./crypto";
 import { ensureVaultSchema, type Db } from "./db";
@@ -220,6 +221,16 @@ export function registerVaultIpc(): void {
     secrets.logAccess(db, orgId, "password_change", null, null, RENDERER_CALLER, true);
     return lock.lockState(db, orgId);
   });
+  // [master-password-placeholder] — DEV-MODE REVEAL (removed when the wizard's one-time change
+  // ships). RECOMPUTES the derived initial from device identity on every call: it never reads the
+  // stored verifier or lock state, so a changed password stays unknowable here. Ungated by the
+  // lock — it lives ON the lock screen — and gated MAIN-SIDE on the existing developer mode, so a
+  // forged call with dev mode off learns nothing. The value goes to the caller and nowhere else:
+  // safeHandle logs failures only, and no success path writes it to any log.
+  safeHandle("vault:devRevealInitial", async () => {
+    if (!getDevMode()) throw new Error("Developer mode is required.");
+    return lock.deriveInitialMasterPassword();
+  });
 
   // ---- secrets ----
   safeHandle("vault:createSecret", async (_e, input: unknown) => {
@@ -270,10 +281,6 @@ export function registerVaultIpc(): void {
   safeHandle("vault:listFolders", async () => {
     const { db, orgId } = await gated();
     return folders.listFolders(db, orgId);
-  });
-  safeHandle("vault:folderCounts", async () => {
-    const { db, orgId } = await gated();
-    return folders.folderCounts(db, orgId);
   });
   safeHandle("vault:createFolder", async (_e, name: unknown, parentId: unknown) => {
     const { db, orgId } = await gated();

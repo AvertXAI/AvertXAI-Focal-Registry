@@ -137,6 +137,8 @@ export interface VaultApi {
   unlock: (password: string) => Promise<VaultLockState>;
   lock: () => Promise<VaultLockState>;
   changeMasterPassword: (current: string, next: string) => Promise<VaultLockState>;
+  /** [master-password-placeholder] — dev-mode only; RECOMPUTES the derived initial, never reads stored state. */
+  devRevealInitial: () => Promise<string>;
   create: (input: VaultSecretInput) => Promise<VaultSecretMeta>;
   list: (includeArchived?: boolean) => Promise<VaultSecretMeta[]>;
   /** THE one credential path. Access-logged main-side, misses included. */
@@ -497,12 +499,7 @@ export interface VaultImportResult {
   problems: { row: number; reason: string }[];
 }
 
-/** The lane's local view of the bridge. On copy-back this member joins the shared `Api` interface
-    and this declaration is deleted — it exists so the module compiles standing alone. */
-declare global {
-  interface Window {
-    api: { vault: VaultApi } & Record<string, unknown>;
-  }
-}
-
+/** The bridge accessor. The lane-era `declare global` was DELETED on copy-back (08-14-2026): the
+    shell's src/global.d.ts already types `window.api` as the full `Api`, whose `vault` member is
+    this module's `VaultApi` — and two Window augmentations of `api` will not merge. */
 export const vaultApi = (): VaultApi => window.api.vault;

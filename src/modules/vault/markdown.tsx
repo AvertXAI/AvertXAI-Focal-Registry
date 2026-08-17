@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import Markdoc, { type RenderableTreeNode } from "@markdoc/markdoc";
 import { isHighlightable, tokenize, type Role, type Token } from "./codeTheme";
 import { vaultApi, type VaultSecretMeta } from "./vaultApi";
+import { cachedAttachmentSrc, isVaultSrc, resolveAttachmentSrc } from "./attachmentSrc";
 
 // ---------------------------------------------------------------- source → Markdoc
 
@@ -83,6 +84,9 @@ const CONFIG = {
     // The copy button is the whole reason a fence gets its own component — a runbook's value is
     // being able to take the command, not read it.
     fence: { render: "CodeBlock", attributes: { content: { type: String }, language: { type: String } } },
+    // Images route through a component so a `vault://<uuid>` reference (pasted-image attachment,
+    // 08-16-2026) resolves out of the encrypted store; any other src passes through untouched.
+    image: { render: "VaultImage", attributes: { src: { type: String }, alt: { type: String }, title: { type: String } } },
   },
 } as const;
 
@@ -209,6 +213,33 @@ function TaskItem({ checked, children }: { checked?: boolean; children?: React.R
   );
 }
 
+/**
+ * An image in a note. A `vault://<uuid>` src is a pasted-image attachment — the bytes come out of
+ * the encrypted store through the one resolver, cached for the session. Anything else (a data URL
+ * in an older note, an external address the CSP will judge) renders as written. A reference whose
+ * attachment is gone renders as a labelled chip, never a broken-image glyph with no explanation.
+ */
+export function VaultImage({ src, alt, title }: { src?: string; alt?: string; title?: string }) {
+  const s = src ?? "";
+  const [url, setUrl] = useState<string | null>(() => (isVaultSrc(s) ? cachedAttachmentSrc(s) : s));
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setGone(false);
+    if (!isVaultSrc(s)) { setUrl(s); return; }
+    const hit = cachedAttachmentSrc(s);
+    if (hit) { setUrl(hit); return; }
+    setUrl(null);
+    void resolveAttachmentSrc(s)
+      .then((u) => { if (live) setUrl(u); })
+      .catch(() => { if (live) setGone(true); });
+    return () => { live = false; };
+  }, [s]);
+  if (gone) return <span className="vault-chip missing">🖼 {alt || "image"} <i>— no longer in the vault</i></span>;
+  if (!url) return <span className="vault-hint">image…</span>;
+  return <img src={url} alt={alt ?? ""} title={title} />;
+}
+
 // ---------------------------------------------------------------- the renderer
 
 function render(body: string, secrets: VaultSecretMeta[]): React.ReactNode {
@@ -220,6 +251,7 @@ function render(body: string, secrets: VaultSecretMeta[]): React.ReactNode {
       VaultChip: (props: { label: string }) => <VaultChip label={props.label} secrets={secrets} />,
       CodeBlock,
       TaskItem,
+      VaultImage,
     },
   });
 }
@@ -245,6 +277,7 @@ export function InlineMarkdown({ body, secrets }: { body: string; secrets: Vault
             VaultChip: (props: { label: string }) => <VaultChip label={props.label} secrets={secrets} />,
             CodeBlock,
             TaskItem,
+            VaultImage,
           },
         });
       }
@@ -315,7 +348,9 @@ export function RunMode({ body, secrets, title }: { body: string; secrets: Vault
     return (
       <>
         <div className="vault-runhead"><b>{title}</b><span className="vault-hint">No numbered steps yet — number lines "1." to make them runnable.</span></div>
-        <Markdown body={body} secrets={secrets} />
+        {/* Wrapped in the content container so the prose rules find it — the pane itself styles
+            nothing since the container law (08-16-2026). */}
+        <div className="vault-sbody"><Markdown body={body} secrets={secrets} /></div>
       </>
     );
   }

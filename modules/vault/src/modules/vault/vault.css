@@ -1246,3 +1246,9 @@ body.vault-resizing .vault-notelist { transition: none !important; }
    why the bug looked like four separate bugs. */
 .vault-navbar { flex: none; }
 .vault-body { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* [master-password-placeholder] — the lock screen's dev-mode reveal; removed with the wizard. */
+.vault-lockdev { margin-top: 12px; }
+.vault-lockdev-value { display: inline-block; padding: 6px 10px; border: 1px solid var(--mc-border);
+  border-radius: 6px; background: var(--mc-nested); color: var(--mc-text);
+  font-family: var(--mc-mono, monospace); font-size: 13px; letter-spacing: 1.5px; user-select: all; }

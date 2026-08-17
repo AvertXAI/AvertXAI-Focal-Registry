@@ -14,8 +14,33 @@ import { shortDate } from "./EntriesView";
 // The READ-ONLY renderer, now on Markdoc. Milkdown is the editor; this draws the preview, Run mode
 // and the repo READMEs.
 import { Markdown, RunMode } from "./markdown";
-import MilkdownEditor, { type MilkdownHandle } from "./MilkdownEditor";
+import MilkdownEditor, { type EditorAction, type MilkdownHandle } from "./MilkdownEditor";
+import { rawEdit } from "./rawFormat";
 import { vaultApi, type VaultNote, type VaultNoteMeta, type VaultSecretMeta } from "./vaultApi";
+import { cachedAttachmentSrc, isVaultSrc, resolveAttachmentSrc } from "./attachmentSrc";
+import { tidyMarkdown } from "./tidyMarkdown";
+
+/** The lightbox body: a vault:// reference resolves through the attachment store; a data URL or
+    path shows as-is. Its own component so the modal can open instantly and fill when bytes land. */
+function LightboxImg({ src, onClose }: { src: string; onClose: () => void }) {
+  const [url, setUrl] = useState<string | null>(() => (isVaultSrc(src) ? cachedAttachmentSrc(src) : src));
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setGone(false);
+    if (!isVaultSrc(src)) { setUrl(src); return; }
+    const hit = cachedAttachmentSrc(src);
+    if (hit) { setUrl(hit); return; }
+    setUrl(null);
+    void resolveAttachmentSrc(src)
+      .then((u) => { if (live) setUrl(u); })
+      .catch(() => { if (live) setGone(true); });
+    return () => { live = false; };
+  }, [src]);
+  if (gone) return <div className="vault-state">That image is no longer in the vault.</div>;
+  if (!url) return <div className="vault-state">Opening…</div>;
+  return <img src={url} alt="Pasted image, full size" onClick={onClose} />;
+}
 
 /**
  * THE LIST CACHE, and it lives OUTSIDE React on purpose (Jason 08-12-2026: "cycled through tabs or
@@ -84,6 +109,10 @@ export const LIST_WIDTH = 216;
  * STYLES and TITLES are the human ones, and they are the only place the rename belongs.
  */
 type Style = "note" | "runbook" | "snippet";
+
+/** The four editor modes (Task 1, 08-16-2026): Editor is the WYSIWYG (renamed from Edit), Raw is
+ *  the source, Split is RAW + PREVIEW — never the rich pane — and Preview is read-only. */
+type Mode = "editor" | "raw" | "split" | "preview";
 const STYLES: [Style, string][] = [["note", "Notes"], ["runbook", "Runbooks"], ["snippet", "Ideas"]];
 const TITLES: Record<Style, string> = { note: "Secured Notes", runbook: "Runbooks", snippet: "Ideas" };
 const BADGE: Record<Style, [string, string]> = { note: ["N", "var(--vault-note-color)"], runbook: ["R", "var(--vault-strong-color)"], snippet: ["I", "var(--mc-accent-primary)"] };
@@ -125,7 +154,14 @@ export interface NotesViewProps {
 export default function NotesView({ secrets, settings, onSetting, onHelp, onImport, folderId, onNotesChanged, reloadKey, openUuid, onOpened }: NotesViewProps) {
   const api = vaultApi();
   const style = (settings["notes.style"] as Style) ?? "note";
-  const mode = (settings["notes.editor_mode"] as "edit" | "split" | "preview") ?? "split";
+  // "raw" added 08-15-2026 (Jason: "i NEED to see those so i know how to edit, right now its
+  // hidden from me") — the WYSIWYG consumes #, -, ``` as you type them, which is its job, but it
+  // leaves no surface where the stored markdown is VISIBLE. Raw is that surface.
+  // "edit" RENAMED "editor" 08-16-2026 (toolbar prompt, Task 1). Stored rows still carry the old
+  // word, so it is mapped on READ — rewriting settings rows for a label is the kind of migration
+  // §3.9 exists to prevent.
+  const storedMode = settings["notes.editor_mode"];
+  const mode: Mode = storedMode === "edit" ? "editor" : ((storedMode as Mode) ?? "split");
   // SEEDED FROM THE CACHE so returning to this tab paints instantly instead of showing a spinner.
   // The literal "active" is deliberate and NOT a shortcut: `shelf` is declared below, and reading it
   // here threw "Cannot access 'shelf' before initialization" — a temporal-dead-zone crash that TS
@@ -230,11 +266,19 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
       // FLUSH BEFORE SWITCHING. This used to drop whatever you had typed, silently.
       const l = live.current;
       const pending = l && l.dirty
-        ? api.updateNote(l.uuid, { title: l.title, body: l.body }).catch(() => undefined)
+        ? api.updateNote(l.uuid, { title: l.title, body: l.body }).catch((e: unknown) => {
+            // The switch still proceeds — but a draft that failed to save is DATA AT RISK and
+            // must be in the log (Jason 08-16-2026: "how are we suppose to know whats working
+            // or breaking if we cant see what breaks").
+            void api.logClient("error", "Notes: the draft could not be saved before switching notes", String(e));
+          })
         : Promise.resolve();
       void pending.then(() =>
-        api.getNote(uuid).then((n) => { lastOpenUuid = n.uuid; setCurrent(n); setDraft(n.body); setTitle(n.title); setDirty(false); })
-      ).catch(() => undefined);
+        api.getNote(uuid).then((n) => { lastOpenUuid = n.uuid; setCurrent(n); setDraft(n.body); setTitle(n.title); setDirty(false); editorMd.current = n.body; })
+      ).catch((e: unknown) => {
+        setError("That note could not be opened.");
+        void api.logClient("error", "Notes: a note could not be opened from the list", String(e));
+      });
     },
     [api]
   );
@@ -291,6 +335,7 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
         setDraft(n.body);
         setTitle(n.title);
         setDirty(false);
+        editorMd.current = n.body;
       })
       .catch(() => setError("That note could not be opened."))
       // Cleared either way — a failed open must not leave the guard up, or the list would never
@@ -484,7 +529,9 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
     // hit + New, and the draft silently died. Same shape as openNote, for the same reason.
     const l = live.current;
     const pending = l && l.dirty
-      ? api.updateNote(l.uuid, { title: l.title, body: l.body }).catch(() => undefined)
+      ? api.updateNote(l.uuid, { title: l.title, body: l.body }).catch((e: unknown) => {
+          void api.logClient("error", "Notes: the draft could not be saved before + New", String(e));
+        })
       : Promise.resolve();
     void pending
       .then(() => api.createNote({ kind: style, title: "Untitled", body: "" }))
@@ -494,11 +541,188 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
         if (folderId > 0) return api.setNoteFolder(n.uuid, folderId).then(() => n).catch(() => n);
         return n;
       })
-      .then((n) => { loadList(style, false); onNotesChanged(); setCurrent(n); setDraft(""); setTitle(n.title); setDirty(false); }).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+      .then((n) => { loadList(style, false); onNotesChanged(); setCurrent(n); setDraft(""); setTitle(n.title); setDirty(false); editorMd.current = ""; }).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, [api, style, loadList, folderId, onNotesChanged]);
 
   const setStyle = (s: Style): void => onSetting("notes.style", s);
-  const setMode = (m: "edit" | "split" | "preview"): void => onSetting("notes.editor_mode", m);
+  const setMode = (m: Mode): void => onSetting("notes.editor_mode", m);
+
+  /**
+   * TIDY (Jason 08-16-2026): repairs the paste damage older notes carry — invisible trailing-\
+   * joins, escaped \# headings, setext ==== debris. The WYSIWYG holds its own document, so after
+   * rewriting the draft the editor must REBUILD from it; bumping this salt in docId is what forces
+   * that. Confirm-gated because it rewrites text and the editor history does not survive the
+   * rebuild — the user looks, then saves.
+   */
+  const [tidyGen, setTidyGen] = useState(0);
+  const askTidy = (): void => {
+    if (!current) return;
+    /** The note this dialog was built FOR. Adversarial review (08-16-2026) found the hole: click
+     *  damaged note A, quickly click note B, and A's dialog is still open over B — confirming it
+     *  without this guard would write A's cleaned text into B's row. Same identity check flush()
+     *  and adopted() already make. */
+    const uuid = current.uuid;
+    const cleaned = tidyMarkdown(draft);
+    if (cleaned === draft) {
+      setAsk({
+        title: "Nothing to tidy",
+        body: <p>No forced line-joins, escaped headings, or stray underlines were found in this note.</p>,
+        label: "OK",
+        run: () => undefined,
+      });
+      return;
+    }
+    setAsk({
+      title: "Tidy formatting?",
+      body: (
+        <>
+          <p>
+            Repairs paste damage in <b>this note</b>: invisible forced line-joins (the trailing <code>\</code>)
+            become real line breaks, escaped <code>\#</code> headings get their meaning back, and stray{" "}
+            <code>====</code> underlines under headings and images are removed.
+          </p>
+          <p className="vault-hint">Code blocks are untouched. The change shows in the editor immediately — look it over, then save.</p>
+        </>
+      ),
+      label: "Tidy this note",
+      run: () => {
+        if (live.current?.uuid !== uuid) {
+          void api.logClient("warn", "Notes: a Tidy confirm was ignored — the note changed under the dialog", `dialog for ${uuid}`);
+          return;
+        }
+        setDraft(cleaned);
+        setDirty(true);
+        setTidyGen((g) => g + 1);
+        editorMd.current = cleaned;
+        // The forensic breadcrumb: WHEN a note was repaired, so a later "the damage is back"
+        // report can be lined up against the log and answered with evidence instead of a guess.
+        void api.logClient("warn", "Notes: Tidy repaired paste damage in a note", `note ${uuid} · ${draft.length} → ${cleaned.length} chars`);
+      },
+    });
+  };
+
+  /**
+   * DAMAGE IS OFFERED ITS REPAIR THE MOMENT IT IS SEEN (Jason 08-16-2026 PM: "im getting the '\'
+   * screenshot/pasting error again"). The damage is STORED text, and it regenerates on every save
+   * while it sits parsed inside the WYSIWYG — so waiting for the user to find the Tidy button is
+   * how the same screenshot got taken three times. Opening a damaged note now opens the Tidy
+   * confirm itself, once per note per session; declining is remembered and respected. The button
+   * also wears the damage (tidyhot) for as long as it is present.
+   */
+  const tidyOffered = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!current) return;
+    if (tidyOffered.current.has(current.uuid)) return;
+    tidyOffered.current.add(current.uuid);
+    if (tidyMarkdown(draft) !== draft) askTidy();
+  }, [current?.uuid]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** True while the open note still carries paste damage — sub-millisecond on a 21 KB body. */
+  const needsTidy = useMemo(() => (current ? tidyMarkdown(draft) !== draft : false), [draft, current]);
+
+  /** The raw pane's textarea, when mounted (Raw mode and Split's left pane). */
+  const rawRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /**
+   * SPLIT IS RAW | EDITOR (Jason 08-16-2026 PM: "change from raw | preview to raw | editor, so a
+   * user can paste an image to the editor in the split") — the rendered look and the preview were
+   * the same picture, and the editable one of the two can take a pasted screenshot. Two live
+   * surfaces over ONE draft need a direction rule: the WYSIWYG reports every change instantly
+   * (onChange → draft → the textarea, which is controlled); the textarea's edits land in the
+   * WYSIWYG when focus LEAVES the box — rebuilding it mid-keystroke would eat its caret. rawGen
+   * is that rebuild trigger; editorMd is what the editor last knew, so an untouched box does not
+   * force a pointless rebuild.
+   */
+  const [rawGen, setRawGen] = useState(0);
+  const editorMd = useRef<string>("");
+
+  /**
+   * ONE TOOLBAR, TWO ENGINES (Task 2, 08-16-2026). In Editor the buttons drive Milkdown's own
+   * commands — formatting applies as you type, per Jason's ruling on the recon's ambiguity 1. In
+   * Raw and Split they insert the SYNTAX ITSELF as visible text: rawFormat.ts computes one
+   * contiguous replacement, applied through execCommand("insertText") so the textarea's NATIVE
+   * undo survives the button press. Preview disables everything, so this is unreachable there.
+   */
+  const act = useCallback((action: EditorAction): void => {
+    if (mode === "editor") { editor.current?.run(action); return; }
+    const ta = rawRef.current;
+    if (!ta) return;
+    ta.focus();
+    if (action === "undo" || action === "redo") {
+      // Ruling 5: the browser's own edit history in Raw. If execCommand ever dies in a Chromium
+      // upgrade, disable these two rather than polyfilling a history stack.
+      document.execCommand(action);
+      return;
+    }
+    const e = rawEdit(action, ta.value, ta.selectionStart, ta.selectionEnd);
+    if (!e) return;
+    ta.setSelectionRange(e.start, e.end);
+    // insertText refuses an empty payload, so a pure strip (Paragraph on "- item") deletes instead.
+    const ok = e.insert === "" ? document.execCommand("delete") : document.execCommand("insertText", false, e.insert);
+    if (!ok) {
+      // execCommand refused — apply directly and accept the lost native-undo step.
+      ta.setRangeText(e.insert, e.start, e.end);
+      setDraft(ta.value);
+      setDirty(true);
+    }
+    ta.setSelectionRange(e.selStart, e.selEnd);
+  }, [mode]);
+
+  /** The text-style dropdown — open flag plus the label of the last pick (the mockup's own
+   *  behaviour: it remembers what you chose, it does not track the caret). */
+  const [pmenuOpen, setPmenuOpen] = useState(false);
+  const [pstyle, setPstyle] = useState("Paragraph");
+  useEffect(() => {
+    if (!pmenuOpen) return;
+    const close = (): void => setPmenuOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [pmenuOpen]);
+  /** Full-size view of a pasted image — set by a click in either pane, cleared by Escape/backdrop. */
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") setLightbox(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
+
+  /**
+   * SPLIT SCROLLS AS ONE (Jason 08-16-2026: "i dont want to read paragraph 1 in edit, but looking
+   * at paragraph 96 on preview"). Proportional, both directions, with a one-frame lock so the
+   * follower's scroll event cannot bounce back and fight the hand on the wheel. Proportional
+   * rather than line-mapped on purpose: the two panes render the same text at different heights,
+   * and a position map would need per-block bookkeeping this does not earn yet.
+   */
+  const leftPaneRef = useRef<HTMLDivElement | null>(null);
+  const rightPaneRef = useRef<HTMLDivElement | null>(null);
+  const prevScrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (mode !== "split" || !current) return;
+    // Split pairs the RAW SOURCE (left) with the WYSIWYG EDITOR (right) since 08-16 PM — the
+    // sync follows the textarea and the editor's own scroller.
+    const a = leftPaneRef.current?.querySelector<HTMLElement>(".vault-rawsrc");
+    const b = rightPaneRef.current?.querySelector<HTMLElement>(".vault-milkdown");
+    if (!a || !b) return;
+    let lock = 0;
+    const follow = (from: HTMLElement, to: HTMLElement, tag: number) => (): void => {
+      if (lock !== 0 && lock !== tag) return;
+      lock = tag;
+      const denom = from.scrollHeight - from.clientHeight;
+      const ratio = denom > 0 ? from.scrollTop / denom : 0;
+      to.scrollTop = ratio * (to.scrollHeight - to.clientHeight);
+      requestAnimationFrame(() => { lock = 0; });
+    };
+    const fromEditor = follow(a, b, 1);
+    const fromPreview = follow(b, a, 2);
+    a.addEventListener("scroll", fromEditor, { passive: true });
+    b.addEventListener("scroll", fromPreview, { passive: true });
+    return () => {
+      a.removeEventListener("scroll", fromEditor);
+      b.removeEventListener("scroll", fromPreview);
+    };
+    // rawGen/tidyGen: the editor REMOUNTS on those, and the sync must re-attach to the new DOM.
+  }, [mode, current?.uuid, rawGen, tidyGen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const previewIsRun = style === "runbook";
   const [b, badgeColor] = BADGE[style];
@@ -670,26 +894,70 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
       </div>
 
       <div className="vault-noteedit">
-        {/* THE TOOLBAR DRIVES THE DOCUMENT, NOT A SHADOW STRING (Jason 08-11-2026).
-            Every button used to call setDraft(), which mutated the markdown string the RIGHT pane
-            renders while the editor's real document sat untouched — so a click showed up in the
-            preview, never in the editor, and could not be taken back. They now go through the
-            editor's own commands: the change lands at the cursor, in the one document, and Ctrl+Z
-            undoes it. Disabled with no note open, because there is nothing to act on. */}
+        {/* THE TOOLBAR — Jason's mockup v4 (08-16-2026), button for button: undo/redo · text
+            style · marks · link/image/table · lists · blocks · vault reference/Tidy · the mode
+            segment · help. Every button goes through act(), which picks the engine the mode
+            mounts: Milkdown commands in Editor (formatting applies as you type — his ruling),
+            plain visible syntax in Raw and Split (rawFormat.ts). It drives the DOCUMENT, never a
+            shadow string — the 08-11 lesson stands. In Preview only the mode switcher and the ?
+            stay live (ruling 3). The Image button is Raw-only: in the WYSIWYG the image path is
+            pasting, which lands the bytes in the vault. */}
         <div className="vault-edbar">
-          <button className="vault-tbtn" title="Bold" disabled={!current} onClick={() => editor.current?.run("bold")}><b>B</b></button>
-          <button className="vault-tbtn" title="Italic" disabled={!current} onClick={() => editor.current?.run("italic")}><i>I</i></button>
-          <button className="vault-tbtn" title="Heading" disabled={!current} onClick={() => editor.current?.run("heading")}>H</button>
-          <button className="vault-tbtn" title="Code" disabled={!current} onClick={() => editor.current?.run("code")}>{"</>"}</button>
-          <button className="vault-tbtn hot" title="Code block" disabled={!current} onClick={() => editor.current?.run("codeblock")}>{"{;}"}</button>
-          <button className="vault-tbtn" title="Checklist" disabled={!current} onClick={() => editor.current?.run("task")}>☑</button>
-          <button className="vault-tbtn hot" title="Reference a vault entry" disabled={!current} onClick={() => editor.current?.run({ insert: "@[[vault:Label]]" })}>@ entry</button>
-          <button className="vault-help" title="How do I use this editor?" onClick={onHelp}>?</button>
+          <button className="vault-tbtn" data-tip="Undo — Ctrl+Z" disabled={!current || mode === "preview"} onClick={() => act("undo")}>↺</button>
+          <button className="vault-tbtn" data-tip="Redo — Ctrl+Y" disabled={!current || mode === "preview"} onClick={() => act("redo")}>↻</button>
+          <span className="vault-tsep" />
+          <div className="vault-pselect">
+            <button className="vault-tbtn wide" data-tip="Text style" disabled={!current || mode === "preview"}
+              onClick={(e) => { e.stopPropagation(); setPmenuOpen((o) => !o); }}>
+              {pstyle} <span style={{ fontSize: 10 }}>▾</span>
+            </button>
+            {pmenuOpen && (
+              <div className="vault-pmenu">
+                {([
+                  ["Paragraph", "paragraph", "", "pp"],
+                  ["Heading 1", { heading: 1 }, "#", "h1"],
+                  ["Heading 2", { heading: 2 }, "##", "h2"],
+                  ["Heading 3", { heading: 3 }, "###", "h3"],
+                  ["Quote", "quote", ">", "pp"],
+                ] as [string, EditorAction, string, string][]).map(([label, action, mk, cls]) => (
+                  <button key={label} className={pstyle === label ? "sel" : ""}
+                    onClick={() => { setPstyle(label); setPmenuOpen(false); act(action); }}>
+                    <span className="mk">{mk}</span><span className={cls}>{label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <span className="vault-tsep" />
+          <button className="vault-tbtn" data-tip="Bold — Ctrl+B" disabled={!current || mode === "preview"} onClick={() => act("bold")}><b>B</b></button>
+          <button className="vault-tbtn" data-tip="Italic — Ctrl+I" disabled={!current || mode === "preview"} onClick={() => act("italic")}><i>I</i></button>
+          <button className="vault-tbtn" data-tip="Strikethrough" disabled={!current || mode === "preview"} onClick={() => act("strike")}><s>S</s></button>
+          <button className="vault-tbtn mono" data-tip="Inline code" disabled={!current || mode === "preview"} onClick={() => act("code")}>{"</>"}</button>
+          <span className="vault-tsep" />
+          <button className="vault-tbtn" data-tip="Link — Ctrl+K" disabled={!current || mode === "preview"} onClick={() => act("link")}>🔗</button>
+          <button className="vault-tbtn" data-tip={mode === "editor" ? "Paste a screenshot — it lands in the vault as ![name](vault://…)" : "Image — paste a screenshot, it goes to the vault"}
+            disabled={!current || mode === "preview" || mode === "editor"} onClick={() => act("image")}>🖼</button>
+          <button className="vault-tbtn" data-tip="Table" disabled={!current || mode === "preview"} onClick={() => act("table")}>⊞</button>
+          <span className="vault-tsep" />
+          <button className="vault-tbtn" data-tip="Bullet list" disabled={!current || mode === "preview"} onClick={() => act("bullet")}>•≡</button>
+          <button className="vault-tbtn" data-tip="Numbered list — in Runbooks these become steps" disabled={!current || mode === "preview"} onClick={() => act("ordered")}>1≡</button>
+          <button className="vault-tbtn" data-tip="Checklist" disabled={!current || mode === "preview"} onClick={() => act("task")}>☑</button>
+          <span className="vault-tsep" />
+          <button className="vault-tbtn" data-tip="Block quote" disabled={!current || mode === "preview"} onClick={() => act("quote")}>❝</button>
+          <button className="vault-tbtn mono" data-tip="Code block" disabled={!current || mode === "preview"} onClick={() => act("codeblock")}>{"{ }"}</button>
+          <button className="vault-tbtn" data-tip="Divider line" disabled={!current || mode === "preview"} onClick={() => act("hr")}>—</button>
+          <span className="vault-tsep" />
+          <button className="vault-tbtn teal" data-tip="Vault reference — Reveal/Copy chip, the password never enters the note"
+            disabled={!current || mode === "preview"} onClick={() => act({ insert: "@[[vault:Label]]" })}>@🔑</button>
+          <button className={`vault-btn sm${needsTidy ? " tidyhot" : ""}`}
+            data-tip={needsTidy ? "Paste damage found in this note — Tidy repairs it" : "Tidy — repairs paste damage in a note"}
+            disabled={!current || mode === "preview"} onClick={askTidy}>Tidy</button>
           <div className="vault-seg vault-modeseg">
-            {(["edit", "split", "preview"] as const).map((m) => (
+            {(["editor", "raw", "split", "preview"] as const).map((m) => (
               <button key={m} className={mode === m ? "on" : ""} onClick={() => setMode(m)}>{m[0].toUpperCase() + m.slice(1)}</button>
             ))}
           </div>
+          <button className="vault-help" data-tip="Markdown help" onClick={onHelp}>?</button>
         </div>
 
         {error && <div className="vault-state error">{error}</div>}
@@ -698,22 +966,73 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
           <div className="vault-state">Pick a {style} to open it, or start a new one.</div>
         ) : (
           <div className="vault-notesplit">
-            {/* THE THREE MODES MEAN WHAT THEY SAY (Jason 08-11-2026):
-                  Edit    → the editor, full width.
-                  Split   → editor LEFT, the rendered document RIGHT.
-                  Preview → the rendered document, full width.
-                The right pane used to be a <pre> of the raw markdown, which is not a preview — it
-                was the source with a preview's name on it. It is now the Markdoc render. */}
+            {/* THE FOUR MODES MEAN WHAT THEY SAY (Jason 08-11-2026; Raw carved out 08-16 AM;
+                Split re-paired TWICE on 08-16 — first raw|preview by the toolbar prompt, then
+                raw|EDITOR the same afternoon: "change from raw | preview to raw | editor, so a
+                user can paste an image to the editor in the split"):
+                  Editor  → the WYSIWYG, full width, alone. Renamed from Edit (Task 1).
+                  Raw     → the markdown SOURCE, full width, alone — every #, -, ``` visible.
+                  Split   → RAW SOURCE left, the WYSIWYG EDITOR right — the editor IS the
+                            rendered look, and it takes a pasted screenshot; raw edits land in
+                            it when focus leaves the box.
+                  Preview → the rendered document, full width, alone — and the only home of a
+                            runbook's Run mode now.
+                One draft feeds all of them, so switching modes never loses a character. */}
             {mode !== "preview" && (
-              <div className="vault-pane left">
-                <div className="vault-panehdr"><span className="vault-editdot" /> Editor — type here</div>
-                <input className="vault-notetitle" value={title} onChange={(e) => { setTitle(e.target.value); setDirty(true); }} onBlur={save} placeholder="Title" />
+              <div className="vault-pane left" ref={leftPaneRef}>
+                {/* The title lives IN the header row (Jason 08-16-2026: "move that on the same row
+                    as where theres a green dot") — a full-height input below it started the editor
+                    fifty pixels lower than the preview, so the two panes never lined up in Split. */}
+                <div className="vault-panehdr">
+                  <span className="vault-editdot" /> {mode === "editor" ? "Editor" : "Raw"}
+                  <input className="vault-notetitle inhdr" value={title} onChange={(e) => { setTitle(e.target.value); setDirty(true); }} onBlur={save} placeholder="Title" />
+                </div>
+                {mode !== "editor" ? (
+                  <textarea
+                    ref={rawRef}
+                    className="vault-rawsrc"
+                    value={draft}
+                    spellCheck={false}
+                    placeholder={"# Type markdown here\n\nEverything you see is exactly what is stored."}
+                    onChange={(e) => { setDraft(e.target.value); setDirty(true); }}
+                    onBlur={() => {
+                      // Raw edits reach Split's editor pane here — leaving the box is the moment
+                      // a rebuild cannot cost anyone a caret.
+                      if (mode === "split" && draft !== editorMd.current) {
+                        editorMd.current = draft;
+                        setRawGen((g) => g + 1);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      // Tab indents instead of leaving the box — a markdown list is unwritable without it.
+                      if (e.key === "Tab") {
+                        e.preventDefault();
+                        const t = e.currentTarget;
+                        t.setRangeText("  ", t.selectionStart, t.selectionEnd, "end");
+                        setDraft(t.value);
+                        setDirty(true);
+                        return;
+                      }
+                      // The marks the tooltips promise, in the raw pane too (Task 2).
+                      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+                        const shortcut = ({ b: "bold", i: "italic", k: "link" } as Record<string, EditorAction>)[e.key.toLowerCase()];
+                        if (shortcut) { e.preventDefault(); act(shortcut); }
+                      }
+                    }}
+                  />
+                ) : (
                 <MilkdownEditor
                   ref={editor}
-                  docId={current.uuid}
-                  initial={current.body}
-                  onChange={(md) => { setDraft(md); setDirty(true); }}
+                  /* the :tidyGen salt forces a rebuild after Tidy rewrites the draft — the editor
+                     owns its document and must re-read the repaired text. */
+                  docId={`${current.uuid}:${tidyGen}`}
+                  /* the DRAFT, not current.body — remounting after Raw or Preview must show what you
+                     typed there, not the note as it was when it was opened. Equal at open time. */
+                  initial={draft}
+                  onChange={(md) => { editorMd.current = md; setDraft(md); setDirty(true); }}
+                  onImageClick={setLightbox}
                 />
+                )}
                 <div className="vault-savebar">
                   <span className="vault-hint">{dirty ? "Editing…" : "Saved."}</span>
                   {/* Brief, and only after the idle save — a permanent "Saved" is wallpaper. */}
@@ -724,15 +1043,53 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
                 </div>
               </div>
             )}
-            {/* RIGHT — a runbook shows Run mode (steps, copy buttons, ticks) because a runbook is
-                FOLLOWED rather than read; anything else shows the document as it will look. */}
-            {mode !== "edit" && (
-              <div className="vault-pane prev">
-                <div className="vault-panehdr">{previewIsRun ? "Run mode — tick as you go" : "Preview"}</div>
+            {/* RIGHT, in Split — the WYSIWYG EDITOR (Jason 08-16-2026 PM). It IS the rendered
+                look, and unlike a preview it can take a pasted screenshot. The toolbar still
+                drives the RAW pane in this mode (the standing Task-2 rule); the editor pane has
+                Milkdown's own keymap and paste path. Its clicks on images open the lightbox via
+                onImageClick, same as Editor mode. */}
+            {mode === "split" && (
+              <div className="vault-pane prev" ref={rightPaneRef}>
+                <div className="vault-panehdr">
+                  <span className="vault-editdot" /> Editor
+                  <span className="vault-notetitle inhdr ro" title={title}>{title || "Untitled"}</span>
+                </div>
+                <MilkdownEditor
+                  ref={editor}
+                  /* rawGen — raw-pane edits land here on blur; tidyGen — Tidy rewrote the draft.
+                     Either way the editor owns its document and must re-read text it did not
+                     write. */
+                  docId={`${current.uuid}:${tidyGen}:${rawGen}`}
+                  initial={draft}
+                  onChange={(md) => { editorMd.current = md; setDraft(md); setDirty(true); }}
+                  onImageClick={setLightbox}
+                />
+              </div>
+            )}
+            {/* RIGHT, in Preview — a runbook shows Run mode (steps, copy buttons, ticks) because
+                a runbook is FOLLOWED rather than read; anything else shows the document as it
+                will look. Run mode's only home since Split became raw|editor. */}
+            {mode === "preview" && (
+              <div
+                className="vault-pane prev"
+                // Delegated: a click on ANY rendered image — preview or Run mode — opens the
+                // full-size modal. Delegation rather than per-image props because the images come
+                // out of Markdoc's render, which this component does not build element by element.
+                onClick={(e) => {
+                  const t = e.target as HTMLElement;
+                  if (t.tagName === "IMG") setLightbox((t as HTMLImageElement).src);
+                }}
+              >
+                {/* Same row shape as the editor side (Jason 08-16-2026) — the filename rides the
+                    header here too, read-only, so both panes carry the same top line. */}
+                <div className="vault-panehdr">
+                  {previewIsRun ? "Run mode — tick as you go" : "Preview"}
+                  <span className="vault-notetitle inhdr ro" title={title}>{title || "Untitled"}</span>
+                </div>
                 {previewIsRun ? (
                   <RunMode body={draft} secrets={secrets} title={title} />
                 ) : (
-                  <div className="vault-preview">
+                  <div className="vault-preview" ref={prevScrollRef}>
                     {sourceText.trim() ? (
                       // sourceText, not draft: the title leads as "# Title" exactly as an export
                       // writes it, so the preview is what you would get, not an approximation.
@@ -759,50 +1116,21 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
           onClose={() => setAsk(null)}
         />
       )}
+
+      {/* THE FULL-SIZE IMAGE (Jason 08-15-2026): pasted screenshots render capped in both panes so
+          they cannot blast the layout; one click lands here, actual size up to the window, and
+          Escape / backdrop / the image itself all close it. A click in the WYSIWYG hands over the
+          node's raw vault:// reference, so this resolves it the same way the panes do. */}
+      {lightbox && (
+        <div className="vault-modalback" onClick={() => setLightbox(null)}>
+          <div className="vault-imgmodal">
+            <LightboxImg src={lightbox} onClose={() => setLightbox(null)} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-/** The Milkdown help modal (MOCKUP-vault-full-v2). Content is the cheat-sheet; it opens from the ?
-    in the toolbar and closes on backdrop or Escape. */
-export function NotesHelpModal({ onClose }: { onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  const rows1: [string, string][] = [
-    ["## Title", "a heading"],
-    ["**bold**", "bold — or Ctrl+B on a selection"],
-    ["*italic*", "italic — or Ctrl+I"],
-    ["- item", "a bullet list"],
-    ["- [ ] todo", "a checkbox"],
-    ["> quote", "a block quote"],
-    ["`code`", "inline code"],
-    ["```", "a fenced code block"],
-  ];
-  const rows2: [string, string][] = [
-    ["@[[vault:…]]", "reference a vault entry — it becomes a Reveal/Copy chip; the password never enters the note"],
-    ["1. step", "number a line to make a runbook step; Run mode gives it a copy button and a tick"],
-    ["Ctrl+S", "save (also saves when the box loses focus)"],
-  ];
-  return (
-    <div className="vault-modalback" onClick={onClose}>
-      <div className="vault-modal" style={{ maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
-        <h3>Editing help</h3>
-        <div className="vault-modalsub">Type markdown and it renders live. The menus are only how you type it — clean markdown is what gets stored.</div>
-        <div className="vault-two">
-          <div>
-            <div className="vault-cardtitle" style={{ marginBottom: 9 }}>Formatting</div>
-            {rows1.map(([k, d]) => (<div key={k} className="vault-helprow"><span className="vault-kbd">{k}</span><span>{d}</span></div>))}
-          </div>
-          <div>
-            <div className="vault-cardtitle" style={{ marginBottom: 9 }}>Vault &amp; runbooks</div>
-            {rows2.map(([k, d]) => (<div key={k} className="vault-helprow"><span className="vault-kbd">{k}</span><span>{d}</span></div>))}
-          </div>
-        </div>
-        <div className="vault-modalacts"><button className="vault-btn primary" onClick={onClose}>Got it</button></div>
-      </div>
-    </div>
-  );
-}
+// The help modal moved to NotesHelp.tsx when it grew tabs, search, and the fixed-size rule
+// (Jason's mockup v4, 08-16-2026) — a 400-line reference card does not belong inside the list view.

@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld("api", {
     unlock: (password: string) => invoke("vault:unlock", password),
     lock: () => invoke("vault:lock"),
     changeMasterPassword: (current: string, next: string) => invoke("vault:changeMasterPassword", current, next),
+    devRevealInitial: () => invoke("vault:devRevealInitial"),
     create: (input: unknown) => invoke("vault:createSecret", input),
     list: (includeArchived?: boolean) => invoke("vault:listSecrets", includeArchived === true),
     read: (uuid: string) => invoke("vault:readSecret", uuid),

@@ -121,7 +121,7 @@ export function ensureVaultSchema(db: Db): void {
   // secret_uuid is a SOFT reference by design (timetracker_event_log doctrine): a refused read of a
   // locator that doesn't exist still gets a row, and the log must survive whatever happens to the
   // secret it names. secret_label is denormalized at write time so the log stays readable on its own.
-  createTable(db, "vault_access_log", [
+  const ACCESS_LOG_COLUMNS = [
     "org_id TEXT NOT NULL",
     "ts TEXT NOT NULL",
     `action TEXT NOT NULL CHECK (action IN (${VAULT_ACTIONS.map((a) => `'${a}'`).join(",")}))`,
@@ -130,7 +130,32 @@ export function ensureVaultSchema(db: Db): void {
     "caller TEXT NOT NULL", // who asked — stamped by the trust boundary, never self-reported by a page
     "granted INTEGER NOT NULL CHECK (granted IN (0, 1))",
     "detail TEXT", // refusal reason ('not found', 'archived') — NEVER a value
-  ]);
+  ];
+  createTable(db, "vault_access_log", ACCESS_LOG_COLUMNS);
+  /**
+   * LEGACY REBUILD (mount, 08-14-2026). A pre-mount vault carries this table with the original
+   * FOUR-action CHECK baked into its stored DDL, and SQLite cannot ALTER a CHECK — so 'unlock' and
+   * the other newer actions violated it, which made every legacy-org unlock throw the moment it
+   * tried to log itself (found on Jason's dev org at the mount gate; Paul's install carries the
+   * same table). Detected by the stored DDL lacking 'unlock'; repaired by the standard SQLite
+   * rename → create → copy → drop with every row carried across inside one transaction — the
+   * column set never changed, only the CHECK text. Idempotent: a current table is a no-op. The
+   * additive-only migration rule is knowingly stepped around with Jason's 08-14 go-ahead: an
+   * in-place CHECK widen does not exist in SQLite, and this rebuild preserves every row. The
+   * dropped indexes are recreated by the IF NOT EXISTS index block at the end of this same pass.
+   */
+  const accessLogDdl =
+    (db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vault_access_log'").get() as
+      | { sql?: string }
+      | undefined)?.sql ?? "";
+  if (accessLogDdl !== "" && !accessLogDdl.includes("'unlock'")) {
+    db.transaction(() => {
+      db.exec("ALTER TABLE vault_access_log RENAME TO vault_access_log_legacy;");
+      createTable(db, "vault_access_log", ACCESS_LOG_COLUMNS);
+      db.exec("INSERT INTO vault_access_log SELECT * FROM vault_access_log_legacy;");
+      db.exec("DROP TABLE vault_access_log_legacy;");
+    })();
+  }
 
   // The vault's OWN settings store. Canon: "The Vault owns its own settings. The application's
   // Settings page carries no vault controls, ever." Config-as-data — every vault preference is a

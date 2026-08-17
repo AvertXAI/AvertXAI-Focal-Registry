@@ -439,6 +439,9 @@ const api: Api = {
     importDocs: (files: unknown, opts: unknown) => invoke("vault:importDocs", files, opts),
     // The clipboard funnel — copy with the vault's timed clear armed main-side.
     copyText: (text: string) => invoke("vault:copyText", text),
+    // Pasted-image attachments — bytes in the vault, a vault:// reference in the note body.
+    saveAttachment: (input: unknown) => invoke("vault:saveAttachment", input),
+    getAttachment: (uuid: string) => invoke("vault:getAttachment", uuid),
     // The event log — reading it, and the renderer's own way of writing to it.
     listEvents: (opts?: unknown) => invoke("vault:listEvents", opts ?? {}),
     compact: () => invoke("vault:compact"),

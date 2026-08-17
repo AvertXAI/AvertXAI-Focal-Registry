@@ -22,12 +22,14 @@
 import assert from "node:assert/strict";
 import Database from "better-sqlite3-multiple-ciphers";
 import { preprocess } from "../../../src/modules/vault/markdown";
+import { tidyMarkdown } from "../../../src/modules/vault/tidyMarkdown";
+import { rawEdit } from "../../../src/modules/vault/rawFormat";
 import { GENERIC, isUserFacing, newRequestId, presentableMessage, userError } from "../../../electron/core/services/vault/log";
 import { parseServers } from "../../../electron/core/services/vault/infra";
 import { parseGitRemote } from "../../../electron/core/services/vault/repos";
 import { compactDecision } from "../../../electron/core/services/vault/settings";
 import { ensureVaultSchema } from "../../../electron/core/services/vault/db";
-import { createNote, getNote, updateNote } from "../../../electron/core/services/vault/notes";
+import { createNote, getNote, importDocs, updateNote } from "../../../electron/core/services/vault/notes";
 
 let checks = 0;
 const check = (name: string, fn: () => void): void => { fn(); checks++; console.log(`  ok  ${name}`); };
@@ -282,6 +284,141 @@ check("an empty or unreadable file does not divide by zero", () => {
   assert.equal(v.compact, false);
 });
 
+// ---- tidyMarkdown: the paste-damage repair (08-16-2026) ---------------------------------------
+// Jason's actual broken notes, condensed: hard-break \ joins, escaped \# headings and 1\. list
+// markers, setext ==== under headings, images, and ordinary text. Five deterministic rules;
+// anything else untouched.
+console.log("\ntidyMarkdown.ts — paste-damage repair");
+
+check("the reported damage repairs exactly: joins broken, \\# unescaped, ==== debris dropped", () => {
+  const dirty = "Remote Desktop\\\n\\# Remote Desktop\\\n\\# Remote Desktop\n=================\n\n\\\n\\\n![image.png](vault://01a009d3-0949-732b-8261-27393174abc1)\n==========================================================\n";
+  const clean = tidyMarkdown(dirty);
+  assert.ok(!clean.includes("\\#"), "no escaped headings remain");
+  assert.ok(!/^\s*=+\s*$/m.test(clean), "no setext debris remains");
+  assert.ok(!/\\$/m.test(clean), "no trailing forced joins remain");
+  assert.ok(clean.includes("# Remote Desktop"), "the heading is a heading again");
+  assert.ok(clean.includes("![image.png](vault://01a009d3-0949-732b-8261-27393174abc1)"), "the image reference is untouched");
+});
+
+check("the SECOND round of damage (Raw screenshot 08-16): 1\\. unescaped, ==== under text becomes # heading", () => {
+  const dirty = "***\n\n\\\n\\\n1\\. Unified Peer Agent Architecture\n===================================\n\n![image.png](vault://01a009eb-de84-769a-bb38-4221ab1f5c38)\n";
+  const clean = tidyMarkdown(dirty);
+  assert.ok(clean.includes("# 1. Unified Peer Agent Architecture"), "the setext heading is an ATX heading with its marker unescaped");
+  assert.ok(!/^\s*=+\s*$/m.test(clean), "no ==== underline remains");
+  assert.ok(!/^\s*\\\s*$/m.test(clean), "no lone \\ lines remain");
+  assert.ok(clean.includes("***"), "the thematic break above is untouched");
+  assert.ok(clean.includes("![image.png](vault://01a009eb-de84-769a-bb38-4221ab1f5c38)"), "the image reference is untouched");
+});
+
+check("a setext heading becomes its ATX equivalent — same document, no more underline to regenerate", () => {
+  assert.equal(tidyMarkdown("My Title\n========\n\nBody text.\n"), "# My Title\n\nBody text.\n");
+  assert.equal(tidyMarkdown("Sub Title\n---------\n\nBody.\n"), "## Sub Title\n\nBody.\n");
+});
+
+check("a --- horizontal rule under a BLANK line is kept — only setext pairs convert", () => {
+  const hr = "Body.\n\n---\n\nMore.\n";
+  assert.equal(tidyMarkdown(hr), hr);
+});
+
+check("escaped list markers at line start get their meaning back; mid-line escapes are untouched", () => {
+  const clean = tidyMarkdown("1\\. First step\n\\- a bullet\n\nprice is 3\\.50 dollars\n");
+  assert.ok(clean.includes("1. First step"), "the numbered marker is live again");
+  assert.ok(clean.includes("- a bullet"), "the bullet marker is live again");
+  assert.ok(clean.includes("3\\.50"), "a mid-line escape the user may own is not touched");
+});
+
+check("fenced code passes through byte-identical, even when it documents this very syntax", () => {
+  const fence = "before\n```\nline\\\n\\# not a heading\n====\n```\nafter\n";
+  assert.ok(tidyMarkdown(fence).includes("line\\\n\\# not a heading\n====\n"), "the fence body is untouched");
+});
+
+check("an escaped horizontal rule and a lone \\ line both come back", () => {
+  const clean = tidyMarkdown("a\\\n\\---\n\\\nb\n");
+  assert.ok(clean.includes("---"), "the rule is a rule again");
+  assert.ok(!clean.includes("\\"), "no stray escapes remain");
+});
+
+check("a line that is only <br /> — the hard break's HTML spelling — becomes the blank it meant", () => {
+  assert.equal(tidyMarkdown("a\n\n<br />\n\nb\n"), "a\n\nb\n");
+  assert.equal(tidyMarkdown("a\n<br>\nb\n"), "a\n\nb\n", "the unclosed form too");
+  const mid = "before x<br />y after\n";
+  assert.equal(tidyMarkdown(mid), mid, "a MID-line <br /> is the user's own and is untouched");
+});
+
+// ---- rawFormat.ts — the raw pane's toolbar engine (Task 2, 08-16-2026) -------------------------
+// Every button in Raw/Split goes through rawEdit(): one contiguous replacement so the textarea's
+// native undo survives. Selection math wrong by one is invisible in review and maddening on device,
+// which is why the checks assert the APPLIED text and the final selection, not just the insert.
+console.log("\nrawFormat.ts — raw-pane toolbar engine");
+
+check("bold wraps the selection and the selection stays on the word", () => {
+  const t = "make this strong";
+  const e = rawEdit("bold", t, 5, 9)!;
+  assert.equal(t.slice(0, e.start) + e.insert + t.slice(e.end), "make **this** strong");
+  assert.equal(e.selStart, 7);
+  assert.equal(e.selEnd, 11);
+});
+
+check("heading 2 replaces an existing leader instead of stacking on it", () => {
+  const e = rawEdit({ heading: 2 }, "# Old title", 3, 3)!;
+  assert.equal(e.insert, "## Old title");
+  assert.equal(e.start, 0);
+  assert.equal(e.end, 11);
+});
+
+check("ordered numbers the selected lines 1. 2. 3., blank lines skipped", () => {
+  const t = "alpha\n\nbeta\ngamma";
+  const e = rawEdit("ordered", t, 0, t.length)!;
+  assert.equal(e.insert, "1. alpha\n\n2. beta\n3. gamma");
+});
+
+check("checklist prefixes a line and Paragraph strips it back off", () => {
+  assert.equal(rawEdit("task", "buy film", 0, 0)!.insert, "- [ ] buy film");
+  assert.equal(rawEdit("paragraph", "- [ ] buy film", 0, 0)!.insert, "buy film");
+});
+
+check("quote strips STACKED leaders first — '> - item' does not become '> > - item'", () => {
+  assert.equal(rawEdit("quote", "> - item", 0, 0)!.insert, "> item");
+});
+
+check("codeblock fences the line and parks the caret where the language name goes", () => {
+  const e = rawEdit("codeblock", "SELECT 1;", 0, 0)!;
+  assert.equal(e.insert, "```\nSELECT 1;\n```");
+  assert.equal(e.selStart, 3);
+});
+
+check("link wraps the selection and selects the url placeholder for typing over", () => {
+  const t = "see docs here";
+  const e = rawEdit("link", t, 4, 8)!;
+  const applied = t.slice(0, e.start) + e.insert + t.slice(e.end);
+  assert.equal(applied, "see [docs](url) here");
+  assert.equal(applied.slice(e.selStart, e.selEnd), "url");
+});
+
+check("divider and table insert standing blocks, padded away from surrounding text", () => {
+  assert.equal(rawEdit("hr", "above", 5, 5)!.insert, "\n\n---\n");
+  const e = rawEdit("table", "", 0, 0)!;
+  assert.ok(e.insert.startsWith("| Column | Column |"));
+  assert.ok(e.insert.includes("| --- | --- |"));
+});
+
+check("the vault chip lands with Label selected, ready to overtype", () => {
+  const e = rawEdit({ insert: "@[[vault:Label]]" }, "x ", 2, 2)!;
+  const applied = "x " + e.insert;
+  assert.equal(applied.slice(e.selStart, e.selEnd), "Label");
+});
+
+check("a selection ending at a line start does not drag the next line into the operation", () => {
+  const e = rawEdit("bullet", "one\ntwo\nthree", 0, 4)!; // "one\n" — a triple-click drag
+  assert.equal(e.insert, "- one");
+  assert.equal(e.end, 3);
+});
+
+check("undo and redo are not this engine's job — it says so with null", () => {
+  assert.equal(rawEdit("undo", "x", 0, 0), null);
+  assert.equal(rawEdit("redo", "x", 0, 0), null);
+});
+
 // ---- + New flushes the draft first (Tier-1 fix 5) ---------------------------------------------
 // The renderer's newNote used to jump straight to createNote, so a dirty draft died on the way to
 // the fresh note — the ONE record-change route that skipped the flush rule (RULES-40: any editor
@@ -307,6 +444,56 @@ console.log("\nnotes.ts — + New flushes before creating");
     createNote(db, ORG, { kind: "note", title: "Untitled", body: "" }); // + New, no flush
     assert.equal(getNote(db, ORG, c.uuid).body, "saved text",
       "the database still holds only what was last flushed — the typed words were never sent");
+  });
+
+  // ---- AUTO-TIDY AT THE WRITE (Jason 08-16-2026: "why cant it auto tidy after every save?") ----
+  console.log("\nnotes.ts — every save tidies the body");
+
+  check("createNote stores the REPAIRED text — damage cannot enter the vault", () => {
+    const n = createNote(db, ORG, { kind: "note", title: "T", body: "\\\n\\\n1\\. Heading\n====\n\nBody.\n" });
+    const stored = getNote(db, ORG, n.uuid).body;
+    assert.ok(stored.includes("# 1. Heading"), "the setext damage became a real heading");
+    assert.ok(!stored.includes("\\"), "no backslash joins were stored");
+    assert.ok(!stored.includes("===="), "no underline was stored");
+  });
+
+  check("updateNote tidies too — the autosave path repairs on every write", () => {
+    const n = createNote(db, ORG, { kind: "note", title: "T2", body: "clean" });
+    updateNote(db, ORG, n.uuid, { body: "line one.\\\n\\\nline two\n\n<br />\n" });
+    const stored = getNote(db, ORG, n.uuid).body;
+    assert.ok(!stored.includes("\\"), "trailing joins repaired at the write");
+    assert.ok(!/^<br/m.test(stored), "the lone <br /> line repaired at the write");
+  });
+
+  check("a fence inside a saved note still passes through byte-identical", () => {
+    const fence = "before\n```\nkeep \\ and ==== exactly\n```\nafter";
+    const n = createNote(db, ORG, { kind: "note", title: "T3", body: fence });
+    assert.ok(getNote(db, ORG, n.uuid).body.includes("keep \\ and ==== exactly"), "fence content untouched");
+  });
+
+  // ---- A BLANK ROW IS A FAILED IMPORT BEING RETRIED (import fixes, 08-16-2026) ----------------
+  console.log("\nnotes.ts — re-import fills blank rows");
+
+  check("a blank row from a failed read is FILLED by re-import, same uuid, not skipped", () => {
+    const P = "C:\\fake\\_source\\doc.md";
+    const first = importDocs(db, ORG, [{ name: "doc.md", rel: "doc.md", path: P, text: "" }], {});
+    assert.equal(first.created, 1, "the blank imported as a row (the old failure shape)");
+    const blankUuid = (db.prepare("SELECT uuid FROM vault_notes WHERE source_path = ?").get(P) as { uuid: string }).uuid;
+    const second = importDocs(db, ORG, [{ name: "doc.md", rel: "doc.md", path: P, text: "# Real contents\n\nAt last.\n" }], {});
+    assert.equal(second.repaired, 1, "the retry repaired instead of skipping");
+    assert.equal(second.skipped, 0, "and did not also count it skipped");
+    const row = getNote(db, ORG, blankUuid);
+    assert.ok(row.body.includes("Real contents"), "the SAME row now carries the file's text");
+  });
+
+  check("a full row is still a duplicate — re-import must never overwrite real content", () => {
+    const P2 = "C:\\fake\\_source\\keep.md";
+    importDocs(db, ORG, [{ name: "keep.md", rel: "keep.md", path: P2, text: "original text" }], {});
+    const again = importDocs(db, ORG, [{ name: "keep.md", rel: "keep.md", path: P2, text: "DIFFERENT text" }], {});
+    assert.equal(again.skipped, 1, "a row with real content is skipped, exactly as before");
+    assert.equal(again.repaired, 0);
+    const row = db.prepare("SELECT body FROM vault_notes WHERE source_path = ?").get(P2) as { body: string };
+    assert.equal(row.body, "original text", "the stored text was not touched");
   });
 }
 

@@ -1,8 +1,8 @@
-# FR-CANON-5.md — Focal Registry scoped canon INDEX
+# FR-CANON-6.md — Focal Registry scoped canon INDEX
 
 **Read this first. Read the four files below before any task.**
 
-*Derived 2026-07-31 from real canon: `CANON-2` · `DECISIONS-51` · `RULES-39` · `STATUS-36` · `PROJECTS-9` · `FACTS-10`, plus repo `CLAUDE.md` and the completed TimeTracker port.*
+*Derived 2026-08-14 from real canon: `CANON-3` · `DECISIONS-52` · `RULES-40` · `STATUS-38` · `PROJECTS-10` · `FACTS-10`, plus repo `CLAUDE.md`, the Secured Vault standalone lane, and the 2026-08-14 merge rulings. Supersedes FR-CANON-5 — delete it after placement.*
 
 ---
 

@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   BUILT_IN, importVsCodeTheme, isHighlightable, readTheme, stripJsonc, tokenize, type Role,
-} from "../src/modules/vault/codeTheme";
+} from "../../../src/modules/vault/codeTheme";
 
 let pass = 0;
 const ok = (msg: string): void => { pass += 1; console.log(`OK  ${msg}`); };

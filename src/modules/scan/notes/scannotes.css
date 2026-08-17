@@ -44,10 +44,20 @@
 /* ---------------------------------------------------------------- header search + filter panel */
 /* Sits beside the page H1 in the MODULE's own header row — this is not the shell topbar search, and
    nothing here reaches out of src/modules/scan/ (§2.8). */
+/* TITLE LEFT, SEARCH RIGHT, ONE ROW. The mockup's headleft is `flex:none` because it holds only a
+   crumb and an H1; this one also carries the page subtitle, which is a full sentence and — at
+   flex:none — sized the column to its natural ~1100px and pushed the search onto a line of its own.
+   Both halves shrink instead: the subtitle wraps, and the search stays up beside the title.
+   WIDTH MATH (content column = window − rail − 32px wrap padding), basis 300 + 400 + 18 gap = 718:
+     740 rail expanded  → 408px  → wraps. The narrowest reachable state; a 220px search beside a
+                                   220px title block is not a header, so wrapping there is right.
+     740 rail collapsed → 650px  → side by side, shrunk proportionally (~278 / ~372).
+     960 rail collapsed → 870px  → side by side, search at its full 400.
+    1440 rail expanded  → 1108px → side by side, subtitle on one or two lines. */
 .scannotes-headrow{display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap}
-.scannotes-headleft{flex:none;min-width:220px}
-.scannotes-headright{flex:1;min-width:260px;display:flex;padding-top:2px}
-.scannotes-searchwrap{flex:1;min-width:240px;position:relative}
+.scannotes-headleft{flex:1 1 300px;min-width:0}
+.scannotes-headright{flex:0 1 400px;min-width:220px;display:flex;padding-top:2px}
+.scannotes-searchwrap{flex:1;min-width:0;position:relative}
 .scannotes-search{display:flex;align-items:center;gap:8px;border:1px solid var(--mc-border);background:var(--mc-field);border-radius:10px;padding:9px 13px}
 .scannotes-search input{border:none;outline:none;flex:1;font:inherit;font-size:13.5px;background:transparent;color:var(--mc-text);min-width:0}
 .scannotes-search input::placeholder{color:var(--mc-dimmer)}
@@ -115,6 +125,12 @@
 .scannotes-pane{background:var(--mc-panels);border:1px solid var(--mc-border);border-radius:12px;padding:12px;overflow:auto;min-width:0;max-height:calc(100vh - 320px)}
 .scannotes-pane h3{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mc-dimmer);margin-bottom:10px;font-weight:600}
 .scannotes-empty{font-size:12.5px;color:var(--mc-muted);padding:8px 2px}
+/* SILENCE READS AS A HANG. A pane that is waiting says so, and the pip keeps moving so a slow read
+   is visibly slow rather than visibly broken. */
+.scannotes-waiting{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mc-muted);padding:8px 2px}
+.scannotes-waiting .pip{width:8px;height:8px;border-radius:50%;background:var(--mc-accent-primary);flex:none;animation:scannotes-breathe 1s ease-in-out infinite}
+@keyframes scannotes-breathe{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.scannotes-waiting .pip{animation:none}}
 
 /* ---- drive / folder tree ---- */
 .scannotes-drive{margin-bottom:10px}
@@ -126,13 +142,23 @@
 .scannotes-dot.on{background:var(--scannotes-connected)}
 .scannotes-dot.off{background:var(--mc-dimmer)}
 .scannotes-serial{font-family:var(--mc-mono);font-size:10.5px;color:var(--mc-dimmer);font-weight:400;margin-left:auto}
-.scannotes-folder{display:flex;align-items:center;gap:6px;font:inherit;font-size:13px;padding:5px 6px 5px 26px;border-radius:8px;cursor:pointer;background:none;border:none;color:var(--mc-text);width:100%;text-align:left}
+/* A TREE ROW, not a list row. The row is a flex container of three controls — twisty, name, pencil —
+   because a button inside a button is invalid markup and was only ever a workaround. Indentation
+   comes from an inline padding-left computed from depth: one rule instead of a class per level, and
+   it keeps working however deep a drive goes. */
+.scannotes-folder{display:flex;align-items:center;gap:4px;font-size:13px;border-radius:8px;padding-right:6px}
 .scannotes-folder:hover{background:var(--mc-nested)}
-.scannotes-folder.sel{background:var(--scannotes-accent-wash);color:var(--mc-accent-primary);font-weight:600}
-.scannotes-folder .nm{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.scannotes-folder.sel{background:var(--scannotes-accent-wash)}
+.scannotes-folder.sel .scannotes-fname{color:var(--mc-accent-primary);font-weight:600}
+/* a folder that only exists as somebody's parent — it holds no media, so it has no report to show */
+.scannotes-folder.ghost .scannotes-fname{color:var(--mc-muted)}
+.scannotes-twist{flex:none;width:16px;height:22px;padding:0;background:none;border:none;color:var(--mc-dimmer);font-size:9px;cursor:pointer;line-height:1}
+.scannotes-twist[aria-hidden="true"]{cursor:default}
+.scannotes-fname{display:flex;align-items:center;gap:6px;flex:1;min-width:0;font:inherit;font-size:13px;background:none;border:none;color:var(--mc-text);text-align:left;cursor:pointer;padding:5px 0;overflow:hidden}
+.scannotes-fname .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* the name it used to have, struck through — the whole point of keeping the history */
-.scannotes-folder .old{display:block;font-size:11px;color:var(--mc-dimmer);font-weight:400;text-decoration:line-through;overflow:hidden;text-overflow:ellipsis}
-.scannotes-pencil{margin-left:auto;font-size:12px;color:var(--mc-dimmer);visibility:hidden;background:none;border:none;cursor:pointer;flex:none;padding:0 2px}
+.scannotes-fname .old{display:block;font-size:11px;color:var(--mc-dimmer);font-weight:400;text-decoration:line-through;overflow:hidden;text-overflow:ellipsis}
+.scannotes-pencil{font-size:12px;color:var(--mc-dimmer);visibility:hidden;background:none;border:none;cursor:pointer;flex:none;padding:0 2px}
 .scannotes-folder:hover .scannotes-pencil,.scannotes-folder.sel .scannotes-pencil{visibility:visible}
 /* keyboard users never see :hover — the pencil must be reachable without a mouse */
 .scannotes-pencil:focus-visible{visibility:visible}

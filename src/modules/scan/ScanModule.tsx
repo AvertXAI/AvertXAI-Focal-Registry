@@ -178,7 +178,10 @@ export default function ScanModule() {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [scope, setScope] = useState<"all" | "folders" | "notes">("all");
-  const [hits, setHits] = useState<Array<{ key: string; title: string; sub: string; path: string }>>([]);
+  const [hits, setHits] = useState<Array<{ key: string; title: string; sub: string; path: string; driveId: number | null }>>([]);
+  /** A folder the search asked to open — handed to the tab, which selects it and expands to it. */
+  const [jumpTo, setJumpTo] = useState<{ path: string; driveId: number | null; at: number } | null>(null);
+  const searchBox = useRef<HTMLDivElement | null>(null);
   const [drives, setDrives] = useState<ScanVolume[]>([]);
   const [scannedDrives, setScannedDrives] = useState<ScannedDrive[]>([]); // completed-scan drives (may be unplugged)
   const [selected, setSelected] = useState<ScanVolume | null>(null);
@@ -423,12 +426,20 @@ export default function ScanModule() {
       ])
         .then(([ns, fs]) => {
           setHits([
-            ...ns.map((n) => ({ key: `n:${n.uuid}`, title: n.title, sub: n.excerpt.trim(), path: n.folder_path })),
+            // Folders first: the box is on a folder tree, and a folder is what people look for on it.
             ...fs.map((f) => ({
-              key: `f:${f.uuid}`,
-              title: f.name_new,
-              sub: `Renamed from ${f.name_old}${f.status === "applied" ? "" : ` (${f.status})`}`,
-              path: f.folder_path_new,
+              key: `f:${f.path}`,
+              title: f.name,
+              sub: f.renamedFrom ? `Renamed from ${f.renamedFrom}` : "Folder",
+              path: f.path,
+              driveId: f.drive_id,
+            })),
+            ...ns.map((n) => ({
+              key: `n:${n.uuid}`,
+              title: n.title,
+              sub: n.excerpt.trim() || "Note",
+              path: n.folder_path,
+              driveId: n.drive_id,
             })),
           ]);
         })
@@ -436,6 +447,25 @@ export default function ScanModule() {
     }, 220);
     return () => clearTimeout(t);
   }, [query, scope, searchOpen, notesRefresh]);
+
+  // CLICK AWAY CLOSES IT, and so does Escape from anywhere — not only from inside the input, which
+  // was the whole of it before and left the panel stuck open the moment focus moved (Jason, on
+  // device 08-17-2026). Both listeners exist only while the panel is open.
+  useEffect(() => {
+    if (!searchOpen) return;
+    const onDown = (e: MouseEvent): void => {
+      if (!searchBox.current?.contains(e.target as Node)) setSearchOpen(false);
+    };
+    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") setSearchOpen(false); };
+    // `mousedown`, not `click`: a result's own click must land before the panel goes away, and
+    // capture so a stopPropagation anywhere below cannot swallow the dismissal.
+    document.addEventListener("mousedown", onDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [searchOpen]);
 
   // Keep `selected` pointing at the LIVE volume object as presence changes — a drive plugged back in
   // refreshes its letter/sizes; a removed drive stays selected but now reads "not connected".
@@ -605,7 +635,7 @@ export default function ScanModule() {
           </div>
           {NOTES_TABS.has(tab) && (
             <div className="scannotes-headright">
-              <div className={`scannotes-searchwrap${searchOpen ? " open" : ""}`}>
+              <div className={`scannotes-searchwrap${searchOpen ? " open" : ""}`} ref={searchBox}>
                 <div className="scannotes-search">
                   <span aria-hidden="true">🔍</span>
                   <input
@@ -635,7 +665,13 @@ export default function ScanModule() {
                             key={h.key}
                             type="button"
                             className="scannotes-result"
-                            onClick={() => { setSearchOpen(false); chooseTab("notes"); }}
+                            onClick={() => {
+                              // A result that only closed the panel was the other half of "search
+                              // isn't working": it found the folder and then did nothing with it.
+                              setSearchOpen(false);
+                              chooseTab("notes");
+                              setJumpTo({ path: h.path, driveId: h.driveId, at: Date.now() });
+                            }}
                           >
                             <span className="rt">{h.title}</span>
                             {h.sub && <span className="rx">{h.sub}</span>}
@@ -794,6 +830,7 @@ export default function ScanModule() {
                 refreshKey={notesRefresh}
                 mediaMode={mediaMode}
                 onFolderChange={setNotesFolder}
+                jumpTo={jumpTo}
                 mediaPane={<MediaGrid folderPath={notesFolder?.path ?? null} />}
               />
             ) : (

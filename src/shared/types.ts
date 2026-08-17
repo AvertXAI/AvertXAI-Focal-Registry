@@ -452,7 +452,20 @@ export interface ScanNotesDriveNode {
   volume_label: string | null;
   letter: string | null; // null when the drive is not attached right now
   connected: boolean;
-  folders: Array<{ path: string; name: string; renamedFrom: string | null }>;
+  /** Every scanned folder on the drive; `folders` is only the first page of them. */
+  folder_total: number;
+  folders: ScanFolderNode[];
+}
+export interface ScanFolderNode {
+  path: string;
+  name: string;
+  renamedFrom: string | null;
+}
+/** A folder search result — current names AND old ones, which is what the search box promises. */
+export interface ScanFolderHit extends ScanFolderNode {
+  drive_id: number | null;
+  /** true when the term matched the OLD name rather than the current one. */
+  matchedOld: boolean;
 }
 /** A rename's outcome. "refused" never reached the disk; "stale" tried and could not. */
 export interface ScanRenameResult {
@@ -1376,8 +1389,11 @@ export interface Api {
     /** Scan Notes — per-folder notes, the folder-rename engine, and the Updated Notes feed. Nested
      *  under scan because the channels are scan:notes* and the feature ships inside the Scan module. */
     notes: {
-      /** Drives + their scanned folders for the tree pane; `connected` is live, from the volume list. */
+      /** Drives + the FIRST PAGE of each one's folders; `connected` is live, from the volume list.
+       *  Windowed like the Vault's note list — the rest arrives through `folders()`. */
       tree: () => Promise<ScanNotesDriveNode[]>;
+      /** The tree's backfill and scroll page, one drive at a time. */
+      folders: (driveId: number, offset?: number, limit?: number) => Promise<ScanFolderNode[]>;
       list: (driveId: number | null, folderPath?: string) => Promise<ScanNoteMeta[]>;
       get: (uuid: string) => Promise<ScanNote>;
       /** + Add Note — creates and saves into the selected folder with no dialog. */
@@ -1386,8 +1402,8 @@ export interface Api {
       archive: (uuid: string) => Promise<{ ok: boolean }>;
       /** LIKE search over title + body; relevance-ordered, excerpt centred on the first term. */
       search: (q: string) => Promise<ScanNoteMeta[]>;
-      /** Folder-name search across BOTH old and new names (ruled) — the rename history. */
-      searchFolders: (q: string) => Promise<ScanHistoryRow[]>;
+      /** Folder search across BOTH current names and old ones (ruled). */
+      searchFolders: (q: string) => Promise<ScanFolderHit[]>;
       /** The rendered report card for one folder — live from scan_folders. */
       card: (folderPath: string) => Promise<ScanFolderCard | null>;
       history: (folderPath: string) => Promise<ScanHistoryRow[]>;

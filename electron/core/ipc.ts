@@ -179,10 +179,10 @@ function startDriveWatcher(): void {
  * a toast rather than left in a tab the user may not open. Quiet when there was nothing to do — a
  * notification that fires on every USB stick is a notification people learn to ignore.
  */
-function drainScanNotes(): void {
+function drainScanNotes(withSync = true): void {
   try {
     const { db, orgId } = scanCtx();
-    const r = scanNotes.drainQueue(db, orgId, scanNotes.currentVolumes());
+    const r = scanNotes.drainQueue(db, orgId, scanNotes.currentVolumes(), withSync);
     const win = getMainWindow();
     win?.webContents.send("scan:notes:changed");
     const worked = r.drives.filter((d) => d.applied > 0 || d.stale > 0 || d.filesWritten > 0);
@@ -269,10 +269,15 @@ export function registerIpcHandlers(): void {
   // Live drive detection — starts once, independent of any org (enumeration is org-agnostic). A new
   // drive now pushes scan:drives to the renderer immediately; no Ctrl+R.
   startDriveWatcher();
-  // ONE SWEEP AT STARTUP, because the watcher cannot see the past: a drive plugged in while the app
-  // was closed raises no event, and the WMI watcher can also fail to start entirely. Deferred a beat
-  // so it never sits in front of the first window paint — a queue drain is not worth a slow launch.
-  setTimeout(drainScanNotes, 3000);
+  // ONE QUEUE DRAIN AT STARTUP, because the watcher cannot see the past: a drive plugged in while
+  // the app was closed raises no event, and the WMI watcher can also fail to start entirely.
+  //
+  // NO MIRROR REWRITE HERE (Jason, on device 08-17-2026 — the app hung on launch). Draining the
+  // queue is usually zero rows and costs nothing; rewriting every file for an 800-folder drive is
+  // seconds of synchronous work, and doing it before the user has clicked anything froze the window
+  // on every single launch. A rename that DOES apply still syncs, because its files really did
+  // change. Otherwise the sync belongs to a connect or to the refresh button.
+  setTimeout(() => drainScanNotes(false), 3000);
   // data viewer — READ-ONLY introspection. The service whitelists `table` against sqlite_master and
   // clamps limit/offset, so the raw `unknown` args can't reach a writable or injectable statement.
   safeHandle("db:tables", () => dataviewer.listTables());
@@ -806,6 +811,12 @@ export function registerIpcHandlers(): void {
     const { db, orgId } = scanCtx();
     return scanNotes.driveTree(db, orgId, scanNotes.currentVolumes());
   });
+  // The tree's backfill and scroll page — one drive at a time, so the first paint never waits on a
+  // drive with eight hundred folders in it.
+  safeHandle("scan:notesFolders", (_e, driveId: unknown, offset: unknown, limit: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.driveFolders(db, orgId, driveId, Number(offset) || 0, Number(limit) || 400);
+  });
   safeHandle("scan:notesList", (_e, driveId: unknown, folderPath: unknown) => {
     const { db, orgId } = scanCtx();
     return scanNotes.listNotes(
@@ -847,7 +858,7 @@ export function registerIpcHandlers(): void {
   });
   safeHandle("scan:notesSearchFolders", (_e, q: unknown) => {
     const { db, orgId } = scanCtx();
-    return scanNotes.searchFolderNames(db, orgId, q);
+    return scanNotes.searchFolders(db, orgId, q);
   });
   safeHandle("scan:notesCard", (_e, folderPath: unknown) => {
     const { db, orgId } = scanCtx();

@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ScanFolderCard,
+  ScanFolderNode,
   ScanHistoryRow,
   ScanNote,
   ScanNoteMeta,
@@ -131,11 +132,170 @@ export interface ScanNotesTabProps {
   onFolderChange: (folder: { path: string; driveId: number; letter: string | null } | null) => void;
   /** Rendered into the third pane in place of the editor when mediaMode is on (Phase 5). */
   mediaPane?: React.ReactNode;
+  /** A folder the header search asked to open. `at` is what makes a repeat click on the SAME result
+   *  still re-open it — an identical object would otherwise look like no change at all. */
+  jumpTo?: { path: string; driveId: number | null; at: number } | null;
 }
 
-export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, mediaPane }: ScanNotesTabProps) {
-  const [tree, setTree] = useState<ScanNotesDriveNode[]>([]);
+// ---------------------------------------------------------------- the folder tree
+//
+// A TREE, NOT A LIST (Jason, on device 08-17-2026: "every folder is individually placed in the
+// directory and i cant find anything"). The same flattening the mirror directories had: the service
+// returns every scanned folder's full path, and the first cut drew each one's BASENAME as a sibling
+// of every other — so `D:\dev\project\img` sat beside `D:\Downloads` with nothing to say where it
+// came from, and a drive with eight hundred folders became eight hundred unplaceable names.
+//
+// The nesting is rebuilt here rather than asked of the database, because the paths already carry it
+// and one pass over a few hundred strings is nothing. Only EXPANDED branches render, so the pane
+// holds a dozen rows however deep the drive goes.
+
+interface TreeNode {
+  name: string;
+  path: string;
+  /** false for a folder that only exists as somebody's parent — it holds no media of its own, so it
+   *  has no scan record and no report. It still has to appear, or the tree has holes in it. */
+  scanned: boolean;
+  renamedFrom: string | null;
+  children: TreeNode[];
+}
+
+/** "D:\" out of any absolute path on it. */
+const driveRootOf = (p: string): string => (/^[A-Za-z]:[\\/]/.test(p) ? `${p.slice(0, 2)}\\` : "");
+
+function buildTree(folders: ScanFolderNode[]): TreeNode[] {
+  const roots: TreeNode[] = [];
+  const byPath = new Map<string, TreeNode>();
+  for (const f of folders) {
+    const root = driveRootOf(f.path);
+    const segs = f.path.slice(root.length).split(/[\\/]+/).filter(Boolean);
+    // The drive root itself, scanned directly — it has media of its own and needs a row.
+    if (segs.length === 0) {
+      const key = f.path.toLowerCase();
+      if (!byPath.has(key)) {
+        const node: TreeNode = { name: f.path, path: f.path, scanned: true, renamedFrom: f.renamedFrom, children: [] };
+        byPath.set(key, node);
+        roots.push(node);
+      }
+      continue;
+    }
+    let prefix = root;
+    let siblings = roots;
+    segs.forEach((seg, i) => {
+      const full = prefix + seg;
+      const key = full.toLowerCase();
+      let node = byPath.get(key);
+      if (!node) {
+        node = { name: seg, path: full, scanned: false, renamedFrom: null, children: [] };
+        byPath.set(key, node);
+        siblings.push(node);
+      }
+      if (i === segs.length - 1) {
+        node.scanned = true;
+        node.renamedFrom = f.renamedFrom;
+      }
+      prefix = `${full}\\`;
+      siblings = node.children;
+    });
+  }
+  const sort = (list: TreeNode[]): void => {
+    list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+    for (const n of list) sort(n.children);
+  };
+  sort(roots);
+  return roots;
+}
+
+/** Every ancestor of a path, so selecting something deep opens the branches down to it. */
+function ancestorsOf(p: string): string[] {
+  const root = driveRootOf(p);
+  const segs = p.slice(root.length).split(/[\\/]+/).filter(Boolean);
+  const out: string[] = [];
+  let prefix = root;
+  for (const s of segs.slice(0, -1)) {
+    prefix = `${prefix}${s}`;
+    out.push(prefix.toLowerCase());
+    prefix = `${prefix}\\`;
+  }
+  return out;
+}
+
+function Branch({
+  node, depth, selected, expanded, onToggle, onSelect, onRename,
+}: {
+  node: TreeNode;
+  depth: number;
+  selected: string | null;
+  expanded: Set<string>;
+  onToggle: (p: string) => void;
+  onSelect: (n: TreeNode) => void;
+  onRename: (n: TreeNode) => void;
+}) {
+  const kids = node.children.length > 0;
+  const open = expanded.has(node.path.toLowerCase());
+  return (
+    <>
+      <div
+        className={`scannotes-folder${selected === node.path ? " sel" : ""}${node.scanned ? "" : " ghost"}`}
+        style={{ paddingLeft: 6 + depth * 14 }}
+      >
+        <button
+          type="button"
+          className="scannotes-twist"
+          onClick={() => kids && onToggle(node.path)}
+          aria-label={kids ? (open ? `Collapse ${node.name}` : `Expand ${node.name}`) : undefined}
+          aria-hidden={!kids}
+          tabIndex={kids ? 0 : -1}
+        >
+          {kids ? (open ? "▾" : "▸") : ""}
+        </button>
+        <button type="button" className="scannotes-fname" onClick={() => onSelect(node)} title={node.path}>
+          <span aria-hidden="true">📁</span>
+          <span className="nm">
+            {node.name}
+            {node.renamedFrom && <span className="old">{node.renamedFrom}</span>}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="scannotes-pencil"
+          aria-label={`Rename ${node.name}`}
+          title="Rename this folder"
+          onClick={() => onRename(node)}
+        >
+          ✏️
+        </button>
+      </div>
+      {open && node.children.map((c) => (
+        <Branch key={c.path} node={c} depth={depth + 1} selected={selected}
+          expanded={expanded} onToggle={onToggle} onSelect={onSelect} onRename={onRename} />
+      ))}
+    </>
+  );
+}
+
+/** SILENCE READS AS A HANG. Every pane that can be waiting says so — a click that lands on a blank
+ *  box is indistinguishable from a crash, which is exactly how this felt on device. */
+function Waiting({ what }: { what: string }) {
+  return (
+    <div className="scannotes-waiting" role="status" aria-live="polite">
+      <span className="pip" aria-hidden="true" />
+      {what}
+    </div>
+  );
+}
+
+/** Survives leaving and re-entering the tab, so the second visit paints instantly and re-reads
+ *  behind the paint. Module-level on purpose — the same shape as the Vault list's cache. */
+let treeCache: ScanNotesDriveNode[] = [];
+
+export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, mediaPane, jumpTo }: ScanNotesTabProps) {
+  const [tree, setTree] = useState<ScanNotesDriveNode[]>(treeCache);
+  const [loading, setLoading] = useState(treeCache.length === 0);
+  const [folderBusy, setFolderBusy] = useState(false);
   const [closed, setClosed] = useState<Set<number>>(new Set());
+  /** Which branches are open, by lowercased path. Everything starts collapsed — a tree that opens
+   *  fully is the flat list this replaced. */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [folder, setFolder] = useState<string | null>(null);
   const [driveId, setDriveId] = useState<number | null>(null);
   const [card, setCard] = useState<ScanFolderCard | null>(null);
@@ -152,11 +312,47 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
   const draft = useRef<{ title: string; body: string } | null>(null);
 
   // ---- the tree ----
+  //
+  // WINDOWED, THE WAY THE VAULT'S NOTE LIST IS (Jason 08-17-2026, on device: opening this tab hung
+  // the app). The first page is what a pane can actually show and it paints at once; the rest is
+  // fetched per drive straight after, and swapped in without the user waiting on it. A module-level
+  // cache means coming BACK to the tab paints instantly from what was already loaded and re-reads
+  // behind it — the same "paint what we have first" the Vault's list does.
   useEffect(() => {
+    let live = true;
+    if (treeCache.length === 0) setLoading(true);
     void window.api.scan.notes
       .tree()
-      .then(setTree)
-      .catch((e: unknown) => signalAppToast(e instanceof Error ? e.message : String(e), "err"));
+      .then((t) => {
+        if (!live) return;
+        setTree(t);
+        treeCache = t;
+        setLoading(false);
+        // Backfill each drive that has more than the first page, one at a time so a drive with
+        // hundreds of folders never blocks the others from filling in.
+        for (const d of t) {
+          if (d.folder_total <= d.folders.length) continue;
+          void window.api.scan.notes
+            .folders(d.drive_id, d.folders.length, 2000)
+            .then((rest) => {
+              if (!live || rest.length === 0) return;
+              setTree((prev) => {
+                const next = prev.map((x) =>
+                  x.drive_id === d.drive_id ? { ...x, folders: [...x.folders, ...rest] } : x
+                );
+                treeCache = next;
+                return next;
+              });
+            })
+            .catch(() => undefined); // a failed backfill leaves the first page standing
+        }
+      })
+      .catch((e: unknown) => {
+        if (!live) return;
+        setLoading(false);
+        signalAppToast(e instanceof Error ? e.message : String(e), "err");
+      });
+    return () => { live = false; };
   }, [refreshKey]);
 
   // First real folder becomes the selection so the pane is never blank on arrival.
@@ -178,6 +374,7 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
 
   // ---- the selected folder's card, history and notes ----
   const loadFolder = useCallback((p: string, dId: number | null) => {
+    setFolderBusy(true);
     void Promise.all([
       window.api.scan.notes.card(p),
       window.api.scan.notes.history(p),
@@ -188,7 +385,8 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
         setHistory(h);
         setNotes(n);
       })
-      .catch((e: unknown) => signalAppToast(e instanceof Error ? e.message : String(e), "err"));
+      .catch((e: unknown) => signalAppToast(e instanceof Error ? e.message : String(e), "err"))
+      .finally(() => setFolderBusy(false));
   }, []);
 
   useEffect(() => {
@@ -252,6 +450,30 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
       .finally(() => setBusy(false));
   }, [renaming, folder]);
 
+  // The nesting is rebuilt only when the flat list actually changes, not on every keystroke.
+  const trees = useMemo(() => new Map(tree.map((d) => [d.drive_id, buildTree(d.folders)])), [tree]);
+
+  const toggleBranch = useCallback((p: string) => {
+    setExpanded((s) => {
+      const n = new Set(s);
+      const k = p.toLowerCase();
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
+  }, []);
+
+  /** Open every branch down to a path and select it — used by the search and after a rename. */
+  const revealFolder = useCallback((p: string, dId: number | null) => {
+    setExpanded((s) => { const n = new Set(s); for (const a of ancestorsOf(p)) n.add(a); return n; });
+    if (dId != null) { setClosed((c) => { const n = new Set(c); n.delete(dId); return n; }); setDriveId(dId); }
+    setFolder(p);
+  }, []);
+
+  useEffect(() => {
+    if (jumpTo) revealFolder(jumpTo.path, jumpTo.driveId);
+  }, [jumpTo, revealFolder]);
+
   const selectedDrive = useMemo(() => tree.find((d) => d.drive_id === driveId) ?? null, [tree, driveId]);
   const latestApplied = history.find((h) => h.status === "applied") ?? null;
 
@@ -260,7 +482,10 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
       {/* ---- pane 1: the drive / folder tree ---- */}
       <div className="scannotes-pane">
         <h3>Drives</h3>
-        {tree.length === 0 && <div className="scannotes-empty">No scanned drives yet. Run a scan and the folders appear here.</div>}
+        {loading && <Waiting what="Loading drives…" />}
+        {!loading && tree.length === 0 && (
+          <div className="scannotes-empty">No scanned drives yet. Run a scan and the folders appear here.</div>
+        )}
         {tree.map((d) => (
           <div key={d.drive_id} className={`scannotes-drive${closed.has(d.drive_id) ? " closed" : ""}`}>
             <button
@@ -279,31 +504,22 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
             {!closed.has(d.drive_id) && (
               <div>
                 {d.folders.length === 0 && <div className="scannotes-empty">No folders with media on this drive.</div>}
-                {d.folders.map((f) => (
-                  <button
-                    key={f.path}
-                    type="button"
-                    className={`scannotes-folder${folder === f.path ? " sel" : ""}`}
-                    onClick={() => { setFolder(f.path); setDriveId(d.drive_id); }}
-                    title={f.path}
-                  >
-                    <span aria-hidden="true">📁</span>
-                    <span className="nm">
-                      {f.name}
-                      {f.renamedFrom && <span className="old">{f.renamedFrom}</span>}
-                    </span>
-                    <span
-                      className="scannotes-pencil"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Rename ${f.name}`}
-                      title="Rename this folder"
-                      onClick={(e) => { e.stopPropagation(); setRenameErr(null); setRenaming({ path: f.path, name: f.name }); }}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setRenameErr(null); setRenaming({ path: f.path, name: f.name }); } }}
-                    >
-                      ✏️
-                    </span>
-                  </button>
+                {/* The count is known from the first page, so the pane can say what is still coming
+                    rather than looking finished when it is not. */}
+                {d.folder_total > d.folders.length && (
+                  <Waiting what={`${d.folders.length} of ${d.folder_total.toLocaleString()} folders — loading the rest…`} />
+                )}
+                {(trees.get(d.drive_id) ?? []).map((n) => (
+                  <Branch
+                    key={n.path}
+                    node={n}
+                    depth={0}
+                    selected={folder}
+                    expanded={expanded}
+                    onToggle={toggleBranch}
+                    onSelect={(node) => { setFolder(node.path); setDriveId(d.drive_id); }}
+                    onRename={(node) => { setRenameErr(null); setRenaming({ path: node.path, name: node.name }); }}
+                  />
                 ))}
               </div>
             )}
@@ -315,8 +531,9 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
       {!mediaMode && (
         <div className="scannotes-pane">
           <h3>Files</h3>
-          {folder === null && <div className="scannotes-empty">Pick a folder on the left.</div>}
-          {folder !== null && (
+          {folder === null && !loading && <div className="scannotes-empty">Pick a folder on the left.</div>}
+          {folderBusy && <Waiting what="Reading this folder…" />}
+          {folder !== null && !folderBusy && (
             <>
               <button type="button" className={`scannotes-card${openUuid === null ? " sel" : ""}`} onClick={() => setOpenUuid(null)}>
                 <div className="t">📄 Folder report <span className="scannotes-badge-ro">Read-only</span></div>
@@ -348,7 +565,9 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
         </div>
       ) : (
         <div className="scannotes-pane">
-          {folder === null ? (
+          {folderBusy || (loading && folder === null) ? (
+            <Waiting what={folderBusy ? "Reading this folder…" : "Loading drives…"} />
+          ) : folder === null ? (
             <div className="scannotes-empty">Pick a folder on the left.</div>
           ) : (
             <>
@@ -397,8 +616,9 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
       )}
 
       {/* ---- the rename modal ---- */}
+      {/* data-modal-backdrop dims the OS-drawn window buttons — see MediaGrid for why. */}
       {renaming && (
-        <div className="scannotes-overlay" role="dialog" aria-modal="true" aria-label="Rename folder">
+        <div className="scannotes-overlay" data-modal-backdrop="" role="dialog" aria-modal="true" aria-label="Rename folder">
           <div className="scannotes-modal">
             <h2>Rename folder</h2>
             <div className="sub2">

@@ -104,6 +104,8 @@ export interface ScanNotesDriveNode {
   volume_label: string | null;
   letter: string | null; // null when the drive is not attached right now
   connected: boolean;
+  /** Every scanned folder on the drive; `folders` is only the first page of them. */
+  folder_total: number;
   folders: Array<{ path: string; name: string; renamedFrom: string | null }>;
 }
 
@@ -354,21 +356,73 @@ export function searchNotes(db: Db, orgId: string, q: unknown, limit = 40): Scan
     .all(first, first, ...ids, ...like) as ScanNoteMeta[];
 }
 
-/** Folder-name search — a separate indexed LIKE over the history table, old AND new names (ruled). */
-export function searchFolderNames(db: Db, orgId: string, q: unknown, limit = 40): ScanHistoryRow[] {
+export interface ScanFolderHit {
+  path: string;
+  name: string;
+  /** The name it used to have, when the hit came from — or has — a rename record. */
+  renamedFrom: string | null;
+  drive_id: number | null;
+  /** true when the search term matched the OLD name rather than the current one. */
+  matchedOld: boolean;
+}
+
+/**
+ * Folder search — CURRENT names AND old ones, which is what "old and new" in the box's own
+ * placeholder promises.
+ *
+ * WHAT THIS FIXES (Jason, on device 08-17-2026: "search isnt working"). The first cut queried ONLY
+ * `scan_folder_name_history`, so the only folders that could ever be found were the ones that had
+ * been renamed — on a fresh archive that table is empty and the search answered nothing, forever,
+ * for every query. History is where OLD names live; it was never the index of what exists. The
+ * current names come from `scan_folders`, which is the list the tree itself is drawn from.
+ *
+ * Shorter paths rank first: a folder nearer the drive root is far more often the one meant than
+ * something eight levels down that happens to share a word.
+ */
+export function searchFolders(db: Db, orgId: string, q: unknown, limit = 40): ScanFolderHit[] {
   const term = typeof q === "string" ? q.trim().toLowerCase() : "";
   if (term === "") return [];
   const cap = Math.min(Math.max(Number(limit) || 40, 1), 200);
   const like = `%${term}%`;
-  return db
+
+  const current = db
     .prepare(
-      `SELECT uuid, volume_serial, folder_path_old, folder_path_new, name_old, name_new,
-              changed_at, applied_at, status, stale_reason
-       FROM scan_folder_name_history
-       WHERE org_id = ? AND (name_old LIKE ? OR name_new LIKE ?)
-       ORDER BY changed_at DESC, id DESC LIMIT ?`
+      `SELECT DISTINCT path, drive_id FROM scan_folders
+       WHERE org_id = ? AND file_count > 0 AND lower(path) LIKE ?
+       ORDER BY length(path), path LIMIT ?`
     )
-    .all(orgId, like, like, cap) as ScanHistoryRow[];
+    .all(orgId, like, cap) as Array<{ path: string; drive_id: number | null }>;
+
+  const seen = new Set(current.map((r) => r.path.toLowerCase()));
+  const hits: ScanFolderHit[] = current.map((r) => ({
+    path: r.path,
+    name: path.basename(r.path) || r.path,
+    renamedFrom: null,
+    drive_id: r.drive_id,
+    matchedOld: false,
+  }));
+
+  // A folder whose OLD name matched — the reason the history keeps both names. Only added when the
+  // current-name pass did not already return it, so a folder never appears twice.
+  const old = db
+    .prepare(
+      `SELECT folder_path_new, name_old, drive_id FROM scan_folder_name_history
+       WHERE org_id = ? AND status = 'applied' AND lower(name_old) LIKE ?
+       ORDER BY applied_at DESC, id DESC LIMIT ?`
+    )
+    .all(orgId, like, cap) as Array<{ folder_path_new: string; name_old: string; drive_id: number | null }>;
+  for (const r of old) {
+    if (seen.has(r.folder_path_new.toLowerCase())) continue;
+    seen.add(r.folder_path_new.toLowerCase());
+    hits.push({
+      path: r.folder_path_new,
+      name: path.basename(r.folder_path_new) || r.folder_path_new,
+      renamedFrom: r.name_old,
+      drive_id: r.drive_id,
+      matchedOld: true,
+    });
+  }
+  return hits.slice(0, cap);
 }
 
 /** The Folder History card shows the LATEST change; the full chain lives here and in the feed. */
@@ -409,6 +463,38 @@ export function folderCard(db: Db, orgId: string, folderPath: unknown): ScanFold
 // THE DRIVE / FOLDER TREE
 // ============================================================================================
 
+/**
+ * WINDOWED, THE WAY THE VAULT'S NOTE LIST IS. FIRST_PAGE is what a tree pane can actually show; the
+ * renderer paints it immediately and backfills the rest a moment later through driveFolders().
+ *
+ * WHAT THIS REPLACED (Jason, on device 08-17-2026: opening the tab hung the app). Two faults, and
+ * they are the same two the Vault's list had before its 08-12 fix:
+ *   1. N+1 WITH A COMPILE IN THE LOOP — a `db.prepare(...)` sat inside `folders.map()`, so a drive
+ *      with 800 scanned folders compiled 800 statements to answer one question. The rename lookup is
+ *      now ONE query per drive, resolved through a Map.
+ *   2. NO WINDOW — it returned up to 2,000 folders and the renderer drew every one, to show eleven.
+ * The Vault's note list learned both lessons at 4,089 notes; this is the same shape, not a new idea.
+ */
+export const FOLDER_FIRST_PAGE = 40;
+
+/** Latest applied rename per destination path, for ONE drive, in ONE query. Later rows win, so the
+ *  Map ends up holding the most recent old name for each folder. */
+function renamedFromMap(db: Db, orgId: string, driveId: number): Map<string, string> {
+  const rows = db
+    .prepare(
+      `SELECT folder_path_new, name_old FROM scan_folder_name_history
+       WHERE org_id = ? AND drive_id = ? AND status = 'applied' ORDER BY applied_at, id`
+    )
+    .all(orgId, driveId) as Array<{ folder_path_new: string; name_old: string }>;
+  return new Map(rows.map((r) => [r.folder_path_new, r.name_old]));
+}
+
+const toNode = (p: string, prev: Map<string, string>): { path: string; name: string; renamedFrom: string | null } => ({
+  path: p,
+  name: path.basename(p) || p,
+  renamedFrom: prev.get(p) ?? null,
+});
+
 export function driveTree(db: Db, orgId: string, volumes: ScanVolume[]): ScanNotesDriveNode[] {
   const present = new Map(volumes.map((v) => [v.serial.toUpperCase(), v]));
   const drives = db
@@ -417,30 +503,49 @@ export function driveTree(db: Db, orgId: string, volumes: ScanVolume[]): ScanNot
 
   return drives.map((d) => {
     const vol = present.get(d.volume_serial.toUpperCase());
+    const total = (
+      db
+        .prepare("SELECT COUNT(DISTINCT path) AS n FROM scan_folders WHERE org_id = ? AND drive_id = ? AND file_count > 0")
+        .get(orgId, d.id) as { n: number }
+    ).n;
     const folders = db
       .prepare(
         `SELECT DISTINCT path FROM scan_folders
-         WHERE org_id = ? AND drive_id = ? AND file_count > 0 ORDER BY path LIMIT 2000`
+         WHERE org_id = ? AND drive_id = ? AND file_count > 0 ORDER BY path LIMIT ?`
       )
-      .all(orgId, d.id) as Array<{ path: string }>;
+      .all(orgId, d.id, FOLDER_FIRST_PAGE) as Array<{ path: string }>;
+    const prev = renamedFromMap(db, orgId, d.id);
     return {
       drive_id: d.id,
       volume_serial: d.volume_serial,
       volume_label: d.volume_label,
       letter: vol?.letter ?? null,
       connected: vol != null,
-      folders: folders.map((f) => {
-        const prev = db
-          .prepare(
-            `SELECT name_old FROM scan_folder_name_history
-             WHERE org_id = ? AND folder_path_new = ? AND status = 'applied'
-             ORDER BY applied_at DESC, id DESC LIMIT 1`
-          )
-          .get(orgId, f.path) as { name_old: string } | undefined;
-        return { path: f.path, name: path.basename(f.path) || f.path, renamedFrom: prev?.name_old ?? null };
-      }),
+      folder_total: total,
+      folders: folders.map((f) => toNode(f.path, prev)),
     };
   });
+}
+
+/** The backfill and the scroll page — same shape, one drive at a time. */
+export function driveFolders(
+  db: Db,
+  orgId: string,
+  driveId: unknown,
+  offset = 0,
+  limit = 400
+): Array<{ path: string; name: string; renamedFrom: string | null }> {
+  const id = Number(driveId);
+  if (!Number.isFinite(id)) return [];
+  const cap = Math.min(Math.max(Number(limit) || 400, 1), 2000);
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT path FROM scan_folders
+       WHERE org_id = ? AND drive_id = ? AND file_count > 0 ORDER BY path LIMIT ? OFFSET ?`
+    )
+    .all(orgId, id, cap, Math.max(0, Number(offset) || 0)) as Array<{ path: string }>;
+  const prev = renamedFromMap(db, orgId, id);
+  return rows.map((r) => toNode(r.path, prev));
 }
 
 // ============================================================================================
@@ -780,7 +885,15 @@ export interface DrainResult {
  * NOTHING HERE THROWS. It runs inside a debounce callback that must survive any single drive's bad
  * day; a failure on one drive is logged and the next drive still gets its turn.
  */
-export function drainQueue(db: Db, orgId: string, volumes: ScanVolume[]): DrainResult {
+/**
+ * A drive's last full mirror rewrite, by serial. The WMI watcher raises several events as volumes
+ * enumerate at launch, and without this each one kicked off another 800-folder rewrite — three
+ * "Drive synced on connect" lines in one boot, each holding the main thread (Jason, 08-17-2026).
+ */
+const lastSyncAt = new Map<string, number>();
+const SYNC_COOLDOWN_MS = 60_000;
+
+export function drainQueue(db: Db, orgId: string, volumes: ScanVolume[], withSync = true): DrainResult {
   const out: DrainResult = { applied: 0, stale: 0, filesWritten: 0, drives: [] };
   for (const vol of volumes) {
     try {
@@ -835,9 +948,19 @@ export function drainQueue(db: Db, orgId: string, volumes: ScanVolume[]): DrainR
 
       // Dumb-total sync for this drive, whether or not anything was renamed — a scan may have
       // completed while it was unplugged.
+      //
+      // "DUMB AND TOTAL" IS ABOUT NOT DIFFING CONTENT, NOT ABOUT HOW OFTEN IT RUNS. Rewriting every
+      // file for an 800-folder drive is seconds of synchronous work on the main thread, which is a
+      // frozen window; a cooldown and a startup opt-out keep the ruling and stop it firing three
+      // times before the first paint. A CONNECT still syncs — that is the ruled moment.
+      const key = drive.volume_serial.toUpperCase();
+      const cooled = (lastSyncAt.get(key) ?? 0) + SYNC_COOLDOWN_MS < Date.now();
       let filesWritten = 0;
       try {
-        filesWritten = syncDrive(db, orgId, drive.id, vol).filesWritten;
+        if (withSync && (cooled || applied > 0)) {
+          lastSyncAt.set(key, Date.now());
+          filesWritten = syncDrive(db, orgId, drive.id, vol).filesWritten;
+        }
       } catch (e) {
         logUpdate(db, orgId, {
           level: "error",
@@ -880,11 +1003,49 @@ export function drainQueue(db: Db, orgId: string, volumes: ScanVolume[]): DrainR
 // THE DUMB-AND-TOTAL SYNC
 // ============================================================================================
 
-/** Same sanitiser the report writer uses, so the two trees agree on what a drive is called. */
-function sanitizeSegment(s: string, fallback: string): string {
-  const cleaned = (s ?? "").replace(/[^A-Za-z0-9 _-]/g, "").trim().replace(/\s+/g, "-");
-  return cleaned !== "" ? cleaned : fallback;
+/**
+ * A MIRROR SEGMENT, not a slug. The name came off a real Windows folder, so it is already legal —
+ * the only work here is stripping what NTFS forbids in case a path arrived from somewhere odd, and
+ * refusing a trailing dot or space, which Windows silently swallows.
+ *
+ * WHY THIS IS NOT THE REPORT WRITER'S SANITISER: that one flattens to `[A-Za-z0-9 _-]`, which is
+ * right for building ONE filename out of a drive label and wrong for reproducing a folder tree —
+ * "Courtney's Videos" would become "Courtneys-Videos" and would no longer match the folder it
+ * mirrors. A mirror whose names do not match the thing mirrored is not a mirror.
+ */
+function mirrorSegment(s: string): string {
+  const cleaned = (s ?? "").replace(/[/\\?%*:|"<>]/g, "").replace(/[. ]+$/, "").trim();
+  return cleaned !== "" ? cleaned : "_";
 }
+
+/**
+ * The folder's path RELATIVE to its drive root, as segments: `D:\dev\project\img` → `dev · project ·
+ * img`. This is what makes the mirror a TREE.
+ *
+ * THE BUG THIS REPLACED (Jason, on device 08-17-2026, looking at 827 folders in one directory): the
+ * first cut keyed each folder by BASENAME alone, so every scanned folder on the drive — at every
+ * depth — landed as a sibling in a single flat list, and the hundreds of folders on a developer's
+ * drive that are all called `img`, `sound`, `Icon` or `Assets` collided with each other constantly.
+ * The collision guard below is what remains of that: with full relative paths it can no longer fire,
+ * because two different folders cannot have the same path.
+ */
+function relativeSegments(folderPath: string): string[] {
+  const root = path.parse(path.resolve(folderPath)).root; // "D:\"
+  const rel = folderPath.length > root.length ? folderPath.slice(root.length) : "";
+  return rel.split(/[\\/]+/).filter(Boolean).map(mirrorSegment);
+}
+
+/** "D Drive", read off the stored paths rather than the live volume — the letter as SCANNED. A
+ *  drive that comes back as J: must not orphan its existing tree and start a second one. */
+function driveSegmentFor(folderPaths: string[], fallback: string): string {
+  const first = folderPaths[0];
+  if (!first) return fallback;
+  const letter = path.parse(path.resolve(first)).root.replace(/[:\\/]/g, "");
+  return letter !== "" ? `${letter} Drive` : fallback;
+}
+
+/** Windows' classic ceiling, with headroom for the two filenames written inside the directory. */
+const MIRROR_PATH_MAX = MAX_PATH - 20;
 
 /** Documents\Focal Registry\Scan Notes — the hand-built path, NEVER app.getPath("documents"), which
  *  follows the OneDrive redirect on this machine (storage/index.ts:30, :39-40). */
@@ -958,8 +1119,12 @@ export interface SyncResult {
 
 /**
  * Regenerate EVERY app-owned file for one drive, in both trees. No diffing — the database is
- * authoritative and the files are mirrors. A basename collision between two scanned folders skips
- * the second and logs it, rather than one folder's notes silently overwriting another's.
+ * authoritative and the files are mirrors.
+ *
+ * THE SHAPE IS THE DRIVE'S OWN SHAPE (Jason ruled on device, 08-17-2026): `<D Drive>\<the folder's
+ * path below the drive root>\`. Open the mirror and you are looking at the same tree you would see
+ * in Explorer, at the same depths, under the same names — which is the only arrangement in which a
+ * person can find anything.
  */
 export function syncDrive(db: Db, orgId: string, driveId: number, vol: ScanVolume | null): SyncResult {
   const drive = db
@@ -967,37 +1132,48 @@ export function syncDrive(db: Db, orgId: string, driveId: number, vol: ScanVolum
     .get(orgId, driveId) as { id: number; volume_serial: string; volume_label: string | null } | undefined;
   if (!drive) return { filesWritten: 0, skipped: 0 };
 
-  const driveSeg = sanitizeSegment(drive.volume_label ?? "", drive.volume_serial);
-  const roots: string[] = [path.join(localTreeRoot(), driveSeg)];
-  if (vol) roots.push(path.join(`${vol.letter}\\`, REPORTS_FOLDER_NAME, driveSeg));
-
   const folders = db
     .prepare(
       `SELECT DISTINCT path FROM scan_folders WHERE org_id = ? AND drive_id = ? AND file_count > 0 ORDER BY path LIMIT 5000`
     )
     .all(orgId, driveId) as Array<{ path: string }>;
+  if (folders.length === 0) return { filesWritten: 0, skipped: 0 };
+
+  const driveSeg = driveSegmentFor(folders.map((f) => f.path), drive.volume_serial);
+  const roots: string[] = [path.join(localTreeRoot(), driveSeg)];
+  // On the drive itself the `<letter> Drive` segment is redundant, but BOTH mirrors are kept
+  // identical on purpose: one path is computed, and a user who copies one tree onto the other finds
+  // the halves line up.
+  if (vol) roots.push(path.join(`${vol.letter}\\`, REPORTS_FOLDER_NAME, driveSeg));
 
   let filesWritten = 0;
   let skipped = 0;
-  const claimed = new Map<string, string>(); // segment -> the folder path that claimed it
+  const claimed = new Map<string, string>(); // relative directory -> the folder path that claimed it
+  const tooDeep: string[] = []; // a sample, for the ONE summary row written at the end
+  let tooDeepCount = 0;
 
   for (const f of folders) {
     const card = folderCard(db, orgId, f.path);
     if (!card) continue;
-    const seg = sanitizeSegment(card.name, "folder");
-    const owner = claimed.get(seg.toLowerCase());
+    const segs = relativeSegments(f.path);
+    if (segs.length === 0) continue; // the drive ROOT itself owns no mirror directory of its own
+    const key = segs.join("\\").toLowerCase();
+    // Cannot fire now that the key is a full relative path — kept as a cheap invariant check, so a
+    // future change to mirrorSegment that DID collapse two names would announce itself rather than
+    // silently overwrite one folder's notes with another's.
+    const owner = claimed.get(key);
     if (owner && owner !== f.path) {
       skipped += 1;
       logUpdate(db, orgId, {
         level: "warn",
         kind: "sync",
         message: "Two folders want the same notes directory",
-        detail: `"${f.path}" was skipped — "${owner}" already writes to ${seg}. Rename one of them to keep both.`,
+        detail: `"${f.path}" was skipped — "${owner}" already writes to ${key}.`,
         driveLabel: drive.volume_label ?? drive.volume_serial,
       });
       continue;
     }
-    claimed.set(seg.toLowerCase(), f.path);
+    claimed.set(key, f.path);
 
     const history = folderHistory(db, orgId, f.path);
     const notes = (listNotes(db, orgId, driveId, f.path) as ScanNoteMeta[]).map((m) =>
@@ -1007,7 +1183,18 @@ export function syncDrive(db: Db, orgId: string, driveId: number, vol: ScanVolum
     const noteDoc = folderNotesMarkdown(card, notes, history);
 
     for (const root of roots) {
-      const dir = path.join(root, seg);
+      const dir = path.join(root, ...segs);
+      // A deep source folder plus the mirror's own prefix can pass Windows' 260-character ceiling.
+      // Saying so beats an ENAMETOOLONG the user cannot interpret.
+      if (dir.length > MIRROR_PATH_MAX) {
+        // ONE ROW PER SYNC, NOT ONE PER FOLDER. A source tree deep enough to trip this trips it a
+        // hundred times, and a hundred identical warnings is not a log — it is a wall that hides
+        // every other line in the feed. The names are collected and reported together below.
+        skipped += 1;
+        if (tooDeep.length < 20) tooDeep.push(f.path);
+        tooDeepCount += 1;
+        continue;
+      }
       try {
         fs.mkdirSync(dir, { recursive: true });
         // App-owned writes — overwritten every sync by ruling. Never named *secret* or *backup*.
@@ -1025,6 +1212,18 @@ export function syncDrive(db: Db, orgId: string, driveId: number, vol: ScanVolum
         });
       }
     }
+  }
+  if (tooDeepCount > 0) {
+    logUpdate(db, orgId, {
+      level: "warn",
+      kind: "sync",
+      message: `${tooDeepCount} folder${tooDeepCount === 1 ? " sits" : "s sit"} too deep to mirror`,
+      detail:
+        `Windows caps a path at ${MAX_PATH} characters and these would pass it once the notes folder's own prefix is added. ` +
+        `Their notes are safe in the app — only the file copy was skipped. ` +
+        `First few: ${tooDeep.slice(0, 5).join(" · ")}${tooDeepCount > 5 ? ` … and ${tooDeepCount - 5} more` : ""}`,
+      driveLabel: drive.volume_label ?? drive.volume_serial,
+    });
   }
   return { filesWritten, skipped };
 }

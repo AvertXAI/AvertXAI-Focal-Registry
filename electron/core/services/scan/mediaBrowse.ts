@@ -29,11 +29,10 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/scan/mediaBrowse.ts
 //------------------------------------------------------------
-import { net, protocol } from "electron";
+import { protocol } from "electron";
 import exifr from "exifr";
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import type { Db } from "./notesDb";
 import { AUDIO_EXTS, STILL_EXTS, VIDEO_EXTS } from "./media";
 import { isUnderScannedRoot } from "./index";
@@ -253,10 +252,42 @@ function guardPath(db: Db, orgId: string, p: string, want: "image" | "playable")
   return null;
 }
 
+/** Content types for the formats this product plays. .mov is served as video/mp4 deliberately: it is
+ *  the same ISO base media container, and Chromium is markedly happier with that label than with
+ *  video/quicktime. */
+const AV_MIME: Record<string, string> = {
+  mp4: "video/mp4", m4v: "video/mp4", mov: "video/mp4", webm: "video/webm",
+  mp3: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", flac: "audio/flac",
+  ogg: "audio/ogg", opus: "audio/ogg", aac: "audio/aac",
+};
+
 /**
- * Installed once, after app ready. `net.fetch` on a file: URL is what carries byte ranges — writing
- * the stream by hand would mean reimplementing Range parsing, and getting that subtly wrong is how a
- * video seeks to the wrong place.
+ * How much an OPEN-ENDED range (`bytes=0-`) returns in one response. Jason ruled the cap up on
+ * 08-17-2026 ("if its a buffer problem, make it unlimited") after a small chunk was suspected of
+ * stalling playback, and 64 MB is effectively that for this product: a photographer's clip arrives
+ * whole, in one response, and only a multi-gigabyte capture is ever split.
+ *
+ * IT IS NOT LITERALLY UNLIMITED, and the reason is one line: this body is read into memory in the
+ * main process, so `bytes=0-` on a four-gigabyte tape capture would allocate four gigabytes inside
+ * the process that owns every window. A player that is handed 64 MB has seconds of video buffered
+ * and asks for the next slice long before it runs out.
+ */
+const CHUNK = 64 * 1024 * 1024;
+
+/** One line the first time a file is served, so "it hangs" can be diagnosed from the console
+ *  instead of guessed at. Once per path per session — a media element makes dozens of requests. */
+const announced = new Set<string>();
+
+/**
+ * Installed once, after app ready.
+ *
+ * RANGE IS HANDLED HERE, BY HAND, AND IT HAS TO BE. The first cut of this handed the request to
+ * `net.fetch(pathToFileURL(p))`, on the reasoning that Electron would carry byte ranges for free.
+ * It does not: that response arrives with no `Accept-Ranges` and no `Content-Length`, so Chromium
+ * cannot seek, cannot judge how much it has, and falls back to stalling and re-requesting — which
+ * on device looked exactly like a video playing three seconds, pausing, playing five, pausing
+ * (Jason, 08-17-2026). A media element needs three things from a server and this now sends all
+ * three: `Accept-Ranges: bytes`, an accurate `Content-Length`, and a real 206 with `Content-Range`.
  */
 export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | null): void {
   protocol.handle(MEDIA_SCHEME, (request) => {
@@ -267,7 +298,72 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
       if (!ctx) return new Response("No active organization", { status: 403 });
       const refused = guardPath(ctx.db, ctx.orgId, p, "playable");
       if (refused) return new Response(refused, { status: 403 });
-      return net.fetch(pathToFileURL(p).toString());
+
+      const size = fs.statSync(p).size;
+      const type = AV_MIME[ext(p)] ?? "application/octet-stream";
+      const range = request.headers.get("Range") ?? request.headers.get("range");
+
+      if (!announced.has(p)) {
+        announced.add(p);
+        console.info(`[scan-notes] frmedia serving ${path.basename(p)} (${type}, ${size} bytes), first Range = ${range ?? "none"}`);
+      }
+
+      // NO RANGE MEANS THE WHOLE FILE, and that is not a preference — a 200 response carries the
+      // entire entity by definition. An earlier cut here answered a plain GET with 200 plus only the
+      // first chunk and a Content-Length to match, which told Chromium a sixty-megabyte clip was two
+      // megabytes long: it decoded the fragment, waited for the rest of what it had been promised,
+      // and sat there looking like it was about to play. If a Range IS present it is honoured, and
+      // only the open-ended form is bounded.
+      const [start, end] = ((): [number, number] => {
+        const m = range ? /^bytes=(\d*)-(\d*)$/.exec(range.trim()) : null;
+        if (!m) return [0, size - 1];
+        const a = m[1] === "" ? NaN : Number(m[1]);
+        const b = m[2] === "" ? NaN : Number(m[2]);
+        // `bytes=-500` means the LAST 500 bytes — how a player finds an MP4 whose moov atom sits at
+        // the end of the file. Getting this branch wrong makes exactly those clips unplayable.
+        if (Number.isNaN(a)) return [Math.max(0, size - (Number.isNaN(b) ? 0 : b)), size - 1];
+        if (Number.isNaN(b)) return [a, Math.min(size - 1, a + CHUNK - 1)]; // open-ended → one chunk
+        return [a, Math.min(b, size - 1)];
+      })();
+
+      if (start >= size || start > end) {
+        return new Response("Range not satisfiable", { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+      }
+
+      // READ THE SLICE INTO A BUFFER RATHER THAN STREAMING IT (Jason, on device 08-17-2026 — after
+      // the first Range cut, clips stopped playing entirely rather than merely stuttering).
+      //
+      // A streamed body has to be right about three things at once: the exact byte count in
+      // Content-Length, the lifetime of the file handle, and what happens when the player ABANDONS a
+      // request mid-flight — which a seeking media element does constantly. Any one of them wrong
+      // shows up as a video that loads forever and never starts, with nothing in the log. A bounded
+      // buffer has none of those failure modes: the length is what was actually read, the handle is
+      // closed before the response exists, and an abandoned request drops a Buffer rather than
+      // leaking a descriptor. Two megabytes off an SSD is single-digit milliseconds, and the player
+      // simply asks for the next slice.
+      // The body is handed over as a bare ArrayBuffer. Buffer and Uint8Array are both ArrayBufferView
+      // and both are REJECTED by this project's BodyInit typing (their ArrayBufferLike generic does
+      // not line up); an ArrayBuffer is unambiguous and needs no cast.
+      const fd = fs.openSync(p, "r");
+      let body: ArrayBuffer;
+      try {
+        const store = new ArrayBuffer(end - start + 1);
+        const view = new Uint8Array(store);
+        const read = fs.readSync(fd, view, 0, view.length, start);
+        body = read < view.length ? store.slice(0, read) : store; // short read at EOF — never over-claim
+      } finally {
+        fs.closeSync(fd);
+      }
+
+      return new Response(body, {
+        status: range ? 206 : 200,
+        headers: {
+          "Content-Type": type,
+          "Content-Length": String(body.byteLength),
+          "Accept-Ranges": "bytes",
+          ...(range ? { "Content-Range": `bytes ${start}-${start + body.byteLength - 1}/${size}` } : {}),
+        },
+      });
     } catch (e) {
       console.error("[scan-notes] frmedia request failed:", e);
       return new Response("Unavailable", { status: 500 });

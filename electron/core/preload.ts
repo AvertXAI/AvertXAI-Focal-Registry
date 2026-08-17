@@ -139,6 +139,7 @@ const api: Api = {
     clearedHistoryCount: () => invoke("scan:clearedHistoryCount"),
     notes: {
       tree: () => invoke("scan:notesTree"),
+      folders: (driveId: number, offset?: number, limit?: number) => invoke("scan:notesFolders", driveId, offset, limit),
       list: (driveId: number | null, folderPath?: string) => invoke("scan:notesList", driveId, folderPath),
       get: (uuid: string) => invoke("scan:notesGet", uuid),
       create: (driveId: number | null, folderPath: string, title?: string, body?: string) =>

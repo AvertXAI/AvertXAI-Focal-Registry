@@ -709,7 +709,6 @@ export default function ScanModule() {
           {tab === "notes" && (
             <div className="scannotes-tabactions">
               <button type="button" className="scannotes-btn pri" onClick={addNote}>+ Add Note</button>
-              <button type="button" className="scannotes-btn" onClick={makeShortcut}>Create desktop shortcut</button>
               <button type="button" className="scannotes-btn pri" onClick={toggleMedia}>{mediaMode ? "Scan Notes" : "View media"}</button>
               {/* The ring only pulses when there is queued work — a control that breathes all day is
                   a control nobody looks at. */}
@@ -723,6 +722,22 @@ export default function ScanModule() {
               >
                 ⟳
                 {pendingRenames > 0 && <span className="badge">{pendingRenames}</span>}
+              </button>
+              {/* THE DESKTOP SHORTCUT, an icon since 08-18-2026 (Jason: top-right of the module
+                  surface, on the same line as the tab strip's action row, to the right of the
+                  existing actions). It was a full-width text button competing with "+ Add Note" and
+                  "View media" for the eye, and it is a once-per-machine action — those two are used
+                  constantly. Behaviour and the duplicate guard are UNCHANGED: same makeShortcut, same
+                  handler, same toast. The tooltip carries the label the button no longer spells out,
+                  and aria-label carries it for anything that cannot see a tooltip. */}
+              <button
+                type="button"
+                className="scannotes-iconbtn"
+                title="Create desktop shortcut"
+                aria-label="Create desktop shortcut"
+                onClick={makeShortcut}
+              >
+                🔗
               </button>
             </div>
           )}

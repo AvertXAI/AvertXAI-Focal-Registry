@@ -58,6 +58,31 @@ const PAINTED_CEILING = 40;
 
 type Outcome = "painted" | "failed" | "gone";
 
+/**
+ * WHAT A TILE ENDED UP AS.
+ *  · painted — a frame was captured; the tile becomes an <img> and the decoder is released
+ *  · shown   — a frame decoded and is ON SCREEN, but could not be read back, so it stays a <video>
+ *  · failed  — no frame at all; the glyph
+ *
+ * `shown` EXISTS BECAUSE OF A BUG THIS FIXES. The first cut of the cache treated an unreadable
+ * frame as no frame and fell back to the glyph — which threw away a perfectly good, already-decoded,
+ * already-visible picture because the CACHE could not have it. A cache failure must never be a
+ * display failure. When capture is refused, the behaviour degrades to exactly what shipped before
+ * the cache existed: the frame you can see is the thumbnail.
+ */
+type Settled = "painted" | "shown" | "failed";
+
+/**
+ * LEARNED ONCE PER SESSION, from the first tile that gets far enough to tell us.
+ *   null  — untested
+ *   true  — pixels are readable; the disk cache is live
+ *   false — frames render but cannot be read back; stop paying for the attempt on every other tile
+ *
+ * Without this memo a folder of two hundred clips would pay a refused cross-origin load, then a
+ * retry, two hundred times over. One tile teaches the rest.
+ */
+let captureViable: boolean | null = null;
+
 /** Roughly the tile's own width. The frame is drawn at THIS size, not the source resolution — a 4K
  *  clip and a phone clip both cost the same few tens of kilobytes once they are here. */
 const CAPTURE_WIDTH = 320;
@@ -287,8 +312,12 @@ class ThumbQueue {
  * <img>, and that unmounts this component and releases the decoder. The element exists for exactly
  * as long as it takes to produce one picture.
  */
-function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: "painted" | "failed", shot?: string) => void }) {
+function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled, shot?: string) => void }) {
   const ref = useRef<HTMLVideoElement | null>(null);
+  /** ATTEMPT ONE ASKS FOR PIXEL ACCESS. If the load is refused only because of that ask, attempt two
+   *  drops it and we are back to a visible frame with no cache — never worse than before the cache
+   *  existed. At most one retry: this only ever goes true → false. */
+  const [useCors, setUseCors] = useState(captureViable !== false);
 
   useEffect(() => {
     const v = ref.current;
@@ -296,7 +325,7 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: "painted
     let done = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const settle = (how: "painted" | "failed", shot?: string): void => {
+    const settle = (how: Settled, shot?: string): void => {
       if (done) return;
       done = true;
       if (timer) clearTimeout(timer);
@@ -309,19 +338,42 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: "painted
       // second range request for nothing.
       if (v.currentTime < 0.05) { try { v.currentTime = target; } catch { /* unseekable; the frame at 0 stands */ } }
     };
-    /** A frame we cannot KEEP is the same as no frame: the point of this element is the picture it
-     *  leaves behind, so a capture failure falls back to the glyph rather than parking a live
-     *  decoder on screen forever. */
+    /** Capture if we can, keep the picture either way. */
     const grab = (): void => {
+      if (!useCors) { settle("shown"); return; } // known un-readable this session; do not taint for nothing
       const shot = capture(v);
-      if (shot !== null) settle("painted", shot);
-      else settle("failed");
+      if (shot !== null) { captureViable = true; settle("painted", shot); return; }
+      // The frame is decoded and on screen — it is only the READ that was refused. Keep it.
+      if (captureViable === null) {
+        console.warn(
+          "[scan-notes] the video frame decoded but could not be read back, so thumbnails will show " +
+            "and will NOT be cached this session. That is a canvas taint: check that frmedia returns " +
+            "Access-Control-Allow-Origin and is registered corsEnabled."
+        );
+      }
+      captureViable = false;
+      settle("shown");
     };
     // `loadeddata` can arrive at frame zero, before the seek lands — and frame zero is black
     // on most camera files. Capture from it only if we are already at the target; otherwise wait for
     // `seeked`.
     const onData = (): void => { if (v.currentTime > 0.05) grab(); };
-    const fail = (): void => settle("failed");
+    /** A load that fails ONLY when we ask for pixel access is a CORS refusal, not a bad file — so the
+     *  first such failure retries plainly instead of condemning the tile. Deliberately not settled
+     *  here: the retry owns the outcome. */
+    const fail = (): void => {
+      if (useCors && captureViable === null) {
+        captureViable = false;
+        console.warn(
+          "[scan-notes] frmedia refused a cross-origin read, so the disk thumbnail cache is off for " +
+            "this session and tiles fall back to a live frame. Check corsEnabled on the scheme and " +
+            "the Access-Control-Allow-Origin header in mediaBrowse.ts."
+        );
+        setUseCors(false); // re-runs this effect and reloads without the attribute
+        return;
+      }
+      settle("failed");
+    };
     /** At the ceiling, keep a frame if one exists (HAVE_CURRENT_DATA or better) rather than throwing
      *  away a slow container's work. */
     const onCeiling = (): void => { if (v.readyState >= 2) grab(); else settle("failed"); };
@@ -334,7 +386,8 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: "painted
     timer = setTimeout(onCeiling, FRAME_CEILING_MS);
     // ORDER IS LOAD-BEARING on both lines. crossOrigin has no effect once src is set, and src is
     // assigned here rather than in JSX so React's attribute emission order cannot decide it.
-    v.crossOrigin = "anonymous";
+    if (useCors) v.crossOrigin = "anonymous";
+    else v.removeAttribute("crossorigin"); // the retry must not carry the attribute that failed
     v.src = `${src}#t=1`;
     v.load(); // some containers do not begin fetching on src assignment alone
 
@@ -348,7 +401,7 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: "painted
       v.removeAttribute("src"); // drop the decoder and any buffered bytes with the tile
       v.load();
     };
-  }, [src, onSettled]);
+  }, [src, onSettled, useCors]);
 
   // NO src PROP — it is assigned in the effect above, after crossOrigin. `#t=1` is the whole of
   // Approach A: Chromium honours the media fragment on load and paints that frame with no script at
@@ -414,16 +467,20 @@ function Tile({ item, queue, cachedUrl, onOpen }: { item: ScanMediaItem; queue: 
   // `wantsVideo` false, which unmounts <VideoThumb> and re-runs the registration effect's cleanup.
   // Tearing the element down is not a side effect here — it is the entire point of capturing.
   const onSettled = useCallback(
-    (how: "painted" | "failed", shot?: string) => {
+    (how: Settled, shot?: string) => {
       if (how === "painted" && shot !== undefined) {
         setUrl(shot);
         // Fire-and-forget: the tile already has its picture, so a cache that cannot write is slow
         // next launch and broken never.
         void window.api.scan.notes.thumbsPut(item.path, shot).catch(() => undefined);
-      } else {
+      } else if (how === "failed") {
         setVideoFailed(true);
       }
-      queue.release(item.path, how);
+      // "shown" deliberately sets NOTHING: pic stays null and videoFailed stays false, so wantsVideo
+      // stays true and the <video> stays mounted with its frame on screen. It is released to the
+      // queue as painted because it is holding a live decoder — which is exactly what
+      // PAINTED_CEILING governs, and why that ceiling is still here.
+      queue.release(item.path, how === "failed" ? "failed" : "painted");
     },
     [queue, item.path]
   );

@@ -418,6 +418,10 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
           "Content-Length": String(body.byteLength),
           "Accept-Ranges": "bytes",
           "Access-Control-Allow-Origin": cors,
+          // CORP is a SECOND gate, separate from CORS, and Chromium applies it to subresource reads.
+          // A response can pass the CORS check and still be blocked here, which presents identically
+          // — a tainted canvas with nothing useful in the log — so both are answered.
+          "Cross-Origin-Resource-Policy": "cross-origin",
           // Without the expose list a CORS response hides every non-safelisted header from the
           // renderer, which is how a ranged read looks like it succeeded and then has no length.
           "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",

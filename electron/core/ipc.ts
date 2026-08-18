@@ -928,6 +928,12 @@ export function registerIpcHandlers(): void {
     const { db, orgId } = scanCtx();
     return scanMedia.readImage(db, orgId, target);
   });
+  // THE WALL'S path — tile-sized and cached. `scan:notesImage` above stays the VIEWER's path
+  // and returns the full image, because zoom needs the pixels this one deliberately throws away.
+  safeHandle("scan:notesStillThumb", async (_e, target: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanMedia.readStillThumb(db, orgId, target);
+  });
   /** Upper bound on one thumbsGet. A folder listing is already clamped to 2000 (mediaBrowse.ts),
    *  and this is the same discipline one layer down: an unbounded array is an unbounded synchronous
    *  loop on the thread that owns every window. */

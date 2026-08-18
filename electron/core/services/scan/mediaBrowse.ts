@@ -39,6 +39,8 @@ import type { Db } from "./notesDb";
 import { AUDIO_EXTS, RAW_EXTS, STILL_EXTS, VIDEO_EXTS, extOf, normalizeExt } from "./media";
 import { isUnderScannedRoot } from "./index";
 import { previewFor } from "./rawPreview";
+import { makeStillThumb } from "./stillThumb";
+import * as thumbs from "./thumbs";
 
 export const MEDIA_SCHEME = "frmedia";
 
@@ -291,6 +293,74 @@ export async function readImage(db: Db, orgId: string, target: unknown): Promise
           : code === "EACCES" || code === "EPERM"
             ? "Windows would not let the app read that file."
             : `That file could not be read: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
+ * ONE STILL, TILE-SIZED — the wall's path. `readImage` above stays the VIEWER's path and is
+ * unchanged, because the viewer needs the full image and zoom needs it at full resolution.
+ *
+ *   MediaGrid tile  -> readStillThumb  -> ~320px, ~11 KB, cached to .thumbs
+ *   MediaViewer     -> readImage       -> full size, in-memory LRU, never downscaled
+ *
+ * Conflating the two is how a photo zoomed to 400% turns into a blurry 320-pixel smear, so they
+ * are deliberately two functions with two ceilings.
+ *
+ * SAME STORE, SAME KEY, SAME SWEEP as the video thumbnails — `thumbs.getMany` / `thumbs.put`,
+ * content-keyed on (path, size, mtime). No second cache exists.
+ */
+export async function readStillThumb(db: Db, orgId: string, target: unknown): Promise<ImageResult> {
+  const p = typeof target === "string" ? target : "";
+  if (p === "") return { ok: false, error: "No file was named." };
+
+  const guard = guardPath(db, orgId, p, "image");
+  if (guard) return { ok: false, error: guard };
+
+  const e = ext(p);
+  const embedded = !BROWSER_IMAGE.has(e);
+
+  // The disk cache first — a warm tile costs one read and no decode at all.
+  try {
+    const hit = thumbs.getMany([p])[p];
+    if (hit) return { ok: true, dataUrl: hit, embedded };
+  } catch {
+    // A cache that cannot be read is a miss. It may never be an error: a cache that can fail the
+    // thing it accelerates is worse than no cache.
+  }
+
+  try {
+    let source: Buffer | null = null;
+    if (embedded) {
+      // RAW and friends: the resolver hands over the camera's own JPEG. Its extraction logic is
+      // untouched — this only decides what happens to the bytes afterwards.
+      const preview = await previewFor(p);
+      if (!preview) return await readImage(db, orgId, p); // HEIC/PSD etc — old path, exifr fallback
+      source = preview.bytes;
+    }
+    const url = await makeStillThumb(p, source);
+    // NULL MEANS FALL BACK, NEVER FAIL. A format nativeImage refuses still gets its picture the old
+    // way — slower and larger, but present. A working slow tile beats a broken fast one.
+    if (url === null) return await readImage(db, orgId, p);
+
+    try {
+      thumbs.put(p, url);
+    } catch {
+      // Fire and forget: the tile already has its picture, so a cache that cannot write is slow
+      // next launch and broken never.
+    }
+    if (CASE_TRACE) console.info(`[scan-notes] still thumb ${path.basename(p)}: ${Math.round(url.length / 1024)} KB`);
+    return { ok: true, dataUrl: url, embedded };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return {
+      ok: false,
+      error:
+        code === "ENOENT"
+          ? "That file is not there any more — the drive may be unplugged."
+          : code === "EACCES" || code === "EPERM"
+            ? "Windows would not let the app read that file."
+            : "That file could not be read.",
     };
   }
 }

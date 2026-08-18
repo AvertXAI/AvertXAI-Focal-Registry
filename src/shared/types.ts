@@ -1492,6 +1492,9 @@ export interface Api {
       /** One still as a data URL. RAW returns the camera's EMBEDDED preview — nothing is decoded and
        *  nothing is ever saved (§4.1). */
       image: (target: string) => Promise<{ ok: boolean; dataUrl?: string; embedded?: boolean; error?: string }>;
+      /** THE WALL's path — a ~320px JPEG, cached to .thumbs. `image` above is the VIEWER's and
+       *  stays full-size, because zoom needs the pixels this one throws away. */
+      stillThumb: (target: string) => Promise<{ ok: boolean; dataUrl?: string; embedded?: boolean; error?: string }>;
       /** Cached video thumbnails, keyed by absolute path. ONE call per folder — a hit renders an
        *  <img> with no decoder, no queue slot, and no frmedia request at all. Missing keys are
        *  simply absent from the result. */

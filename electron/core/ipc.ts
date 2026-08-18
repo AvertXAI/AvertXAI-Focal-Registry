@@ -35,6 +35,7 @@ import { ensureRenameSchema } from "./services/rename/db";
 import type { RenameSettings } from "../../src/shared/renamePreview";
 import * as scanDrives from "./services/scan/drives";
 import * as scanNotes from "./services/scan/notes";
+import * as scanThumbs from "./services/scan/thumbs";
 import * as scanMedia from "./services/scan/mediaBrowse";
 import { ensureScanNotesSchema } from "./services/scan/notesDb";
 import * as scanReport from "./services/scan/report";
@@ -278,6 +279,9 @@ export function registerIpcHandlers(): void {
   // on every single launch. A rename that DOES apply still syncs, because its files really did
   // change. Otherwise the sync belongs to a connect or to the refresh button.
   setTimeout(() => drainScanNotes(false), 3000);
+  // The thumbnail cache sweep walks a directory, so it is fired here — well clear of boot and of
+  // every per-tile path — and after that only when a session has written enough to be worth it.
+  scanThumbs.scheduleSweep(15_000);
   // data viewer — READ-ONLY introspection. The service whitelists `table` against sqlite_master and
   // clamps limit/offset, so the raw `unknown` args can't reach a writable or injectable statement.
   safeHandle("db:tables", () => dataviewer.listTables());
@@ -916,6 +920,23 @@ export function registerIpcHandlers(): void {
   safeHandle("scan:notesImage", async (_e, target: unknown) => {
     const { db, orgId } = scanCtx();
     return scanMedia.readImage(db, orgId, target);
+  });
+  // THE THUMBNAIL CACHE. One call per FOLDER, not per tile — that is the whole point: a warm folder
+  // opens on one round trip with no decoders at all. Both directions run the same guard every other
+  // media path runs, so a renderer bug cannot turn this into "hash any file on this machine".
+  safeHandle("scan:thumbsGet", (_e, targets: unknown) => {
+    if (!Array.isArray(targets)) return {};
+    const { db, orgId } = scanCtx();
+    const allowed = targets.filter((t): t is string => typeof t === "string" && scanMedia.isPlayablePath(db, orgId, t));
+    return scanThumbs.getMany(allowed);
+  });
+  safeHandle("scan:thumbsPut", (_e, target: unknown, dataUrl: unknown) => {
+    if (typeof target !== "string" || typeof dataUrl !== "string") return false;
+    if (!dataUrl.startsWith("data:image/jpeg;base64,")) return false; // this cache stores frames, nothing else
+    const { db, orgId } = scanCtx();
+    if (!scanMedia.isPlayablePath(db, orgId, target)) return false;
+    scanThumbs.put(target, dataUrl);
+    return true;
   });
   // The frmedia: handler resolves its org LAZILY, on every request — an org minted mid-session by
   // the first-run wizard must not leave the scheme permanently dead.

@@ -160,6 +160,8 @@ const api: Api = {
       localRoot: () => invoke("scan:notesLocalRoot"),
       media: (folderPath: string) => invoke("scan:notesMedia", folderPath),
       image: (target: string) => invoke("scan:notesImage", target),
+      thumbsGet: (targets: string[]) => invoke("scan:thumbsGet", targets),
+      thumbsPut: (target: string, dataUrl: string) => invoke("scan:thumbsPut", target, dataUrl),
     },
   },
   identity: {

@@ -1426,6 +1426,13 @@ export interface Api {
       /** One still as a data URL. RAW returns the camera's EMBEDDED preview — nothing is decoded and
        *  nothing is ever saved (§4.1). */
       image: (target: string) => Promise<{ ok: boolean; dataUrl?: string; embedded?: boolean; error?: string }>;
+      /** Cached video thumbnails, keyed by absolute path. ONE call per folder — a hit renders an
+       *  <img> with no decoder, no queue slot, and no frmedia request at all. Missing keys are
+       *  simply absent from the result. */
+      thumbsGet: (targets: string[]) => Promise<Record<string, string>>;
+      /** Store one captured frame. Returns false if it was refused or could not be written; the tile
+       *  already holds the picture either way, so this never gates the user interface. */
+      thumbsPut: (target: string, dataUrl: string) => Promise<boolean>;
     };
   };
   /** Auto-updater (§3.12) — check/version answer in every build so the Settings button is never

@@ -53,10 +53,21 @@ const ORIENT: Record<number, { swap: boolean; flipX: boolean; flipY: boolean }> 
   3: { swap: false, flipX: true, flipY: true },   // rotate 180
   4: { swap: false, flipX: false, flipY: true },  // mirror vertical
   5: { swap: true, flipX: false, flipY: false },  // transpose
-  6: { swap: true, flipX: true, flipY: false },   // rotate 90 clockwise
+  6: { swap: true, flipX: false, flipY: true },   // rotate 90 clockwise
   7: { swap: true, flipX: true, flipY: true },    // transverse
-  8: { swap: true, flipX: false, flipY: true },   // rotate 270 clockwise
+  8: { swap: true, flipX: true, flipY: false },   // rotate 270 clockwise
 };
+
+// 6 AND 8 WERE SWAPPED IN THE FIRST CUT, AND IT SHIPPED. Both are "swap axes" transforms, so the
+// output was the right SHAPE and the wrong way up — a 90-degree error in the one direction that
+// looks like 180 degrees, which is why a whole folder of Orientation-8 photographs rendered upside
+// down on device (D:\Summit\Day 2 PM - Paul, every file Orientation 8).
+//
+// THE REASON IT GOT PAST ME IS WORTH MORE THAN THE FIX: I verified that nativeImage IGNORES the
+// orientation tag, and then never verified that MY transform put the pixels back correctly. A
+// synthetic 4x2 image labelled ABCD/EFGH now checks all eight against the published expected
+// results — the identity cases and the mirrors passed either way, and only 6 and 8 could tell the
+// difference. Any change to the table above must be re-checked the same way, not by reasoning.
 
 /**
  * Rotate/flip a BGRA bitmap to match an EXIF orientation.

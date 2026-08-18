@@ -114,6 +114,17 @@ export function listFolderMedia(db: Db, orgId: string, folderPath: unknown, limi
     const e = stored !== "" ? normalizeExt(stored) : ext(r.path);
     const kind: MediaKind =
       STILL_EXTS.has(e) ? "image" : VIDEO_EXTS.has(e) ? "video" : AUDIO_EXTS.has(e) ? "audio" : "other";
+    // THE STORED EXTENSION DISAGREEING WITH THE FILE'S OWN NAME is the only mechanism I can find
+    // that explains the device report of an .mp3 being handed to a <video> element: `kind` is
+    // derived from `e`, and `e` prefers the database column over the path. A row written with the
+    // wrong extension is therefore inherited by every downstream decision — the kind, the glyph, the
+    // queue, the player. This names it rather than leaving it to be rediscovered.
+    if (CASE_TRACE && e !== extOf(r.path)) {
+      console.warn(
+        `[scan-notes] listing: stored extension "${e}" disagrees with the path ".${extOf(r.path)}" ` +
+          `— kind=${kind} ${r.filename}`
+      );
+    }
     const playable = kind === "video" ? BROWSER_VIDEO.has(e) : kind === "audio" ? BROWSER_AUDIO.has(e) : false;
     return {
       path: r.path,
@@ -151,6 +162,13 @@ function traceListing(folderPath: string, rows: Array<{ path: string; extension:
 
 /** `frmedia://media/?p=<encoded absolute path>`. The path is a QUERY value, never a URL path
  *  segment: a Windows path carries backslashes and a colon, and a path segment would mangle both. */
+/** Is this an audio file? Straight off the scanner's own AUDIO_EXTS — no second list, no second
+ *  notion of what counts as audio. Used to keep audio out of the thumbnail failure log, where it has
+ *  no business: a file with no video track cannot fail to yield a frame. */
+export function isAudioPath(p: string): boolean {
+  return AUDIO_EXTS.has(ext(p));
+}
+
 export function streamUrl(absolutePath: string): string {
   return `${MEDIA_SCHEME}://media/?p=${encodeURIComponent(absolutePath)}`;
 }

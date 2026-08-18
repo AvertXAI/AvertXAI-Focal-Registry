@@ -63,7 +63,22 @@ const FRAME_CEILING_MS = 10_000;
  */
 const PAINTED_CEILING = 40;
 
-type Outcome = "painted" | "failed" | "gone";
+/**
+ * `noframe` IS NOT A FAILURE, AND CALLING IT ONE WAS A LIE THE COUNTS TOLD.
+ *
+ * Device evidence, 08-18-2026: an .mp3 in a YouTube Downloads folder reported
+ * `code=none readyState=4 networkState=1 buffered=1`. Read it against the video failures and it is
+ * their exact opposite — readyState 4 and buffered 1 mean the file loaded COMPLETELY and
+ * SUCCESSFULLY, and code=none means the element reported no error at all. Nothing went wrong. There
+ * is simply no video track to take a frame from.
+ *
+ * The test is kind-independent on purpose: a container that reaches HAVE_FUTURE_DATA with no error
+ * and no video dimensions has been demuxed successfully and genuinely carries no video. A codec
+ * Chromium cannot decode does not get that far — it errors, or it stalls at readyState 0 or 1 — so
+ * this cannot swallow a real decode failure, and it protects the counts even if a file arrives
+ * mis-classified.
+ */
+type Outcome = "painted" | "failed" | "gone" | "noframe";
 
 /**
  * WHAT A TILE ENDED UP AS.
@@ -95,7 +110,7 @@ const ATTEMPT_BUDGET: Record<ScanThumbFailReason, number> = { transient: 2, unkn
  *  user watching the folder settle sees the second attempt land rather than wondering. */
 const RETRY_BACKOFF_MS = 3000;
 
-type Settled = "painted" | "shown" | "failed";
+type Settled = "painted" | "shown" | "failed" | "noframe";
 
 /**
  * WHY A TILE FAILED, decided here because this is the only place the media element's own error
@@ -266,7 +281,7 @@ class ThumbQueue {
   private urgent: string[] = [];
   private cancelled = false;
   private tick = 0;
-  readonly counts = { queued: 0, started: 0, painted: 0, failed: 0, gone: 0, evicted: 0 };
+  readonly counts = { queued: 0, started: 0, painted: 0, failed: 0, gone: 0, evicted: 0, noframe: 0 };
   /** The retry pass's own tally, written by MediaGrid — the classification lives up there, with the
    *  media element's error, and this object exists so ONE line tells the whole story of a run.
    *  `recovered` is the number that matters: it is the entire justification for the retry. */
@@ -317,7 +332,7 @@ class ThumbQueue {
     this.pending.delete(key);
     if (this.inFlight.delete(key)) this.counts[how] += 1;
     if (how === "painted") { this.painted.set(key, ++this.tick); this.trim(); }
-    else this.painted.delete(key);
+    else this.painted.delete(key); // failed, gone and noframe alike hold no decoder worth protecting
     this.pump();
   }
 
@@ -360,7 +375,8 @@ class ThumbQueue {
   summary(): string {
     const c = this.counts;
     const r = this.retry;
-    const base = `queued ${c.queued} · slots taken ${c.started} · released: painted ${c.painted}, failed ${c.failed}, unmounted ${c.gone} · evicted ${c.evicted} · still in flight ${this.inFlight.size} · still waiting ${this.pending.size}`;
+    const noframe = c.noframe > 0 ? `, no video track ${c.noframe}` : "";
+    const base = `queued ${c.queued} · slots taken ${c.started} · released: painted ${c.painted}, failed ${c.failed}${noframe}, unmounted ${c.gone} · evicted ${c.evicted} · still in flight ${this.inFlight.size} · still waiting ${this.pending.size}`;
     // Appended only when there is something to say, so a healthy folder's line stays the one line
     // it has always been.
     if (r.retried === 0 && r.permanent === 0 && r.unknown === 0) return base;
@@ -519,11 +535,19 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
     /** Capture if we can, keep the picture either way — but only ever call something a picture when
      *  there is genuinely a frame behind it. */
     const grab = (): void => {
-      // NO FRAME IS NOT A TAINT. videoWidth stays 0 for a file that demuxes but does not decode —
-      // an audio-only .mp4, an HEVC .mov Chromium will not touch. Treating that as "unreadable
-      // pixels" both mis-taught the session memo and left a <video> with nothing in it mounted
-      // forever, showing an empty box where the glyph belonged.
-      if (v.videoWidth === 0 || v.videoHeight === 0) { settle("failed"); return; }
+      // NO FRAME IS NOT A TAINT, and — since 08-18-2026 — it is not automatically a failure either.
+      // videoWidth stays 0 for two completely different situations and they must not share a verdict:
+      //
+      //   loaded fine, no video track   readyState >= 3, no error   -> noframe. An .mp3, an audio-only
+      //                                                                .mp4. Nothing went wrong.
+      //   never got that far            anything else               -> failed, classified as usual
+      //
+      // Counting the first as a failure was a lie in the summary line, an entry in the failure log,
+      // and a retry budget spent on a file that will answer identically forever.
+      if (v.videoWidth === 0 || v.videoHeight === 0) {
+        settle(v.readyState >= 3 && v.error === null ? "noframe" : "failed");
+        return;
+      }
 
       if (!useCors) {
         // We are here without the attribute and we have a real frame. If the first attempt errored,
@@ -648,7 +672,24 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }
   // user's own Retry control clears the record and overrides this — the classifier may be wrong, but
   // it does not get to be wrong repeatedly and for free.
   const knownDead = failure?.reason === "permanent";
-  const wantsVideo = item.kind === "video" && stream !== null && !videoFailed && !knownDead && pic === null;
+  /**
+   * ONLY VIDEO EVER ENTERS THE THUMBNAIL QUEUE. The kind comes from the scanner's own extension
+   * lists (electron/core/services/scan/media.ts), resolved into `kind` by mediaBrowse.ts — there is
+   * no second list here and there must never be one.
+   *
+   * An audio file is therefore never queued, never given a slot, never handed to a <video> element
+   * and never counted. Device evidence on 08-18-2026 showed an .mp3 doing all four, which by this
+   * source is impossible: "mp3" is in AUDIO_EXTS and not in VIDEO_EXTS, and `kind` is recomputed
+   * from the extension on every listing — so for that .mp3 to reach a <video>, its `kind` must have
+   * arrived as "video".
+   *
+   * I could not reproduce that by reading, and did not guess at it. The one mechanism that produces
+   * it is the listing's stored extension disagreeing with the file's own name, and mediaBrowse.ts
+   * now names exactly that under DIAG. The `noframe` outcome above is the belt to that brace: even
+   * a mis-classified audio file can no longer be recorded or counted as a failure.
+   */
+  const isVideo = item.kind === "video";
+  const wantsVideo = isVideo && stream !== null && !videoFailed && !knownDead && pic === null;
 
   // THE RETRY, from the tile's side, and it is deliberately three lines. Clearing videoFailed makes
   // wantsVideo true again, which re-runs the registration effect below, which puts this tile back in
@@ -723,12 +764,22 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }
         // next launch. A log that could BREAK the grid would be the exact inversion this exists to
         // prevent, and that inversion has already happened once in this file.
         void window.api.scan.notes.thumbFailurePut(item.path, why ?? "unknown", detail ?? "").catch(() => undefined);
+      } else if (how === "noframe") {
+        // Stop trying — there is nothing here to capture — and record NOTHING. This tile is not
+        // broken, is not counted under "couldn't be previewed", and is never retried. It falls back
+        // to its own glyph, which for audio is a note and not a film reel.
+        setVideoFailed(true);
+        if (TRACE) {
+          console.info(
+            `[scan-notes] no video track (not a failure): kind=${item.kind} ${item.filename}`
+          );
+        }
       }
       // "shown" deliberately sets NOTHING: pic stays null and videoFailed stays false, so wantsVideo
       // stays true and the <video> stays mounted with its frame on screen. It is released to the
       // queue as painted because it is holding a live decoder — which is exactly what
       // PAINTED_CEILING governs, and why that ceiling is still here.
-      queue.release(item.path, how === "failed" ? "failed" : "painted");
+      queue.release(item.path, how === "failed" ? "failed" : how === "noframe" ? "noframe" : "painted");
     },
     [queue, item.path, onOutcome]
   );

@@ -980,6 +980,10 @@ export function registerIpcHandlers(): void {
     try {
       if (typeof target !== "string" || typeof detail !== "string") return false;
       if (reason !== "transient" && reason !== "permanent" && reason !== "unknown") return false;
+      // AUDIO IS NEVER A THUMBNAIL FAILURE. An .mp3 has no video track to capture, so there is
+      // nothing for it to fail AT. The renderer already refuses to queue one; this refuses to
+      // record one, so a future caller cannot reintroduce the lie from the other side.
+      if (scanMedia.isAudioPath(target)) return false;
       const { db, orgId } = scanCtx();
       if (!scanMedia.isPlayablePath(db, orgId, target)) return false;
       scanThumbFails.record(target, reason, detail);

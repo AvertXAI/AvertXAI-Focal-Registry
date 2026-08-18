@@ -647,7 +647,7 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
 /** One tile. A CACHED picture short-circuits everything below — no queue slot, no decoder, no
  *  `frmedia` request. Only a cache miss is queued, and it converts to a cached <img> the moment
  *  its frame is captured. */
-function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, onCached }: {
+function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, onCached, onAsk }: {
   item: ScanMediaItem;
   queue: ThumbQueue;
   cachedUrl: string | null;
@@ -659,6 +659,8 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, 
    *  Without it, hiding a tile with the RAW toggle destroys its picture and showing it again
    *  re-crosses IPC for something the session already had. */
   onCached: (path: string, dataUrl: string) => void;
+  /** Called the moment this tile actually requests generation — the counter's denominator. */
+  onAsk: (path: string) => void;
   onOpen: (i: ScanMediaItem) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -741,6 +743,7 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, 
         if (item.kind === "video") { queue.setVisible(item.path, on); return; }
         if (!on) return;
         io.disconnect();
+        onAsk(item.path);
         // THE THUMB, NOT THE IMAGE. `stillThumb` returns a ~320px JPEG of about 11 KB; `image`
         // returns the full file, which for this folder averages a 10.4 MB base64 string per tile.
         // The viewer still calls `image` — it needs the pixels this one throws away.
@@ -765,7 +768,7 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, 
     );
     io.observe(el);
     return () => { live = false; io.disconnect(); };
-  }, [item.path, item.kind, queue]);
+  }, [item.path, item.kind, queue, onAsk]);
 
   // THE SWAP THAT RELEASES THE DECODER. Setting `url` makes `pic` non-null, which makes
   // `wantsVideo` false, which unmounts <VideoThumb> and re-runs the registration effect's cleanup.
@@ -862,14 +865,16 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, 
   );
 }
 
-export default function MediaGrid({ folderPath, showRaw, onProgress }: {
+export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw }: {
   folderPath: string | null;
   showRaw: boolean;
   /** REPORTED UP, NOT RENDERED HERE. Jason placed the loading line in the media pane HEADER row,
    *  beside the Show RAW files toggle (annotated screenshot, 08-18-2026) — and that row belongs to
    *  ScanNotesTab. Only this component knows the counts, so it hands them over and the header draws
    *  them. Null means there is nothing in flight. */
-  onProgress?: (p: { done: number; total: number; raw: boolean } | null) => void;
+  onProgress?: (p: { done: number; total: number } | null) => void;
+  /** How many RAW the filter is holding back — drawn on the header row beside the loading line. */
+  onHiddenRaw?: (n: number) => void;
 }) {
   const [items, setItems] = useState<ScanMediaItem[]>([]);
   /** Path → cached thumbnail data URL. Fetched once per folder; a path that is absent is a miss. */
@@ -882,6 +887,15 @@ export default function MediaGrid({ folderPath, showRaw, onProgress }: {
    *  what disk remembers, this one is what just happened, and the retry budget is spent against
    *  this one so a folder reopened an hour later gets a clean set of attempts. */
   const [failedNow, setFailedNow] = useState<Record<string, ScanThumbFailReason>>({});
+  /** Paths whose generation has actually been REQUESTED — the only honest denominator.
+   *
+   *  THE COUNTER USED TO COUNT THE FOLDER. A 500-file folder read `20 of 500` and sat there, because
+   *  480 of those had never been asked for and would not be until they scrolled into view: the line
+   *  promised work nobody had started. A progress indicator that looks stuck is worse than none, and
+   *  that is precisely the impression this feature exists to prevent. A ref, not state — it is
+   *  written from an observer callback and must not re-render on every tile that scrolls past. */
+  const asked = useRef<Set<string>>(new Set());
+  const [askedTick, setAskedTick] = useState(0);
   /** Attempts spent per path THIS open. A ref, not state: it is read inside the retry decision and
    *  must never drive a render. */
   const attempts = useRef(new Map<string, number>());
@@ -930,6 +944,12 @@ export default function MediaGrid({ folderPath, showRaw, onProgress }: {
       if (keys.length > SESSION_THUMB_MAX) for (const k of keys.slice(0, keys.length - SESSION_THUMB_MAX)) delete next[k];
       return next;
     });
+  }, []);
+
+  const onAsk = useCallback((p: string) => {
+    if (asked.current.has(p)) return;
+    asked.current.add(p);
+    setAskedTick((n) => n + 1); // one render per newly-started tile, not per scroll event
   }, []);
 
   const onOutcome = useCallback((p: string, how: "painted" | "failed", why?: ScanThumbFailReason) => {
@@ -1074,6 +1094,10 @@ export default function MediaGrid({ folderPath, showRaw, onProgress }: {
     return () => { live = false; };
   }, [folderPath]);
 
+  // A NEW FOLDER IS A NEW BATCH. Without this the counter would carry the previous folder's
+  // denominator into a folder whose tiles have not been asked for yet.
+  useEffect(() => { asked.current = new Set(); setAskedTick(0); }, [folderPath]);
+
   // THE STILL FETCH AND THE ESCAPE KEY BOTH MOVED INTO MediaViewer, and neither is duplicated here:
   // the viewer steps between files on its own, so a copy of the image held in the GRID would be the
   // wrong file the moment the user pressed Next, and a second window-level keydown listener would
@@ -1101,28 +1125,29 @@ export default function MediaGrid({ folderPath, showRaw, onProgress }: {
   /* Nothing vanishes silently — the same voice as the hidden-folders line in the tree. Rendered
      only when something IS hidden; a folder with no RAW gets no line and no explanation it does
      not need. */
-  const needsPicture = shownItems.filter((i) => i.kind === "image" || i.kind === "video");
-  const doneCount = needsPicture.filter((i) => cached[i.path] !== undefined || failedNow[i.path] !== undefined).length;
-  const total = needsPicture.length;
+  // OUTSTANDING WORK, NOT THE FOLDER. Only tiles that have actually requested generation count,
+  // so the line describes a batch that is genuinely running and clears when that batch lands.
+  // Scrolling queues more and the line comes back with new figures.
+  void askedTick; // the ref above is the source; this is what makes a new ask re-render
+  const inBatch = shownItems.filter((i) => asked.current.has(i.path));
+  const total = inBatch.length;
+  const doneCount = inBatch.filter((i) => cached[i.path] !== undefined || failedNow[i.path] !== undefined).length;
   const pending = total - doneCount;
-  const rawInFlight = showRaw && needsPicture.some((i) => i.raw);
 
   /* HANDED UP FOR THE HEADER TO DRAW. Reported from an effect on PRIMITIVES, never from render:
      calling the parent's setState during render is what turns a progress readout into an infinite
      loop. Null the moment nothing is in flight, so the header clears itself. */
   useEffect(() => {
-    onProgress?.(pending > 0 ? { done: doneCount, total, raw: rawInFlight } : null);
-  }, [onProgress, pending, doneCount, total, rawInFlight]);
+    onProgress?.(pending > 0 ? { done: doneCount, total } : null);
+  }, [onProgress, pending, doneCount, total]);
 
   /* On unmount — leaving media mode, or changing tab — the header must not keep a stale line. */
   useEffect(() => () => onProgress?.(null), [onProgress]);
 
-  const hiddenLine =
-    hiddenRaw > 0 ? (
-      <div className="scannotes-rawhidden">
-        {hiddenRaw === 1 ? "1 RAW file hidden." : `${hiddenRaw.toLocaleString()} RAW files hidden.`}
-      </div>
-    ) : null;
+  useEffect(() => { onHiddenRaw?.(hiddenRaw); }, [onHiddenRaw, hiddenRaw]);
+  useEffect(() => () => onHiddenRaw?.(0), [onHiddenRaw]);
+
+  const hiddenLine = null; // it lives on the header row now — see ScanNotesTab's .scannotes-mhead
 
   if (!folderPath) return <div className="scannotes-empty">Pick a folder on the left.</div>;
   if (items.length === 0) {
@@ -1162,6 +1187,7 @@ export default function MediaGrid({ folderPath, showRaw, onProgress }: {
             retryToken={retrySet.has(i.path) ? retryRound : 0}
             onOutcome={onOutcome}
             onCached={onCached}
+            onAsk={onAsk}
             onOpen={setOpen}
           />
         ))}

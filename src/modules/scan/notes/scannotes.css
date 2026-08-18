@@ -431,7 +431,14 @@
    so it yields rather than pushing the toggle out of the row. `flex-wrap` is the backstop: if a
    theme's font metrics run wider than this arithmetic, the toggle drops to its own line instead
    of overflowing the pane. */
-.scannotes-mhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 4px}
+/* STICKY. The pane scrolls; this row does not — Back, the folder you are in, what is loading and
+   the RAW toggle all stay reachable four hundred tiles down. It needs its own opaque background
+   (--mc-panels, the card surface it sits on) or the tiles scroll THROUGH it, and a z-index above
+   them for the same reason. The negative margins plus matching padding let that background run the
+   full width of the pane instead of leaving a transparent gutter at each edge. */
+.scannotes-mhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  position:sticky;top:0;z-index:2;background:var(--mc-panels);
+  margin:0 -12px 4px;padding:2px 12px 8px;border-bottom:1px solid var(--mc-border)}
 .scannotes-back{display:flex;align-items:center;gap:6px;flex:none;font:inherit;font-size:12.5px;
   padding:6px 11px;border:1px solid var(--mc-border);background:var(--mc-nested);color:var(--mc-text);
   border-radius:var(--mc-radius);cursor:pointer}

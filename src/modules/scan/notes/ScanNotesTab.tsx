@@ -68,11 +68,15 @@ function useOdometer(real: number): number {
 /** The loading line, drawn INSIDE the media pane header beside the toggle — Jason's placement,
  *  annotated on device 08-18-2026. The count animates; the total does not, and the ellipsis
  *  animates in CSS so it keeps moving even when the count is stuck on a slow read. */
-function MediaProgress({ done, total, raw }: { done: number; total: number; raw: boolean }) {
+function MediaProgress({ done, total }: { done: number; total: number }) {
   const shown = useOdometer(done);
   return (
     <span className="scannotes-mprogress" aria-live="polite">
-      Loading {raw ? "RAW previews" : "previews"}<span className="dots" aria-hidden="true" />{" "}
+      {/* NEUTRAL WORDING, DELIBERATELY. It said "RAW previews" when RAW was showing, and Jason read
+          that in a folder with no RAW in it and went looking for files that were not there. This
+          line covers photographs, RAW and video frames alike, so it must never name one of them —
+          a status line should not send anyone hunting. */}
+      Preparing thumbnails<span className="dots" aria-hidden="true" />{" "}
       <span className="odo">{shown.toLocaleString()}</span> of {total.toLocaleString()}
     </span>
   );
@@ -186,7 +190,9 @@ export interface ScanNotesTabProps {
   showRaw: boolean;
   onToggleRaw: () => void;
   /** Preview progress, reported up by MediaGrid so the HEADER can draw it. Null = nothing loading. */
-  mediaProgress?: { done: number; total: number; raw: boolean } | null;
+  mediaProgress?: { done: number; total: number } | null;
+  /** "N RAW files hidden." — moved onto the header row beside the loading line (Jason, 08-18-2026). */
+  hiddenRaw?: number;
   /** A folder the header search asked to open. `at` is what makes a repeat click on the SAME result
    *  still re-open it — an identical object would otherwise look like no change at all. */
   jumpTo?: { path: string; driveId: number | null; at: number } | null;
@@ -557,7 +563,7 @@ function Waiting({ what }: { what: string }) {
  *  behind the paint. Module-level on purpose — the same shape as the Vault list's cache. */
 let treeCache: ScanNotesDriveNode[] = [];
 
-export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, mediaPane, jumpTo, onSeeAll, showRaw, onToggleRaw, mediaProgress }: ScanNotesTabProps) {
+export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, mediaPane, jumpTo, onSeeAll, showRaw, onToggleRaw, mediaProgress, hiddenRaw }: ScanNotesTabProps) {
   const [tree, setTree] = useState<ScanNotesDriveNode[]>(treeCache);
   const [loading, setLoading] = useState(treeCache.length === 0);
   const [folderBusy, setFolderBusy] = useState(false);
@@ -965,9 +971,13 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
                 (Jason's annotated placement, 08-18-2026). It is `flex:none` so it never shrinks;
                 the breadcrumb beside it is the element that yields, because a truncated folder
                 name still reads while a truncated count does not. */}
-            {mediaProgress && (
-              <MediaProgress done={mediaProgress.done} total={mediaProgress.total} raw={mediaProgress.raw} />
-            )}
+            {mediaProgress ? (
+              <MediaProgress done={mediaProgress.done} total={mediaProgress.total} />
+            ) : hiddenRaw !== undefined && hiddenRaw > 0 ? (
+              <span className="scannotes-mprogress">
+                {hiddenRaw === 1 ? "1 RAW file hidden." : `${hiddenRaw.toLocaleString()} RAW files hidden.`}
+              </span>
+            ) : null}
             {/* THE SAME CONTROL AS "Show empty folders", down to the class names — role="switch"
                 around the shell's global .switch. Two toggles that behave differently in one
                 product is a defect, so this one is a copy and not a second design. */}

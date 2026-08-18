@@ -258,6 +258,79 @@ function countEmpty(list: TreeNode[]): number {
   return n;
 }
 
+/** The node at a path, anywhere in the tree. Case-insensitive, like every other path key here. */
+function findNode(list: TreeNode[], key: string): TreeNode | null {
+  for (const n of list) {
+    if (n.path.toLowerCase() === key) return n;
+    const hit = findNode(n.children, key);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** How many child folders the container message lists before it stops and says how many are left.
+ *  A drive root can have hundreds of children; an unbounded list turns the message into the problem. */
+const CHILD_CAP = 12;
+
+/**
+ * THE MEDIA PANE'S EMPTY STATE — three answers, not one.
+ *
+ * WHY THIS EXISTS. Selecting `D:\Summit` used to read "No media recorded in this folder. Scan it and
+ * the files appear here." Summit holds 2,150 files across six day-folders, every one of them already
+ * scanned. Every clause of that sentence was wrong: media IS recorded under this folder, and a
+ * rescan would change nothing because the scan is current. The application was telling the user its
+ * own data did not exist and sending them to spend an hour re-reading a drive to fix it.
+ *
+ * The three states are decided from data the tree already carries — no IPC call, no disk walk:
+ *   · own count 0, subtree ABOVE 0  → a CONTAINER. Say where the media actually is, and link to it.
+ *   · own count 0, subtree 0, scanned → genuinely empty. Say so, and do NOT invite a rescan: the
+ *     scan is current and "nothing here" is the true, finished answer.
+ *   · not scanned → the original copy, which is correct HERE AND ONLY HERE. `node.scanned` is false
+ *     exactly for a synthesised ancestor (buildTree:211) — a folder with no scan_folders row at all.
+ */
+function FolderEmptyState({ node, onOpen }: { node: TreeNode; onOpen: (path: string) => void }) {
+  // Children with nothing under them are not listed: a row promising media and delivering an empty
+  // pane is the same defect as the sentence this component replaced.
+  const kids = node.children.filter((c) => c.subtreeMedia > 0);
+
+  if (kids.length === 0) {
+    return (
+      <div className="scannotes-empty">
+        {node.scanned
+          ? "No media in this folder."
+          : "No media recorded in this folder. Scan it and the files appear here."}
+      </div>
+    );
+  }
+
+  const shown = kids.slice(0, CHILD_CAP);
+  const rest = kids.length - shown.length;
+  return (
+    <div className="scannotes-container-empty">
+      <p className="ce-lead">
+        No media directly in this folder — {node.subtreeMedia.toLocaleString()}
+        {node.subtreeMedia === 1 ? " file is" : " files are"} in {kids.length.toLocaleString()}
+        {kids.length === 1 ? " subfolder." : " subfolders."}
+      </p>
+      {/* CLICKABLE, NOT DECORATIVE. A message that names where the files are and then makes the user
+          walk back to the tree to reach them has only moved the work around. */}
+      <div className="ce-list">
+        {shown.map((c) => (
+          <button key={c.path} type="button" className="ce-row" onClick={() => onOpen(c.path)} title={c.path}>
+            <span className="ce-name">{c.name}</span>
+            <span className="ce-n">{c.subtreeMedia.toLocaleString()}</span>
+          </button>
+        ))}
+      </div>
+      {rest > 0 && (
+        <div className="ce-more">
+          and {rest.toLocaleString()} more {rest === 1 ? "subfolder" : "subfolders"} — open this folder in the tree to see them all
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Every ancestor of a path, so selecting something deep opens the branches down to it. */
 function ancestorsOf(p: string): string[] {
   const root = driveRootOf(p);
@@ -658,6 +731,13 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
   }, [jumpTo, revealFolder]);
 
   const selectedDrive = useMemo(() => tree.find((d) => d.drive_id === driveId) ?? null, [tree, driveId]);
+
+  /** The selected folder's own tree node — the media pane asks it what kind of empty it is. Null
+   *  while the tree is still loading, which is why the pane falls through to `mediaPane` then. */
+  const selectedNode = useMemo(
+    () => (folder === null || driveId === null ? null : findNode(trees.get(driveId)?.roots ?? [], folder.toLowerCase())),
+    [trees, driveId, folder]
+  );
   const latestApplied = history.find((h) => h.status === "applied") ?? null;
 
   return (
@@ -777,7 +857,18 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
       {mediaMode ? (
         <div className="scannotes-pane">
           <h3>{selectedDrive ? `${selectedDrive.letter ?? selectedDrive.volume_label ?? ""} / ` : ""}{folder ? folder.split("\\").pop() : "No folder"}</h3>
-          {mediaPane ?? <div className="scannotes-empty">Media browsing is not wired yet.</div>}
+          {/* THE GRID IS NOT ASKED WHAT AN EMPTY FOLDER MEANS — it cannot know. MediaGrid sees one
+              folder's listing; only the tree knows what is BELOW that folder, and that is the whole
+              difference between "nothing here" and "everything is one level down". Intercepting on
+              the tree's own count also means the grid never mounts a queue for a folder with no
+              media in it. MediaGrid's own message stays as the fallback for the one case this
+              cannot cover: a record claiming files that the disk no longer has, where "scan it" is
+              in fact the right advice. */}
+          {selectedNode !== null && selectedNode.mediaCount === 0 ? (
+            <FolderEmptyState node={selectedNode} onOpen={(p) => revealFolder(p, driveId)} />
+          ) : (
+            mediaPane ?? <div className="scannotes-empty">Media browsing is not wired yet.</div>
+          )}
         </div>
       ) : (
         <div className="scannotes-pane">

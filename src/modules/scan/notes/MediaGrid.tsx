@@ -398,6 +398,22 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
       if (done) return;
       done = true;
       if (timer) clearTimeout(timer);
+      // WHY IT FAILED, in the element's own words. A wall of failed tiles is indistinguishable from
+      // a wall of refused ones without this, and the two have nothing to do with each other:
+      //   code 4 (SRC_NOT_SUPPORTED) with a demuxer message = the container could not be parsed,
+      //     which for a camera original almost always means the index never arrived
+      //   code 3 (DECODE)                                   = the bytes arrived and the codec lost
+      //   no code at all, readyState 0, networkState 2      = the ceiling expired mid-load; nothing
+      //     was wrong, it simply never finished
+      // buffered.length is the tell-tale: zero means not one byte was usable.
+      if (TRACE && how === "failed") {
+        const err = v.error;
+        console.warn(
+          `[scan-notes] thumb failed: code=${err?.code ?? "none"} "${err?.message ?? ""}" ` +
+            `readyState=${v.readyState} networkState=${v.networkState} buffered=${v.buffered.length} ` +
+            `cors=${useCors} ${src}`
+        );
+      }
       onSettled(how, shot);
     };
     const seek = (): void => {

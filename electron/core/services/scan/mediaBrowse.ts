@@ -399,6 +399,17 @@ function allowOrigin(request: Request): string {
 const announced = new Set<string>();
 
 /**
+ * HOW MANY TIMES EACH FILE HAS BEEN ASKED FOR, this session. DIAG-gated.
+ *
+ * The one-line-per-file announcement above prints only the FIRST range, which is exactly the
+ * information that cannot answer the question in front of us: when every tile fails, the thing that
+ * separates "the player gave up after one slice" from "the player came back for the tail and still
+ * failed" is whether there was a SECOND request. One is a bounded-response fault; the other is not,
+ * and they need opposite fixes.
+ */
+const requestCount = new Map<string, number>();
+
+/**
  * Installed once, after app ready.
  *
  * RANGE IS HANDLED HERE, BY HAND, AND IT HAS TO BE. The first cut of this handed the request to
@@ -446,6 +457,8 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
       const size = fs.statSync(p).size;
       const type = AV_MIME[ext(p)] ?? "application/octet-stream";
       const range = request.headers.get("Range") ?? request.headers.get("range");
+      const nth = (requestCount.get(p) ?? 0) + 1;
+      requestCount.set(p, nth);
 
       if (!announced.has(p)) {
         announced.add(p);
@@ -471,6 +484,9 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
       })();
 
       if (start >= size || start > end) {
+        if (CASE_TRACE) {
+          console.info(`[scan-notes] frmedia #${nth} ${path.basename(p)} Range="${range ?? "none"}" -> 416 (size ${size})`);
+        }
         return new Response("Range not satisfiable", { status: 416, headers: head({ "Content-Range": `bytes */${size}` }) });
       }
 
@@ -499,6 +515,13 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
         fs.closeSync(fd);
       }
 
+      if (CASE_TRACE) {
+        const whole = start === 0 && start + body.byteLength >= size;
+        console.info(
+          `[scan-notes] frmedia #${nth} ${path.basename(p)} Range="${range ?? "none"}" -> ${range ? 206 : 200} ` +
+            `bytes ${start}-${start + body.byteLength - 1}/${size}${whole ? " (WHOLE FILE)" : " (PARTIAL)"}`
+        );
+      }
       return new Response(body, {
         status: range ? 206 : 200,
         headers: head({

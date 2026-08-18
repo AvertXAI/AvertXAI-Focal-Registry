@@ -38,7 +38,7 @@ import path from "node:path";
 import type { Db } from "./notesDb";
 import { AUDIO_EXTS, STILL_EXTS, VIDEO_EXTS, extOf, normalizeExt } from "./media";
 import { isUnderScannedRoot } from "./index";
-import { readEmbeddedPreview } from "./rawPreview";
+import { previewFor } from "./rawPreview";
 
 export const MEDIA_SCHEME = "frmedia";
 
@@ -255,17 +255,19 @@ export async function readImage(db: Db, orgId: string, target: unknown): Promise
     // ("Invalid typed array length: 15962", which is that file's own ThumbnailLength). See
     // rawPreview.ts for the measurements and for the lossless-JPEG trap that makes a bare
     // FF-D8-FF check the wrong test.
-    const preview = await readEmbeddedPreview(p);
+    const preview = await previewFor(p);
     if (preview) {
       const url = `data:image/jpeg;base64,${preview.bytes.toString("base64")}`;
       cachePut(p, url);
       if (CASE_TRACE) {
-        console.info(`[scan-notes] embedded preview ${path.basename(p)}: ${preview.bytes.length} bytes @ ${preview.offset}`);
+        console.info(
+          `[scan-notes] embedded preview ${path.basename(p)}: ${preview.bytes.length} bytes @ ${preview.offset} via ${preview.via}`
+        );
       }
       return { ok: true, dataUrl: url, embedded: true };
     }
-    // HEIC and CR3 are ISO base media format, not TIFF, so the walk above finds nothing in them and
-    // exifr remains their path. ITS THROW IS CAUGHT HERE, not by the outer catch: an exception from
+    // CR3 is handled above by the ISO BMFF strategy. What still reaches here is HEIC and PSD —
+    // neither a TIFF nor an ftyp-led container this walker claims. ITS THROW IS CAUGHT HERE, not by the outer catch: an exception from
     // a library is not a sentence to show a photographer, and printing one is how the caption came
     // to read "That f…".
     const thumb = await exifr.thumbnail(p).catch(() => null);

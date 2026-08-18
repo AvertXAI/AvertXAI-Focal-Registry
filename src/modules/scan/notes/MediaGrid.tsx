@@ -77,6 +77,24 @@ type Outcome = "painted" | "failed" | "gone";
  * display failure. When capture is refused, the behaviour degrades to exactly what shipped before
  * the cache existed: the frame you can see is the thumbnail.
  */
+/**
+ * HOW MANY TOTAL ATTEMPTS EACH CLASS GETS, per folder open. Counting TOTAL attempts, not retries:
+ * transient gets its first try plus one more, unknown gets its first try and nothing else.
+ *
+ * `unknown` IS CAPPED AT ONE DELIBERATELY, and it is worth being explicit that this makes it behave
+ * like `permanent` for now. The instruction is "treat as transient, but cap it harder", and the
+ * hardest useful cap on a class we cannot explain is: do not spend slots on it. What `unknown` still
+ * buys over `permanent` is that it is COUNTED and reported — if it starts dominating, that shows up
+ * as a number in the session summary rather than as a folder that mysteriously takes forever. The
+ * user's own Retry control covers it either way.
+ */
+const ATTEMPT_BUDGET: Record<ScanThumbFailReason, number> = { transient: 2, unknown: 1, permanent: 0 };
+
+/** How long after the queue drains before a retry round starts. Three seconds: long enough that a
+ *  drive which was genuinely busy has a moment to recover and is not hammered, short enough that a
+ *  user watching the folder settle sees the second attempt land rather than wondering. */
+const RETRY_BACKOFF_MS = 3000;
+
 type Settled = "painted" | "shown" | "failed";
 
 /**
@@ -249,6 +267,15 @@ class ThumbQueue {
   private cancelled = false;
   private tick = 0;
   readonly counts = { queued: 0, started: 0, painted: 0, failed: 0, gone: 0, evicted: 0 };
+  /** The retry pass's own tally, written by MediaGrid — the classification lives up there, with the
+   *  media element's error, and this object exists so ONE line tells the whole story of a run.
+   *  `recovered` is the number that matters: it is the entire justification for the retry. */
+  readonly retry = { retried: 0, recovered: 0, gaveUp: 0, permanent: 0, unknown: 0 };
+  /** Fired when the last slot empties with nothing waiting. This is the retry's trigger, and it is
+   *  deliberately the SAME drain the summary line already used rather than a second notion of
+   *  "finished" — a retry that could interleave with first attempts would spend a slot on a file
+   *  nobody is looking at while a tile on screen waits. */
+  onIdle: (() => void) | null = null;
 
   /** Called by every video tile at mount, in document order. This IS the background walk. */
   register(key: string, start: () => void, drop: () => void): void {
@@ -332,7 +359,16 @@ class ThumbQueue {
 
   summary(): string {
     const c = this.counts;
-    return `queued ${c.queued} · slots taken ${c.started} · released: painted ${c.painted}, failed ${c.failed}, unmounted ${c.gone} · evicted ${c.evicted} · still in flight ${this.inFlight.size} · still waiting ${this.pending.size}`;
+    const r = this.retry;
+    const base = `queued ${c.queued} · slots taken ${c.started} · released: painted ${c.painted}, failed ${c.failed}, unmounted ${c.gone} · evicted ${c.evicted} · still in flight ${this.inFlight.size} · still waiting ${this.pending.size}`;
+    // Appended only when there is something to say, so a healthy folder's line stays the one line
+    // it has always been.
+    if (r.retried === 0 && r.permanent === 0 && r.unknown === 0) return base;
+    return (
+      base +
+      ` · retried ${r.retried} (${r.recovered} recovered, ${r.gaveUp} gave up)` +
+      ` · permanent ${r.permanent} · unknown ${r.unknown}`
+    );
   }
 
   private enqueue(key: string, urgent: boolean): void {
@@ -386,8 +422,11 @@ class ThumbQueue {
       // it would read the in-flight set mid-update.
       queueMicrotask(() => { if (!this.cancelled && this.inFlight.has(key)) start?.(); });
     }
-    if (TRACE && this.counts.started > 0 && this.inFlight.size === 0 && this.pending.size === 0) {
-      console.info("[scan-notes] thumb queue idle —", this.summary());
+    // DRAINED. The trace is TRACE-gated; the callback is not — the retry has to run whether or not
+    // anyone is watching the console.
+    if (this.counts.started > 0 && this.inFlight.size === 0 && this.pending.size === 0) {
+      if (TRACE) console.info("[scan-notes] thumb queue idle —", this.summary());
+      this.onIdle?.();
     }
   }
 }
@@ -580,7 +619,16 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
 /** One tile. A CACHED picture short-circuits everything below — no queue slot, no decoder, no
  *  `frmedia` request. Only a cache miss is queued, and it converts to a cached <img> the moment
  *  its frame is captured. */
-function Tile({ item, queue, cachedUrl, failure, onOpen }: { item: ScanMediaItem; queue: ThumbQueue; cachedUrl: string | null; failure: ScanThumbFailure | null; onOpen: (i: ScanMediaItem) => void }) {
+function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }: {
+  item: ScanMediaItem;
+  queue: ThumbQueue;
+  cachedUrl: string | null;
+  failure: ScanThumbFailure | null;
+  /** Bumped by the grid when THIS tile is chosen for a retry round. Zero means never chosen. */
+  retryToken: number;
+  onOutcome: (path: string, how: "painted" | "failed", why?: ScanThumbFailReason) => void;
+  onOpen: (i: ScanMediaItem) => void;
+}) {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [granted, setGranted] = useState(false);
@@ -601,6 +649,16 @@ function Tile({ item, queue, cachedUrl, failure, onOpen }: { item: ScanMediaItem
   // it does not get to be wrong repeatedly and for free.
   const knownDead = failure?.reason === "permanent";
   const wantsVideo = item.kind === "video" && stream !== null && !videoFailed && !knownDead && pic === null;
+
+  // THE RETRY, from the tile's side, and it is deliberately three lines. Clearing videoFailed makes
+  // wantsVideo true again, which re-runs the registration effect below, which puts this tile back in
+  // the queue in the ordinary lane. There is no second queue and no second code path: a retry is
+  // just a tile asking again.
+  useEffect(() => {
+    if (retryToken === 0) return;
+    setVideoFailed(false);
+    setFailWhy(null);
+  }, [retryToken]);
 
   // EVERY video tile registers here, at mount, in document order — this is the whole folder warming
   // in the background. A tile that already has its picture never registers at all, which is what
@@ -655,9 +713,11 @@ function Tile({ item, queue, cachedUrl, failure, onOpen }: { item: ScanMediaItem
         // Fire-and-forget: the tile already has its picture, so a cache that cannot write is slow
         // next launch and broken never.
         void window.api.scan.notes.thumbsPut(item.path, shot).catch(() => undefined);
+        onOutcome(item.path, "painted");
       } else if (how === "failed") {
         setVideoFailed(true);
         setFailWhy(why ?? "unknown");
+        onOutcome(item.path, "failed", why ?? "unknown");
         // Same fire-and-forget discipline as the cache write above, and for a stronger reason: the
         // tile has already shown its glyph, so a log that cannot be written costs one wasted attempt
         // next launch. A log that could BREAK the grid would be the exact inversion this exists to
@@ -670,7 +730,7 @@ function Tile({ item, queue, cachedUrl, failure, onOpen }: { item: ScanMediaItem
       // PAINTED_CEILING governs, and why that ceiling is still here.
       queue.release(item.path, how === "failed" ? "failed" : "painted");
     },
-    [queue, item.path]
+    [queue, item.path, onOutcome]
   );
 
   // An AUDIO file gets an audio glyph and never a film reel — it is not video and must not look it.
@@ -719,6 +779,20 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
    *  entry stops its tile from ever mounting a decoder; the rest are informational until the retry
    *  pass reads them. */
   const [failures, setFailures] = useState<Record<string, ScanThumbFailure>>({});
+  /** Failures observed THIS open, path → reason. Separate from `failures` on purpose: that one is
+   *  what disk remembers, this one is what just happened, and the retry budget is spent against
+   *  this one so a folder reopened an hour later gets a clean set of attempts. */
+  const [failedNow, setFailedNow] = useState<Record<string, ScanThumbFailReason>>({});
+  /** Attempts spent per path THIS open. A ref, not state: it is read inside the retry decision and
+   *  must never drive a render. */
+  const attempts = useRef(new Map<string, number>());
+  /** The paths chosen for the current retry round, and the round number that arms them. */
+  const [retrySet, setRetrySet] = useState<ReadonlySet<string>>(new Set());
+  const [retryRound, setRetryRound] = useState(0);
+  /** True once the queue has drained at least once. The line under the grid waits for it, so nothing
+   *  appears while tiles are still working — it must not flash and must not move the grid. */
+  const [settled, setSettled] = useState(false);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [open, setOpen] = useState<ScanMediaItem | null>(null);
   const [full, setFull] = useState<string | null>(null);
   const [fullErr, setFullErr] = useState<string | null>(null);
@@ -736,6 +810,86 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
     return () => queue.cancel();
   }, [queue]);
 
+  /** Every video tile's verdict lands here. Stable identity — it is a dependency of every tile's
+   *  onSettled, and a new function each render would re-run four hundred callbacks. */
+  const onOutcome = useCallback((p: string, how: "painted" | "failed", why?: ScanThumbFailReason) => {
+    if (how === "painted") {
+      // RECOVERED, and only if it had actually failed before. A tile that paints on its first
+      // attempt is not a recovery, and counting it as one would make the number that justifies this
+      // whole feature meaningless.
+      if ((attempts.current.get(p) ?? 0) > 0) queue.retry.recovered += 1;
+      setFailedNow((prev) => {
+        if (!(p in prev)) return prev; // no state churn for the overwhelming majority that never failed
+        const next = { ...prev };
+        delete next[p];
+        return next;
+      });
+      return;
+    }
+    attempts.current.set(p, (attempts.current.get(p) ?? 0) + 1);
+    setFailedNow((prev) => ({ ...prev, [p]: why ?? "unknown" }));
+  }, [queue]);
+
+  /**
+   * THE RETRY ROUND. Armed by the queue draining, delayed by RETRY_BACKOFF_MS, and it re-queues only
+   * what still has budget. Everything else in this function is the stopping condition, which is the
+   * part that matters: a retry that cannot succeed is a treadmill, and a treadmill on a folder of
+   * four hundred clips is an application that never stops working.
+   */
+  useEffect(() => {
+    queue.onIdle = () => {
+      setSettled(true);
+      if (retryTimer.current !== null) return; // a round is already armed; draining again changes nothing
+      retryTimer.current = setTimeout(() => {
+        retryTimer.current = null;
+        setFailedNow((current) => {
+          const entries = Object.entries(current);
+          const due = entries.filter(([p, r]) => (attempts.current.get(p) ?? 0) < ATTEMPT_BUDGET[r]);
+          // The tally is SET rather than accumulated: it describes the folder as it stands, so a
+          // second drain does not double-count what the first one already reported.
+          queue.retry.gaveUp = entries.length - due.length;
+          queue.retry.permanent = entries.filter(([, r]) => r === "permanent").length;
+          queue.retry.unknown = entries.filter(([, r]) => r === "unknown").length;
+          if (due.length > 0) {
+            queue.retry.retried += due.length;
+            setRetrySet(new Set(due.map(([p]) => p)));
+            setRetryRound((n) => n + 1);
+          }
+          return current; // read-only use of the setter — nothing about the failure map changes here
+        });
+      }, RETRY_BACKOFF_MS);
+    };
+    // CANCELLED WITH THE FOLDER, exactly as the first pass is. A retry that outlived its folder would
+    // burn slots on files that have already unmounted, and the new folder would pay for it.
+    return () => {
+      queue.onIdle = null;
+      if (retryTimer.current !== null) { clearTimeout(retryTimer.current); retryTimer.current = null; }
+    };
+  }, [queue]);
+
+  /** Everything that could not be previewed: what failed this session, plus what disk already knows
+   *  is hopeless — a `permanent` tile never attempts, so it never appears in failedNow, and leaving
+   *  it out of the count would be the silent film-glyph this feature exists to end. */
+  const failedPaths = useMemo(() => {
+    const s = new Set(Object.keys(failedNow));
+    for (const i of items) if (failures[i.path]?.reason === "permanent") s.add(i.path);
+    return [...s];
+  }, [failedNow, failures, items]);
+
+  /** The human override. It clears the record for this folder — `permanent` included — and re-arms
+   *  every failed tile. An explicit request outranks the classifier, which may be wrong; what it
+   *  must not do is let the classifier be wrong repeatedly and for free. */
+  const retryAll = useCallback(() => {
+    if (failedPaths.length === 0) return;
+    void window.api.scan.notes.thumbFailuresClear(failedPaths).catch(() => undefined);
+    attempts.current.clear();
+    queue.retry.retried += failedPaths.length;
+    setFailures({});   // drops knownDead, so a permanent tile mounts a decoder again
+    setFailedNow({});
+    setRetrySet(new Set(failedPaths));
+    setRetryRound((n) => n + 1);
+  }, [failedPaths, queue]);
+
   // TILE NAMES FIRST, PICTURES A BEAT LATER, and deliberately in that order — the listing is one
   // cheap query and the cache read is hundreds of file reads, so painting the wall before asking for
   // thumbnails is the difference between a folder that opens and a folder that stalls.
@@ -744,6 +898,12 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
   // message overhead than the reads themselves. Every hit that comes back is a tile that will never
   // create a decoder or take a queue slot.
   useEffect(() => {
+    // A NEW FOLDER IS A CLEAN SLATE for everything the retry reasons about. The transient budget
+    // resets here and only here — "never more than once per open" is this line.
+    attempts.current.clear();
+    setFailedNow({});
+    setRetrySet(new Set());
+    setSettled(false);
     if (!folderPath) { setItems([]); setCached({}); setFailures({}); return; }
     let live = true;
     // NOT cleared here. Clearing it while the item list still held the OUTGOING folder made every one of
@@ -831,10 +991,26 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
             queue={queue}
             cachedUrl={cached[i.path] ?? null}
             failure={failures[i.path] ?? null}
+            retryToken={retrySet.has(i.path) ? retryRound : 0}
+            onOutcome={onOutcome}
             onOpen={setOpen}
           />
         ))}
       </div>
+
+      {/* ONE QUIET LINE, and only once the folder has settled. It sits BELOW the grid and is
+          conditional on a count, so it can never reflow the tiles while they are still working —
+          nothing flashes and nothing pops. */}
+      {settled && failedPaths.length > 0 && (
+        <div className="scannotes-failline">
+          <span>
+            {failedPaths.length} file{failedPaths.length === 1 ? "" : "s"} couldn&rsquo;t be previewed.
+          </span>
+          <button type="button" className="scannotes-failretry" onClick={retryAll}>
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* data-modal-backdrop dims the OS-drawn min/max/close buttons — they are painted ABOVE all
           web content, so no DOM backdrop can cover them (§3.3/§3.4). */}

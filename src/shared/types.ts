@@ -460,6 +460,12 @@ export interface ScanFolderNode {
   path: string;
   name: string;
   renamedFrom: string | null;
+  /** Media files recorded in THIS folder by the latest scan — not its children. The tree sums the
+   *  subtree itself, because "hide a folder with no media" has to mean "no media anywhere below it"
+   *  or it would hide the parents of everything. */
+  mediaCount: number;
+  /** True when a user note exists on this folder — the tree's note marker. */
+  hasNote: boolean;
 }
 /** One Recent Work row. Jason ruled 08-18-2026 that these show the folder NAME and its kind icon
  *  and nothing else — no drive path, no timestamp, no pin, superseding the mockup's richer row.
@@ -473,8 +479,21 @@ export interface ScanRecentFolder {
   drive_id: number | null;
 }
 
-/** A folder search result — current names AND old ones, which is what the search box promises. */
-export interface ScanFolderHit extends ScanFolderNode {
+/**
+ * A folder search result — current names AND old ones, which is what the search box promises.
+ *
+ * IT DECLARES ITS OWN FIELDS RATHER THAN EXTENDING ScanFolderNode, and that is deliberate. It used
+ * to extend it, which was fine while the two shapes matched — then the tree node gained mediaCount
+ * and hasNote for the empty-folder rule (08-18-2026) and the search service, which supplies
+ * neither, silently started returning a value that no longer matched its own type. Nothing broke,
+ * because no caller read those two; a type that lies about what came back is a defect waiting for
+ * the caller that does. A search hit genuinely has no media rollup — it is a name match, not a
+ * folder row — so the honest shape is its own.
+ */
+export interface ScanFolderHit {
+  path: string;
+  name: string;
+  renamedFrom: string | null;
   drive_id: number | null;
   /** true when the term matched the OLD name rather than the current one. */
   matchedOld: boolean;
@@ -1474,6 +1493,9 @@ export interface Api {
       /** Store one captured frame. Returns false if it was refused or could not be written; the tile
        *  already holds the picture either way, so this never gates the user interface. */
       thumbsPut: (target: string, dataUrl: string) => Promise<boolean>;
+      /** Reveal one media file in Explorer, selected. Guarded to the scanned drives; never opens
+       *  the file itself. */
+      revealMedia: (target: string) => Promise<{ ok: boolean; error?: string }>;
       /** Recorded thumbnail failures, keyed by absolute path. ONE call per folder, read alongside
        *  thumbsGet. A `permanent` entry means the tile does not attempt at all — that is the whole
        *  point: a file Chromium cannot decode costs a slot, a read and ten seconds of ceiling on

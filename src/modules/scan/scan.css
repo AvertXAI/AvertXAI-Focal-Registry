@@ -245,3 +245,8 @@
    as clickable (pointer, underline on hover) without becoming a second kind of control. */
 button.scan-export-rail { width: 100%; text-align: left; border: none; font: inherit; cursor: pointer; }
 button.scan-export-rail.link:hover { text-decoration: underline; }
+/* Scan Notes search — results grouped by kind (Folders, then Notes). The heading borrows
+   .scan-mlabel's look, so this only adds the spacing a section head needs inside the results list
+   and keeps it readable while the list scrolls under it. Panel surface token, no hardcoded colour. */
+.scannotes-rgroup + .scannotes-rgroup { margin-top: 10px; }
+.scannotes-rlabel { position: sticky; top: 0; z-index: 1; background: var(--mc-panels); padding: 3px 2px 5px; }

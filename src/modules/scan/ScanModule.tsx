@@ -39,6 +39,12 @@ type LogLine =
   | { kind: "folder"; at: string; path: string; files: number; bytes: number }
   | { kind: "warn"; at: string; count: number }
   | { kind: "check"; at: string; folders: number };
+// A search result carries the KIND that produced it, so the panel can group by kind instead of
+// relying on a build order that reads as a flat list to the user.
+type HitKind = "folder" | "note";
+type SearchHit = { kind: HitKind; key: string; title: string; sub: string; path: string; driveId: number | null };
+// Folders first: the box sits on a folder tree, and a folder is what people look for on it.
+const HIT_GROUPS: Array<[HitKind, string]> = [["folder", "Folders"], ["note", "Notes"]];
 const MAX_LOG_LINES = 200; // console keeps the tail only — a multi-hour run must not grow the heap
 const CHECKPOINT_EVERY = 25; // emit a "checkpoint" console line every N committed folders
 
@@ -178,7 +184,7 @@ export default function ScanModule() {
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [scope, setScope] = useState<"all" | "folders" | "notes">("all");
-  const [hits, setHits] = useState<Array<{ key: string; title: string; sub: string; path: string; driveId: number | null }>>([]);
+  const [hits, setHits] = useState<SearchHit[]>([]);
   /** A folder the search asked to open — handed to the tab, which selects it and expands to it. */
   const [jumpTo, setJumpTo] = useState<{ path: string; driveId: number | null; at: number } | null>(null);
   const searchBox = useRef<HTMLDivElement | null>(null);
@@ -427,14 +433,17 @@ export default function ScanModule() {
         .then(([ns, fs]) => {
           setHits([
             // Folders first: the box is on a folder tree, and a folder is what people look for on it.
-            ...fs.map((f) => ({
+            // The `kind` rides along so the panel groups them under labelled headings.
+            ...fs.map((f): SearchHit => ({
+              kind: "folder",
               key: `f:${f.path}`,
               title: f.name,
               sub: f.renamedFrom ? `Renamed from ${f.renamedFrom}` : "Folder",
               path: f.path,
               driveId: f.drive_id,
             })),
-            ...ns.map((n) => ({
+            ...ns.map((n): SearchHit => ({
+              kind: "note",
               key: `n:${n.uuid}`,
               title: n.title,
               sub: n.excerpt.trim() || "Note",
@@ -663,24 +672,38 @@ export default function ScanModule() {
                     </div>
                     {hits.length > 0 && (
                       <div className="scannotes-results">
-                        {hits.map((h) => (
-                          <button
-                            key={h.key}
-                            type="button"
-                            className="scannotes-result"
-                            onClick={() => {
-                              // A result that only closed the panel was the other half of "search
-                              // isn't working": it found the folder and then did nothing with it.
-                              setSearchOpen(false);
-                              chooseTab("notes");
-                              setJumpTo({ path: h.path, driveId: h.driveId, at: Date.now() });
-                            }}
-                          >
-                            <span className="rt">{h.title}</span>
-                            {h.sub && <span className="rx">{h.sub}</span>}
-                            <span className="rp">{h.path}</span>
-                          </button>
-                        ))}
+                        {/* GROUPED BY KIND, folders first. A group with nothing in it renders
+                            nothing at all — an empty heading is worse than no heading. */}
+                        {HIT_GROUPS.map(([kind, label]) => {
+                          const group = hits.filter((h) => h.kind === kind);
+                          if (group.length === 0) return null;
+                          return (
+                            <div key={kind} className="scannotes-rgroup">
+                              <div className="scan-mlabel scannotes-rlabel">{label}</div>
+                              {group.map((h) => (
+                                <button
+                                  key={h.key}
+                                  type="button"
+                                  className="scannotes-result"
+                                  onClick={() => {
+                                    // A result that only closed the panel was the other half of
+                                    // "search isn't working": it found the folder and then did
+                                    // nothing with it.
+                                    setSearchOpen(false);
+                                    chooseTab("notes");
+                                    setJumpTo({ path: h.path, driveId: h.driveId, at: Date.now() });
+                                  }}
+                                >
+                                  <span className="rt">{h.title}</span>
+                                  {/* A folder that matched an OLD name still says so — that is the
+                                      headline capability of this search. */}
+                                  {h.sub && <span className="rx">{h.sub}</span>}
+                                  <span className="rp">{h.path}</span>
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                     <div className="scannotes-hintline">

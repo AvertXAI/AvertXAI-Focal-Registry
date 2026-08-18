@@ -13,6 +13,7 @@ import { registerIpcHandlers } from "./core/ipc";
 import { registerMediaScheme } from "./core/services/scan/mediaBrowse";
 import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overlayFor, setBooting, setMainWindow, showMain } from "./core/windows";
 import { initUpdater, notifyUpdaterBootDone } from "./core/updater";
+import { attachDevToolsShortcut } from "./core/devtools";
 import { initDiag } from "./diag";
 
 // ── REVERTIBLE GPU-BACKEND EXPERIMENT (resize-band probe) — REMOVE WHEN DONE ──
@@ -175,6 +176,10 @@ function createWindow(): BrowserWindow {
   });
 
   hardenWebContents(win);
+
+  // Ctrl+Shift+I / F12. Owned by the window rather than borrowed from Electron's default
+  // menu — see devtools.ts for why that menu was never ours to rely on.
+  attachDevToolsShortcut(win);
 
   // Attention flashes clear when the user comes back to the window.
   win.on("focus", () => win.flashFrame(false));

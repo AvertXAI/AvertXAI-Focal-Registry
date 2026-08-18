@@ -240,6 +240,20 @@ export function registerMediaScheme(): void {
 /** The three checks, in one place, so the scheme and the image reader cannot drift apart. Returns a
  *  plain sentence when the path is refused, or null when it is allowed. */
 function guardPath(db: Db, orgId: string, p: string, want: "image" | "playable"): string | null {
+  // THE ONE THAT MATTERS, AND IT GOES FIRST. Without it a renderer bug becomes "read any file on
+  // this machine" — and the ORDER is load-bearing too, not just the check. It used to sit last,
+  // after fs.statSync, which meant every path a caller named was touched by the main process before
+  // it was refused. On Windows that is not free: statSync on a UNC path (\\host\share\x.mp4) opens
+  // an outbound SMB connection and hands the machine's credentials to whatever answers, and an
+  // unresolvable host blocks on DNS and TCP for seconds. This check is a database lookup on path
+  // prefixes and touches no filesystem, so refusing here costs nothing and reaches nothing.
+  if (!isUnderScannedRoot(db, orgId, p)) return "That file is outside any scanned drive.";
+  const e = ext(p);
+  const ok =
+    want === "image"
+      ? STILL_EXTS.has(e)
+      : (VIDEO_EXTS.has(e) && BROWSER_VIDEO.has(e)) || (AUDIO_EXTS.has(e) && BROWSER_AUDIO.has(e));
+  if (!ok) return `${path.basename(p)} is not something this product can open.`;
   let stat: fs.Stats;
   try {
     stat = fs.statSync(p);
@@ -247,15 +261,14 @@ function guardPath(db: Db, orgId: string, p: string, want: "image" | "playable")
     return "That file is not there any more — the drive may be unplugged.";
   }
   if (!stat.isFile()) return "That is not a file.";
-  const e = ext(p);
-  const ok =
-    want === "image"
-      ? STILL_EXTS.has(e)
-      : (VIDEO_EXTS.has(e) && BROWSER_VIDEO.has(e)) || (AUDIO_EXTS.has(e) && BROWSER_AUDIO.has(e));
-  if (!ok) return `${path.basename(p)} is not something this product can open.`;
-  // THE ONE THAT MATTERS: without it, a renderer bug becomes "read any file on this machine".
-  if (!isUnderScannedRoot(db, orgId, p)) return "That file is outside any scanned drive.";
   return null;
+}
+
+/** The scanned-root check ALONE, for callers that do their own stat and never read the target's
+ *  bytes — the thumbnail cache reads only its own JPEG. Skipping the guard's stat here is what stops
+ *  a four-hundred-path folder open from stat-ing the external drive twice for every tile. */
+export function isUnderScannedDrive(db: Db, orgId: string, target: string): boolean {
+  return isUnderScannedRoot(db, orgId, target);
 }
 
 /** THE SAME THREE CHECKS the scheme runs, exposed for callers that touch a media path without going
@@ -336,24 +349,37 @@ const announced = new Set<string>();
  */
 export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | null): void {
   protocol.handle(MEDIA_SCHEME, (request) => {
+    // HOISTED ABOVE THE try ON PURPOSE: the catch below returns a response too, and it cannot reach
+    // a binding scoped inside the block it is catching for.
+    const cors = allowOrigin(request);
+    /** EVERY response carries the CORS header, not just the successful ones. This is not tidiness.
+     *  In CORS mode Chromium converts a response without an Access-Control-Allow-Origin into a
+     *  GENERIC NETWORK ERROR — the renderer never sees the 403, never sees the sentence explaining
+     *  that the drive is unplugged, and gets an indistinguishable `error` event on the media
+     *  element. The thumbnail pipeline reads that as a cross-origin refusal and switches the disk
+     *  cache off for the whole session. One unplugged file was enough to do it. */
+    const head = (extra?: Record<string, string>): Record<string, string> => ({
+      "Access-Control-Allow-Origin": cors,
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      ...(extra ?? {}),
+    });
     try {
-      const cors = allowOrigin(request);
       // `Range` is a CORS-safelisted request header, so a media fetch should never preflight. Answered
       // anyway: if Chromium ever does send one, an unhandled OPTIONS is a thumbnail that fails with
       // nothing in the log, and the answer costs four lines.
       if (request.method === "OPTIONS") {
         return new Response(null, {
           status: 204,
-          headers: { "Access-Control-Allow-Origin": cors, "Access-Control-Allow-Headers": "Range", "Access-Control-Max-Age": "86400" },
+          headers: head({ "Access-Control-Allow-Headers": "Range", "Access-Control-Max-Age": "86400" }),
         });
       }
 
       const p = new URL(request.url).searchParams.get("p");
-      if (!p) return new Response("Bad request", { status: 400 });
+      if (!p) return new Response("Bad request", { status: 400, headers: head() });
       const ctx = resolve();
-      if (!ctx) return new Response("No active organization", { status: 403 });
+      if (!ctx) return new Response("No active organization", { status: 403, headers: head() });
       const refused = guardPath(ctx.db, ctx.orgId, p, "playable");
-      if (refused) return new Response(refused, { status: 403 });
+      if (refused) return new Response(refused, { status: 403, headers: head() });
 
       const size = fs.statSync(p).size;
       const type = AV_MIME[ext(p)] ?? "application/octet-stream";
@@ -383,7 +409,7 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
       })();
 
       if (start >= size || start > end) {
-        return new Response("Range not satisfiable", { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+        return new Response("Range not satisfiable", { status: 416, headers: head({ "Content-Range": `bytes */${size}` }) });
       }
 
       // READ THE SLICE INTO A BUFFER RATHER THAN STREAMING IT (Jason, on device 08-17-2026 — after
@@ -413,24 +439,19 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
 
       return new Response(body, {
         status: range ? 206 : 200,
-        headers: {
+        headers: head({
           "Content-Type": type,
           "Content-Length": String(body.byteLength),
           "Accept-Ranges": "bytes",
-          "Access-Control-Allow-Origin": cors,
-          // CORP is a SECOND gate, separate from CORS, and Chromium applies it to subresource reads.
-          // A response can pass the CORS check and still be blocked here, which presents identically
-          // — a tainted canvas with nothing useful in the log — so both are answered.
-          "Cross-Origin-Resource-Policy": "cross-origin",
           // Without the expose list a CORS response hides every non-safelisted header from the
           // renderer, which is how a ranged read looks like it succeeded and then has no length.
           "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
           ...(range ? { "Content-Range": `bytes ${start}-${start + body.byteLength - 1}/${size}` } : {}),
-        },
+        }),
       });
     } catch (e) {
       console.error("[scan-notes] frmedia request failed:", e);
-      return new Response("Unavailable", { status: 500 });
+      return new Response("Unavailable", { status: 500, headers: head() });
     }
   });
 }

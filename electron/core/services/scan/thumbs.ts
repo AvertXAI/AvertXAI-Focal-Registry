@@ -42,6 +42,16 @@ const SWEEP_AFTER_WRITTEN_BYTES = 50 * 1024 * 1024;
  *  ever compares at day scale. */
 const TOUCH_COALESCE_MS = 6 * 60 * 60 * 1000;
 
+/** No single thumbnail may be larger than this. A 320-pixel JPEG is tens of kilobytes; anything near
+ *  a megabyte is a bug upstream, and without a bound a buggy renderer could hand the main thread a
+ *  several-hundred-megabyte string to decode and write synchronously. Every other payload in this
+ *  subsystem is bounded (MAX_IMAGE_BYTES, OPEN_ENDED_MAX); this one was not. */
+const MAX_THUMB_BYTES = 1024 * 1024;
+
+/** JPEG start-of-image marker. A cache entry that does not begin with it was truncated by a crash or
+ *  a full disk, and must be treated as a miss rather than served as a broken picture. */
+const JPEG_MAGIC = [0xff, 0xd8, 0xff];
+
 /** Hidden, and under the LOCAL tree — never `app.getPath("documents")`, which follows this machine's
  *  OneDrive redirect and would cloud-sync a cache. Mirrors `localTreeRoot()` in notes.ts. */
 export function thumbsRoot(): string {
@@ -114,7 +124,16 @@ export function getMany(targets: string[]): Record<string, string> {
       const src = fs.statSync(target);
       const file = fileFor(keyFor(target, src.size, src.mtimeMs));
       const cached = fs.statSync(file);
-      out[target] = "data:image/jpeg;base64," + fs.readFileSync(file).toString("base64");
+      const bytes = fs.readFileSync(file);
+      // A TRUNCATED ENTRY IS A MISS, NOT A HIT, and it has to be checked rather than assumed: a
+      // partial file stats and reads perfectly well, so without this it comes back as a valid hit
+      // and the tile shows a broken image FOREVER — a cache hit stops the tile from ever mounting a
+      // <video>, so nothing can recapture it, and the key only changes if the source file does.
+      if (bytes.length < 3 || bytes[0] !== JPEG_MAGIC[0] || bytes[1] !== JPEG_MAGIC[1] || bytes[2] !== JPEG_MAGIC[2]) {
+        try { fs.unlinkSync(file); } catch { /* next sweep takes it */ }
+        continue;
+      }
+      out[target] = "data:image/jpeg;base64," + bytes.toString("base64");
       // Recency for the sweep. Windows disables last-access-time updates by default, so atime is not
       // a usable signal on this platform; the cache file's modified time is stamped here instead,
       // and coalesced so a folder open is not a burst of metadata writes.
@@ -137,12 +156,17 @@ export function put(target: string, dataUrl: string): void {
     const comma = dataUrl.indexOf(",");
     if (comma < 0) return;
     const bytes = Buffer.from(dataUrl.slice(comma + 1), "base64");
-    if (bytes.length === 0) return;
+    if (bytes.length === 0 || bytes.length > MAX_THUMB_BYTES) return;
     const src = fs.statSync(target);
     const file = fileFor(keyFor(target, src.size, src.mtimeMs));
     ensureRoot();
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, bytes);
+    // WRITE THEN RENAME. A bare writeFileSync is not atomic, so a crash or a full disk mid-write
+    // leaves a partial JPEG that reads back as a perfectly good hit and pins a broken tile forever.
+    // Rename over the same volume is atomic, so a reader sees the whole file or no file.
+    const tmp = file + "." + String(src.size) + ".part";
+    fs.writeFileSync(tmp, bytes);
+    try { fs.renameSync(tmp, file); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* ignore */ } throw e; }
     writtenSinceSweep += bytes.length;
     if (writtenSinceSweep >= SWEEP_AFTER_WRITTEN_BYTES) {
       writtenSinceSweep = 0;

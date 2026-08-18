@@ -73,13 +73,22 @@ type Outcome = "painted" | "failed" | "gone";
 type Settled = "painted" | "shown" | "failed";
 
 /**
- * LEARNED ONCE PER SESSION, from the first tile that gets far enough to tell us.
+ * LEARNED ONCE PER SESSION, and only ever from PROOF.
  *   null  — untested
- *   true  — pixels are readable; the disk cache is live
- *   false — frames render but cannot be read back; stop paying for the attempt on every other tile
+ *   true  — a frame was actually captured; the disk cache is live
+ *   false — proven unreadable; stop paying for the attempt on every other tile
  *
- * Without this memo a folder of two hundred clips would pay a refused cross-origin load, then a
- * retry, two hundred times over. One tile teaches the rest.
+ * IT IS NEVER SET FROM A FAILED LOAD, and that restraint is the whole point. An `error` event does
+ * not say why: a cross-origin refusal and a codec Chromium cannot decode look identical from here,
+ * and this list contains real files of both kinds — an HEVC .mov passes the extension filter and
+ * then fails to decode. Blaming the first error on CORS meant one bad clip could switch capture off
+ * for every other clip in the session. So `false` is written in exactly two places, both of which
+ * have already observed the outcome: a retry WITHOUT the attribute that then succeeds (which proves
+ * the attribute was the blocker), or a decoded frame with real dimensions that the canvas still
+ * refuses to export (which proves a taint).
+ *
+ * Without the memo a folder of two hundred clips would pay a refused load plus a retry two hundred
+ * times over. One tile teaches the rest — but only once it actually knows something.
  */
 let captureViable: boolean | null = null;
 
@@ -178,6 +187,9 @@ class ThumbQueue {
   /** key → the tick it was last on screen. Insertion order is not enough: eviction has to follow the
    *  eye, not the order the loads happened to finish in. */
   private readonly painted = new Map<string, number>();
+  /** Keys currently intersecting the viewport. Eviction consults this and NOTHING else can override
+   *  it: a tile the user is looking at is never taken away, however long it has been sitting there. */
+  private readonly visible = new Set<string>();
   private order: string[] = [];
   private urgent: string[] = [];
   private cancelled = false;
@@ -190,6 +202,23 @@ class ThumbQueue {
     this.starters.set(key, start);
     this.drops.set(key, drop);
     this.enqueue(key, false);
+  }
+
+  /**
+   * On screen, or no longer on screen.
+   *
+   * THIS EXISTS BECAUSE "least recently seen" WAS A LIE WITHOUT IT. `tick` only advanced when a tile
+   * crossed the viewport or settled, so on a folder the user opens and does not scroll, no tick ever
+   * advances again and the "oldest" tile is simply the first one that finished — the top of the
+   * folder, in plain sight. Eviction would then walk down the visible rows taking pictures away, and
+   * they could not come back, because an IntersectionObserver does not re-fire for an element that
+   * never left the viewport. Tracking visibility directly is the fix: the tick ordering decides
+   * WHICH off-screen tile goes, and this decides that an on-screen one never does.
+   */
+  setVisible(key: string, on: boolean): void {
+    if (this.cancelled) return;
+    if (on) { this.visible.add(key); this.seen(key); }
+    else this.visible.delete(key);
   }
 
   /** The tile is on screen. Priority only — it can move a tile to the front of the line and it
@@ -217,13 +246,14 @@ class ThumbQueue {
     this.release(key, "gone");
     this.starters.delete(key);
     this.drops.delete(key);
+    this.visible.delete(key);
   }
 
   cancel(): void {
     if (TRACE) console.info("[scan-notes] thumb queue closed —", this.summary());
     this.cancelled = true;
     this.starters.clear(); this.drops.clear(); this.painted.clear();
-    this.pending.clear(); this.inFlight.clear();
+    this.pending.clear(); this.inFlight.clear(); this.visible.clear();
     this.order = []; this.urgent = [];
   }
 
@@ -242,10 +272,18 @@ class ThumbQueue {
   }
 
   private trim(): void {
-    while (this.painted.size > PAINTED_CEILING) {
+    // Bounded by the map's own size: every pass deletes exactly one entry, and the guard means a
+    // drop callback that misbehaves cannot spin this loop.
+    let guard = this.painted.size;
+    while (this.painted.size > PAINTED_CEILING && guard-- > 0) {
       let oldest: string | null = null;
       let oldestTick = Infinity;
-      for (const [k, t] of this.painted) if (t < oldestTick) { oldestTick = t; oldest = k; }
+      for (const [k, t] of this.painted) {
+        if (this.visible.has(k)) continue; // never take a picture off the user's screen
+        if (t < oldestTick) { oldestTick = t; oldest = k; }
+      }
+      // Everything painted is on screen. The ceiling yields rather than blanking the viewport — a
+      // viewport that large is a handful of extra decoders, and a blank tile is a defect.
       if (oldest === null) return;
       this.painted.delete(oldest);
       this.counts.evicted += 1;
@@ -318,6 +356,9 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
    *  drops it and we are back to a visible frame with no cache — never worse than before the cache
    *  existed. At most one retry: this only ever goes true → false. */
   const [useCors, setUseCors] = useState(captureViable !== false);
+  /** True once this tile has actually fallen back. It is what separates "we retried and it worked,
+   *  so the attribute was the problem" from "we never tried the attribute in the first place". */
+  const retried = useRef(false);
 
   useEffect(() => {
     const v = ref.current;
@@ -338,38 +379,67 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
       // second range request for nothing.
       if (v.currentTime < 0.05) { try { v.currentTime = target; } catch { /* unseekable; the frame at 0 stands */ } }
     };
-    /** Capture if we can, keep the picture either way. */
+    /** Capture if we can, keep the picture either way — but only ever call something a picture when
+     *  there is genuinely a frame behind it. */
     const grab = (): void => {
-      if (!useCors) { settle("shown"); return; } // known un-readable this session; do not taint for nothing
+      // NO FRAME IS NOT A TAINT. videoWidth stays 0 for a file that demuxes but does not decode —
+      // an audio-only .mp4, an HEVC .mov Chromium will not touch. Treating that as "unreadable
+      // pixels" both mis-taught the session memo and left a <video> with nothing in it mounted
+      // forever, showing an empty box where the glyph belonged.
+      if (v.videoWidth === 0 || v.videoHeight === 0) { settle("failed"); return; }
+
+      if (!useCors) {
+        // We are here without the attribute and we have a real frame. If the first attempt errored,
+        // that PROVES the attribute was what it choked on — the one honest place to write the memo.
+        if (captureViable === null && retried.current) {
+          captureViable = false;
+          console.warn(
+            "[scan-notes] frmedia refused the cross-origin read — the same file loads fine without it. " +
+              "Thumbnails will show; the disk cache is off for this session. Check corsEnabled on the " +
+              "scheme and the Access-Control-Allow-Origin header in mediaBrowse.ts."
+          );
+        }
+        settle("shown");
+        return;
+      }
+
       const shot = capture(v);
       if (shot !== null) { captureViable = true; settle("painted", shot); return; }
-      // The frame is decoded and on screen — it is only the READ that was refused. Keep it.
+      // A real frame, on screen, that the canvas will not export: that is a taint, and unlike an
+      // error it is unambiguous.
       if (captureViable === null) {
         console.warn(
-          "[scan-notes] the video frame decoded but could not be read back, so thumbnails will show " +
-            "and will NOT be cached this session. That is a canvas taint: check that frmedia returns " +
-            "Access-Control-Allow-Origin and is registered corsEnabled."
+          "[scan-notes] the video frame decoded but the canvas refused to export it, so thumbnails " +
+            "will show and will NOT be cached this session. That is a canvas taint: check that " +
+            "frmedia returns Access-Control-Allow-Origin and is registered corsEnabled."
         );
       }
       captureViable = false;
       settle("shown");
     };
-    // `loadeddata` can arrive at frame zero, before the seek lands — and frame zero is black
-    // on most camera files. Capture from it only if we are already at the target; otherwise wait for
-    // `seeked`.
-    const onData = (): void => { if (v.currentTime > 0.05) grab(); };
-    /** A load that fails ONLY when we ask for pixel access is a CORS refusal, not a bad file — so the
-     *  first such failure retries plainly instead of condemning the tile. Deliberately not settled
-     *  here: the retry owns the outcome. */
+    // `loadeddata` can arrive at frame zero, before the seek lands — and frame zero is black on
+    // most camera files. The guard has to be `!v.seeking` and NOT `currentTime > 0.05`: the HTML
+    // seek algorithm writes the official playback position the moment a seek is ISSUED, while the
+    // old frame is still the decoded one — so a currentTime test passes during the seek and captures
+    // exactly the black frame it was written to avoid. That mistake now costs more than it used to,
+    // because the black frame gets written to the disk cache and outlives the session.
+    const onData = (): void => { if (!v.seeking && v.currentTime > 0.05) grab(); };
+    /**
+     * EVERY tile that asked for pixel access retries, not just the first one to fail.
+     *
+     * The previous cut gated this on `captureViable === null`, and with CONCURRENCY at six that meant
+     * the first tile to error took the retry and its five in-flight siblings — which had all mounted
+     * before the memo was written — fell straight through to the glyph. Worse, `failed` unregisters
+     * the tile, so those five could never be queued again for the life of the folder. Six concurrent
+     * loads, one rescued, five killed.
+     *
+     * The retry is deliberately cheap to be wrong about: if the file is simply undecodable, the
+     * second attempt errors too and the tile glyphs one load later than it would have.
+     */
     const fail = (): void => {
-      if (useCors && captureViable === null) {
-        captureViable = false;
-        console.warn(
-          "[scan-notes] frmedia refused a cross-origin read, so the disk thumbnail cache is off for " +
-            "this session and tiles fall back to a live frame. Check corsEnabled on the scheme and " +
-            "the Access-Control-Allow-Origin header in mediaBrowse.ts."
-        );
-        setUseCors(false); // re-runs this effect and reloads without the attribute
+      if (useCors) {
+        retried.current = true;
+        setUseCors(false); // re-runs this effect and reloads without the attribute; the retry settles
         return;
       }
       settle("failed");
@@ -449,8 +519,13 @@ function Tile({ item, queue, cachedUrl, onOpen }: { item: ScanMediaItem; queue: 
     let live = true;
     const io = new IntersectionObserver(
       (entries) => {
-        if (!live || !entries.some((e) => e.isIntersecting)) return;
-        if (item.kind === "video") { queue.seen(item.path); return; }
+        if (!live) return;
+        const on = entries.some((e) => e.isIntersecting);
+        // BOTH edges matter for video, not just entry: leaving the viewport is what makes a tile
+        // eligible for eviction, and staying in it is what protects it. Reporting only entry was how
+        // eviction ended up blanking rows the user was looking at.
+        if (item.kind === "video") { queue.setVisible(item.path, on); return; }
+        if (!on) return;
         io.disconnect();
         void window.api.scan.notes
           .image(item.path)
@@ -548,14 +623,21 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
         setItems(list);
         const videos = list.filter((i) => i.kind === "video" && i.streamUrl !== null).map((i) => i.path);
         if (videos.length === 0) return;
-        return window.api.scan.notes.thumbsGet(videos).then((hits) => {
-          if (!live) return;
-          setCached(hits);
-          if (TRACE) {
-            const n = Object.keys(hits).length;
-            console.info(`[scan-notes] thumb cache: ${n} hit, ${videos.length - n} to generate, of ${videos.length} clips`);
-          }
-        });
+        // CAUGHT HERE, NOT DOWNSTREAM. Returning this promise into the outer chain meant a rejected
+        // CACHE read landed in the catch below and called setItems([]) — so a folder full of media
+        // rendered "No media recorded in this folder." because a thumbnail lookup failed. A cache is
+        // never allowed to decide whether the listing exists.
+        void window.api.scan.notes
+          .thumbsGet(videos)
+          .then((hits) => {
+            if (!live) return;
+            setCached(hits);
+            if (TRACE) {
+              const n = Object.keys(hits).length;
+              console.info(`[scan-notes] thumb cache: ${n} hit, ${videos.length - n} to generate, of ${videos.length} clips`);
+            }
+          })
+          .catch(() => undefined); // a miss for every tile; they generate as usual
       })
       .catch(() => { if (live) { setItems([]); setCached({}); } });
     return () => { live = false; };

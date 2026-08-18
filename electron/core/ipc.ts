@@ -921,22 +921,43 @@ export function registerIpcHandlers(): void {
     const { db, orgId } = scanCtx();
     return scanMedia.readImage(db, orgId, target);
   });
+  /** Upper bound on one thumbsGet. A folder listing is already clamped to 2000 (mediaBrowse.ts),
+   *  and this is the same discipline one layer down: an unbounded array is an unbounded synchronous
+   *  loop on the thread that owns every window. */
+  const THUMBS_MAX = 2000;
   // THE THUMBNAIL CACHE. One call per FOLDER, not per tile — that is the whole point: a warm folder
   // opens on one round trip with no decoders at all. Both directions run the same guard every other
   // media path runs, so a renderer bug cannot turn this into "hash any file on this machine".
   safeHandle("scan:thumbsGet", (_e, targets: unknown) => {
-    if (!Array.isArray(targets)) return {};
-    const { db, orgId } = scanCtx();
-    const allowed = targets.filter((t): t is string => typeof t === "string" && scanMedia.isPlayablePath(db, orgId, t));
-    return scanThumbs.getMany(allowed);
+    // NOTHING HERE MAY THROW. A rejected invoke lands in the renderer's folder-load chain, and a
+    // CACHE failure that empties the media grid is the exact inversion this cache exists to avoid.
+    // An empty object is a miss for every tile; they generate as usual.
+    try {
+      if (!Array.isArray(targets)) return {};
+      const { db, orgId } = scanCtx();
+      // Clamped like listFolderMedia. The guard below is a database lookup, not a filesystem touch,
+      // but an unbounded array is still an unbounded synchronous loop on the window-owning thread.
+      const allowed = targets
+        .slice(0, THUMBS_MAX)
+        .filter((t): t is string => typeof t === "string" && scanMedia.isUnderScannedDrive(db, orgId, t));
+      return scanThumbs.getMany(allowed);
+    } catch (e) {
+      console.warn("[scan-notes] thumb cache lookup failed; every tile will generate:", e);
+      return {};
+    }
   });
   safeHandle("scan:thumbsPut", (_e, target: unknown, dataUrl: unknown) => {
-    if (typeof target !== "string" || typeof dataUrl !== "string") return false;
-    if (!dataUrl.startsWith("data:image/jpeg;base64,")) return false; // this cache stores frames, nothing else
-    const { db, orgId } = scanCtx();
-    if (!scanMedia.isPlayablePath(db, orgId, target)) return false;
-    scanThumbs.put(target, dataUrl);
-    return true;
+    try {
+      if (typeof target !== "string" || typeof dataUrl !== "string") return false;
+      if (!dataUrl.startsWith("data:image/jpeg;base64,")) return false; // this cache stores frames, nothing else
+      const { db, orgId } = scanCtx();
+      if (!scanMedia.isPlayablePath(db, orgId, target)) return false;
+      scanThumbs.put(target, dataUrl);
+      return true;
+    } catch (e) {
+      console.warn("[scan-notes] thumb cache write refused:", e);
+      return false;
+    }
   });
   // The frmedia: handler resolves its org LAZILY, on every request — an org minted mid-session by
   // the first-run wizard must not leave the scheme permanently dead.

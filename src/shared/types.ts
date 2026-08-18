@@ -461,6 +461,18 @@ export interface ScanFolderNode {
   name: string;
   renamedFrom: string | null;
 }
+/** One Recent Work row. Jason ruled 08-18-2026 that these show the folder NAME and its kind icon
+ *  and nothing else — no drive path, no timestamp, no pin, superseding the mockup's richer row.
+ *  `at` and `drive_id` are returned but never displayed: `at` is the ordering the renderer must not
+ *  recompute, `drive_id` is what the click needs to select the folder. */
+export interface ScanRecentFolder {
+  path: string;
+  name: string;
+  kind: ScanNotesKind;
+  at: string | null;
+  drive_id: number | null;
+}
+
 /** A folder search result — current names AND old ones, which is what the search box promises. */
 export interface ScanFolderHit extends ScanFolderNode {
   drive_id: number | null;
@@ -1427,6 +1439,10 @@ export interface Api {
       archive: (uuid: string) => Promise<{ ok: boolean }>;
       /** LIKE search over title + body; relevance-ordered, excerpt centred on the first term. */
       search: (q: string) => Promise<ScanNoteMeta[]>;
+      /** RECENT WORK — the folders you have touched, newest first, distinct by folder. Read from
+       *  the SAME feed the Updated Notes tab reads, so the two can never disagree. Rows whose
+       *  folder is unknown are skipped rather than listed as somewhere you cannot go. */
+      recent: (limit?: number) => Promise<ScanRecentFolder[]>;
       /** Folder search across BOTH current names and old ones (ruled). */
       searchFolders: (q: string) => Promise<ScanFolderHit[]>;
       /** The rendered report card for one folder — live from scan_folders. */

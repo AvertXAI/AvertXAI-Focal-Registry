@@ -344,3 +344,21 @@
 .scannotes-failline{display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid var(--mc-border);font-size:12px;color:var(--mc-muted)}
 .scannotes-failretry{background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:var(--mc-radius);color:var(--mc-text);font:inherit;font-size:12px;padding:4px 12px;cursor:pointer}
 .scannotes-failretry:hover{border-color:var(--mc-accent-primary);color:var(--mc-accent-primary)}
+
+/* ---------------------------------------------------- Recent Work (above the drive tree) */
+/* NAME AND ICON ONLY (Jason, 08-18-2026) — the mockup's drive path, timestamp and pin are all gone.
+   FIXED HEIGHT with its own scroll: the tree below must never move because this list grew. */
+.scannotes-recent{border-bottom:1px solid var(--mc-border);padding-bottom:12px;margin-bottom:12px}
+.scannotes-rhead{display:flex;align-items:center;gap:8px;width:100%;background:none;border:0;padding:0 0 9px;cursor:pointer;font:inherit;color:inherit;text-align:left}
+.scannotes-rhead h3{margin:0}
+.scannotes-recent.closed .scannotes-caret{transform:rotate(-90deg)}
+.scannotes-rhead .count{margin-left:auto;background:var(--scannotes-badge-background);color:var(--scannotes-badge-foreground);font-size:10px;font-family:var(--mc-mono);border-radius:9px;padding:1px 6px}
+.scannotes-rlist{max-height:168px;overflow-y:auto}
+.scannotes-ritem{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:9px;background:none;font:inherit;font-size:12.5px;color:var(--mc-text);cursor:pointer;text-align:left}
+.scannotes-ritem:hover{background:var(--mc-nested)}
+.scannotes-ritem.sel{background:var(--mc-nested);color:var(--mc-accent-primary);font-weight:600}
+.scannotes-ritem .ic{flex:none;font-size:13px;line-height:1.3}
+.scannotes-ritem .nm{min-width:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scannotes-rfoot{margin-top:8px}
+.scannotes-rlink{background:none;border:0;padding:0;font:inherit;font-size:11.5px;color:var(--mc-accent-primary);cursor:pointer}
+.scannotes-rempty{font-size:12px;color:var(--mc-dimmer);padding:8px 4px;line-height:1.5}

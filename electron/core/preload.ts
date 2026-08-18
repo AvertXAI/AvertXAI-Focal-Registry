@@ -153,6 +153,7 @@ const api: Api = {
       rename: (folderPath: string, newName: string) => invoke("scan:notesRename", folderPath, newName),
       pendingRenames: () => invoke("scan:notesPendingRenames"),
       updates: (limit?: number) => invoke("scan:notesUpdates", limit),
+      recent: (limit?: number) => invoke("scan:notesRecent", limit),
       unseen: () => invoke("scan:notesUnseen"),
       markSeen: () => invoke("scan:notesMarkSeen"),
       sync: () => invoke("scan:notesSync"),

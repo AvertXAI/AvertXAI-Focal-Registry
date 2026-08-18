@@ -889,6 +889,10 @@ export function registerIpcHandlers(): void {
     const { db, orgId } = scanCtx();
     return scanNotes.listUpdates(db, orgId, limit == null ? 200 : Number(limit));
   });
+  safeHandle("scan:notesRecent", (_e, limit: unknown) => {
+    const { db, orgId } = scanCtx();
+    return scanNotes.recentFolders(db, orgId, limit == null ? 12 : Number(limit));
+  });
   safeHandle("scan:notesUnseen", () => {
     const { db, orgId } = scanCtx();
     return scanNotes.unseenUpdateCount(db, orgId);

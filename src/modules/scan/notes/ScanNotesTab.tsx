@@ -20,6 +20,7 @@ import type {
   ScanNote,
   ScanNoteMeta,
   ScanNotesDriveNode,
+  ScanRecentFolder,
 } from "../../../shared/types";
 import { signalAppToast } from "../../../App";
 import MilkdownEditor, { type EditorAction, type MilkdownHandle } from "./MilkdownEditor";
@@ -135,6 +136,8 @@ export interface ScanNotesTabProps {
   /** A folder the header search asked to open. `at` is what makes a repeat click on the SAME result
    *  still re-open it — an identical object would otherwise look like no change at all. */
   jumpTo?: { path: string; driveId: number | null; at: number } | null;
+  /** Recent Work's footer link — the parent owns which tab is showing, so it owns the switch. */
+  onSeeAll?: () => void;
 }
 
 // ---------------------------------------------------------------- the folder tree
@@ -273,6 +276,64 @@ function Branch({
   );
 }
 
+/**
+ * RECENT WORK — every folder you have touched, one click away.
+ *
+ * NAME AND ICON AND NOTHING ELSE (Jason, 08-18-2026), which supersedes the mockup's richer row. The
+ * mockup drew a drive path, a relative timestamp and a pin on every line; three pieces of furniture
+ * on a list whose entire job is "get me back to where I was". The name is the thing you recognise.
+ *
+ * FIXED HEIGHT, SCROLLS INTERNALLY. The tree below it must never move because this list grew — a
+ * panel that pushes the thing you were aiming at off the bottom of the pane is worse than no panel.
+ * The height is in the stylesheet, not here.
+ */
+function RecentWork({ rows, selected, onPick, onSeeAll }: {
+  rows: ScanRecentFolder[];
+  selected: string | null;
+  onPick: (r: ScanRecentFolder) => void;
+  onSeeAll: () => void;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className={`scannotes-recent${open ? "" : " closed"}`}>
+      <button type="button" className="scannotes-rhead" onClick={() => setOpen((v) => !v)}>
+        <span className="scannotes-caret">▾</span>
+        <h3>Recent Work</h3>
+        {rows.length > 0 && <span className="count">{rows.length}</span>}
+      </button>
+      {open && (
+        rows.length === 0 ? (
+          /* The designed empty state, and it is also the honest one for an archive whose feed
+             predates the folder column — nothing is missing, there is simply nothing recorded yet. */
+          <div className="scannotes-rempty">
+            Nothing yet. Add a note or rename a folder and it will appear here so you can get back to it.
+          </div>
+        ) : (
+          <>
+            <div className="scannotes-rlist">
+              {rows.map((r) => (
+                <button
+                  key={r.path}
+                  type="button"
+                  className={`scannotes-ritem${selected === r.path ? " sel" : ""}`}
+                  onClick={() => onPick(r)}
+                  title={r.path}
+                >
+                  <span className="ic" aria-hidden="true">{r.kind === "rename" ? "✏️" : r.kind === "note" ? "📝" : "📁"}</span>
+                  <span className="nm">{r.name}</span>
+                </button>
+              ))}
+            </div>
+            <div className="scannotes-rfoot">
+              <button type="button" className="scannotes-rlink" onClick={onSeeAll}>See all in Updated Notes →</button>
+            </div>
+          </>
+        )
+      )}
+    </div>
+  );
+}
+
 /** SILENCE READS AS A HANG. Every pane that can be waiting says so — a click that lands on a blank
  *  box is indistinguishable from a crash, which is exactly how this felt on device. */
 function Waiting({ what }: { what: string }) {
@@ -288,7 +349,7 @@ function Waiting({ what }: { what: string }) {
  *  behind the paint. Module-level on purpose — the same shape as the Vault list's cache. */
 let treeCache: ScanNotesDriveNode[] = [];
 
-export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, mediaPane, jumpTo }: ScanNotesTabProps) {
+export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, mediaPane, jumpTo, onSeeAll }: ScanNotesTabProps) {
   const [tree, setTree] = useState<ScanNotesDriveNode[]>(treeCache);
   const [loading, setLoading] = useState(treeCache.length === 0);
   const [folderBusy, setFolderBusy] = useState(false);
@@ -304,6 +365,8 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
   const [openUuid, setOpenUuid] = useState<string | null>(null); // null = the report card is showing
   const [note, setNote] = useState<ScanNote | null>(null);
   const [saved, setSaved] = useState<string>("");
+  /** Recent Work rows — the same feed the Updated Notes tab reads, never a second source. */
+  const [recent, setRecent] = useState<ScanRecentFolder[]>([]);
   const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null);
   const [renameErr, setRenameErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -352,6 +415,17 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
         setLoading(false);
         signalAppToast(e instanceof Error ? e.message : String(e), "err");
       });
+    return () => { live = false; };
+  }, [refreshKey]);
+
+  // Recent Work rides the same refreshKey as the tree: adding a note or renaming a folder already
+  // bumps it, so the panel updates on the same beat as everything else rather than polling.
+  useEffect(() => {
+    let live = true;
+    void window.api.scan.notes
+      .recent(12)
+      .then((r) => { if (live) setRecent(r); })
+      .catch(() => undefined); // a panel that cannot load must never take the tree down with it
     return () => { live = false; };
   }, [refreshKey]);
 
@@ -481,6 +555,12 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
     <div className={`scannotes-grid${mediaMode ? " media" : ""}`}>
       {/* ---- pane 1: the drive / folder tree ---- */}
       <div className="scannotes-pane">
+        <RecentWork
+          rows={recent}
+          selected={folder}
+          onPick={(r) => { setFolder(r.path); if (r.drive_id !== null) setDriveId(r.drive_id); }}
+          onSeeAll={onSeeAll ?? (() => undefined)}
+        />
         <h3>Drives</h3>
         {loading && <Waiting what="Loading drives…" />}
         {!loading && tree.length === 0 && (

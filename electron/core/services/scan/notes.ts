@@ -81,6 +81,18 @@ export interface ScanUpdateRow {
   seen_at: string | null;
 }
 
+/** One Recent Work row. Jason ruled 08-18-2026 that these carry the folder NAME and its kind icon
+ *  and nothing else — no drive path, no timestamp, no pin, superseding the v1 mockup's richer row.
+ *  `at` and `drive_id` are still returned: `at` is the sort the renderer must not recompute, and
+ *  `drive_id` is what the click needs to select the folder. Neither is displayed. */
+export interface ScanRecentFolder {
+  path: string;
+  name: string;
+  kind: ScanNotesKind;
+  at: string | null;
+  drive_id: number | null;
+}
+
 /** A folder's rendered report card — drawn LIVE from scan_folders, never materialized (ruled). */
 export interface ScanFolderCard {
   path: string;
@@ -140,6 +152,17 @@ export function logUpdate(
     detail?: string | null;
     driveLabel?: string | null;
     requestId?: string | null;
+    /** THE FOLDER THIS HAPPENED TO — what Recent Work jumps to, added 08-18-2026.
+     *
+     *  Optional on purpose. Most of this log is drive-level or run-level (a scan finished, a sync
+     *  ran) and has no single folder to point at; only the events that DO are offered as
+     *  destinations. An event without one is still a feed row, it simply is not somewhere to go. */
+    folderPath?: string | null;
+    /** THE ROW THAT CAUSED IT — scan_notes.uuid for a note event, scan_folder_name_history.uuid for
+     *  a rename. Recording only the path is what allowed the folder to go unrecorded in the first
+     *  place; recording the row that caused the event is what closes it permanently, because a path
+     *  can be renamed out from under a log entry and a uuid cannot. */
+    sourceUuid?: string | null;
   }
 ): void {
   const line = `[scan-notes] ${e.level} ${e.kind} ${e.message}`;
@@ -149,8 +172,8 @@ export function logUpdate(
   if (!db || !orgId) return;
   try {
     db.prepare(
-      `INSERT INTO scan_notes_updates (uuid, org_id, ts, level, kind, request_id, message, detail, drive_label)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO scan_notes_updates (uuid, org_id, ts, level, kind, request_id, message, detail, drive_label, folder_path, source_uuid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       generateUUIDv7(),
       orgId,
@@ -160,7 +183,9 @@ export function logUpdate(
       e.requestId ?? null,
       e.message.slice(0, 2000),
       e.detail ? e.detail.slice(0, 8000) : null,
-      e.driveLabel ?? null
+      e.driveLabel ?? null,
+      e.folderPath ?? null,
+      e.sourceUuid ?? null
     );
   } catch (err) {
     console.error("[scan-notes] feed write failed (ignored):", err);
@@ -175,6 +200,50 @@ export function listUpdates(db: Db, orgId: string, limit = 200): ScanUpdateRow[]
        FROM scan_notes_updates WHERE org_id = ? ORDER BY ts DESC, id DESC LIMIT ?`
     )
     .all(orgId, cap) as ScanUpdateRow[];
+}
+
+/**
+ * RECENT WORK — the folders you have touched, newest first.
+ *
+ * FED FROM THE UPDATES FEED, deliberately, and this is the whole design decision: the panel and the
+ * Updated Notes tab must never be able to disagree about what happened. A second query over
+ * scan_notes and the rename history would have been populated from existing data immediately, and
+ * it would have been a second source of truth drifting from the first. Jason ruled the feed on
+ * 08-18-2026.
+ *
+ * THE CONSEQUENCE, stated rather than discovered: `folder_path` was added to the feed on the same
+ * day, so rows written before it carry NULL and are not offered as destinations. On an archive with
+ * existing history this panel starts EMPTY and fills from the next note or rename — which is exactly
+ * what its empty-state sentence promises. It is not broken.
+ *
+ * DISTINCT BY FOLDER, not by event: a folder edited nine times is one row at its most recent touch,
+ * because this is "where was I", not "what happened". GROUP BY with MAX(ts) rather than DISTINCT so
+ * the row carries the newest event's kind — the icon has to describe the latest thing that happened.
+ */
+export function recentFolders(db: Db, orgId: string, limit = 12): ScanRecentFolder[] {
+  const cap = Math.min(Math.max(Number(limit) || 12, 1), 50);
+  const rows = db
+    .prepare(
+      `SELECT folder_path, MAX(ts) AS ts, kind
+       FROM scan_notes_updates
+       WHERE org_id = ? AND folder_path IS NOT NULL AND folder_path <> ''
+       GROUP BY folder_path
+       ORDER BY ts DESC
+       LIMIT ?`
+    )
+    .all(orgId, cap) as Array<{ folder_path: string; ts: string | null; kind: ScanNotesKind }>;
+  // The drive is resolved from scan_folders rather than stored on the event: a folder that has since
+  // been renamed still resolves, and an event row never has to be kept in step with a cascade.
+  const driveOf = db.prepare(
+    "SELECT drive_id FROM scan_folders WHERE org_id = ? AND path = ? ORDER BY id DESC LIMIT 1"
+  );
+  return rows.map((r) => ({
+    path: r.folder_path,
+    name: path.basename(r.folder_path) || r.folder_path,
+    kind: r.kind,
+    at: r.ts,
+    drive_id: (driveOf.get(orgId, r.folder_path) as { drive_id: number | null } | undefined)?.drive_id ?? null,
+  }));
 }
 
 /** The tab badge. Hides at zero by ruling, so the renderer only needs the number. */
@@ -255,6 +324,8 @@ export function createNote(
     kind: "note",
     message: "Note created",
     detail: `${title} — created and saved inside ${folderPath}.`,
+    folderPath,
+    sourceUuid: uuid,
   });
   return getNote(db, orgId, uuid);
 }
@@ -285,6 +356,8 @@ export function saveNote(
       kind: "note",
       message: "Folder notes edited",
       detail: `${title} — user notes updated.`,
+      folderPath: existing.folder_path,
+      sourceUuid: existing.uuid,
     });
   }
   return getNote(db, orgId, uuid);
@@ -298,7 +371,7 @@ export function archiveNote(db: Db, orgId: string, uuid: unknown): { ok: boolean
     orgId,
     note.uuid
   );
-  logUpdate(db, orgId, { level: "info", kind: "note", message: "Note archived", detail: note.title });
+  logUpdate(db, orgId, { level: "info", kind: "note", message: "Note archived", detail: note.title, folderPath: note.folder_path, sourceUuid: note.uuid });
   return { ok: true };
 }
 
@@ -637,6 +710,7 @@ function cascadePaths(db: Db, orgId: string, oldPath: string, newPath: string): 
   ).run(newPath, orgId, oldPath);
 }
 
+/** Returns the uuid of the row it wrote, so the feed row for the same event can reference it. */
 function recordHistory(
   db: Db,
   orgId: string,
@@ -649,14 +723,15 @@ function recordHistory(
     staleReason?: string | null;
     appliedAt?: string | null;
   }
-): void {
+): string {
+  const uuid = generateUUIDv7();
   db.prepare(
     `INSERT INTO scan_folder_name_history
        (uuid, org_id, drive_id, volume_serial, folder_path_old, folder_path_new, name_old, name_new,
         changed_at, applied_at, status, stale_reason)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    generateUUIDv7(),
+    uuid,
     orgId,
     r.driveId,
     r.serial,
@@ -669,6 +744,7 @@ function recordHistory(
     r.status,
     r.staleReason ?? null
   );
+  return uuid;
 }
 
 export interface RenameResult {
@@ -733,7 +809,7 @@ export function renameFolder(
       `INSERT INTO scan_rename_queue (uuid, org_id, volume_serial, folder_path_old, folder_path_new, queued_at, status)
        VALUES (?, ?, ?, ?, ?, ?, 'pending')`
     ).run(generateUUIDv7(), orgId, drive.volume_serial, oldPath, newPath, nowIso());
-    recordHistory(db, orgId, {
+    const historyUuid = recordHistory(db, orgId, {
       driveId: drive.id,
       serial: drive.volume_serial,
       oldPath,
@@ -747,6 +823,8 @@ export function renameFolder(
       detail: `${path.basename(oldPath)} -> ${newName} — waiting for ${label} to be connected.`,
       driveLabel: label,
       requestId,
+      folderPath: newPath,
+      sourceUuid: historyUuid,
     });
     return {
       ok: true,
@@ -782,7 +860,7 @@ function applyRename(
     stat = fs.statSync(diskOld);
   } catch {
     const reason = `The folder is no longer at ${diskOld} — it was moved, renamed, or deleted outside the app.`;
-    recordHistory(db, orgId, { ...r, driveId: r.driveId, serial: r.serial, status: "stale", staleReason: reason });
+    const historyUuid = recordHistory(db, orgId, { ...r, driveId: r.driveId, serial: r.serial, status: "stale", staleReason: reason });
     logUpdate(db, orgId, {
       level: "warn",
       kind: "rename",
@@ -790,21 +868,24 @@ function applyRename(
       detail: reason,
       driveLabel: r.label,
       requestId,
+      // The OLD path: nothing moved, so the folder — if it is anywhere — is still where it was.
+      folderPath: r.oldPath,
+      sourceUuid: historyUuid,
     });
     return { ok: false, status: "stale", message: reason, requestId };
   }
   if (!stat.isDirectory()) {
     const reason = `${diskOld} is not a folder any more.`;
-    recordHistory(db, orgId, { ...r, status: "stale", staleReason: reason });
-    logUpdate(db, orgId, { level: "warn", kind: "rename", message: "Folder rename went stale", detail: reason, driveLabel: r.label, requestId });
+    const historyUuid = recordHistory(db, orgId, { ...r, status: "stale", staleReason: reason });
+    logUpdate(db, orgId, { level: "warn", kind: "rename", message: "Folder rename went stale", detail: reason, driveLabel: r.label, requestId, folderPath: r.oldPath, sourceUuid: historyUuid });
     return { ok: false, status: "stale", message: reason, requestId };
   }
   // Collision: never overwrite an existing directory. A case-only rename on Windows resolves to the
   // same entry, so it is allowed through — fs.renameSync handles it.
   if (fs.existsSync(diskNew) && diskNew.toLowerCase() !== diskOld.toLowerCase()) {
     const reason = `A folder called ${path.basename(diskNew)} is already there.`;
-    recordHistory(db, orgId, { ...r, status: "stale", staleReason: reason });
-    logUpdate(db, orgId, { level: "warn", kind: "rename", message: "Folder rename refused", detail: reason, driveLabel: r.label, requestId });
+    const historyUuid = recordHistory(db, orgId, { ...r, status: "stale", staleReason: reason });
+    logUpdate(db, orgId, { level: "warn", kind: "rename", message: "Folder rename refused", detail: reason, driveLabel: r.label, requestId, folderPath: r.oldPath, sourceUuid: historyUuid });
     return { ok: false, status: "stale", message: reason, requestId };
   }
 
@@ -818,7 +899,7 @@ function applyRename(
         : code === "EBUSY"
           ? `That folder is in use by another program. Close it and try again.`
           : `The folder could not be renamed: ${e instanceof Error ? e.message : String(e)}`;
-    recordHistory(db, orgId, { ...r, status: "stale", staleReason: reason });
+    const historyUuid = recordHistory(db, orgId, { ...r, status: "stale", staleReason: reason });
     logUpdate(db, orgId, {
       level: "error",
       kind: "rename",
@@ -826,15 +907,20 @@ function applyRename(
       detail: `${reason} (${diskOld} -> ${diskNew})`,
       driveLabel: r.label,
       requestId,
+      folderPath: r.oldPath, // the rename did not happen, so the folder is still at the old path
+      sourceUuid: historyUuid,
     });
     return { ok: false, status: "stale", message: `${reason} Reference ${requestId}.`, requestId };
   }
 
   // The disk changed. Everything that referenced the old path moves in ONE transaction, so a crash
   // between statements cannot leave half the rows pointing at a folder that no longer exists.
-  db.transaction(() => {
+  // The transaction RETURNS the history uuid rather than the feed row being written inside it: a
+  // feed write is deliberately non-throwing and must never be able to roll back a rename that
+  // already touched the disk.
+  const historyUuid = db.transaction(() => {
     cascadePaths(db, orgId, r.oldPath, r.newPath);
-    recordHistory(db, orgId, { ...r, status: "applied", appliedAt: nowIso() });
+    return recordHistory(db, orgId, { ...r, status: "applied", appliedAt: nowIso() });
   })();
 
   logUpdate(db, orgId, {
@@ -844,6 +930,8 @@ function applyRename(
     detail: `${path.basename(r.oldPath)} -> ${path.basename(r.newPath)}`,
     driveLabel: r.label,
     requestId,
+    folderPath: r.newPath, // the NEW path — the old one no longer exists to jump to
+    sourceUuid: historyUuid,
   });
   return { ok: true, status: "applied", newPath: r.newPath, message: `Renamed to ${path.basename(r.newPath)}.`, requestId };
 }
@@ -942,6 +1030,9 @@ export function drainQueue(db: Db, orgId: string, volumes: ScanVolume[], withSyn
             message: "A queued rename could not be processed",
             detail: e instanceof Error ? e.message : String(e),
             driveLabel: label,
+            // The queue row is in scope and names the folder; sourceUuid is NOT supplied because
+            // this catch fires when applyRename threw, so no history row is known to exist.
+            folderPath: row.folder_path_old,
           });
         }
       }
@@ -1170,6 +1261,9 @@ export function syncDrive(db: Db, orgId: string, driveId: number, vol: ScanVolum
         message: "Two folders want the same notes directory",
         detail: `"${f.path}" was skipped — "${owner}" already writes to ${key}.`,
         driveLabel: drive.volume_label ?? drive.volume_serial,
+        // A sync event with a real folder behind it. Most sync rows are drive-level and correctly
+        // carry no folder; these two do, and leaving them blank would be the same gap again.
+        folderPath: f.path,
       });
       continue;
     }
@@ -1209,6 +1303,7 @@ export function syncDrive(db: Db, orgId: string, driveId: number, vol: ScanVolum
           message: "A folder's files could not be written",
           detail: `${dir}: ${e instanceof Error ? e.message : String(e)}`,
           driveLabel: drive.volume_label ?? drive.volume_serial,
+          folderPath: f.path,
         });
       }
     }

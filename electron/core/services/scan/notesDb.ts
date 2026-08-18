@@ -29,12 +29,13 @@
 //              ADDING A COLUMN LATER: PRAGMA table_info guard, and the guard goes AFTER the
 //              createTable it guards — never before (scan/db.ts:156-157 records why: reversing the
 //              order throws "no such table" on a FRESH database only, which an existing dev database
-//              will not catch). There are no guards yet because every table here is born complete.
+//              will not catch). ONE guard block exists, on scan_notes_updates — see it for why.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/scan/notesDb.ts
 //------------------------------------------------------------
 import type Database from "better-sqlite3-multiple-ciphers";
 import { createTable } from "../db";
+import { backfillFeedFolders } from "./notesBackfill";
 
 export type Db = Database.Database;
 
@@ -116,8 +117,44 @@ export function ensureScanNotesSchema(db: Db): void {
     "message TEXT NOT NULL", // the sentence a person reads
     "detail TEXT", // the technical half — stacks, paths, counts
     "drive_label TEXT", // shown in the feed's Drive column
+    "folder_path TEXT", // the folder the event happened TO — what Recent Work jumps to
+    "source_uuid TEXT", // the row that CAUSED it: scan_notes.uuid, or scan_folder_name_history.uuid
     "seen_at DATETIME",
   ]);
+  // FIRST GUARD IN THIS FILE, and it goes AFTER the createTable it guards — never before (see the
+  // header note; scan/db.ts records that reversing the order throws "no such table" on a FRESH
+  // database only, which an existing development database will not catch).
+  //
+  // TWO COLUMNS, ADDED 08-18-2026, and they close the same gap from both ends. A feed row saying a
+  // folder was renamed without recording WHICH folder is an incomplete log — Jason ruled the full
+  // fix rather than the panel-shaped one ("dont do things half ass"). `folder_path` is where the
+  // event happened; `source_uuid` is the row that caused it.
+  //
+  // ONE source_uuid COLUMN, NOT TWO, and the reason is that the two references are mutually
+  // exclusive: a note event never has a history row and a rename event never has a note. `kind`
+  // already says which table to look in, so a second column would be permanently NULL on every row
+  // that used the first — one column means one guard, one index, and one thing to keep in step.
+  //
+  // THE BACKFILL RUNS ONLY WHEN THE ALTER FIRES, which makes it exactly-once per database by
+  // construction with no marker row to maintain: if the column is already there, it has already run.
+  // Both share this function's transaction, so a crash between them rolls back and the next launch
+  // retries rather than leaving a half-repaired log.
+  {
+    const cols = (db.pragma("table_info(scan_notes_updates)") as { name: string }[]).map((c) => c.name);
+    const needFolder = !cols.includes("folder_path");
+    if (needFolder) db.exec("ALTER TABLE scan_notes_updates ADD COLUMN folder_path TEXT;");
+    if (!cols.includes("source_uuid")) db.exec("ALTER TABLE scan_notes_updates ADD COLUMN source_uuid TEXT;");
+    if (needFolder) {
+      const c = backfillFeedFolders(db);
+      console.info(
+        `[scan-notes] feed backfill — ${c.examined} rows examined, ${c.exact} matched deterministically, ` +
+          `${c.ambiguous} left NULL for ambiguity, ${c.none} left NULL with no candidate`
+      );
+    }
+  }
+  // Recent Work reads newest-first over the rows that HAVE a folder, which is a small subset of a
+  // log that grows forever. Without this it scans the whole table on every mount.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_scan_updates_folder ON scan_notes_updates (org_id, folder_path, ts);");
   // Newest-first paging — the feed's only ordering.
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_updates_ts ON scan_notes_updates (org_id, ts);");
   // The badge count runs on every feed write and every mount; it must not scan the whole log.

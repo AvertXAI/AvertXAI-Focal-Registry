@@ -849,6 +849,7 @@ export default function ScanModule() {
                 mediaMode={mediaMode}
                 onFolderChange={setNotesFolder}
                 jumpTo={jumpTo}
+                onSeeAll={() => chooseTab("updates")}
                 mediaPane={<MediaGrid folderPath={notesFolder?.path ?? null} />}
               />
             ) : (

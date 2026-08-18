@@ -360,15 +360,28 @@ const AV_MIME: Record<string, string> = Object.fromEntries(
  * main process, so `bytes=0-` on a four-gigabyte tape capture would allocate four gigabytes inside
  * the process that owns every window.
  *
- * FOUR MEGABYTES, down from sixty-four (Jason ruled 08-17-2026). This bound applies to the
- * OPEN-ENDED form alone — `bytes=0-`, which is what a player sends before it has read the header
- * and knows what to ask for. Every explicit `bytes=a-b` is still served exactly as requested, and
- * Chromium switches to explicit ranges immediately after headers, so playback and seeking are
- * untouched. Sixty-four megabytes of synchronous read on the main thread to satisfy an opening
- * probe was the cost that made a wall of thumbnails feel stuck; four is seconds of buffered video
- * and the player asks for the next slice long before it runs out.
+ * SIXTY-FOUR MEGABYTES, and it went 64 → 4 → 64 for reasons worth writing down so it does not
+ * oscillate a third time.
+ *
+ * IT WAS LOWERED to stop sixty-four megabytes of SYNCHRONOUS read holding the main thread. That
+ * cost was real. The bound was the wrong lever for it.
+ *
+ * IT IS RAISED BACK because four megabytes breaks camera originals, measured on device 08-18-2026:
+ * eighty-five .MP4 files, every one classified, guarded and served with no refusal anywhere, and
+ * every one failing to produce a frame — while the same files painted under the sixty-four megabyte
+ * version. A camera writes its `moov` atom — the index a demuxer needs before it can decode
+ * anything — at the END of the file. At sixty-four megabytes a 29 MB clip arrived whole in one
+ * response and the index came with it. At four it did not. Web-sourced clips kept working because
+ * they are routinely written `faststart`, index at the front, inside the first four megabytes;
+ * that split is exactly what the failure predicted.
+ *
+ * THE COST IS PAID SOMEWHERE ELSE NOW. The read below is asynchronous, so a large slice costs
+ * throughput on the threadpool rather than responsiveness on the thread that owns every window.
+ *
+ * This bounds the OPEN-ENDED form alone — `bytes=0-`, what a player sends before it has read the
+ * header and knows what to ask for. Every explicit `bytes=a-b` is served exactly as requested.
  */
-const OPEN_ENDED_MAX = 4 * 1024 * 1024;
+const OPEN_ENDED_MAX = 64 * 1024 * 1024;
 
 /**
  * WHO MAY READ THE PIXELS. The renderer draws a seeked video frame to a canvas to make a thumbnail,
@@ -421,7 +434,7 @@ const requestCount = new Map<string, number>();
  * three: `Accept-Ranges: bytes`, an accurate `Content-Length`, and a real 206 with `Content-Range`.
  */
 export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | null): void {
-  protocol.handle(MEDIA_SCHEME, (request) => {
+  protocol.handle(MEDIA_SCHEME, async (request) => {
     // HOISTED ABOVE THE try ON PURPOSE: the catch below returns a response too, and it cannot reach
     // a binding scoped inside the block it is catching for.
     const cors = allowOrigin(request);
@@ -454,7 +467,7 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
       const refused = guardPath(ctx.db, ctx.orgId, p, "playable");
       if (refused) return new Response(refused, { status: 403, headers: head() });
 
-      const size = fs.statSync(p).size;
+      const size = (await fs.promises.stat(p)).size;
       const type = AV_MIME[ext(p)] ?? "application/octet-stream";
       const range = request.headers.get("Range") ?? request.headers.get("range");
       const nth = (requestCount.get(p) ?? 0) + 1;
@@ -479,7 +492,12 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
         // `bytes=-500` means the LAST 500 bytes — how a player finds an MP4 whose moov atom sits at
         // the end of the file. Getting this branch wrong makes exactly those clips unplayable.
         if (Number.isNaN(a)) return [Math.max(0, size - (Number.isNaN(b) ? 0 : b)), size - 1];
-        if (Number.isNaN(b)) return [a, Math.min(size - 1, a + OPEN_ENDED_MAX - 1)]; // open-ended → one bounded slice
+        // OPEN-ENDED. A file that FITS under the bound comes back whole — one response, index
+        // included wherever the camera put it, no second round trip to discover the tail. Only a
+        // file larger than the bound is cut, and then the player asks for the rest. The min() has
+        // always expressed both halves; it is spelled out because the whole-file case is the one
+        // that matters and it was invisible.
+        if (Number.isNaN(b)) return [a, Math.min(size - 1, a + OPEN_ENDED_MAX - 1)];
         return [a, Math.min(b, size - 1)];
       })();
 
@@ -493,6 +511,14 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
       // READ THE SLICE INTO A BUFFER RATHER THAN STREAMING IT (Jason, on device 08-17-2026 — after
       // the first Range cut, clips stopped playing entirely rather than merely stuttering).
       //
+      // ASYNCHRONOUS, AND THAT IS THE WHOLE POINT OF THIS PASS. The buffered read is right; doing it
+      // with fs.readSync was not. This is the MAIN process — the one thread that owns every window
+      // and answers every IPC call — so six concurrent tiles at sixty-four megabytes was up to 384
+      // megabytes of blocking reads with the user interface frozen behind them. That is why the
+      // bound was cut to four, and cutting the bound broke camera originals. fs.promises hands the
+      // read to the threadpool: the same bytes, the same buffer, the same response contract, and the
+      // main thread stays free while the drive works. Cost becomes throughput instead of a freeze.
+      //
       // A streamed body has to be right about three things at once: the exact byte count in
       // Content-Length, the lifetime of the file handle, and what happens when the player ABANDONS a
       // request mid-flight — which a seeking media element does constantly. Any one of them wrong
@@ -504,15 +530,15 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
       // The body is handed over as a bare ArrayBuffer. Buffer and Uint8Array are both ArrayBufferView
       // and both are REJECTED by this project's BodyInit typing (their ArrayBufferLike generic does
       // not line up); an ArrayBuffer is unambiguous and needs no cast.
-      const fd = fs.openSync(p, "r");
+      const handle = await fs.promises.open(p, "r");
       let body: ArrayBuffer;
       try {
         const store = new ArrayBuffer(end - start + 1);
         const view = new Uint8Array(store);
-        const read = fs.readSync(fd, view, 0, view.length, start);
-        body = read < view.length ? store.slice(0, read) : store; // short read at EOF — never over-claim
+        const { bytesRead } = await handle.read(view, 0, view.length, start);
+        body = bytesRead < view.length ? store.slice(0, bytesRead) : store; // short read at EOF — never over-claim
       } finally {
-        fs.closeSync(fd);
+        await handle.close(); // in a finally: an abandoned seek must not leak a descriptor
       }
 
       if (CASE_TRACE) {

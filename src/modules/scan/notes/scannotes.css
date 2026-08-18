@@ -444,7 +444,15 @@
   font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mc-muted)}
 .scannotes-mhead .scannotes-toggle{flex:none;margin-left:auto}
 /* Same voice as .scannotes-hiddennote in the tree — italic, dimmed, stating what was taken away. */
-.scannotes-rawhidden{font-size:11.5px;font-style:italic;color:var(--mc-dimmer);margin:0 0 8px 2px}
+.scannotes-rawhidden{font-size:11.5px;font-style:italic;color:var(--mc-dimmer);margin:0 0 8px 2px;
+  min-height:1.4em}
+/* tabular-nums so a climbing odometer does not jitter the words after it as digits change width */
+.scannotes-rawhidden .odo{font-variant-numeric:tabular-nums;font-style:normal;color:var(--mc-muted)}
+/* THE ELLIPSIS CARRIES THE MOTION WHEN THE COUNT CANNOT. A stalled read holds the number at the
+   truth and lets these move — honest about being stuck, where a climbing number would not be. */
+.scannotes-rawhidden .dots::after{content:"";animation:scannotes-dots 1.2s steps(4,end) infinite}
+@keyframes scannotes-dots{0%{content:""}25%{content:"."}50%{content:".."}75%,100%{content:"..."}}
+@media (prefers-reduced-motion:reduce){.scannotes-rawhidden .dots::after{animation:none;content:"..."}}
 /* The RAW badge. Reads on any photograph because it carries its own dark plate rather than relying
    on the tile behind it — a token background would vanish against a dark frame in Light mode. */
 .scannotes-tile .thumb{position:relative}

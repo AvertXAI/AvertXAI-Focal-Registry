@@ -69,7 +69,7 @@ const api: Api = {
   },
   theme: {
     applyOverlay: (mode: string) => invoke("theme:overlay", mode),
-    setModalDim: (on: boolean) => invoke("theme:modalDim", on),
+    setModalDim: (on: boolean | "viewer") => invoke("theme:modalDim", on),
   },
   storage: {
     locations: () => invoke("storage:locations"),
@@ -163,6 +163,7 @@ const api: Api = {
       image: (target: string) => invoke("scan:notesImage", target),
       thumbsGet: (targets: string[]) => invoke("scan:thumbsGet", targets),
       thumbsPut: (target: string, dataUrl: string) => invoke("scan:thumbsPut", target, dataUrl),
+      revealMedia: (target: string) => invoke("scan:revealMedia", target),
       thumbFailuresGet: (targets: string[]) => invoke("scan:thumbFailuresGet", targets),
       thumbFailurePut: (target: string, reason: string, detail: string) =>
         invoke("scan:thumbFailurePut", target, reason, detail),

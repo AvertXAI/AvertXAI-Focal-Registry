@@ -1348,7 +1348,10 @@ export interface Api {
   theme: {
     applyOverlay: (mode: string) => Promise<void>;
     /** Dim/restore the native min/□/✕ overlay while a modal is open (OS draws it above the DOM). */
-    setModalDim: (on: boolean) => Promise<void>;
+    /** false restores · true dims for an ordinary modal · "viewer" paints the media viewer's own
+     *  near-black chrome, which is the same in all three themes and is what the OS-drawn buttons
+     *  have to recede INTO when the viewer is expanded. */
+    setModalDim: (on: boolean | "viewer") => Promise<void>;
   };
   /** App-managed Markdown storage root + the Documents export folder (Settings transparency). */
   storage: {

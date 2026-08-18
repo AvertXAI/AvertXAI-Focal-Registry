@@ -64,6 +64,15 @@ export function showMain(): void {
 // tint so the close button blends with the load screen; App flips it to the theme on shell mount.
 const OVERLAYS: Record<string, { color: string; symbolColor: string }> = {
   boot: { color: "#0b0e16", symbolColor: "#e8edf7" },
+  // THE MEDIA VIEWER'S OWN CHROME, and it is a MODE rather than a second writer (§3.3: "New color
+  // states become a mode the funnel resolves"). The viewer header is deliberately the same near-black
+  // in all three themes — a lightbox that repaints pale in Light mode changes the apparent colour of
+  // the photograph inside it. Dimming the ACTIVE THEME under it therefore gets the answer wrong in
+  // two of the three: in Light the blend lands on mid-grey, which is a dark block sitting on a white
+  // topbar, and expanded it is a mismatched strip across the viewer's own header. Matching the
+  // header exactly is what actually makes the buttons recede. The symbol is the header foreground
+  // pulled most of the way down to the background — visible enough to hit, quiet enough to ignore.
+  viewer: { color: "#1c1917", symbolColor: "#4a4642" },
   system: { color: "#0d1320", symbolColor: "#e8edf7" },
   dark: { color: "#262626", symbolColor: "#E5E5E5" },
   light: { color: "#FFFFFF", symbolColor: "#1A1A1A" },
@@ -79,7 +88,8 @@ export function overlayFor(mode: string | null): { color: string; symbolColor: s
 // (rgba(4,8,16,.66) in globals.css) while a modal is open, so the buttons visually recede with
 // the rest of the chrome.
 let currentOverlayMode: string | null = "system";
-let overlayDimmed = false;
+/** false = normal · true = an ordinary modal is open · "viewer" = the media viewer is open. */
+let overlayDimmed: boolean | "viewer" = false;
 // Boot flag — while true, the funnel paints the boot-dark frame/strip regardless of theme, so
 // renderer-side theme pushes during boot are harmless without gating them. boot:done flips it.
 let booting = true;
@@ -116,7 +126,11 @@ function applyOverlayNow(): void {
   const o = overlayFor(mode);
   try {
     win.setTitleBarOverlay(
-      overlayDimmed ? { ...o, color: blendWithBackdrop(o.color), symbolColor: blendWithBackdrop(o.symbolColor) } : o
+      overlayDimmed === "viewer"
+        ? { ...OVERLAYS.viewer, height: o.height }
+        : overlayDimmed
+          ? { ...o, color: blendWithBackdrop(o.color), symbolColor: blendWithBackdrop(o.symbolColor) }
+          : o
     );
     // Pre-paint frame color follows the theme so resize never flashes the wrong mode.
     win.setBackgroundColor(baseFor(mode));
@@ -149,7 +163,7 @@ export function applyThemeOverlay(mode: string | null): void {
     the caption glyphs toward the backdrop (§3.4) — we deliberately do NOT disable the buttons.
     Disabling made Windows paint them in its own system-disabled grey, a different shade than the
     blended symbolColor, so the three buttons read unevenly; recolor-only dims all three uniformly. */
-export function setOverlayDim(dim: boolean): void {
-  overlayDimmed = dim;
+export function setOverlayDim(dim: boolean | "viewer"): void {
+  overlayDimmed = dim === "viewer" ? "viewer" : dim === true;
   applyOverlayNow();
 }

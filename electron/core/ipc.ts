@@ -352,7 +352,9 @@ export function registerIpcHandlers(): void {
 
   // Native window-control overlay tint. The window is born in the JARVIS boot navy; the renderer
   // drives every later tint (shell mount + theme flips) through this single channel.
-  safeHandle("theme:modalDim", (_e, on: unknown) => setOverlayDim(on === true));
+  // Three states, validated here rather than trusted: the renderer may ask for the viewer chrome
+  // by name, and anything else is read as a plain boolean.
+  safeHandle("theme:modalDim", (_e, on: unknown) => setOverlayDim(on === "viewer" ? "viewer" : on === true));
   safeHandle("theme:overlay", (_e, mode: unknown) =>
     applyThemeOverlay(typeof mode === "string" ? mode : null)
   );
@@ -967,6 +969,22 @@ export function registerIpcHandlers(): void {
   // THE FAILURE LOG. Same guard, same clamp, same never-throw discipline as the cache above: a log
   // that can empty the media grid is worse than no log, and that inversion has already happened once
   // in this module (a rejected thumbsGet rendered "No media recorded in this folder").
+  // SHOW IN EXPLORER, for one media file. shell.showItemInFolder REVEALS AND SELECTS rather than
+  // opening, which is the only safe shape here: openPath on a file would LAUNCH it, and this channel
+  // takes a path from the renderer. Guarded exactly like every other media path — the file must sit
+  // under a drive this org actually scanned, so the channel cannot reveal arbitrary files.
+  safeHandle("scan:revealMedia", (_e, target: unknown) => {
+    try {
+      if (typeof target !== "string" || target === "") return { ok: false, error: "no path" };
+      const { db, orgId } = scanCtx();
+      if (!scanMedia.isUnderScannedDrive(db, orgId, target)) return { ok: false, error: "outside any scanned drive" };
+      if (!fs.existsSync(target)) return { ok: false, error: "that file is no longer there — the drive may be unplugged" };
+      void shell.showItemInFolder(target);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
   safeHandle("scan:thumbFailuresGet", (_e, targets: unknown) => {
     try {
       if (!Array.isArray(targets)) return {};

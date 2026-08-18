@@ -395,9 +395,15 @@ export default function App() {
   // data-modal-backdrop) — no per-modal wiring to forget.
   useEffect(() => {
     const SELECTOR = ".overlay, .scan-modal-back, [data-modal-backdrop]";
-    let dimmed = false;
+    // false | true | "viewer" — see setModalDim. A modal that declares itself a viewer paints its own
+    // chrome onto the strip instead of dimming the theme, because the media viewer's header is the
+    // same near-black in every theme and the buttons have to recede INTO it, not into a blend of a
+    // theme it is not showing. Expanded, that strip IS the viewer's header.
+    let dimmed: boolean | "viewer" = false;
     const sync = (): void => {
-      const open = document.querySelector(SELECTOR) !== null;
+      const el = document.querySelector(SELECTOR);
+      const open: boolean | "viewer" =
+        el === null ? false : el.getAttribute("data-modal-backdrop") === "viewer" ? "viewer" : true;
       if (open === dimmed) return; // only cross the IPC when the state actually flips
       dimmed = open;
       void window.api.theme.setModalDim(open);

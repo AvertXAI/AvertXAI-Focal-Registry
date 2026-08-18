@@ -29,6 +29,10 @@ import "./scannotes.css";
 
 const AUTOSAVE_MS = 900; // one pause in typing, not one keystroke
 
+/** How far Back can walk. A browsing session is not a document; nobody retraces four hundred
+ *  folders, and an unbounded array on a long session is a leak nobody would ever notice. */
+const TRAIL_MAX = 50;
+
 /** m-d-yyyy | h:mmam — the Folder History line format, fixed by the mockup. */
 function stampParts(iso: string | null): { date: string; time: string } {
   if (!iso) return { date: "—", time: "" };
@@ -133,6 +137,9 @@ export interface ScanNotesTabProps {
   onFolderChange: (folder: { path: string; driveId: number; letter: string | null } | null) => void;
   /** Rendered into the third pane in place of the editor when mediaMode is on (Phase 5). */
   mediaPane?: React.ReactNode;
+  /** "Show RAW files" — owned by ScanModule because MediaGrid needs it too, same as mediaMode. */
+  showRaw: boolean;
+  onToggleRaw: () => void;
   /** A folder the header search asked to open. `at` is what makes a repeat click on the SAME result
    *  still re-open it — an identical object would otherwise look like no change at all. */
   jumpTo?: { path: string; driveId: number | null; at: number } | null;
@@ -503,7 +510,7 @@ function Waiting({ what }: { what: string }) {
  *  behind the paint. Module-level on purpose — the same shape as the Vault list's cache. */
 let treeCache: ScanNotesDriveNode[] = [];
 
-export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, mediaPane, jumpTo, onSeeAll }: ScanNotesTabProps) {
+export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, mediaPane, jumpTo, onSeeAll, showRaw, onToggleRaw }: ScanNotesTabProps) {
   const [tree, setTree] = useState<ScanNotesDriveNode[]>(treeCache);
   const [loading, setLoading] = useState(treeCache.length === 0);
   const [folderBusy, setFolderBusy] = useState(false);
@@ -512,6 +519,12 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
    *  fully is the flat list this replaced. */
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [folder, setFolder] = useState<string | null>(null);
+  /** WHERE BACK GOES. Folders visited before this one, oldest first — `trail` and not `history`,
+   *  because `history` in this file is already the RENAME history and two meanings of one word in
+   *  one component is how the wrong one gets read at three in the morning.
+   *
+   *  Capped: a browsing session is not a document and nobody walks back four hundred folders. */
+  const [trail, setTrail] = useState<string[]>([]);
   const [driveId, setDriveId] = useState<number | null>(null);
   const [card, setCard] = useState<ScanFolderCard | null>(null);
   const [history, setHistory] = useState<ScanHistoryRow[]>([]);
@@ -709,6 +722,30 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
     [tree]
   );
 
+  /**
+   * Select a folder AND record where we came from. Every user-initiated move goes through here —
+   * the tree, Recent Work, the container empty-state links — so Back has one definition of "the
+   * previous folder" rather than three that drift apart.
+   *
+   * `goBack` deliberately does NOT push: walking back and then back again should keep going back,
+   * not oscillate between two folders.
+   */
+  const goFolder = useCallback((p: string, dId?: number | null) => {
+    setFolder((prev) => {
+      if (prev !== null && prev !== p) setTrail((t) => [...t, prev].slice(-TRAIL_MAX));
+      return p;
+    });
+    if (dId != null) setDriveId(dId);
+  }, []);
+
+  const goBack = useCallback(() => {
+    setTrail((t) => {
+      if (t.length === 0) return t;
+      setFolder(t[t.length - 1]);
+      return t.slice(0, -1);
+    });
+  }, []);
+
   const toggleBranch = useCallback((p: string) => {
     setExpanded((s) => {
       const n = new Set(s);
@@ -747,7 +784,7 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
         <RecentWork
           rows={recent}
           selected={folder}
-          onPick={(r) => { setFolder(r.path); if (r.drive_id !== null) setDriveId(r.drive_id); }}
+          onPick={(r) => goFolder(r.path, r.drive_id)}
           onSeeAll={onSeeAll ?? (() => undefined)}
         />
         {/* The filter lives in the Drives header, not on each drive: it is one preference about the
@@ -803,7 +840,7 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
                     expanded={expanded}
                     showEmpty={showEmpty}
                     onToggle={toggleBranch}
-                    onSelect={(node) => { setFolder(node.path); setDriveId(d.drive_id); }}
+                    onSelect={(node) => goFolder(node.path, d.drive_id)}
                     onRename={(node) => { setRenameErr(null); setRenaming({ path: node.path, name: node.name }); }}
                   />
                 ))}
@@ -856,7 +893,41 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
       {/* ---- pane 3: media grid, or the editor / rendered report ---- */}
       {mediaMode ? (
         <div className="scannotes-pane">
-          <h3>{selectedDrive ? `${selectedDrive.letter ?? selectedDrive.volume_label ?? ""} / ` : ""}{folder ? folder.split("\\").pop() : "No folder"}</h3>
+          {/* MEDIA PANE HEADER — one row: Back, breadcrumb, toggle. Built to
+              MOCKUP-scan-notes-raw-toggle-08-18-2026.html, states A and B. State C in that file
+              puts the toggle in the Drives header and is a REJECTED alternative — not built.
+              The toggle governs what the WALL shows, so it lives where the wall is. */}
+          <div className="scannotes-mhead">
+            {/* DISABLED, NEVER HIDDEN. A control that appears and vanishes moves everything beside
+                it and teaches the user its position is unreliable; a dimmed one says "there is
+                nowhere to go back to yet", which is the actual answer. */}
+            <button
+              type="button"
+              className="scannotes-back"
+              onClick={goBack}
+              disabled={trail.length === 0}
+              title={trail.length === 0 ? "Nowhere to go back to yet" : `Back to ${trail[trail.length - 1].split("\\").pop()}`}
+            >
+              <span aria-hidden="true">←</span> Back
+            </button>
+            <span className="scannotes-mcrumb" title={folder ?? undefined}>
+              {selectedDrive ? `${selectedDrive.letter ?? selectedDrive.volume_label ?? ""} / ` : ""}
+              {folder ? folder.split("\\").pop() : "No folder"}
+            </span>
+            {/* THE SAME CONTROL AS "Show empty folders", down to the class names — role="switch"
+                around the shell's global .switch. Two toggles that behave differently in one
+                product is a defect, so this one is a copy and not a second design. */}
+            <button
+              type="button"
+              className="scannotes-toggle"
+              role="switch"
+              aria-checked={showRaw}
+              onClick={onToggleRaw}
+            >
+              <span className={`switch${showRaw ? " on" : ""}`} aria-hidden="true" />
+              Show RAW files
+            </button>
+          </div>
           {/* THE GRID IS NOT ASKED WHAT AN EMPTY FOLDER MEANS — it cannot know. MediaGrid sees one
               folder's listing; only the tree knows what is BELOW that folder, and that is the whole
               difference between "nothing here" and "everything is one level down". Intercepting on
@@ -865,7 +936,7 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
               cannot cover: a record claiming files that the disk no longer has, where "scan it" is
               in fact the right advice. */}
           {selectedNode !== null && selectedNode.mediaCount === 0 ? (
-            <FolderEmptyState node={selectedNode} onOpen={(p) => revealFolder(p, driveId)} />
+            <FolderEmptyState node={selectedNode} onOpen={(p) => { goFolder(p, driveId); revealFolder(p, driveId); }} />
           ) : (
             mediaPane ?? <div className="scannotes-empty">Media browsing is not wired yet.</div>
           )}

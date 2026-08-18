@@ -518,6 +518,9 @@ export interface ScanMediaItem {
   viewable: boolean;
   /** true when the still is RAW/TIFF and what you see is the camera's embedded preview. */
   embedded: boolean;
+  /** true for a CAMERA NEGATIVE specifically — narrower than `embedded`, which also covers HEIC,
+   *  TIFF and PSD. Hidden by default behind the "Show RAW files" toggle. */
+  raw: boolean;
   streamUrl: string | null;
 }
 

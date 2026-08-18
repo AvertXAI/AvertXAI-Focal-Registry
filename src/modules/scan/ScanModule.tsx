@@ -176,6 +176,11 @@ export default function ScanModule() {
   const [tab, setTab] = useState<Tab>("new");
   // ---- Scan Notes state. Both view preferences persist to app_settings, never localStorage (§3.8). ----
   const [mediaMode, setMediaMode] = useState(false);
+  /** "Show RAW files" on the media wall. DEFAULT OFF, and the default is the feature: a
+   *  RAW-plus-JPEG shoot puts every photograph on the wall twice, and the second copy is the one
+   *  that costs a preview extraction. Owned here rather than in ScanNotesTab because MediaGrid is
+   *  built here and both need it — exactly how mediaMode is already shared. */
+  const [showRaw, setShowRaw] = useState(false);
   const [notesRefresh, setNotesRefresh] = useState(0); // bumped by the push; every surface re-reads
   const [unseen, setUnseen] = useState(0);
   const [pendingRenames, setPendingRenames] = useState(0);
@@ -365,6 +370,8 @@ export default function ScanModule() {
       if (v && TABS.some(([k]) => k === v)) setTab(v as Tab);
     }).catch(() => undefined);
     void window.api.settings.get("scan.notes_media_mode").then((v) => setMediaMode(v === "1")).catch(() => undefined);
+    // A missing row is "off", never an error — the first run of this feature has no row.
+    void window.api.settings.get("scan.notes_show_raw").then((v) => setShowRaw(v === "1")).catch(() => undefined);
   }, []);
 
   // The badge and the pending-rename count. Re-read on every push AND on every tab change, because
@@ -377,6 +384,12 @@ export default function ScanModule() {
   const chooseTab = useCallback((t: Tab) => {
     setTab(t);
     void window.api.settings.set("scan.notes_tab", t).catch(() => undefined);
+  }, []);
+  const toggleRaw = useCallback(() => {
+    setShowRaw((on) => {
+      void window.api.settings.set("scan.notes_show_raw", on ? "0" : "1").catch(() => undefined);
+      return !on;
+    });
   }, []);
   const toggleMedia = useCallback(() => {
     setMediaMode((m) => {
@@ -873,7 +886,9 @@ export default function ScanModule() {
                 onFolderChange={setNotesFolder}
                 jumpTo={jumpTo}
                 onSeeAll={() => chooseTab("updates")}
-                mediaPane={<MediaGrid folderPath={notesFolder?.path ?? null} />}
+                showRaw={showRaw}
+                onToggleRaw={toggleRaw}
+                mediaPane={<MediaGrid folderPath={notesFolder?.path ?? null} showRaw={showRaw} />}
               />
             ) : (
               <UpdatesTab refreshKey={notesRefresh} />

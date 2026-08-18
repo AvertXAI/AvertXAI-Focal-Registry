@@ -36,7 +36,7 @@ import exifr from "exifr";
 import fs from "node:fs";
 import path from "node:path";
 import type { Db } from "./notesDb";
-import { AUDIO_EXTS, STILL_EXTS, VIDEO_EXTS, extOf, normalizeExt } from "./media";
+import { AUDIO_EXTS, RAW_EXTS, STILL_EXTS, VIDEO_EXTS, extOf, normalizeExt } from "./media";
 import { isUnderScannedRoot } from "./index";
 import { previewFor } from "./rawPreview";
 
@@ -80,6 +80,9 @@ export interface MediaItem {
   viewable: boolean;
   /** true when the still is RAW/TIFF and what you see is the camera's embedded preview. */
   embedded: boolean;
+  /** true for a CAMERA NEGATIVE specifically — narrower than `embedded`, which also covers HEIC,
+   *  TIFF and PSD. The Scan Notes wall hides these by default; see RAW_EXTS in media.ts. */
+  raw: boolean;
   /** frmedia: URL for video and audio; null for stills, which come over IPC. */
   streamUrl: string | null;
 }
@@ -137,6 +140,7 @@ export function listFolderMedia(db: Db, orgId: string, folderPath: unknown, limi
       size_bytes: r.size_bytes,
       viewable: kind === "image" ? true : playable,
       embedded: kind === "image" && !BROWSER_IMAGE.has(e),
+      raw: kind === "image" && RAW_EXTS.has(e),
       streamUrl: playable ? streamUrl(r.path) : null,
     };
   });

@@ -826,6 +826,11 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }
           nothing to explain — the button's own path title shows through, and an empty tooltip is
           a flicker of nothing on every hover. */}
       <div className={`thumb${item.kind === "video" ? " vid" : ""}`} title={note ?? undefined}>
+        {/* A DOUBLED WALL HAS TO BE READABLE AT A GLANCE. With the toggle on, a RAW and its JPEG
+            sibling are the same photograph twice; the badge is what tells them apart without
+            reading two filenames. Only rendered when RAW is shown, because when it is off every
+            tile on the wall is a JPEG and a badge on none of them says nothing. */}
+        {item.raw && <span className="raw">RAW</span>}
         {pic !== null ? (
           <img src={pic} alt="" />
         ) : granted && wantsVideo && stream !== null ? (
@@ -839,7 +844,7 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }
   );
 }
 
-export default function MediaGrid({ folderPath }: { folderPath: string | null }) {
+export default function MediaGrid({ folderPath, showRaw }: { folderPath: string | null; showRaw: boolean }) {
   const [items, setItems] = useState<ScanMediaItem[]>([]);
   /** Path → cached thumbnail data URL. Fetched once per folder; a path that is absent is a miss. */
   const [cached, setCached] = useState<Record<string, string>>({});
@@ -1020,20 +1025,60 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
   // mean two handlers racing for one Escape.
   const close = useCallback(() => setOpen(null), []);
 
+  /**
+   * THE RAW FILTER — a DERIVED list, deliberately not a second fetch.
+   *
+   * `items` holds the whole folder; this is what the wall actually renders. Filtering here rather
+   * than re-listing is what makes the toggle instant and leaves the thumbnail cache untouched: a
+   * RAW that was already extracted paints from cache the moment it is switched back on, because
+   * nothing was ever thrown away.
+   *
+   * IT IS ALSO WHERE THE COST GENUINELY DISAPPEARS, not merely where it is hidden. A still costs
+   * nothing until its Tile mounts and its IntersectionObserver fires the `image` call — no Tile,
+   * no observer, no IPC round trip, no preview extraction, no cache lookup. A filtered-out RAW
+   * never becomes an element, so the expensive half of a RAW-plus-JPEG folder is never asked for.
+   */
+  const shownItems = showRaw ? items : items.filter((i) => !i.raw);
+  const hiddenRaw = items.length - shownItems.length;
+  /* Nothing vanishes silently — the same voice as the hidden-folders line in the tree. Rendered
+     only when something IS hidden; a folder with no RAW gets no line and no explanation it does
+     not need. */
+  const hiddenLine =
+    hiddenRaw > 0 ? (
+      <div className="scannotes-rawhidden">
+        {hiddenRaw === 1 ? "1 RAW file hidden." : `${hiddenRaw.toLocaleString()} RAW files hidden.`}
+      </div>
+    ) : null;
+
   if (!folderPath) return <div className="scannotes-empty">Pick a folder on the left.</div>;
   if (items.length === 0) {
     return <div className="scannotes-empty">No media recorded in this folder. Scan it and the files appear here.</div>;
+  }
+  // A RAW-ONLY SHOOT WITH THE TOGGLE OFF. The folder is not empty and must not claim to be — the
+  // count line is the whole trace of what is here, so it says so in full rather than leaving the
+  // user staring at a blank wall wondering whether the scan failed.
+  if (shownItems.length === 0) {
+    return (
+      <div className="scannotes-empty">
+        Every file in this folder is a RAW. Turn on <strong>Show RAW files</strong> above to see
+        {hiddenRaw === 1 ? " it." : ` all ${hiddenRaw.toLocaleString()} of them.`}
+      </div>
+    );
   }
 
   // THE OPEN ITEM AS A POSITION. Matched on the absolute PATH rather than on object identity, so a
   // listing replaced underneath an open viewer still finds its file; -1 means it genuinely is not in
   // this folder any more, and the viewer renders nothing rather than the wrong file.
-  const openIndex = open === null ? -1 : items.findIndex((i) => i.path === open.path);
+  // Indexed into the SHOWN list, not the full one, so Next and Previous in the viewer step through
+  // exactly what the wall is showing. Stepping into a tile the user cannot see would be a viewer
+  // that disagrees with the grid behind it.
+  const openIndex = open === null ? -1 : shownItems.findIndex((i) => i.path === open.path);
 
   return (
     <>
+      {hiddenLine}
       <div className="scannotes-mediagrid">
-        {items.map((i) => (
+        {shownItems.map((i) => (
           <Tile
             key={i.path}
             item={i}
@@ -1068,10 +1113,10 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
           the only thing in this module that makes a thumbnail. */}
       {openIndex >= 0 && (
         <MediaViewer
-          items={items}
+          items={shownItems}
           index={openIndex}
           onClose={close}
-          onIndexChange={(i) => setOpen(items[i] ?? null)}
+          onIndexChange={(i) => setOpen(shownItems[i] ?? null)}
           cached={cached}
         />
       )}

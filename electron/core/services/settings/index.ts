@@ -37,6 +37,7 @@ const RENDERER_KEYS = new Set([
   "scan.notes_tab", // which of the five tabs is open
   "scan.notes_media_mode", // View media toggle — collapses the 3-pane grid to two
   "scan.notes_show_empty_folders", // tree toggle — "1" reveals folders whose whole subtree has no media
+  "scan.notes_show_raw", // media wall — "1" shows camera RAW alongside the JPEGs; default off
   "tips.enabled", // helpful-tips master switch — ONE global toggle (Jason ruled: no per-tip settings), default on
   // TimeTracker UI-only pref (Phase 6A, the ONE sanctioned out-of-module addition) — the module
   // rail's « collapse, persisted like mindmerge.rail_collapsed. Licence/break keys stay OFF this

@@ -49,6 +49,21 @@ export const STILL_EXTS = lowerSet([
   "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raf", "pef", "srw",
   "3fr", "rwl", "psd", "psb", // psd/psb get a row but NO parser call (same as bmp/gif)
 ]);
+/**
+ * CAMERA RAW — the subset of STILL_EXTS a browser cannot draw and whose picture has to be lifted
+ * out of the file's own embedded preview. THE ONE DEFINITION of "is this a RAW", used by the
+ * listing to mark each row so the Scan Notes wall can offer to hide them (Jason, 08-18-2026: a
+ * RAW-plus-JPEG shoot shows every photograph twice and the second copy is the expensive one).
+ *
+ * DELIBERATELY NOT "everything that needs an embedded preview". HEIC, TIFF, PSD and PSB also take
+ * that route, and calling a HEIC a RAW in the interface would be a lie for the sake of one fewer
+ * list. They stay visible; only camera negatives are hidden.
+ */
+export const RAW_EXTS = lowerSet([
+  "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raf", "pef", "srw",
+  "3fr", "rwl",
+]);
+
 export const VIDEO_EXTS = lowerSet([
   "mp4", "mov", "m4v", "3gp", "avi", "mts", "m2ts", "m2t", "mkv", "wmv", "mpg", "mpeg", "mpe",
   "webm", "braw", "r3d", "mxf", "insv",

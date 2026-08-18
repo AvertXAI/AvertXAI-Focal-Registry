@@ -181,6 +181,10 @@ export default function ScanModule() {
    *  that costs a preview extraction. Owned here rather than in ScanNotesTab because MediaGrid is
    *  built here and both need it — exactly how mediaMode is already shared. */
   const [showRaw, setShowRaw] = useState(false);
+  /** Preview progress, reported up by MediaGrid and drawn by ScanNotesTab's media pane header.
+   *  It transits through here for the same reason showRaw does: MediaGrid is built here and the
+   *  header that draws it lives in the sibling. */
+  const [mediaProgress, setMediaProgress] = useState<{ done: number; total: number; raw: boolean } | null>(null);
   const [notesRefresh, setNotesRefresh] = useState(0); // bumped by the push; every surface re-reads
   const [unseen, setUnseen] = useState(0);
   const [pendingRenames, setPendingRenames] = useState(0);
@@ -888,7 +892,8 @@ export default function ScanModule() {
                 onSeeAll={() => chooseTab("updates")}
                 showRaw={showRaw}
                 onToggleRaw={toggleRaw}
-                mediaPane={<MediaGrid folderPath={notesFolder?.path ?? null} showRaw={showRaw} />}
+                mediaProgress={mediaProgress}
+                mediaPane={<MediaGrid folderPath={notesFolder?.path ?? null} showRaw={showRaw} onProgress={setMediaProgress} />}
               />
             ) : (
               <UpdatesTab refreshKey={notesRefresh} />

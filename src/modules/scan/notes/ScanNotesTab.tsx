@@ -33,6 +33,51 @@ const AUTOSAVE_MS = 900; // one pause in typing, not one keystroke
  *  folders, and an unbounded array on a long session is a leak nobody would ever notice. */
 const TRAIL_MAX = 50;
 
+/**
+ * THE ODOMETER — a display that eases toward the truth and is never allowed to pass it.
+ *
+ * The motion is the message: a number racing upward is what says the application is working rather
+ * than hung. But canon bans fake progress, and this is exactly where fake progress is tempting — a
+ * number that keeps climbing looks better and is a lie, and it is the lie that makes a user
+ * distrust every progress indicator they ever see afterwards.
+ *
+ * One-directional: `shown` may LAG `real` and may never LEAD it. A drop resets instantly rather
+ * than easing down, because easing down IS counting backwards. When the truth stops advancing the
+ * number simply stops and the ellipsis carries the motion instead — a frozen number beside a
+ * moving ellipsis is honest about a stalled read in a way a climbing number is not.
+ */
+function useOdometer(real: number): number {
+  const [shown, setShown] = useState(real);
+  const frame = useRef<number | null>(null);
+  const last = useRef(0);
+  useEffect(() => {
+    if (real < shown) { setShown(real); return; }
+    if (real === shown) return;
+    const step = (t: number): void => {
+      frame.current = requestAnimationFrame(step);
+      if (t - last.current < 240) return; // ~240ms per advance: a climb, not a jump
+      last.current = t;
+      setShown((v) => (v < real ? v + 1 : v)); // CANNOT exceed `real` — the whole invariant
+    };
+    frame.current = requestAnimationFrame(step);
+    return () => { if (frame.current !== null) cancelAnimationFrame(frame.current); };
+  }, [real, shown]);
+  return Math.min(shown, real); // belt and braces: render can never print more than the truth
+}
+
+/** The loading line, drawn INSIDE the media pane header beside the toggle — Jason's placement,
+ *  annotated on device 08-18-2026. The count animates; the total does not, and the ellipsis
+ *  animates in CSS so it keeps moving even when the count is stuck on a slow read. */
+function MediaProgress({ done, total, raw }: { done: number; total: number; raw: boolean }) {
+  const shown = useOdometer(done);
+  return (
+    <span className="scannotes-mprogress" aria-live="polite">
+      Loading {raw ? "RAW previews" : "previews"}<span className="dots" aria-hidden="true" />{" "}
+      <span className="odo">{shown.toLocaleString()}</span> of {total.toLocaleString()}
+    </span>
+  );
+}
+
 /** m-d-yyyy | h:mmam — the Folder History line format, fixed by the mockup. */
 function stampParts(iso: string | null): { date: string; time: string } {
   if (!iso) return { date: "—", time: "" };
@@ -140,6 +185,8 @@ export interface ScanNotesTabProps {
   /** "Show RAW files" — owned by ScanModule because MediaGrid needs it too, same as mediaMode. */
   showRaw: boolean;
   onToggleRaw: () => void;
+  /** Preview progress, reported up by MediaGrid so the HEADER can draw it. Null = nothing loading. */
+  mediaProgress?: { done: number; total: number; raw: boolean } | null;
   /** A folder the header search asked to open. `at` is what makes a repeat click on the SAME result
    *  still re-open it — an identical object would otherwise look like no change at all. */
   jumpTo?: { path: string; driveId: number | null; at: number } | null;
@@ -510,7 +557,7 @@ function Waiting({ what }: { what: string }) {
  *  behind the paint. Module-level on purpose — the same shape as the Vault list's cache. */
 let treeCache: ScanNotesDriveNode[] = [];
 
-export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, mediaPane, jumpTo, onSeeAll, showRaw, onToggleRaw }: ScanNotesTabProps) {
+export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, mediaPane, jumpTo, onSeeAll, showRaw, onToggleRaw, mediaProgress }: ScanNotesTabProps) {
   const [tree, setTree] = useState<ScanNotesDriveNode[]>(treeCache);
   const [loading, setLoading] = useState(treeCache.length === 0);
   const [folderBusy, setFolderBusy] = useState(false);
@@ -914,6 +961,13 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
               {selectedDrive ? `${selectedDrive.letter ?? selectedDrive.volume_label ?? ""} / ` : ""}
               {folder ? folder.split("\\").pop() : "No folder"}
             </span>
+            {/* THE LOADING LINE SITS HERE — on the header row, immediately left of the toggle
+                (Jason's annotated placement, 08-18-2026). It is `flex:none` so it never shrinks;
+                the breadcrumb beside it is the element that yields, because a truncated folder
+                name still reads while a truncated count does not. */}
+            {mediaProgress && (
+              <MediaProgress done={mediaProgress.done} total={mediaProgress.total} raw={mediaProgress.raw} />
+            )}
             {/* THE SAME CONTROL AS "Show empty folders", down to the class names — role="switch"
                 around the shell's global .switch. Two toggles that behave differently in one
                 product is a defect, so this one is a copy and not a second design. */}

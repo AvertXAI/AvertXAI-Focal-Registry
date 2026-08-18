@@ -113,40 +113,6 @@ const RETRY_BACKOFF_MS = 3000;
  *  slow leak. Beyond it the oldest go, and a dropped one is a disk-cache hit, not a regeneration. */
 const SESSION_THUMB_MAX = 2000;
 
-/**
- * THE ODOMETER — a display that eases toward the truth and is never allowed to pass it.
- *
- * The motion is the message: a number racing upward is what tells the user the application is
- * working rather than hung. But canon bans fake progress, and this is exactly where fake progress
- * is tempting — a number that keeps climbing looks better and is a lie, and it is the lie that
- * makes a user distrust every progress indicator they ever see afterwards.
- *
- * So the rule is one-directional: `shown` may LAG `real`, and may never LEAD it. It never counts
- * backwards either — if the real count somehow drops, the display holds. When the truth stops
- * advancing the number simply stops, and the ellipsis carries the motion instead; a frozen number
- * beside a moving ellipsis is honest about a stalled read in a way a climbing number is not.
- */
-function useOdometer(real: number): number {
-  const [shown, setShown] = useState(real);
-  const frame = useRef<number | null>(null);
-  const last = useRef(0);
-  useEffect(() => {
-    // A drop (new folder, filter change) resets instantly — easing DOWN would be counting backwards.
-    if (real < shown) { setShown(real); return; }
-    if (real === shown) return;
-    const step = (t: number): void => {
-      frame.current = requestAnimationFrame(step);
-      // Roughly 200-300 ms per advance, so a burst of completions is visibly a climb rather than a
-      // jump, and one lonely completion still moves.
-      if (t - last.current < 240) return;
-      last.current = t;
-      setShown((v) => (v < real ? v + 1 : v)); // CANNOT exceed `real` — the whole invariant
-    };
-    frame.current = requestAnimationFrame(step);
-    return () => { if (frame.current !== null) cancelAnimationFrame(frame.current); };
-  }, [real, shown]);
-  return Math.min(shown, real); // belt and braces: the render can never print more than the truth
-}
 
 type Settled = "painted" | "shown" | "failed" | "noframe";
 
@@ -896,19 +862,15 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, 
   );
 }
 
-/** The progress line. The COUNT animates; the total does not, and the ellipsis animates in CSS so
- *  it keeps moving even when the count is stuck on a slow read. */
-function Progress({ done, total, raw }: { done: number; total: number; raw: boolean }) {
-  const shown = useOdometer(done);
-  return (
-    <>
-      Loading {raw ? "RAW previews" : "previews"}<span className="dots" aria-hidden="true" />{" "}
-      <span className="odo">{shown.toLocaleString()}</span> of {total.toLocaleString()}
-    </>
-  );
-}
-
-export default function MediaGrid({ folderPath, showRaw }: { folderPath: string | null; showRaw: boolean }) {
+export default function MediaGrid({ folderPath, showRaw, onProgress }: {
+  folderPath: string | null;
+  showRaw: boolean;
+  /** REPORTED UP, NOT RENDERED HERE. Jason placed the loading line in the media pane HEADER row,
+   *  beside the Show RAW files toggle (annotated screenshot, 08-18-2026) — and that row belongs to
+   *  ScanNotesTab. Only this component knows the counts, so it hands them over and the header draws
+   *  them. Null means there is nothing in flight. */
+  onProgress?: (p: { done: number; total: number; raw: boolean } | null) => void;
+}) {
   const [items, setItems] = useState<ScanMediaItem[]>([]);
   /** Path → cached thumbnail data URL. Fetched once per folder; a path that is absent is a miss. */
   const [cached, setCached] = useState<Record<string, string>>({});
@@ -1141,22 +1103,26 @@ export default function MediaGrid({ folderPath, showRaw }: { folderPath: string 
      not need. */
   const needsPicture = shownItems.filter((i) => i.kind === "image" || i.kind === "video");
   const doneCount = needsPicture.filter((i) => cached[i.path] !== undefined || failedNow[i.path] !== undefined).length;
-  const pending = needsPicture.length - doneCount;
+  const total = needsPicture.length;
+  const pending = total - doneCount;
+  const rawInFlight = showRaw && needsPicture.some((i) => i.raw);
 
-  /* ONE LINE, THREE STATES, ALWAYS IN THE SAME PLACE — progress while there is work, the hidden
-     count when RAW is off, nothing when there is neither. It is rendered unconditionally with a
-     non-breaking space as the empty case so the grid never shifts as it appears and disappears. */
-  const hiddenLine = (
-    <div className="scannotes-rawhidden" aria-live="polite">
-      {pending > 0 ? (
-        <Progress done={doneCount} total={needsPicture.length} raw={showRaw && needsPicture.some((i) => i.raw)} />
-      ) : hiddenRaw > 0 ? (
-        hiddenRaw === 1 ? "1 RAW file hidden." : `${hiddenRaw.toLocaleString()} RAW files hidden.`
-      ) : (
-        " "
-      )}
-    </div>
-  );
+  /* HANDED UP FOR THE HEADER TO DRAW. Reported from an effect on PRIMITIVES, never from render:
+     calling the parent's setState during render is what turns a progress readout into an infinite
+     loop. Null the moment nothing is in flight, so the header clears itself. */
+  useEffect(() => {
+    onProgress?.(pending > 0 ? { done: doneCount, total, raw: rawInFlight } : null);
+  }, [onProgress, pending, doneCount, total, rawInFlight]);
+
+  /* On unmount — leaving media mode, or changing tab — the header must not keep a stale line. */
+  useEffect(() => () => onProgress?.(null), [onProgress]);
+
+  const hiddenLine =
+    hiddenRaw > 0 ? (
+      <div className="scannotes-rawhidden">
+        {hiddenRaw === 1 ? "1 RAW file hidden." : `${hiddenRaw.toLocaleString()} RAW files hidden.`}
+      </div>
+    ) : null;
 
   if (!folderPath) return <div className="scannotes-empty">Pick a folder on the left.</div>;
   if (items.length === 0) {

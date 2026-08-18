@@ -448,6 +448,13 @@
   min-height:1.4em}
 /* tabular-nums so a climbing odometer does not jitter the words after it as digits change width */
 .scannotes-rawhidden .odo{font-variant-numeric:tabular-nums;font-style:normal;color:var(--mc-muted)}
+/* The loading line ON the header row, left of the toggle. flex:none so it never shrinks — the
+   breadcrumb yields instead, because a truncated folder name still reads and a truncated count
+   does not. Italic and muted so it reads as status rather than as a third control. */
+.scannotes-mhead .scannotes-mprogress{flex:none;font-size:11.5px;font-style:italic;color:var(--mc-muted)}
+.scannotes-mhead .scannotes-mprogress .odo{font-variant-numeric:tabular-nums;font-style:normal}
+.scannotes-mhead .scannotes-mprogress .dots::after{content:"";animation:scannotes-dots 1.2s steps(4,end) infinite}
+@media (prefers-reduced-motion:reduce){.scannotes-mhead .scannotes-mprogress .dots::after{animation:none;content:"..."}}
 /* THE ELLIPSIS CARRIES THE MOTION WHEN THE COUNT CANNOT. A stalled read holds the number at the
    truth and lets these move — honest about being stuck, where a climbing number would not be. */
 .scannotes-rawhidden .dots::after{content:"";animation:scannotes-dots 1.2s steps(4,end) infinite}

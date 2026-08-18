@@ -351,6 +351,46 @@ const AV_MIME: Record<string, string> = Object.fromEntries(
 );
 
 /**
+ * HOW BIG A BITE THE STREAM TAKES OFF THE DRIVE AT A TIME. This is NOT a cap on what a request may
+ * receive — there is no such cap any more — it is the size of one read in a loop that runs until the
+ * requested span is exhausted.
+ *
+ * IT IS DELIBERATELY NOT THE OLD `OPEN_ENDED_MAX` RENAMED. That constant meant "the most bytes a
+ * client may have", this one means "the most bytes resident at once", and they are opposite kinds of
+ * number. Reusing the name would have carried three passes of comment history about a ceiling onto a
+ * value that is no longer a ceiling, and that confusion is exactly what produced the 64 → 4 → 64
+ * oscillation. New meaning, new name.
+ *
+ * FOUR MEGABYTES. Peak resident bytes on this path is now roughly one chunk per in-flight request
+ * instead of one whole file: six concurrent tiles cost about 24 MB rather than the 546 MB that six
+ * ninety-one-megabyte buffers would have cost. The value is large enough that a 91 MB clip is 23
+ * reads rather than 91, and small enough that six of them are noise.
+ */
+const CHUNK_BYTES = 4 * 1024 * 1024;
+
+/**
+ * WHY THERE IS NO SIZE CAP ANY MORE — kept because this decision was reversed three times and the
+ * evidence that settled it should not have to be rediscovered a fourth.
+ *
+ * Jason ruled 08-18-2026: no size cap on an open-ended range. A user must never be asked to buy a
+ * codec or split a file to see a thumbnail of footage that plays fine in Explorer.
+ *
+ * THE DEVICE EVIDENCE WAS TOTAL. Of 85 iPhone .MP4 files in one folder, 78 painted and 6 failed
+ * (one was a cache hit). Every file that logged (WHOLE FILE) painted; every file that logged
+ * (PARTIAL) failed; no exceptions in either direction. The six failures were exactly the six files
+ * larger than the then-current 64 MB bound, and their second request was `bytes=0-` AGAIN rather
+ * than a tail read — given a truncated answer to an open-ended range the player retries from zero,
+ * so it can never reach a trailing moov atom and never decodes. Healthy files showed the opposite
+ * shape: whole file, then a small tail read, then a seek from byte 65536.
+ *
+ * IT IS NOT A CODEC PROBLEM. Same camera, same folder, same container — 78 of them decoded. The
+ * only variable was size.
+ *
+ * THE MEMORY COST THE CAP EXISTED TO PREVENT IS NOW PAID BY THE STREAM, not by the client. See
+ * CHUNK_BYTES above.
+ */
+
+/**
  * How much an OPEN-ENDED range (`bytes=0-`) returns in one response. Jason ruled the cap up on
  * 08-17-2026 ("if its a buffer problem, make it unlimited") after a small chunk was suspected of
  * stalling playback, and 64 MB is effectively that for this product: a photographer's clip arrives
@@ -380,8 +420,11 @@ const AV_MIME: Record<string, string> = Object.fromEntries(
  *
  * This bounds the OPEN-ENDED form alone — `bytes=0-`, what a player sends before it has read the
  * header and knows what to ask for. Every explicit `bytes=a-b` is served exactly as requested.
+ *
+ * ---- SUPERSEDED 08-18-2026. The bound is gone entirely; see the two blocks above. The history is
+ * kept because a future reader will be tempted to reintroduce a cap the moment they see a 91 MB
+ * response, and the six files that proves wrong are named in the note above. ----
  */
-const OPEN_ENDED_MAX = 64 * 1024 * 1024;
 
 /**
  * WHO MAY READ THE PIXELS. The renderer draws a seeked video frame to a canvas to make a thumbnail,
@@ -492,12 +535,11 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
         // `bytes=-500` means the LAST 500 bytes — how a player finds an MP4 whose moov atom sits at
         // the end of the file. Getting this branch wrong makes exactly those clips unplayable.
         if (Number.isNaN(a)) return [Math.max(0, size - (Number.isNaN(b) ? 0 : b)), size - 1];
-        // OPEN-ENDED. A file that FITS under the bound comes back whole — one response, index
-        // included wherever the camera put it, no second round trip to discover the tail. Only a
-        // file larger than the bound is cut, and then the player asks for the rest. The min() has
-        // always expressed both halves; it is spelled out because the whole-file case is the one
-        // that matters and it was invisible.
-        if (Number.isNaN(b)) return [a, Math.min(size - 1, a + OPEN_ENDED_MAX - 1)];
+        // OPEN-ENDED — THE WHOLE REMAINDER, no ceiling. The index a demuxer needs may sit anywhere
+        // in the file, and on a camera original it sits at the END, so any ceiling at all is a
+        // coin-flip on whether the clip decodes. It costs nothing to be complete now: the body is
+        // streamed in CHUNK_BYTES bites, so a 91 MB answer holds 4 MB of memory, not 91.
+        if (Number.isNaN(b)) return [a, size - 1];
         return [a, Math.min(b, size - 1)];
       })();
 
@@ -508,56 +550,104 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
         return new Response("Range not satisfiable", { status: 416, headers: head({ "Content-Range": `bytes */${size}` }) });
       }
 
-      // READ THE SLICE INTO A BUFFER RATHER THAN STREAMING IT (Jason, on device 08-17-2026 — after
-      // the first Range cut, clips stopped playing entirely rather than merely stuttering).
+      // STREAM THE SPAN RATHER THAN BUFFERING IT, and this is the whole of pass 7.
       //
-      // ASYNCHRONOUS, AND THAT IS THE WHOLE POINT OF THIS PASS. The buffered read is right; doing it
-      // with fs.readSync was not. This is the MAIN process — the one thread that owns every window
-      // and answers every IPC call — so six concurrent tiles at sixty-four megabytes was up to 384
-      // megabytes of blocking reads with the user interface frozen behind them. That is why the
-      // bound was cut to four, and cutting the bound broke camera originals. fs.promises hands the
-      // read to the threadpool: the same bytes, the same buffer, the same response contract, and the
-      // main thread stays free while the drive works. Cost becomes throughput instead of a freeze.
+      // The earlier version read the entire span into one ArrayBuffer before responding. That was
+      // correct and it was safe, and it forced a ceiling: without one, `bytes=0-` on a
+      // four-gigabyte capture would have allocated four gigabytes inside the process that owns every
+      // window. With a ceiling, every file above it was handed a prefix and never decoded. There was
+      // no value of the ceiling that was right — the trade itself was wrong.
       //
-      // A streamed body has to be right about three things at once: the exact byte count in
-      // Content-Length, the lifetime of the file handle, and what happens when the player ABANDONS a
-      // request mid-flight — which a seeking media element does constantly. Any one of them wrong
-      // shows up as a video that loads forever and never starts, with nothing in the log. A bounded
-      // buffer has none of those failure modes: the length is what was actually read, the handle is
-      // closed before the response exists, and an abandoned request drops a Buffer rather than
-      // leaking a descriptor. Two megabytes off an SSD is single-digit milliseconds, and the player
-      // simply asks for the next slice.
-      // The body is handed over as a bare ArrayBuffer. Buffer and Uint8Array are both ArrayBufferView
-      // and both are REJECTED by this project's BodyInit typing (their ArrayBufferLike generic does
-      // not line up); an ArrayBuffer is unambiguous and needs no cast.
+      // A stream retires the trade. Peak memory becomes one chunk per in-flight request instead of
+      // one file, so the span can be unbounded and the client always receives everything it asked
+      // for.
+      //
+      // THE THREE THINGS A STREAMED BODY HAS TO GET RIGHT, all of which have bitten this handler:
+      //
+      // 1. THE DECLARED LENGTH. Content-Length and Content-Range describe the FULL span, computed
+      //    from start/end — the stream is how the bytes travel, not what they are. An earlier cut
+      //    answered a plain GET with 200 plus only the first chunk AND a Content-Length to match,
+      //    telling Chromium a sixty-megabyte clip was two megabytes long; it decoded the fragment,
+      //    waited for the rest of what it had been promised, and sat there looking like it was about
+      //    to play. `end` is clamped against a stat taken microseconds ago, so the span is what is
+      //    on disk unless the file is truncated mid-request — in which case the short read below
+      //    closes the stream early and Chromium reports a length mismatch, which is the honest
+      //    answer and strictly better than silently under-delivering.
+      //
+      // 2. THE HANDLE'S LIFETIME. It is opened before the Response exists and closed by exactly one
+      //    function, `shut()`, which is idempotent — so completion, error and cancellation all
+      //    converge on one close and a double close is a no-op.
+      //
+      // 3. ABANDONMENT, which a seeking media element does constantly, and a thumbnail tile does
+      //    every time it settles. `cancel()` is wired to `shut()` and the pull loop stops with it. A
+      //    stream that keeps grinding through a 91 MB file nobody is watching would be worse than
+      //    the buffer ever was.
+      //
+      // BACKPRESSURE IS WHY THIS IS PULL-BASED. `pull` is called only when the consumer has room,
+      // so a slow reader throttles the drive instead of filling memory with queued chunks. A push
+      // loop would read the whole file at full speed into the stream's internal queue and give back
+      // precisely the allocation this exists to avoid.
+      const span = end - start + 1;
       const handle = await fs.promises.open(p, "r");
-      let body: ArrayBuffer;
-      try {
-        const store = new ArrayBuffer(end - start + 1);
-        const view = new Uint8Array(store);
-        const { bytesRead } = await handle.read(view, 0, view.length, start);
-        body = bytesRead < view.length ? store.slice(0, bytesRead) : store; // short read at EOF — never over-claim
-      } finally {
-        await handle.close(); // in a finally: an abandoned seek must not leak a descriptor
-      }
+      let closed = false;
+      const shut = async (): Promise<void> => {
+        if (closed) return;
+        closed = true;
+        try {
+          await handle.close();
+        } catch {
+          /* already gone — a close that fails must never surface as a failed media request */
+        }
+      };
+      let cursor = start;
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          if (cursor > end) {
+            await shut();
+            controller.close();
+            return;
+          }
+          const want = Math.min(CHUNK_BYTES, end - cursor + 1);
+          const buf = new Uint8Array(want);
+          try {
+            const { bytesRead } = await handle.read(buf, 0, want, cursor);
+            if (bytesRead === 0) {
+              // EOF earlier than the stat promised. Close cleanly rather than looping forever.
+              await shut();
+              controller.close();
+              return;
+            }
+            cursor += bytesRead;
+            controller.enqueue(bytesRead < want ? buf.subarray(0, bytesRead) : buf);
+          } catch (e) {
+            await shut();
+            controller.error(e);
+          }
+        },
+        async cancel() {
+          // The tile settled, the modal closed, or the player seeked away. Stop reading.
+          await shut();
+        },
+      });
 
       if (CASE_TRACE) {
-        const whole = start === 0 && start + body.byteLength >= size;
+        const whole = start === 0 && end >= size - 1;
         console.info(
           `[scan-notes] frmedia #${nth} ${path.basename(p)} Range="${range ?? "none"}" -> ${range ? 206 : 200} ` +
-            `bytes ${start}-${start + body.byteLength - 1}/${size}${whole ? " (WHOLE FILE)" : " (PARTIAL)"}`
+            `bytes ${start}-${end}/${size}${whole ? " (WHOLE FILE)" : " (PARTIAL)"} ` +
+            `streamed in ${Math.ceil(span / CHUNK_BYTES)} chunk(s)`
         );
       }
       return new Response(body, {
         status: range ? 206 : 200,
         headers: head({
           "Content-Type": type,
-          "Content-Length": String(body.byteLength),
+          "Content-Length": String(span),
           "Accept-Ranges": "bytes",
           // Without the expose list a CORS response hides every non-safelisted header from the
           // renderer, which is how a ranged read looks like it succeeded and then has no length.
           "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
-          ...(range ? { "Content-Range": `bytes ${start}-${start + body.byteLength - 1}/${size}` } : {}),
+          ...(range ? { "Content-Range": `bytes ${start}-${end}/${size}` } : {}),
         }),
       });
     } catch (e) {

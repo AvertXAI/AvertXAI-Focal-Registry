@@ -36,6 +36,7 @@ import type { RenameSettings } from "../../src/shared/renamePreview";
 import * as scanDrives from "./services/scan/drives";
 import * as scanNotes from "./services/scan/notes";
 import * as scanThumbs from "./services/scan/thumbs";
+import * as scanThumbFails from "./services/scan/thumbFailures";
 import * as scanMedia from "./services/scan/mediaBrowse";
 import { ensureScanNotesSchema } from "./services/scan/notesDb";
 import * as scanReport from "./services/scan/report";
@@ -956,6 +957,49 @@ export function registerIpcHandlers(): void {
       return true;
     } catch (e) {
       console.warn("[scan-notes] thumb cache write refused:", e);
+      return false;
+    }
+  });
+  // THE FAILURE LOG. Same guard, same clamp, same never-throw discipline as the cache above: a log
+  // that can empty the media grid is worse than no log, and that inversion has already happened once
+  // in this module (a rejected thumbsGet rendered "No media recorded in this folder").
+  safeHandle("scan:thumbFailuresGet", (_e, targets: unknown) => {
+    try {
+      if (!Array.isArray(targets)) return {};
+      const { db, orgId } = scanCtx();
+      const allowed = targets
+        .slice(0, THUMBS_MAX)
+        .filter((t): t is string => typeof t === "string" && scanMedia.isUnderScannedDrive(db, orgId, t));
+      return scanThumbFails.getMany(allowed);
+    } catch (e) {
+      console.warn("[scan-notes] failure log lookup failed; every tile attempts as usual:", e);
+      return {};
+    }
+  });
+  safeHandle("scan:thumbFailurePut", (_e, target: unknown, reason: unknown, detail: unknown) => {
+    try {
+      if (typeof target !== "string" || typeof detail !== "string") return false;
+      if (reason !== "transient" && reason !== "permanent" && reason !== "unknown") return false;
+      const { db, orgId } = scanCtx();
+      if (!scanMedia.isPlayablePath(db, orgId, target)) return false;
+      scanThumbFails.record(target, reason, detail);
+      return true;
+    } catch (e) {
+      console.warn("[scan-notes] failure log record refused:", e);
+      return false;
+    }
+  });
+  safeHandle("scan:thumbFailuresClear", (_e, targets: unknown) => {
+    try {
+      if (!Array.isArray(targets)) return false;
+      const { db, orgId } = scanCtx();
+      const allowed = targets
+        .slice(0, THUMBS_MAX)
+        .filter((t): t is string => typeof t === "string" && scanMedia.isUnderScannedDrive(db, orgId, t));
+      scanThumbFails.clear(allowed);
+      return true;
+    } catch (e) {
+      console.warn("[scan-notes] failure log clear refused:", e);
       return false;
     }
   });

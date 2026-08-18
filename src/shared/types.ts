@@ -490,6 +490,31 @@ export interface ScanMediaItem {
   streamUrl: string | null;
 }
 
+/**
+ * WHY A THUMBNAIL COULD NOT BE MADE, decided in the renderer where the media element's own error
+ * lives, and stored so the next open does not repeat a hopeless attempt.
+ *
+ *  transient — worth another go: the ceiling expired with no frame, a read or network error, an
+ *              aborted request, the drive was busy or gone.
+ *  permanent — a decode or unsupported-source error AFTER the container parsed. The format cannot
+ *              be decoded on this machine and never will be. Never retried automatically.
+ *  unknown   — could not be placed confidently. Not retried automatically either; the count is
+ *              reported so a classifier that is guessing too often shows up as a number rather than
+ *              as wasted slots.
+ */
+export type ScanThumbFailReason = "transient" | "permanent" | "unknown";
+
+/** One recorded failure. `detail` is diagnostic and NEVER shown to the user — the tile's tooltip is
+ *  a plain sentence chosen from `reason`. */
+export interface ScanThumbFailure {
+  key: string;
+  name: string;
+  reason: ScanThumbFailReason;
+  detail: string;
+  attempts: number;
+  at: number;
+}
+
 /** One drive's share of a sync — the unit the connect toast is written from. */
 export interface ScanNotesDriveSync {
   label: string;
@@ -1433,6 +1458,16 @@ export interface Api {
       /** Store one captured frame. Returns false if it was refused or could not be written; the tile
        *  already holds the picture either way, so this never gates the user interface. */
       thumbsPut: (target: string, dataUrl: string) => Promise<boolean>;
+      /** Recorded thumbnail failures, keyed by absolute path. ONE call per folder, read alongside
+       *  thumbsGet. A `permanent` entry means the tile does not attempt at all — that is the whole
+       *  point: a file Chromium cannot decode costs a slot, a read and ten seconds of ceiling on
+       *  every single open until something remembers. */
+      thumbFailuresGet: (targets: string[]) => Promise<Record<string, ScanThumbFailure>>;
+      /** Record one failure. Fire-and-forget; the tile has already shown its glyph. */
+      thumbFailurePut: (target: string, reason: ScanThumbFailReason, detail: string) => Promise<boolean>;
+      /** The user pressed Retry. Forgets everything about these paths, `permanent` included — an
+       *  explicit human request outranks the classifier, which may be wrong. */
+      thumbFailuresClear: (targets: string[]) => Promise<boolean>;
     };
   };
   /** Auto-updater (§3.12) — check/version answer in every build so the Settings button is never

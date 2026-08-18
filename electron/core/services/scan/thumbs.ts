@@ -74,7 +74,7 @@ export function thumbsRoot(): string {
  * cost one re-decode per file. Accepted. A path-independent key would have to be content-addressed
  * off the file's own bytes, which means reading the file to decide whether to read the file.
  */
-function keyFor(target: string, size: number, mtimeMs: number): string {
+export function keyFor(target: string, size: number, mtimeMs: number): string {
   const id = path.resolve(target).toLowerCase() + "|" + String(size) + "|" + String(Math.round(mtimeMs));
   return createHash("sha1").update(id).digest("hex");
 }

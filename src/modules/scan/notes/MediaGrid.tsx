@@ -26,7 +26,7 @@
 // enforced, not merely intended: every byte lands in the app-owned hidden cache under the local tree
 // (electron/core/services/scan/thumbs.ts). Nothing is ever written to the scanned drive.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ScanMediaItem } from "../../../shared/types";
+import type { ScanMediaItem, ScanThumbFailReason, ScanThumbFailure } from "../../../shared/types";
 import MediaTransport from "./MediaTransport";
 import "./scannotes.css";
 
@@ -78,6 +78,51 @@ type Outcome = "painted" | "failed" | "gone";
  * the cache existed: the frame you can see is the thumbnail.
  */
 type Settled = "painted" | "shown" | "failed";
+
+/**
+ * WHY A TILE FAILED, decided here because this is the only place the media element's own error
+ * exists. It is the difference between a safety net and a treadmill: a clip whose format Chromium
+ * cannot decode fails identically on the two hundredth attempt as on the first, and retrying it
+ * costs a queue slot, a file read and ten seconds of ceiling every single time.
+ *
+ * THE MAPPING, in the order it is evaluated:
+ *
+ *   code 1  MEDIA_ERR_ABORTED           -> transient   the load was cancelled, not refused
+ *   code 2  MEDIA_ERR_NETWORK           -> transient   the bytes did not arrive; they might next time
+ *   code 3  MEDIA_ERR_DECODE            -> permanent IF the container parsed, else transient
+ *   code 4  MEDIA_ERR_SRC_NOT_SUPPORTED -> permanent IF the container parsed, else transient
+ *   no error, the ceiling fired         -> transient   it stalled; nothing was actually wrong
+ *   no error, parsed, no video track    -> permanent   audio-only .mp4, or a codec with no decoder
+ *   anything else                       -> unknown
+ *
+ * `readyState >= 1` (HAVE_METADATA) IS THE "IT WAS DELIVERED" TEST, and it is the hinge of the
+ * whole classifier. Metadata parsed means the container was read and understood — so a decode error
+ * after that is the CODEC losing, which will lose again forever. The same error with readyState 0
+ * means the container itself was never parsed, which is a delivery problem and is exactly the shape
+ * the 64 MB range cap produced: 6 of 85 files erroring identically with nothing wrong with them.
+ * Classifying those as permanent would have made a serving bug permanently invisible.
+ */
+function classify(v: HTMLVideoElement, ceilingFired: boolean): { reason: ScanThumbFailReason; detail: string } {
+  const code = v.error?.code ?? 0;
+  const gotMetadata = v.readyState >= 1;
+  const detail =
+    `code=${code} readyState=${v.readyState} networkState=${v.networkState} ` +
+    `buffered=${v.buffered.length} "${v.error?.message ?? ""}"`;
+  if (code === 1 || code === 2) return { reason: "transient", detail };
+  if (code === 3 || code === 4) return { reason: gotMetadata ? "permanent" : "transient", detail };
+  if (ceilingFired) return { reason: "transient", detail };
+  if (gotMetadata && v.videoWidth === 0) return { reason: "permanent", detail };
+  return { reason: "unknown", detail };
+}
+
+/** What the USER is told. Plain sentences, no error codes — a tile that shows a glyph with no
+ *  explanation reads as a broken application, and a tile that shows `MEDIA_ERR_SRC_NOT_SUPPORTED`
+ *  reads as a broken application written by someone who did not care. */
+export function failSentence(reason: ScanThumbFailReason): string {
+  if (reason === "permanent") return "This video's format can't be previewed here.";
+  if (reason === "transient") return "Couldn't read this file — the drive may have been busy.";
+  return "Couldn't preview this file.";
+}
 
 /**
  * LEARNED ONCE PER SESSION, and only ever from PROOF.
@@ -378,7 +423,7 @@ class ThumbQueue {
  * <img>, and that unmounts this component and releases the decoder. The element exists for exactly
  * as long as it takes to produce one picture.
  */
-function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled, shot?: string) => void }) {
+function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled, shot?: string, why?: ScanThumbFailReason, detail?: string) => void }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   /** ATTEMPT ONE ASKS FOR PIXEL ACCESS. If the load is refused only because of that ask, attempt two
    *  drops it and we are back to a visible frame with no cache — never worse than before the cache
@@ -393,6 +438,10 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
     if (!v) return;
     let done = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    /** Set only by onCeiling. The classifier needs it because a stall that produced no error at all
+     *  is indistinguishable from a file that simply has no video track without knowing which of the
+     *  two ended the attempt. */
+    let ceilingFired = false;
 
     const settle = (how: Settled, shot?: string): void => {
       if (done) return;
@@ -413,6 +462,11 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
             `readyState=${v.readyState} networkState=${v.networkState} buffered=${v.buffered.length} ` +
             `cors=${useCors} ${src}`
         );
+      }
+      if (how === "failed") {
+        const { reason, detail } = classify(v, ceilingFired);
+        onSettled(how, shot, reason, detail);
+        return;
       }
       onSettled(how, shot);
     };
@@ -490,7 +544,7 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
     };
     /** At the ceiling, keep a frame if one exists (HAVE_CURRENT_DATA or better) rather than throwing
      *  away a slow container's work. */
-    const onCeiling = (): void => { if (v.readyState >= 2) grab(); else settle("failed"); };
+    const onCeiling = (): void => { ceilingFired = true; if (v.readyState >= 2) grab(); else settle("failed"); };
 
     v.addEventListener("loadedmetadata", seek);
     v.addEventListener("loadeddata", onData);
@@ -526,18 +580,27 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
 /** One tile. A CACHED picture short-circuits everything below — no queue slot, no decoder, no
  *  `frmedia` request. Only a cache miss is queued, and it converts to a cached <img> the moment
  *  its frame is captured. */
-function Tile({ item, queue, cachedUrl, onOpen }: { item: ScanMediaItem; queue: ThumbQueue; cachedUrl: string | null; onOpen: (i: ScanMediaItem) => void }) {
+function Tile({ item, queue, cachedUrl, failure, onOpen }: { item: ScanMediaItem; queue: ThumbQueue; cachedUrl: string | null; failure: ScanThumbFailure | null; onOpen: (i: ScanMediaItem) => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [granted, setGranted] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
+  /** Why THIS session's attempt failed, for the tooltip. Seeded from the recorded log so a file that
+   *  is not attempted at all still explains itself. */
+  const [failWhy, setFailWhy] = useState<ScanThumbFailReason | null>(failure?.reason ?? null);
   const box = useRef<HTMLButtonElement | null>(null);
 
   const stream = item.streamUrl;
   // The picture, whatever produced it: a still's data URL, a frame captured this session, or a hit
   // from the disk cache. Once there is one, this tile never needs a decoder again.
   const pic = url ?? cachedUrl;
-  const wantsVideo = item.kind === "video" && stream !== null && !videoFailed && pic === null;
+  // A RECORDED `permanent` FAILURE MEANS DO NOT TRY. That is the entire payoff of the log: this file
+  // has already proved on this machine that it cannot be decoded, so attempting it again would cost
+  // a queue slot, an frmedia request, a decoder and ten seconds of ceiling to learn nothing. The
+  // user's own Retry control clears the record and overrides this — the classifier may be wrong, but
+  // it does not get to be wrong repeatedly and for free.
+  const knownDead = failure?.reason === "permanent";
+  const wantsVideo = item.kind === "video" && stream !== null && !videoFailed && !knownDead && pic === null;
 
   // EVERY video tile registers here, at mount, in document order — this is the whole folder warming
   // in the background. A tile that already has its picture never registers at all, which is what
@@ -586,7 +649,7 @@ function Tile({ item, queue, cachedUrl, onOpen }: { item: ScanMediaItem; queue: 
   // `wantsVideo` false, which unmounts <VideoThumb> and re-runs the registration effect's cleanup.
   // Tearing the element down is not a side effect here — it is the entire point of capturing.
   const onSettled = useCallback(
-    (how: Settled, shot?: string) => {
+    (how: Settled, shot?: string, why?: ScanThumbFailReason, detail?: string) => {
       if (how === "painted" && shot !== undefined) {
         setUrl(shot);
         // Fire-and-forget: the tile already has its picture, so a cache that cannot write is slow
@@ -594,6 +657,12 @@ function Tile({ item, queue, cachedUrl, onOpen }: { item: ScanMediaItem; queue: 
         void window.api.scan.notes.thumbsPut(item.path, shot).catch(() => undefined);
       } else if (how === "failed") {
         setVideoFailed(true);
+        setFailWhy(why ?? "unknown");
+        // Same fire-and-forget discipline as the cache write above, and for a stronger reason: the
+        // tile has already shown its glyph, so a log that cannot be written costs one wasted attempt
+        // next launch. A log that could BREAK the grid would be the exact inversion this exists to
+        // prevent, and that inversion has already happened once in this file.
+        void window.api.scan.notes.thumbFailurePut(item.path, why ?? "unknown", detail ?? "").catch(() => undefined);
       }
       // "shown" deliberately sets NOTHING: pic stays null and videoFailed stays false, so wantsVideo
       // stays true and the <video> stays mounted with its frame on screen. It is released to the
@@ -613,7 +682,15 @@ function Tile({ item, queue, cachedUrl, onOpen }: { item: ScanMediaItem; queue: 
       type="button"
       className={`scannotes-tile${item.viewable ? "" : " dead"}`}
       onClick={() => item.viewable && onOpen(item)}
-      title={item.viewable ? item.path : `${item.path} — this product cannot open ${item.extension ?? "this format"}`}
+      // A FAILED TILE SAYS SO IN A SENTENCE. Silence here is what makes the film glyph read as a bug
+      // rather than as an answer; error codes here would read as a bug someone shipped anyway.
+      title={
+        !item.viewable
+          ? `${item.path} — this product cannot open ${item.extension ?? "this format"}`
+          : failWhy !== null && pic === null
+            ? `${item.path} — ${failSentence(failWhy)}`
+            : item.path
+      }
     >
       <div className={`thumb${item.kind === "video" ? " vid" : ""}`}>
         {pic !== null ? (
@@ -638,6 +715,10 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
   const [items, setItems] = useState<ScanMediaItem[]>([]);
   /** Path → cached thumbnail data URL. Fetched once per folder; a path that is absent is a miss. */
   const [cached, setCached] = useState<Record<string, string>>({});
+  /** Path → the recorded failure, read once per folder open alongside the cache. A `permanent`
+   *  entry stops its tile from ever mounting a decoder; the rest are informational until the retry
+   *  pass reads them. */
+  const [failures, setFailures] = useState<Record<string, ScanThumbFailure>>({});
   const [open, setOpen] = useState<ScanMediaItem | null>(null);
   const [full, setFull] = useState<string | null>(null);
   const [fullErr, setFullErr] = useState<string | null>(null);
@@ -663,7 +744,7 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
   // message overhead than the reads themselves. Every hit that comes back is a tile that will never
   // create a decoder or take a queue slot.
   useEffect(() => {
-    if (!folderPath) { setItems([]); setCached({}); return; }
+    if (!folderPath) { setItems([]); setCached({}); setFailures({}); return; }
     let live = true;
     // NOT cleared here. Clearing it while the item list still held the OUTGOING folder made every one of
     // that folder's cached tiles lose their picture for a beat — so they flashed from a
@@ -676,7 +757,15 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
         if (!live) return;
         setItems(list);
         const videos = list.filter((i) => i.kind === "video" && i.streamUrl !== null).map((i) => i.path);
-        if (videos.length === 0) { setCached({}); return; }
+        if (videos.length === 0) { setCached({}); setFailures({}); return; }
+        // THE FAILURE LOG, read alongside the cache and never chained into it. Two independent
+        // round trips with independent catches: neither is allowed to decide whether the other
+        // happened, and neither is allowed to decide whether the LISTING happened. The tiles are
+        // already on screen by now.
+        void window.api.scan.notes
+          .thumbFailuresGet(videos)
+          .then((rec) => { if (live) setFailures(rec); })
+          .catch(() => undefined); // no record is the same as no failures — every tile attempts
         // CAUGHT HERE, NOT DOWNSTREAM. Returning this promise into the outer chain meant a rejected
         // CACHE read landed in the catch below and called setItems([]) — so a folder full of media
         // rendered "No media recorded in this folder." because a thumbnail lookup failed. A cache is
@@ -693,7 +782,7 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
           })
           .catch(() => undefined); // a miss for every tile; they generate as usual
       })
-      .catch(() => { if (live) { setItems([]); setCached({}); } });
+      .catch(() => { if (live) { setItems([]); setCached({}); setFailures({}); } });
     return () => { live = false; };
   }, [folderPath]);
 
@@ -735,7 +824,16 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
   return (
     <>
       <div className="scannotes-mediagrid">
-        {items.map((i) => <Tile key={i.path} item={i} queue={queue} cachedUrl={cached[i.path] ?? null} onOpen={setOpen} />)}
+        {items.map((i) => (
+          <Tile
+            key={i.path}
+            item={i}
+            queue={queue}
+            cachedUrl={cached[i.path] ?? null}
+            failure={failures[i.path] ?? null}
+            onOpen={setOpen}
+          />
+        ))}
       </div>
 
       {/* data-modal-backdrop dims the OS-drawn min/max/close buttons — they are painted ABOVE all

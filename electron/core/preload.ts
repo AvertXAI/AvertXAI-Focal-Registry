@@ -162,6 +162,10 @@ const api: Api = {
       image: (target: string) => invoke("scan:notesImage", target),
       thumbsGet: (targets: string[]) => invoke("scan:thumbsGet", targets),
       thumbsPut: (target: string, dataUrl: string) => invoke("scan:thumbsPut", target, dataUrl),
+      thumbFailuresGet: (targets: string[]) => invoke("scan:thumbFailuresGet", targets),
+      thumbFailurePut: (target: string, reason: string, detail: string) =>
+        invoke("scan:thumbFailurePut", target, reason, detail),
+      thumbFailuresClear: (targets: string[]) => invoke("scan:thumbFailuresClear", targets),
     },
   },
   identity: {

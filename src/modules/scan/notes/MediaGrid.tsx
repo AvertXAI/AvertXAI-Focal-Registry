@@ -108,6 +108,11 @@ const ATTEMPT_BUDGET: Record<ScanThumbFailReason, number> = { transient: 2, unkn
  *  user watching the folder settle sees the second attempt land rather than wondering. */
 const RETRY_BACKOFF_MS = 3000;
 
+/** How many thumbnails the grid keeps in memory across folder changes. At ~11 KB each this is about
+ *  22 MB at the ceiling — cheap enough that the toggle is free, bounded so a long session is not a
+ *  slow leak. Beyond it the oldest go, and a dropped one is a disk-cache hit, not a regeneration. */
+const SESSION_THUMB_MAX = 2000;
+
 type Settled = "painted" | "shown" | "failed" | "noframe";
 
 /**
@@ -641,7 +646,7 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
 /** One tile. A CACHED picture short-circuits everything below — no queue slot, no decoder, no
  *  `frmedia` request. Only a cache miss is queued, and it converts to a cached <img> the moment
  *  its frame is captured. */
-function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }: {
+function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, onCached }: {
   item: ScanMediaItem;
   queue: ThumbQueue;
   cachedUrl: string | null;
@@ -649,6 +654,10 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }
   /** Bumped by the grid when THIS tile is chosen for a retry round. Zero means never chosen. */
   retryToken: number;
   onOutcome: (path: string, how: "painted" | "failed", why?: ScanThumbFailReason) => void;
+  /** Lifts a freshly generated thumbnail into the GRID's state so it outlives this component.
+   *  Without it, hiding a tile with the RAW toggle destroys its picture and showing it again
+   *  re-crosses IPC for something the session already had. */
+  onCached: (path: string, dataUrl: string) => void;
   onOpen: (i: ScanMediaItem) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -731,9 +740,16 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }
         if (item.kind === "video") { queue.setVisible(item.path, on); return; }
         if (!on) return;
         io.disconnect();
+        // THE THUMB, NOT THE IMAGE. `stillThumb` returns a ~320px JPEG of about 11 KB; `image`
+        // returns the full file, which for this folder averages a 10.4 MB base64 string per tile.
+        // The viewer still calls `image` — it needs the pixels this one throws away.
         void window.api.scan.notes
-          .image(item.path)
-          .then((r) => { if (!live) return; if (r.ok && r.dataUrl) setUrl(r.dataUrl); else setErr(r.error ?? "Could not read that file."); })
+          .stillThumb(item.path)
+          .then((r) => {
+            if (!live) return;
+            if (r.ok && r.dataUrl) { setUrl(r.dataUrl); onCached(item.path, r.dataUrl); }
+            else setErr(r.error ?? "Could not read that file.");
+          })
           // THE SECOND PLACE AN EXCEPTION BECAME USER-FACING COPY, found auditing the first. The
           // main process already answers `{ ok: false, error }` with a written sentence for every
           // failure it can name, so anything reaching here is the channel itself falling over —
@@ -757,6 +773,7 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }
     (how: Settled, shot?: string, why?: ScanThumbFailReason, detail?: string) => {
       if (how === "painted" && shot !== undefined) {
         setUrl(shot);
+        onCached(item.path, shot); // survives this tile being filtered out and back in
         // Fire-and-forget: the tile already has its picture, so a cache that cannot write is slow
         // next launch and broken never.
         void window.api.scan.notes.thumbsPut(item.path, shot).catch(() => undefined);
@@ -787,7 +804,7 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }
       // PAINTED_CEILING governs, and why that ceiling is still here.
       queue.release(item.path, how === "failed" ? "failed" : how === "noframe" ? "noframe" : "painted");
     },
-    [queue, item.path, onOutcome]
+    [queue, item.path, onOutcome, onCached]
   );
 
   // An AUDIO file gets an audio glyph and never a film reel — it is not video and must not look it.
@@ -885,6 +902,27 @@ export default function MediaGrid({ folderPath, showRaw }: { folderPath: string 
 
   /** Every video tile's verdict lands here. Stable identity — it is a dependency of every tile's
    *  onSettled, and a new function each render would re-run four hundred callbacks. */
+  /**
+   * A THUMBNAIL LIVES IN THE GRID, NOT IN THE TILE. This is what makes the RAW toggle a re-render
+   * rather than a reload: a filtered-out tile unmounts and its local state dies with it, so before
+   * this the picture was fetched again the moment it came back. Keyed by path, so React reuses the
+   * tiles that did not move and the ones that did come back already holding their picture.
+   *
+   * BOUNDED. At roughly 11 KB a thumbnail, SESSION_THUMB_MAX is about 22 MB at worst — but "small"
+   * is not "unbounded", and a session that browses forty folders would otherwise keep every tile
+   * it ever saw. Oldest keys are dropped first; a dropped one is a disk-cache hit next time, not a
+   * regeneration.
+   */
+  const onCached = useCallback((p: string, dataUrl: string) => {
+    setCached((c) => {
+      if (c[p] === dataUrl) return c;
+      const next = { ...c, [p]: dataUrl };
+      const keys = Object.keys(next);
+      if (keys.length > SESSION_THUMB_MAX) for (const k of keys.slice(0, keys.length - SESSION_THUMB_MAX)) delete next[k];
+      return next;
+    });
+  }, []);
+
   const onOutcome = useCallback((p: string, how: "painted" | "failed", why?: ScanThumbFailReason) => {
     if (how === "painted") {
       // RECOVERED, and only if it had actually failed before. A tile that paints on its first
@@ -990,7 +1028,12 @@ export default function MediaGrid({ folderPath, showRaw }: { folderPath: string 
         if (!live) return;
         setItems(list);
         const videos = list.filter((i) => i.kind === "video" && i.streamUrl !== null).map((i) => i.path);
-        if (videos.length === 0) { setCached({}); setFailures({}); return; }
+        // STILLS ARE IN THE BATCH NOW. They were excluded because a still's cached form used to be
+        // the whole file — hundreds of multi-megabyte data URLs on one round trip. A thumbnail is
+        // about 11 KB, so a warm folder of four hundred stills is roughly 4 MB and ONE call, and
+        // every tile paints with no IPC of its own and no decode at all.
+        const cacheable = list.filter((i) => i.kind === "image" || (i.kind === "video" && i.streamUrl !== null)).map((i) => i.path);
+        if (cacheable.length === 0) { setCached({}); setFailures({}); return; }
         // THE FAILURE LOG, read alongside the cache and never chained into it. Two independent
         // round trips with independent catches: neither is allowed to decide whether the other
         // happened, and neither is allowed to decide whether the LISTING happened. The tiles are
@@ -1004,10 +1047,13 @@ export default function MediaGrid({ folderPath, showRaw }: { folderPath: string 
         // rendered "No media recorded in this folder." because a thumbnail lookup failed. A cache is
         // never allowed to decide whether the listing exists.
         void window.api.scan.notes
-          .thumbsGet(videos)
+          .thumbsGet(cacheable)
           .then((hits) => {
             if (!live) return;
-            setCached(hits);
+            // MERGE, NEVER REPLACE. Tiles start generating the moment they scroll into view, so
+            // this round trip can land AFTER some have already reported theirs — and replacing
+            // would throw those away and make them generate a second time. Session entries win.
+            setCached((c) => ({ ...hits, ...c }));
             if (TRACE) {
               const n = Object.keys(hits).length;
               console.info(`[scan-notes] thumb cache: ${n} hit, ${videos.length - n} to generate, of ${videos.length} clips`);
@@ -1087,6 +1133,7 @@ export default function MediaGrid({ folderPath, showRaw }: { folderPath: string 
             failure={failures[i.path] ?? null}
             retryToken={retrySet.has(i.path) ? retryRound : 0}
             onOutcome={onOutcome}
+            onCached={onCached}
             onOpen={setOpen}
           />
         ))}

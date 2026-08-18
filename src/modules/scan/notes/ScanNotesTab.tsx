@@ -159,6 +159,22 @@ interface TreeNode {
    *  has no scan record and no report. It still has to appear, or the tree has holes in it. */
   scanned: boolean;
   renamedFrom: string | null;
+  /** Media the latest scan recorded in THIS folder, its children excluded. This is the number the
+   *  row prints, because it answers "what is in here", not "what is under here". */
+  mediaCount: number;
+  /** A user note exists on this folder — the row's 📝 marker. */
+  hasNote: boolean;
+  /** `mediaCount` plus every descendant's, filled by one post-order pass in `rollUp`.
+   *
+   *  THIS IS WHAT THE EMPTY-FOLDER FILTER TESTS, AND THE DISTINCTION IS THE WHOLE FEATURE. Hiding
+   *  every folder whose own `mediaCount` is zero would hide `D:\`, then `dev`, then `projects` — the
+   *  containers are exactly the folders that hold no media themselves, so the naive filter deletes
+   *  the path to everything and leaves an empty pane. A folder is only genuinely empty when NOTHING
+   *  ANYWHERE BELOW IT has media either.
+   *
+   *  It is summed from the counts already in the payload. No disk walk, no second IPC round trip —
+   *  the service already sent every folder's own count, and the nesting is right here. */
+  subtreeMedia: number;
   children: TreeNode[];
 }
 
@@ -175,7 +191,10 @@ function buildTree(folders: ScanFolderNode[]): TreeNode[] {
     if (segs.length === 0) {
       const key = f.path.toLowerCase();
       if (!byPath.has(key)) {
-        const node: TreeNode = { name: f.path, path: f.path, scanned: true, renamedFrom: f.renamedFrom, children: [] };
+        const node: TreeNode = {
+          name: f.path, path: f.path, scanned: true, renamedFrom: f.renamedFrom,
+          mediaCount: f.mediaCount, hasNote: f.hasNote, subtreeMedia: 0, children: [],
+        };
         byPath.set(key, node);
         roots.push(node);
       }
@@ -188,13 +207,20 @@ function buildTree(folders: ScanFolderNode[]): TreeNode[] {
       const key = full.toLowerCase();
       let node = byPath.get(key);
       if (!node) {
-        node = { name: seg, path: full, scanned: false, renamedFrom: null, children: [] };
+        // A synthesised ancestor: nobody scanned it, so it owns nothing. Zero and false are the
+        // honest values — and `rollUp` is what stops that zero from hiding it.
+        node = {
+          name: seg, path: full, scanned: false, renamedFrom: null,
+          mediaCount: 0, hasNote: false, subtreeMedia: 0, children: [],
+        };
         byPath.set(key, node);
         siblings.push(node);
       }
       if (i === segs.length - 1) {
         node.scanned = true;
         node.renamedFrom = f.renamedFrom;
+        node.mediaCount = f.mediaCount;
+        node.hasNote = f.hasNote;
       }
       prefix = `${full}\\`;
       siblings = node.children;
@@ -205,7 +231,31 @@ function buildTree(folders: ScanFolderNode[]): TreeNode[] {
     for (const n of list) sort(n.children);
   };
   sort(roots);
+  rollUp(roots);
   return roots;
+}
+
+/** ONE post-order pass: a node's subtree total is its own count plus its children's, and children
+ *  are totalled before the parent asks. Linear in the number of folders, run once per tree build. */
+function rollUp(list: TreeNode[]): void {
+  for (const n of list) {
+    rollUp(n.children);
+    let total = n.mediaCount;
+    for (const c of n.children) total += c.subtreeMedia;
+    n.subtreeMedia = total;
+  }
+}
+
+/** How many folders the filter is holding back on this drive — every node with nothing in its whole
+ *  subtree, at any depth. Descendants of a hidden folder are counted too: they are hidden as well,
+ *  and the line under the drive is a promise about how much is missing, not about the top level. */
+function countEmpty(list: TreeNode[]): number {
+  let n = 0;
+  for (const node of list) {
+    if (node.subtreeMedia === 0) n += 1;
+    n += countEmpty(node.children);
+  }
+  return n;
 }
 
 /** Every ancestor of a path, so selecting something deep opens the branches down to it. */
@@ -223,22 +273,31 @@ function ancestorsOf(p: string): string[] {
 }
 
 function Branch({
-  node, depth, selected, expanded, onToggle, onSelect, onRename,
+  node, depth, selected, expanded, showEmpty, onToggle, onSelect, onRename,
 }: {
   node: TreeNode;
   depth: number;
   selected: string | null;
   expanded: Set<string>;
+  /** The Drives-header toggle. Off (the default) the whole no-media subtree is gone; on it comes
+   *  back greyed, so "where did that folder go" is answerable without leaving the pane. */
+  showEmpty: boolean;
   onToggle: (p: string) => void;
   onSelect: (n: TreeNode) => void;
   onRename: (n: TreeNode) => void;
 }) {
-  const kids = node.children.length > 0;
+  const empty = node.subtreeMedia === 0;
+  // Nothing below it and nothing in it — this is a folder the archive has no reason to show.
+  if (empty && !showEmpty) return null;
+  // The twisty tracks what will ACTUALLY appear. A folder whose every child is filtered out has no
+  // branch left to open, and an arrow that expands to nothing reads as a broken tree.
+  const shown = showEmpty ? node.children : node.children.filter((c) => c.subtreeMedia > 0);
+  const kids = shown.length > 0;
   const open = expanded.has(node.path.toLowerCase());
   return (
     <>
       <div
-        className={`scannotes-folder${selected === node.path ? " sel" : ""}${node.scanned ? "" : " ghost"}`}
+        className={`scannotes-folder${selected === node.path ? " sel" : ""}${node.scanned ? "" : " ghost"}${empty ? " empty" : ""}`}
         style={{ paddingLeft: 6 + depth * 14 }}
       >
         <button
@@ -257,6 +316,10 @@ function Branch({
             {node.name}
             {node.renamedFrom && <span className="old">{node.renamedFrom}</span>}
           </span>
+          {node.hasNote && <span className="note" role="img" aria-label="Has a note">📝</span>}
+          {/* ITS OWN count, not the subtree's. The subtree total decides whether the row exists at
+              all; what the row PRINTS is what is actually inside this folder. */}
+          <span className="n">{node.mediaCount.toLocaleString()}</span>
         </button>
         <button
           type="button"
@@ -268,9 +331,9 @@ function Branch({
           ✏️
         </button>
       </div>
-      {open && node.children.map((c) => (
+      {open && shown.map((c) => (
         <Branch key={c.path} node={c} depth={depth + 1} selected={selected}
-          expanded={expanded} onToggle={onToggle} onSelect={onSelect} onRename={onRename} />
+          expanded={expanded} showEmpty={showEmpty} onToggle={onToggle} onSelect={onSelect} onRename={onRename} />
       ))}
     </>
   );
@@ -367,6 +430,8 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
   const [saved, setSaved] = useState<string>("");
   /** Recent Work rows — the same feed the Updated Notes tab reads, never a second source. */
   const [recent, setRecent] = useState<ScanRecentFolder[]>([]);
+  /** "Show empty folders". Off by default — the archive is the point, not the scaffolding around it. */
+  const [showEmpty, setShowEmpty] = useState(false);
   const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null);
   const [renameErr, setRenameErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -524,8 +589,34 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
       .finally(() => setBusy(false));
   }, [renaming, folder]);
 
-  // The nesting is rebuilt only when the flat list actually changes, not on every keystroke.
-  const trees = useMemo(() => new Map(tree.map((d) => [d.drive_id, buildTree(d.folders)])), [tree]);
+  // Sticky across navigation like every other view preference in this shell — app_settings, through
+  // the same getter the tab and media-mode preferences use (§3.8). A missing row is "off", never an
+  // error: the first run of this feature has no row, and that is not something to toast about.
+  useEffect(() => {
+    void window.api.settings
+      .get("scan.notes_show_empty_folders")
+      .then((v) => setShowEmpty(v === "1"))
+      .catch(() => undefined);
+  }, []);
+
+  const toggleShowEmpty = useCallback(() => {
+    setShowEmpty((on) => {
+      void window.api.settings.set("scan.notes_show_empty_folders", on ? "0" : "1").catch(() => undefined);
+      return !on;
+    });
+  }, []);
+
+  // The nesting is rebuilt only when the flat list actually changes, not on every keystroke. The
+  // hidden count rides along: it is a walk of the same tree, so computing it anywhere else would
+  // mean building the tree twice. It is deliberately NOT keyed on `showEmpty` — the number does not
+  // change when the toggle flips, only whether the line is printed does.
+  const trees = useMemo(
+    () => new Map(tree.map((d) => {
+      const roots = buildTree(d.folders);
+      return [d.drive_id, { roots, hidden: countEmpty(roots) }] as const;
+    })),
+    [tree]
+  );
 
   const toggleBranch = useCallback((p: string) => {
     setExpanded((s) => {
@@ -561,7 +652,23 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
           onPick={(r) => { setFolder(r.path); if (r.drive_id !== null) setDriveId(r.drive_id); }}
           onSeeAll={onSeeAll ?? (() => undefined)}
         />
-        <h3>Drives</h3>
+        {/* The filter lives in the Drives header, not on each drive: it is one preference about the
+            whole tree, and repeating a switch per drive would invite the reading that it is not. */}
+        <div className="scannotes-dhead">
+          <h3>Drives</h3>
+          <button
+            type="button"
+            className="scannotes-toggle"
+            role="switch"
+            aria-checked={showEmpty}
+            onClick={toggleShowEmpty}
+          >
+            {/* the shell's own .switch, so this reads as the same control as every toggle in
+                Settings — same size, same tokens, one toggle language across the product */}
+            <span className={`switch${showEmpty ? " on" : ""}`} aria-hidden="true" />
+            Show empty folders
+          </button>
+        </div>
         {loading && <Waiting what="Loading drives…" />}
         {!loading && tree.length === 0 && (
           <div className="scannotes-empty">No scanned drives yet. Run a scan and the folders appear here.</div>
@@ -589,18 +696,29 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
                 {d.folder_total > d.folders.length && (
                   <Waiting what={`${d.folders.length} of ${d.folder_total.toLocaleString()} folders — loading the rest…`} />
                 )}
-                {(trees.get(d.drive_id) ?? []).map((n) => (
+                {(trees.get(d.drive_id)?.roots ?? []).map((n) => (
                   <Branch
                     key={n.path}
                     node={n}
                     depth={0}
                     selected={folder}
                     expanded={expanded}
+                    showEmpty={showEmpty}
                     onToggle={toggleBranch}
                     onSelect={(node) => { setFolder(node.path); setDriveId(d.drive_id); }}
                     onRename={(node) => { setRenameErr(null); setRenaming({ path: node.path, name: node.name }); }}
                   />
                 ))}
+                {/* SAY WHAT WAS TAKEN AWAY. A filter that silently removes rows is indistinguishable
+                    from a scan that missed them — this line is what makes the hiding trustworthy.
+                    It goes when the toggle goes on, because then nothing is hidden to report. */}
+                {!showEmpty && (trees.get(d.drive_id)?.hidden ?? 0) > 0 && (
+                  <div className="scannotes-hiddennote">
+                    {(trees.get(d.drive_id)?.hidden ?? 0) === 1
+                      ? "1 folder with no media is hidden"
+                      : `${(trees.get(d.drive_id)?.hidden ?? 0).toLocaleString()} folders with no media are hidden`}
+                  </div>
+                )}
               </div>
             )}
           </div>

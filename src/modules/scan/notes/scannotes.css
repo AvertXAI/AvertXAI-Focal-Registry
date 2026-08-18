@@ -362,3 +362,37 @@
 .scannotes-rfoot{margin-top:8px}
 .scannotes-rlink{background:none;border:0;padding:0;font:inherit;font-size:11.5px;color:var(--mc-accent-primary);cursor:pointer}
 .scannotes-rempty{font-size:12px;color:var(--mc-dimmer);padding:8px 4px;line-height:1.5}
+
+/* ---------------------------------------------------- the empty-folder filter */
+/* Built to MOCKUP-scan-notes-recent-work-08-17-2026.html (.dhead / .toggle / .sw / .folder .n /
+   .folder .note / .folder.empty / .hiddennote). NOT ONE of the mockup's literal hexes is copied:
+   its --hint is --mc-dimmer, its --salmon toggle is the shell's own .switch on --mc-toggle-on, and
+   the greyed empty row is --mc-dimmer. Nothing here names a colour of its own, so all three theme
+   modes follow the shell without a per-theme block. */
+
+/* One header row: the DRIVES label and the filter that governs every drive under it. It WRAPS
+   rather than overflowing — at the 250px pane the two sit on one line with room to spare, but a
+   longer translation or a larger font must push the switch onto its own line, never out of the pane. */
+.scannotes-dhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:9px}
+.scannotes-dhead h3{margin:0}
+.scannotes-toggle{margin-left:auto;display:flex;align-items:center;gap:6px;background:none;border:0;padding:0;font:inherit;font-size:11px;color:var(--mc-dimmer);cursor:pointer;user-select:none;white-space:nowrap}
+.scannotes-toggle:hover{color:var(--mc-text)}
+.scannotes-toggle:focus-visible{outline:2px solid var(--mc-accent-primary);outline-offset:3px;border-radius:var(--mc-radius)}
+
+/* The name takes the slack so the count is pushed to the right edge of the row and the columns line
+   up down the tree; the name is the only part that ellipses when the pane is tight. */
+.scannotes-fname .nm{flex:1}
+.scannotes-fname .note{flex:none;font-size:11px;line-height:1}
+/* Mono + tabular figures: the counts read as a column, not as ragged text. */
+.scannotes-fname .n{flex:none;font-family:var(--mc-mono);font-size:10.5px;color:var(--mc-dimmer);font-variant-numeric:tabular-nums}
+
+/* Only reachable with the toggle ON — off, the row is not rendered at all rather than display:none,
+   because a tree of thousands should not pay to lay out what it is hiding. Greyed to --mc-dimmer so
+   it is legible but plainly secondary. :not(.sel) keeps a SELECTED empty folder visibly selected —
+   dimming the selection would lose the one row the user is actually looking at. */
+.scannotes-folder.empty:not(.sel) .scannotes-fname,
+.scannotes-folder.empty:not(.sel) .scannotes-fname .nm{color:var(--mc-dimmer)}
+
+/* Aligned to the folder NAMES, not the row edge: a row's content starts at 6px padding + 16px
+   twisty + 4px gap = 26px, so the italic line sits under the names it is talking about. */
+.scannotes-hiddennote{font-size:11px;font-style:italic;color:var(--mc-dimmer);padding:6px 8px 2px 26px}

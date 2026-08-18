@@ -224,10 +224,16 @@ export async function readImage(db: Db, orgId: string, target: unknown): Promise
  * keep the scheme out of the "potentially trustworthy" exceptions list. bypassCSP is deliberately
  * NOT set — the policy names this scheme explicitly, and a scheme that ignores the policy would make
  * that directive a lie.
+ *
+ * `corsEnabled` is what lets the thumbnail pipeline read PIXELS back. A <video crossOrigin="anonymous">
+ * switches its fetch into CORS mode; on a scheme Chromium does not run CORS for, that request is
+ * refused outright rather than merely tainted, so the attribute and the response header below are
+ * both useless without this privilege. It grants nothing on its own — the response still has to say
+ * yes, and guardPath still runs on every single request.
  */
 export function registerMediaScheme(): void {
   protocol.registerSchemesAsPrivileged([
-    { scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
+    { scheme: MEDIA_SCHEME, privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
   ]);
 }
 
@@ -252,6 +258,14 @@ function guardPath(db: Db, orgId: string, p: string, want: "image" | "playable")
   return null;
 }
 
+/** THE SAME THREE CHECKS the scheme runs, exposed for callers that touch a media path without going
+ *  through the scheme — the thumbnail cache is the first. Shared deliberately: a second copy of this
+ *  rule is a second place for it to drift, and the rule that matters (isUnderScannedRoot) is the one
+ *  standing between a renderer bug and every file on the machine. */
+export function isPlayablePath(db: Db, orgId: string, target: string): boolean {
+  return guardPath(db, orgId, target, "playable") === null;
+}
+
 /** Content types for the formats this product plays. .mov is served as video/mp4 deliberately: it is
  *  the same ISO base media container, and Chromium is markedly happier with that label than with
  *  video/quicktime. */
@@ -269,10 +283,41 @@ const AV_MIME: Record<string, string> = {
  *
  * IT IS NOT LITERALLY UNLIMITED, and the reason is one line: this body is read into memory in the
  * main process, so `bytes=0-` on a four-gigabyte tape capture would allocate four gigabytes inside
- * the process that owns every window. A player that is handed 64 MB has seconds of video buffered
- * and asks for the next slice long before it runs out.
+ * the process that owns every window.
+ *
+ * FOUR MEGABYTES, down from sixty-four (Jason ruled 08-17-2026). This bound applies to the
+ * OPEN-ENDED form alone — `bytes=0-`, which is what a player sends before it has read the header
+ * and knows what to ask for. Every explicit `bytes=a-b` is still served exactly as requested, and
+ * Chromium switches to explicit ranges immediately after headers, so playback and seeking are
+ * untouched. Sixty-four megabytes of synchronous read on the main thread to satisfy an opening
+ * probe was the cost that made a wall of thumbnails feel stuck; four is seconds of buffered video
+ * and the player asks for the next slice long before it runs out.
  */
-const CHUNK = 64 * 1024 * 1024;
+const OPEN_ENDED_MAX = 4 * 1024 * 1024;
+
+/**
+ * WHO MAY READ THE PIXELS. The renderer draws a seeked video frame to a canvas to make a thumbnail,
+ * and without an Access-Control-Allow-Origin the canvas is TAINTED the instant that frame lands —
+ * toDataURL then throws SecurityError, which is exactly how the first thumbnail attempt failed
+ * silently. This header grants pixel-reading to our own renderer. It grants NOBODY file access:
+ * guardPath (and isUnderScannedRoot inside it) runs on every request, unchanged.
+ *
+ * WHICH VALUE SHIPS, AND WHY. Jason's ruling is "the app's own origin if it is determinable, `*`
+ * only if it is not". It is not. This renderer is loaded with `win.loadFile` (electron/main.ts:196)
+ * in every configuration — `npm run dev` is a real build followed by `electron .`, with no Vite dev
+ * server anywhere — so the page origin is a `file://` opaque origin, which serialises as the literal
+ * string "null" and matches no scoped value. So `*` is what ships today. The echo below is not
+ * decoration: the moment this app is loaded from a real origin (a dev server, or an app:// scheme)
+ * it tightens to exactly that origin with no further edit.
+ *
+ * WHAT `*` ACTUALLY EXPOSES HERE: nothing outside this application. `frmedia:` exists only inside
+ * this Electron process — it is registered at startup and no browser, page, or remote host can
+ * address the scheme at all. The set of third-party origins this widens to is empty.
+ */
+function allowOrigin(request: Request): string {
+  const o = request.headers.get("Origin");
+  return o !== null && o !== "" && o !== "null" ? o : "*";
+}
 
 /** One line the first time a file is served, so "it hangs" can be diagnosed from the console
  *  instead of guessed at. Once per path per session — a media element makes dozens of requests. */
@@ -292,6 +337,17 @@ const announced = new Set<string>();
 export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | null): void {
   protocol.handle(MEDIA_SCHEME, (request) => {
     try {
+      const cors = allowOrigin(request);
+      // `Range` is a CORS-safelisted request header, so a media fetch should never preflight. Answered
+      // anyway: if Chromium ever does send one, an unhandled OPTIONS is a thumbnail that fails with
+      // nothing in the log, and the answer costs four lines.
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          status: 204,
+          headers: { "Access-Control-Allow-Origin": cors, "Access-Control-Allow-Headers": "Range", "Access-Control-Max-Age": "86400" },
+        });
+      }
+
       const p = new URL(request.url).searchParams.get("p");
       if (!p) return new Response("Bad request", { status: 400 });
       const ctx = resolve();
@@ -322,7 +378,7 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
         // `bytes=-500` means the LAST 500 bytes — how a player finds an MP4 whose moov atom sits at
         // the end of the file. Getting this branch wrong makes exactly those clips unplayable.
         if (Number.isNaN(a)) return [Math.max(0, size - (Number.isNaN(b) ? 0 : b)), size - 1];
-        if (Number.isNaN(b)) return [a, Math.min(size - 1, a + CHUNK - 1)]; // open-ended → one chunk
+        if (Number.isNaN(b)) return [a, Math.min(size - 1, a + OPEN_ENDED_MAX - 1)]; // open-ended → one bounded slice
         return [a, Math.min(b, size - 1)];
       })();
 
@@ -361,6 +417,10 @@ export function installMediaProtocol(resolve: () => { db: Db; orgId: string } | 
           "Content-Type": type,
           "Content-Length": String(body.byteLength),
           "Accept-Ranges": "bytes",
+          "Access-Control-Allow-Origin": cors,
+          // Without the expose list a CORS response hides every non-safelisted header from the
+          // renderer, which is how a ranged read looks like it succeeded and then has no length.
+          "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
           ...(range ? { "Content-Range": `bytes ${start}-${start + body.byteLength - 1}/${size}` } : {}),
         },
       });

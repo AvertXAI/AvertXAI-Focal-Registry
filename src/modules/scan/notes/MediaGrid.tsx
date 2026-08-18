@@ -734,7 +734,15 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }
         void window.api.scan.notes
           .image(item.path)
           .then((r) => { if (!live) return; if (r.ok && r.dataUrl) setUrl(r.dataUrl); else setErr(r.error ?? "Could not read that file."); })
-          .catch((e: unknown) => { if (live) setErr(e instanceof Error ? e.message : String(e)); });
+          // THE SECOND PLACE AN EXCEPTION BECAME USER-FACING COPY, found auditing the first. The
+          // main process already answers `{ ok: false, error }` with a written sentence for every
+          // failure it can name, so anything reaching here is the channel itself falling over —
+          // and `e.message` for that is a stack-trace fragment, not something a photographer can
+          // act on. The reason is not lost: it goes to the console, where it is of use.
+          .catch((e: unknown) => {
+            console.error("[scan-notes] image read failed:", item.path, e);
+            if (live) setErr("Could not read that file just now.");
+          });
       },
       { rootMargin: "200px" } // start a screen early so scrolling does not stutter
     );
@@ -785,23 +793,39 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }
   // An AUDIO file gets an audio glyph and never a film reel — it is not video and must not look it.
   const glyph = item.kind === "video" ? "🎬" : item.kind === "audio" ? "🎵" : "🖼";
 
+  // EVERY TILE STATE THAT HAS SOMETHING TO SAY, resolved in one place and said in one place. These
+  // were four separate spans appended to the caption; three of them are answers rather than the
+  // file's name, and the fourth was an exception message. Ordered most specific first: a concrete
+  // read failure beats the general "cannot open this format", which beats a size.
+  const note =
+    err !== null && err !== ""
+      ? err
+      : !item.viewable
+        ? `This product cannot open ${item.extension ?? "this format"}${fmtBytes(item.size_bytes) ? ` — ${fmtBytes(item.size_bytes)}` : ""}.`
+        : failWhy !== null && pic === null
+          ? failSentence(failWhy)
+          : item.embedded && url
+            ? "This is the preview the camera embedded in the file."
+            : null;
+
   return (
     <button
       ref={box}
       type="button"
       className={`scannotes-tile${item.viewable ? "" : " dead"}`}
       onClick={() => item.viewable && onOpen(item)}
-      // A FAILED TILE SAYS SO IN A SENTENCE. Silence here is what makes the film glyph read as a bug
-      // rather than as an answer; error codes here would read as a bug someone shipped anyway.
-      title={
-        !item.viewable
-          ? `${item.path} — this product cannot open ${item.extension ?? "this format"}`
-          : failWhy !== null && pic === null
-            ? `${item.path} — ${failSentence(failWhy)}`
-            : item.path
-      }
+      // THE CAPTION IS THE FILE'S NAME. Nothing else. A reason appended to it was truncated by the
+      // caption's own ellipsis into `IMG_0541.CR2 · That f…`, which tells the user there is a
+      // sentence and then refuses to show it — worse than either the name alone or the sentence
+      // alone. The full path lives here so hovering the name still gives the name in full.
+      title={item.path}
     >
-      <div className={`thumb${item.kind === "video" ? " vid" : ""}`}>
+      {/* THE REASON RIDES ON THE GLYPH, which is the part of the tile that looks wrong. It is a
+          plain sentence with no error code: a photographer cannot act on "MediaError 4", and a
+          number in the interface reads as a bug that shipped anyway. No title at all when there is
+          nothing to explain — the button's own path title shows through, and an empty tooltip is
+          a flicker of nothing on every hover. */}
+      <div className={`thumb${item.kind === "video" ? " vid" : ""}`} title={note ?? undefined}>
         {pic !== null ? (
           <img src={pic} alt="" />
         ) : granted && wantsVideo && stream !== null ? (
@@ -810,12 +834,7 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen }
           <span aria-hidden="true">{glyph}</span>
         )}
       </div>
-      <div className="nm">
-        {item.filename}
-        {item.embedded && url && <span className="sub"> · embedded preview</span>}
-        {err && <span className="sub"> · {err}</span>}
-        {!err && !item.viewable && <span className="sub"> · {fmtBytes(item.size_bytes) || "not viewable here"}</span>}
-      </div>
+      <div className="nm">{item.filename}</div>
     </button>
   );
 }

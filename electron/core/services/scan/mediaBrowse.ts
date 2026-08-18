@@ -23,9 +23,11 @@
 //              Without (c) a renderer bug becomes "read any file on the machine".
 //
 //              RAW HAS NO SECOND DECODER. A Canon CR2 is not a picture a browser can draw, so what
-//              is shown is the JPEG the camera already embedded — exifr reads it from the header
-//              without decoding a single raw pixel. That is metadata extraction, which this product
-//              does, rather than image decoding, which it does not.
+//              is shown is the JPEG the camera already embedded — located by its recorded tag offset
+//              and read straight off disk, without decoding a single raw pixel. That is metadata
+//              extraction, which this product does, rather than image decoding, which it does not.
+//              The offset is the whole point: it is MEGABYTES into the file, which is why a
+//              header-only reader cannot fetch it and why rawPreview.ts exists.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/scan/mediaBrowse.ts
 //------------------------------------------------------------
@@ -36,6 +38,7 @@ import path from "node:path";
 import type { Db } from "./notesDb";
 import { AUDIO_EXTS, STILL_EXTS, VIDEO_EXTS, extOf, normalizeExt } from "./media";
 import { isUnderScannedRoot } from "./index";
+import { readEmbeddedPreview } from "./rawPreview";
 
 export const MEDIA_SCHEME = "frmedia";
 
@@ -243,9 +246,29 @@ export async function readImage(db: Db, orgId: string, target: unknown): Promise
       cachePut(p, url);
       return { ok: true, dataUrl: url, embedded: false };
     }
-    // RAW, TIFF, HEIC, PSD — the camera's own embedded JPEG, read from the header. No raw decode
-    // happens here and none ever will (§4.1).
-    const thumb = await exifr.thumbnail(p);
+    // RAW, TIFF, HEIC, PSD — the camera's own embedded JPEG. No raw decode happens here and none
+    // ever will (§4.1).
+    //
+    // THE POSITIONED READ COMES FIRST because exifr cannot do this one. It parses from a header
+    // window, and a RAW's preview is recorded in a tag pointing MEGABYTES into the file — so on
+    // every .CR2 measured it read the tags correctly and then THREW reaching for the bytes
+    // ("Invalid typed array length: 15962", which is that file's own ThumbnailLength). See
+    // rawPreview.ts for the measurements and for the lossless-JPEG trap that makes a bare
+    // FF-D8-FF check the wrong test.
+    const preview = await readEmbeddedPreview(p);
+    if (preview) {
+      const url = `data:image/jpeg;base64,${preview.bytes.toString("base64")}`;
+      cachePut(p, url);
+      if (CASE_TRACE) {
+        console.info(`[scan-notes] embedded preview ${path.basename(p)}: ${preview.bytes.length} bytes @ ${preview.offset}`);
+      }
+      return { ok: true, dataUrl: url, embedded: true };
+    }
+    // HEIC and CR3 are ISO base media format, not TIFF, so the walk above finds nothing in them and
+    // exifr remains their path. ITS THROW IS CAUGHT HERE, not by the outer catch: an exception from
+    // a library is not a sentence to show a photographer, and printing one is how the caption came
+    // to read "That f…".
+    const thumb = await exifr.thumbnail(p).catch(() => null);
     if (!thumb) {
       return { ok: false, error: `${path.basename(p)} has no embedded preview, and this product does not decode RAW.` };
     }

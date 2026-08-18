@@ -53,7 +53,14 @@ const CONCURRENCY = 6;
  *  that were merely slow and turning a queue into a wall of permanent glyphs. */
 const FRAME_CEILING_MS = 10_000;
 
-/** How many tiles may hold a decoded frame at once — see THE MEMORY POSITION below. */
+/**
+ * How many tiles may hold a decoded frame at once — but read THE MEMORY POSITION below, because this
+ * is a floor on the bound and not the bound itself. Eviction yields to what is on screen, so the
+ * real cap is `max(PAINTED_CEILING, tiles currently visible)`. At the 1920-by-1080 profile that
+ * visible set is about eight columns by eight rows once the observer's 200-pixel margin is counted,
+ * so the worst case is roughly seventy live elements rather than forty-six — and it is only
+ * reachable at all when frame capture is unavailable and tiles cannot become plain images.
+ */
 const PAINTED_CEILING = 40;
 
 type Outcome = "painted" | "failed" | "gone";
@@ -187,8 +194,10 @@ class ThumbQueue {
   /** key → the tick it was last on screen. Insertion order is not enough: eviction has to follow the
    *  eye, not the order the loads happened to finish in. */
   private readonly painted = new Map<string, number>();
-  /** Keys currently intersecting the viewport. Eviction consults this and NOTHING else can override
-   *  it: a tile the user is looking at is never taken away, however long it has been sitting there. */
+  /** Keys the IntersectionObserver currently reports as intersecting — which is the viewport PLUS
+   *  its 200-pixel rootMargin, so roughly a row and a half beyond each edge, not the screen exactly.
+   *  Eviction consults this and nothing else can override it: a tile the user is looking at is never
+   *  taken away, however long it has been sitting there. */
   private readonly visible = new Set<string>();
   private order: string[] = [];
   private urgent: string[] = [];
@@ -198,7 +207,8 @@ class ThumbQueue {
 
   /** Called by every video tile at mount, in document order. This IS the background walk. */
   register(key: string, start: () => void, drop: () => void): void {
-    if (this.cancelled) return;
+    // Deliberately NOT gated on `cancelled` — see open(). Work that arrives while the queue is closed
+    // is remembered and starts when it reopens; pump() is the one and only gate on starting.
     this.starters.set(key, start);
     this.drops.set(key, drop);
     this.enqueue(key, false);
@@ -216,7 +226,6 @@ class ThumbQueue {
    * WHICH off-screen tile goes, and this decides that an on-screen one never does.
    */
   setVisible(key: string, on: boolean): void {
-    if (this.cancelled) return;
     if (on) { this.visible.add(key); this.seen(key); }
     else this.visible.delete(key);
   }
@@ -224,7 +233,6 @@ class ThumbQueue {
   /** The tile is on screen. Priority only — it can move a tile to the front of the line and it
    *  renews a painted tile's place against eviction. It never decides whether work happens. */
   seen(key: string): void {
-    if (this.cancelled) return;
     this.tick += 1;
     if (this.painted.has(key)) { this.painted.set(key, this.tick); return; }
     if (this.inFlight.has(key)) return;
@@ -249,12 +257,32 @@ class ThumbQueue {
     this.visible.delete(key);
   }
 
+  /**
+   * STOP STARTING WORK. It deliberately destroys NOTHING.
+   *
+   * THIS IS A STRICTMODE FIX AND THE SHAPE MATTERS. The queue has to exist during render, because
+   * every tile takes it as a prop — so it is built in useMemo and torn down in an effect cleanup.
+   * In development React runs a mount as setup → cleanup → setup, which means that cleanup fires
+   * ONCE BEFORE THE COMPONENT IS REALLY ALIVE. The previous version latched `cancelled` and wiped
+   * every map, so the committed queue was permanently dead and every tile's second registration was
+   * refused: on the first folder the media pane opened, no thumbnail was ever generated. Because
+   * child effects run before parent effects, re-arming in the parent's setup could not have rescued
+   * it either — the tiles had already been turned away.
+   *
+   * So closing is now reversible and registrations survive it. On a real folder change nothing is
+   * lost by keeping the maps: the tiles unmount and forget themselves, and the queue object is
+   * discarded with the folder.
+   */
   cancel(): void {
     if (TRACE) console.info("[scan-notes] thumb queue closed —", this.summary());
     this.cancelled = true;
-    this.starters.clear(); this.drops.clear(); this.painted.clear();
-    this.pending.clear(); this.inFlight.clear(); this.visible.clear();
-    this.order = []; this.urgent = [];
+  }
+
+  /** Re-arm, and pick up anything that registered while closed. */
+  open(): void {
+    if (!this.cancelled) return;
+    this.cancelled = false;
+    this.pump();
   }
 
   summary(): string {
@@ -603,7 +631,13 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
   // walk must never outlive the folder it was walking. `folderPath` is a reset key, not a value the
   // constructor reads; that is the whole point of the dependency.
   const queue = useMemo(() => new ThumbQueue(), [folderPath]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => queue.cancel(), [queue]);
+  // open() on every setup, not just the first: React's development double-invoke closes this queue
+  // once before the component is really mounted, and without the re-open the first folder the media
+  // pane is opened against would never generate a single thumbnail.
+  useEffect(() => {
+    queue.open();
+    return () => queue.cancel();
+  }, [queue]);
 
   // TILE NAMES FIRST, PICTURES A BEAT LATER, and deliberately in that order — the listing is one
   // cheap query and the cache read is hundreds of file reads, so painting the wall before asking for
@@ -615,14 +649,18 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
   useEffect(() => {
     if (!folderPath) { setItems([]); setCached({}); return; }
     let live = true;
-    setCached({});
+    // NOT cleared here. Clearing it while the item list still held the OUTGOING folder made every one of
+    // that folder's cached tiles lose their picture for a beat — so they flashed from a
+    // picture to the film-reel glyph and started decoding themselves into the new folder's queue,
+    // burning slots on files that were about to unmount. The map is replaced when the new listing
+    // lands, and keys are absolute paths, so a stale entry can never match the wrong file.
     void window.api.scan.notes
       .media(folderPath)
       .then((list) => {
         if (!live) return;
         setItems(list);
         const videos = list.filter((i) => i.kind === "video" && i.streamUrl !== null).map((i) => i.path);
-        if (videos.length === 0) return;
+        if (videos.length === 0) { setCached({}); return; }
         // CAUGHT HERE, NOT DOWNSTREAM. Returning this promise into the outer chain meant a rejected
         // CACHE read landed in the catch below and called setItems([]) — so a folder full of media
         // rendered "No media recorded in this folder." because a thumbnail lookup failed. A cache is

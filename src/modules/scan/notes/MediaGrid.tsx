@@ -1,7 +1,8 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-// The media grid — browsing the archive, never touching it. Built to the mockups: a tile wall, a
-// lightbox for stills, and a player modal whose transport lives in its FOOTER for both media
-// classes (MOCKUP-frmedia-player-route-08-17-2026.html).
+// The media grid — browsing the archive, never touching it. Built to the mockups: a tile wall, and a
+// three-band viewer for every media class (MOCKUP-scan-notes-media-modals-v2-08-18-2026.html). The
+// viewer itself lives in MediaViewer.tsx; this file owns the wall, the thumbnail pipeline, and which
+// item is open.
 //
 // HOW A VIDEO TILE GETS ITS PICTURE — THE EXPLORER PATTERN, arrived at over three passes.
 //
@@ -27,14 +28,11 @@
 // (electron/core/services/scan/thumbs.ts). Nothing is ever written to the scanned drive.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ScanMediaItem, ScanThumbFailReason, ScanThumbFailure } from "../../../shared/types";
-import MediaTransport from "./MediaTransport";
+import MediaViewer from "./MediaViewer";
 import "./scannotes.css";
 
-/** Split at the LAST dot so the extension can be pinned past the stem's ellipsis. A name with no dot
- *  is all stem — there is nothing to protect. */
-const lastDot = (s: string): number => (s.lastIndexOf(".") > 0 ? s.lastIndexOf(".") : s.length);
-const stemOf = (s: string): string => s.slice(0, lastDot(s));
-const extOf = (s: string): string => s.slice(lastDot(s));
+/* The stem/extension split moved to MediaViewer.tsx with the header that used it — a tile shows the
+   whole filename and never truncates it, so nothing here needs the pair any more. */
 
 function fmtBytes(n: number | null): string {
   if (!n || n <= 0) return "";
@@ -844,10 +842,10 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
    *  appears while tiles are still working — it must not flash and must not move the grid. */
   const [settled, setSettled] = useState(false);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** WHICH ITEM IS OPEN, still held as the item itself so `onOpen` on four hundred tiles stays the
+   *  plain `setOpen` it has always been. The viewer wants a POSITION — it counts, steps and reels off
+   *  it — so the render block below converts between the two in one line each way. */
   const [open, setOpen] = useState<ScanMediaItem | null>(null);
-  const [full, setFull] = useState<string | null>(null);
-  const [fullErr, setFullErr] = useState<string | null>(null);
-  const media = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
 
   // ONE QUEUE PER FOLDER, and the old one is cancelled the moment the folder changes — a background
   // walk must never outlive the folder it was walking. `folderPath` is a reset key, not a value the
@@ -997,40 +995,21 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
     return () => { live = false; };
   }, [folderPath]);
 
-  // The lightbox asks for its OWN copy rather than reusing the tile's — the cache main-side makes
-  // that free, and a lightbox that depends on a tile still being mounted breaks the moment the grid
-  // scrolls underneath it.
-  useEffect(() => {
-    setFull(null);
-    setFullErr(null);
-    if (!open || open.kind !== "image") return;
-    let live = true;
-    void window.api.scan.notes
-      .image(open.path)
-      .then((r) => { if (!live) return; if (r.ok && r.dataUrl) setFull(r.dataUrl); else setFullErr(r.error ?? "Could not read that file."); })
-      .catch((e: unknown) => { if (live) setFullErr(e instanceof Error ? e.message : String(e)); });
-    return () => { live = false; };
-  }, [open]);
-
+  // THE STILL FETCH AND THE ESCAPE KEY BOTH MOVED INTO MediaViewer, and neither is duplicated here:
+  // the viewer steps between files on its own, so a copy of the image held in the GRID would be the
+  // wrong file the moment the user pressed Next, and a second window-level keydown listener would
+  // mean two handlers racing for one Escape.
   const close = useCallback(() => setOpen(null), []);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") close(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, close]);
 
   if (!folderPath) return <div className="scannotes-empty">Pick a folder on the left.</div>;
   if (items.length === 0) {
     return <div className="scannotes-empty">No media recorded in this folder. Scan it and the files appear here.</div>;
   }
 
-  // AUDIO IS ITS OWN LAYOUT. A <video> element with an audio-only source paints a black rectangle
-  // the height of the video area and strands the controls at the bottom of that dead space — which
-  // is exactly what a nineteen-minute MP3 looked like on device. The class comes from the SCANNER's
-  // own extension list (electron/core/services/scan/media.ts:28-30, resolved into `kind` by
-  // mediaBrowse.ts) — there is no second list here to drift from it.
-  const isAudio = open?.kind === "audio";
+  // THE OPEN ITEM AS A POSITION. Matched on the absolute PATH rather than on object identity, so a
+  // listing replaced underneath an open viewer still finds its file; -1 means it genuinely is not in
+  // this folder any more, and the viewer renders nothing rather than the wrong file.
+  const openIndex = open === null ? -1 : items.findIndex((i) => i.path === open.path);
 
   return (
     <>
@@ -1063,65 +1042,19 @@ export default function MediaGrid({ folderPath }: { folderPath: string | null })
         </div>
       )}
 
-      {/* data-modal-backdrop dims the OS-drawn min/max/close buttons — they are painted ABOVE all
-          web content, so no DOM backdrop can cover them (§3.3/§3.4). */}
-      {open && (
-        <div className="scannotes-overlay" data-modal-backdrop="" role="dialog" aria-modal="true" aria-label={open.filename} onClick={close}>
-          <div
-            className={`scannotes-modal${open.kind === "image" ? " lightbox" : isAudio ? " audio" : " player"}`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* ONE LINE, full name on hover, and the extension pinned so it survives the ellipsis —
-                it is how you know what you are about to play. */}
-            <h2 className="scannotes-medianame" title={open.filename}>
-              <span className="stem">{stemOf(open.filename)}</span>
-              <span className="ext">{extOf(open.filename)}</span>
-            </h2>
-            <div className="sub2">Playback only — the file is never modified.</div>
-
-            {open.kind === "image" ? (
-              <>
-                <div className="screen">
-                  {full ? <img src={full} alt={open.filename} /> : <span>{fullErr ?? "Loading…"}</span>}
-                </div>
-                {open.embedded && <div className="sub2">This is the preview the camera embedded — the RAW file itself is untouched.</div>}
-              </>
-            ) : (
-              open.streamUrl && (
-                <>
-                  {/* No `controls` on either element: the transport lives in the modal's footer for
-                      BOTH classes (ruled 08-17-2026), and a native bar cannot be moved out of the
-                      element it is drawn inside. */}
-                  {isAudio ? (
-                    <audio
-                      ref={media as React.RefObject<HTMLAudioElement>}
-                      src={open.streamUrl}
-                      preload="metadata"
-                      autoPlay
-                      className="scannotes-audioel"
-                    />
-                  ) : (
-                    <video
-                      ref={media as React.RefObject<HTMLVideoElement>}
-                      className="screen"
-                      src={open.streamUrl}
-                      preload="metadata"
-                      autoPlay
-                      playsInline
-                    >
-                      <track kind="captions" />
-                    </video>
-                  )}
-                  <MediaTransport mediaRef={media} />
-                </>
-              )
-            )}
-
-            <div className="scannotes-btnrow">
-              <button type="button" className="scannotes-btn" onClick={close}>Close</button>
-            </div>
-          </div>
-        </div>
+      {/* THE VIEWER. It owns its own scrim (data-modal-backdrop and all), its own keyboard, and its
+          own copy of whatever it is showing — this file hands it the folder, the position, and the
+          thumbnail cache it has ALREADY fetched. That last prop is the load-bearing one: the reel
+          renders out of this map and never starts a decode of its own, so the pipeline above stays
+          the only thing in this module that makes a thumbnail. */}
+      {openIndex >= 0 && (
+        <MediaViewer
+          items={items}
+          index={openIndex}
+          onClose={close}
+          onIndexChange={(i) => setOpen(items[i] ?? null)}
+          cached={cached}
+        />
       )}
     </>
   );

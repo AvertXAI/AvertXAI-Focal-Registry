@@ -1,0 +1,189 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* THE MEDIA VIEWER, built to MOCKUP-scan-notes-media-modals-v2-08-18-2026.html (approved 08-18-2026,
+   itself built to BuildersAudit Media Viewer v1). Three bands in one card: header / stage / footer,
+   with the folder reel underneath.
+
+   ZERO LITERAL COLOURS in any rule. Every value below is either a --mc-* shell token or one of this
+   module's own --scannotes-viewer-* tokens. The mockup's .mk-* harness is NOT here and never ships.
+
+   TWO DELIBERATE DEPARTURES FROM THE MOCKUP FILE, both recorded rather than silent:
+
+   1. THE TOKENS ARE DECLARED ON .scannotes-viewer-shell, NOT ON :root. The mockup put them at :root
+      to make one point — that they are declared ONCE and never redefined per theme — and that point
+      is honoured exactly. The scope changes because canon is explicit that a module's tokens live on
+      the module's own class rather than :root, which is also what scannotes.css already does with
+      its --scannotes-* set. Same tokens, same values, same single declaration; a tighter scope.
+
+   2. THE MOCKUP'S BARE .viewer AND .v-* SELECTORS ARE SCOPED UNDER .scannotes-viewer-shell, and the
+      card itself is .v-card rather than .viewer. Every stylesheet in this application is bundled
+      into one global sheet, so a bare `.viewer` rule is a collision waiting for whoever writes the
+      next module. The markup keeps the mockup's class names; the selectors carry a prefix.
+
+   WHY THE CHROME IS IDENTICAL IN ALL THREE THEME MODES — copied from the mockup because it is the
+   reason, not a preference: a lightbox that repaints itself pale in Light mode changes the apparent
+   colour of the photograph inside it, which is the one thing an archive viewer must not do. These
+   are the §3.3 single-value-token pattern used ON PURPOSE rather than by omission. Do not "fix" this
+   by adding [data-theme] blocks for them. */
+
+.scannotes-viewer-shell{
+  /* THE VIEWER CHROME — identical in every mode, on purpose, and this is the one place in the
+     product where that is true. Copied verbatim from the approved mockup. */
+  --scannotes-viewer-header-background:#1c1917;
+  --scannotes-viewer-header-foreground:#f5f2ee;
+  --scannotes-viewer-header-secondary:rgba(245,242,238,.6);
+  --scannotes-viewer-stage-top:#2a2622;
+  --scannotes-viewer-stage-bottom:#151210;
+  --scannotes-viewer-stage-still:#1a1a1a;
+  --scannotes-viewer-overlay-foreground:#ffffff;
+  --scannotes-viewer-overlay-background:rgba(0,0,0,.45);
+  --scannotes-viewer-transport-background:rgba(0,0,0,.55);
+  --scannotes-viewer-caption:rgba(255,255,255,.45);
+  --scannotes-viewer-rail:rgba(255,255,255,.25);
+  --scannotes-viewer-overlay-hover:rgba(0,0,0,.72);
+  --scannotes-viewer-chip-background:rgba(0,0,0,.5);
+  --scannotes-viewer-badge-background:rgba(0,0,0,.85);
+  --scannotes-viewer-play-background:rgba(255,255,255,.14);
+  --scannotes-viewer-play-background-hover:rgba(255,255,255,.24);
+  --scannotes-viewer-play-border:rgba(255,255,255,.7);
+  --scannotes-viewer-control-hover:rgba(255,255,255,.16);
+  --scannotes-viewer-control-hover-soft:rgba(255,255,255,.12);
+  --scannotes-viewer-thumb:#ffffff;
+  --scannotes-viewer-thumb-shadow:rgba(0,0,0,.5);
+  --scannotes-viewer-audio-foreground:rgba(255,255,255,.72);
+  /* THE ONE ADDITION TO THE MOCKUP'S BLOCK. Its .viewer rule carried a literal `rgba(0,0,0,.45)` in
+     the card drop shadow — the only colour in the whole .v-* set that was not already a token. It is
+     declared here at its exact mockup value rather than folded into the nearest existing token,
+     whose alpha is .5: a token is the mechanism, not a licence to move the design half a step. */
+  --scannotes-viewer-card-shadow:rgba(0,0,0,.45);
+
+  /* The shell holds the card AND the reel, so it is what the scrim centres. max-height plus a scroll
+     of its own is the belt; the stage clamp below is the braces. Between them nothing can push a
+     control off the bottom of a 640-pixel window. */
+  display:flex;flex-direction:column;align-items:stretch;
+  width:100%;max-width:860px;max-height:100%;overflow:auto;
+}
+
+/* ---- band 0: the card ---- */
+.scannotes-viewer-shell .v-card{
+  flex:none;min-height:0;
+  display:flex;flex-direction:column;
+  border-radius:14px;overflow:hidden;                       /* clips the bands to the radius */
+  box-shadow:0 24px 70px var(--scannotes-viewer-card-shadow);
+}
+
+/* ---- band 1: header ---- */
+.scannotes-viewer-shell .v-head{
+  display:flex;align-items:center;gap:10px;padding:12px 18px;flex:none;
+  background:var(--scannotes-viewer-header-background);color:var(--scannotes-viewer-header-foreground);
+}
+/* ONE LINE, and the extension always survives the ellipsis — the stem truncates, the extension is
+   pinned after it as its own unshrinkable piece. Carried over from the shipped build unchanged. */
+.scannotes-viewer-shell .v-name{display:flex;align-items:baseline;min-width:0;font-size:13.5px;font-weight:700}
+.scannotes-viewer-shell .v-name .stem{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.scannotes-viewer-shell .v-name .ext{flex:none;opacity:.62;font-weight:600}
+.scannotes-viewer-shell .v-meta{flex:none;font-size:11px;opacity:.6;font-family:var(--mc-mono);white-space:nowrap}
+.scannotes-viewer-shell .v-count{margin-left:auto;flex:none;font-size:11px;opacity:.6;font-family:var(--mc-mono);padding-left:10px}
+.scannotes-viewer-shell .v-x{flex:none;width:26px;height:26px;border:0;border-radius:6px;background:transparent;color:inherit;opacity:.6;font-size:15px;line-height:1;cursor:pointer;padding:0}
+.scannotes-viewer-shell .v-x:hover{opacity:1;background:var(--scannotes-viewer-control-hover-soft)}
+
+/* ---- band 2: stage ---- */
+/* THE MOCKUP'S 430 IS THE CEILING, NOT A CONSTANT. The window floor is 740 by 640 (§3.4), and at
+   that height the scrim leaves 600 pixels: header 44 + footer 41 + reel 135 = 220 of furniture, so a
+   fixed 430 stage overflows by fifty and takes the transport off the bottom with it. The clamp keeps
+   the approved height wherever it fits and shrinks only where it cannot.
+      640 tall → 46vh = 294 → 85 + 294 + 135 = 514 of 600  ✓
+      900 tall → 46vh = 414 → 85 + 414 + 135 = 634 of 860  ✓
+     1080 tall → 46vh = 497 → clamps to 430, the design height ✓ */
+.scannotes-viewer-shell .v-stage{position:relative;height:clamp(240px,46vh,430px);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.scannotes-viewer-shell .v-stage.video{background:linear-gradient(140deg,var(--scannotes-viewer-stage-top),var(--scannotes-viewer-stage-bottom))}
+.scannotes-viewer-shell .v-stage.still{background:var(--scannotes-viewer-stage-still)}
+/* the mockup styles only <img> because its stage held a placeholder glyph; a real <video> needs the
+   same fit rules or it paints letterboxed against its own intrinsic size */
+.scannotes-viewer-shell .v-stage img,
+.scannotes-viewer-shell .v-stage video{max-width:100%;max-height:100%;object-fit:contain;display:block}
+/* PAN IS A TRANSFORM AND NOTHING MORE — the file is never touched, and neither is the layout:
+   transform does not reflow, so a drag cannot make the stage scroll, resize, or move a sibling. */
+.scannotes-viewer-shell .v-stage img.zoomed{cursor:grab}
+.scannotes-viewer-shell .v-stage img.zoomed.grabbing{cursor:grabbing}
+.scannotes-viewer-shell .v-ph{font-size:62px;opacity:.4;user-select:none;color:var(--scannotes-viewer-overlay-foreground)}
+.scannotes-viewer-shell .v-msg{font-size:13px;color:var(--scannotes-viewer-caption);padding:0 24px;text-align:center}
+/* caption top-left, where the source design puts it */
+.scannotes-viewer-shell .v-cap{position:absolute;left:18px;top:14px;right:18px;font-size:11px;color:var(--scannotes-viewer-caption);pointer-events:none}
+/* the stage IS the play button until it is running */
+.scannotes-viewer-shell .v-play{position:absolute;width:72px;height:72px;border-radius:50%;background:var(--scannotes-viewer-play-background);border:2px solid var(--scannotes-viewer-play-border);color:var(--scannotes-viewer-overlay-foreground);font-size:24px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding-left:5px}
+.scannotes-viewer-shell .v-play:hover{background:var(--scannotes-viewer-play-background-hover)}
+/* circular step arrows on the stage edges, vertically centred */
+.scannotes-viewer-shell .v-arrow{position:absolute;top:50%;transform:translateY(-50%);width:38px;height:38px;border:0;border-radius:50%;background:var(--scannotes-viewer-overlay-background);color:var(--scannotes-viewer-overlay-foreground);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.scannotes-viewer-shell .v-arrow:hover{background:var(--scannotes-viewer-overlay-hover)}
+.scannotes-viewer-shell .v-arrow:disabled{opacity:.25;cursor:default}
+.scannotes-viewer-shell .v-arrow.prev{left:14px}
+.scannotes-viewer-shell .v-arrow.next{right:14px}
+/* zoom cluster, bottom-right of a still */
+.scannotes-viewer-shell .v-zoom{position:absolute;right:16px;bottom:12px;display:flex;gap:8px}
+.scannotes-viewer-shell .v-zoom button{border:0;border-radius:6px;padding:5px 11px;font:inherit;font-size:11px;background:var(--scannotes-viewer-chip-background);color:var(--scannotes-viewer-overlay-foreground);cursor:pointer;font-family:var(--mc-mono)}
+.scannotes-viewer-shell .v-zoom button:hover{background:var(--scannotes-viewer-overlay-hover)}
+.scannotes-viewer-shell .v-zoom button:disabled{opacity:.35;cursor:default}
+
+/* ---- the transport, inside the stage, along its bottom edge ---- */
+/* THE COMPONENT INSIDE IS MediaTransport, UNCHANGED. Its play/pause, drag-scrubbable seek, time,
+   mute and volume are proven on device and were not touched — what follows is a RE-SKIN of the
+   markup that component already emits, mapping the mockup's .v-tbtn / .v-track / .v-time / .v-vol
+   onto the .scannotes-* classes it renders. Three-class selectors, so they win over the
+   panel-footer styling in scannotes.css without that file being edited. */
+.scannotes-viewer-shell .v-transport{position:absolute;left:0;right:0;bottom:0;padding:10px 16px;background:var(--scannotes-viewer-transport-background)}
+.scannotes-viewer-shell .v-transport .scannotes-transport{margin-top:0;gap:12px}
+.scannotes-viewer-shell .v-transport .scannotes-tbtn{flex:none;border:0;background:transparent;color:var(--scannotes-viewer-overlay-foreground);font:inherit;font-size:13px;line-height:1;width:26px;height:26px;min-width:0;border-radius:6px;cursor:pointer;padding:0}
+.scannotes-viewer-shell .v-transport .scannotes-tbtn:hover{background:var(--scannotes-viewer-control-hover);border:0}
+/* 16 pixels tall so it can be grabbed, 5 painted so it still reads thin — the shipped scrubber's hit
+   area, with the source design's thumb always visible rather than revealed on hover */
+.scannotes-viewer-shell .v-transport .scannotes-track::before{height:5px;border:0;border-radius:3px;background:var(--scannotes-viewer-rail)}
+.scannotes-viewer-shell .v-transport .scannotes-track i{height:5px;border-radius:3px;background:var(--mc-accent-primary)}
+.scannotes-viewer-shell .v-transport .scannotes-track i::after{right:-6px;width:13px;height:13px;background:var(--scannotes-viewer-thumb);box-shadow:0 1px 3px var(--scannotes-viewer-thumb-shadow);opacity:1}
+.scannotes-viewer-shell .v-transport .scannotes-tm{flex:none;font-family:var(--mc-mono);font-size:11px;color:var(--scannotes-viewer-overlay-foreground);min-width:86px;text-align:right}
+.scannotes-viewer-shell .v-transport .scannotes-vol{flex:none;width:70px;margin:0;accent-color:var(--mc-accent-primary);cursor:pointer}
+
+/* ---- band 3: footer ---- */
+.scannotes-viewer-shell .v-foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 18px;flex:none;background:var(--mc-panels);font-size:11.5px;color:var(--mc-muted)}
+.scannotes-viewer-shell .v-facts{flex:1 1 240px;min-width:0;font-family:var(--mc-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.scannotes-viewer-shell .v-btn{flex:none;font:inherit;font-size:11.5px;font-weight:600;padding:6px 13px;border:1px solid var(--mc-border);border-radius:8px;background:transparent;color:var(--mc-text);cursor:pointer;white-space:nowrap}
+.scannotes-viewer-shell .v-btn:hover{border-color:var(--mc-accent-primary)}
+
+/* ---- the reel, below the card ---- */
+.scannotes-viewer-shell .v-reel-wrap{width:100%;margin-top:16px;flex:none;display:flex;flex-direction:column;gap:8px}
+.scannotes-viewer-shell .v-reel-label{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mc-dimmer);font-weight:700}
+.scannotes-viewer-shell .v-reel{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
+.scannotes-viewer-shell .v-cell{flex:none;width:112px;border:2px solid var(--mc-border);border-radius:10px;overflow:hidden;cursor:pointer;background:var(--mc-panels);padding:0;font:inherit;color:var(--mc-text);text-align:left}
+.scannotes-viewer-shell .v-cell.on{border-color:var(--mc-accent-primary)}
+.scannotes-viewer-shell .v-cell:disabled{cursor:default;opacity:.5}
+.scannotes-viewer-shell .v-cell .pic{height:64px;background:var(--mc-nested);display:flex;align-items:center;justify-content:center;font-size:20px;position:relative;color:var(--mc-dimmer)}
+.scannotes-viewer-shell .v-cell .pic img{width:100%;height:100%;object-fit:cover;display:block}
+.scannotes-viewer-shell .v-cell .dur{position:absolute;right:5px;bottom:4px;background:var(--scannotes-viewer-badge-background);color:var(--scannotes-viewer-overlay-foreground);font-size:9px;font-family:var(--mc-mono);border-radius:4px;padding:1px 5px}
+.scannotes-viewer-shell .v-cell .nm{padding:6px 8px;font-size:10px;font-family:var(--mc-mono);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--mc-muted)}
+
+/* audio has no stage picture: a <video> holding an audio-only file paints a black rectangle and
+   strands the controls at the bottom of dead space */
+.scannotes-viewer-shell.audio{max-width:560px}
+.scannotes-viewer-shell .v-stage.audio{height:auto;background:var(--scannotes-viewer-stage-top);flex-direction:column;align-items:stretch;padding:26px 16px 0}
+.scannotes-viewer-shell .v-stage.audio .row{display:flex;align-items:center;gap:14px;color:var(--scannotes-viewer-audio-foreground);font-size:13px;margin-bottom:22px}
+.scannotes-viewer-shell .v-stage.audio .row .g{font-size:34px;opacity:.6}
+.scannotes-viewer-shell .v-stage.audio .v-transport{position:static;background:none;padding:0 0 14px}
+
+/* ---- fill the window ---- */
+/* The card stops being a card: the shell takes the whole client area, the stage takes whatever the
+   header, footer and reel leave, and the radius goes because there is no longer an edge to round. */
+.scannotes-viewer-scrim.expanded{padding:0}
+.scannotes-viewer-shell.expanded{max-width:none;width:100%;height:100%;max-height:100%}
+.scannotes-viewer-shell.expanded .v-card{flex:1;min-height:0;border-radius:0;box-shadow:none}
+.scannotes-viewer-shell.expanded .v-stage{height:auto;flex:1;min-height:0}
+.scannotes-viewer-shell.expanded .v-reel-wrap{margin:0;padding:12px 18px;background:var(--mc-panels)}
+/* audio expanded keeps its compact stage: there is nothing to make bigger, and a stage stretched
+   over a nineteen-minute MP3 is the black rectangle this layout exists to avoid */
+.scannotes-viewer-shell.expanded .v-stage.audio{flex:none;height:auto}
+
+/* ---- focus, for everything the keyboard can reach ---- */
+.scannotes-viewer-shell .v-x:focus-visible,
+.scannotes-viewer-shell .v-arrow:focus-visible,
+.scannotes-viewer-shell .v-play:focus-visible,
+.scannotes-viewer-shell .v-zoom button:focus-visible,
+.scannotes-viewer-shell .v-btn:focus-visible,
+.scannotes-viewer-shell .v-cell:focus-visible{outline:2px solid var(--mc-accent-primary);outline-offset:2px}

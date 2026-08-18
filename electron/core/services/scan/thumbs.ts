@@ -74,8 +74,27 @@ export function thumbsRoot(): string {
  * cost one re-decode per file. Accepted. A path-independent key would have to be content-addressed
  * off the file's own bytes, which means reading the file to decide whether to read the file.
  */
+/**
+ * CACHE GENERATION — bump this whenever a change makes ALREADY-STORED thumbnails wrong.
+ *
+ * The key is (path, size, mtime), which is exactly right for "the file changed" and useless for
+ * "our generator changed": a fixed bug leaves every stale, wrong thumbnail sitting in the cache
+ * looking like a valid hit. That happened on 08-18-2026 — EXIF orientations 6 and 8 were swapped,
+ * so a whole shoot cached upside down and would have kept serving upside down after the fix.
+ *
+ * Bumping invalidates video frames too. That is deliberate and cheap: they simply regenerate on
+ * next view, and the sweep reclaims the orphans. A stale-but-plausible cache entry is far more
+ * expensive than a re-decode, because nobody ever suspects it.
+ *
+ *   1 — original
+ *   2 — 08-18-2026, EXIF orientation 6/8 fix
+ */
+const CACHE_GENERATION = 2;
+
 export function keyFor(target: string, size: number, mtimeMs: number): string {
-  const id = path.resolve(target).toLowerCase() + "|" + String(size) + "|" + String(Math.round(mtimeMs));
+  const id =
+    path.resolve(target).toLowerCase() + "|" + String(size) + "|" + String(Math.round(mtimeMs)) +
+    "|g" + String(CACHE_GENERATION);
   return createHash("sha1").update(id).digest("hex");
 }
 

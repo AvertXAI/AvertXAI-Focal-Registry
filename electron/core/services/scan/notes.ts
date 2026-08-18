@@ -118,7 +118,7 @@ export interface ScanNotesDriveNode {
   connected: boolean;
   /** Every scanned folder on the drive; `folders` is only the first page of them. */
   folder_total: number;
-  folders: Array<{ path: string; name: string; renamedFrom: string | null }>;
+  folders: Array<{ path: string; name: string; renamedFrom: string | null; mediaCount: number; hasNote: boolean }>;
 }
 
 const nowIso = (): string => new Date().toISOString();
@@ -559,14 +559,59 @@ function renamedFromMap(db: Db, orgId: string, driveId: number): Map<string, str
        WHERE org_id = ? AND drive_id = ? AND status = 'applied' ORDER BY applied_at, id`
     )
     .all(orgId, driveId) as Array<{ folder_path_new: string; name_old: string }>;
-  return new Map(rows.map((r) => [r.folder_path_new, r.name_old]));
+  // LOWERCASED, like its two siblings below. It was the one map in toNode keyed by the raw string
+  // while `media` and `noted` were keyed lowercase — benign today only because cascadePaths writes
+  // scan_folders.path with the identical string recordHistory stored, and one case-normalising
+  // rescan away from silently dropping every "renamed from" chip in the tree.
+  return new Map(rows.map((r) => [r.folder_path_new.toLowerCase(), r.name_old]));
 }
 
-const toNode = (p: string, prev: Map<string, string>): { path: string; name: string; renamedFrom: string | null } => ({
+const toNode = (
+  p: string,
+  prev: Map<string, string>,
+  media: Map<string, number>,
+  noted: Set<string>
+): { path: string; name: string; renamedFrom: string | null; mediaCount: number; hasNote: boolean } => ({
   path: p,
   name: path.basename(p) || p,
-  renamedFrom: prev.get(p) ?? null,
+  renamedFrom: prev.get(p.toLowerCase()) ?? null,
+  mediaCount: media.get(p.toLowerCase()) ?? 0,
+  hasNote: noted.has(p.toLowerCase()),
 });
+
+/** Media files per folder, from the scan_folders rollup — MAX across runs, because a folder rescanned
+ *  after a drive was unplugged has an older row too and the newest count is the true one. Keyed
+ *  lowercase: Windows paths are case-insensitive and the tree compares them that way everywhere. */
+function mediaCountMap(db: Db, orgId: string, driveId: number): Map<string, number> {
+  // THE NEWEST ROW PER PATH, NOT THE LARGEST COUNT. The first cut used MAX(media_files), which reads
+  // as "the newest" only while an archive grows: the moment a photographer CULLS a folder from 1,842
+  // files down to 300 keepers and rescans, MAX keeps reporting 1,842 forever and every deletion they
+  // make is invisible in this column. MAX(id) picks the latest row and SQLite's bare-column rule —
+  // one min/max aggregate in the query, so every bare column comes from the row that produced it —
+  // makes media_files that row's own value.
+  //
+  // media_files IS SELECTED BARE and coalesced in JavaScript rather than inside the query. SQLite's
+  // bare-column rule is stated for COLUMNS, and wrapping one in COALESCE() makes it an expression —
+  // it almost certainly still resolves against the max row, but "almost certainly" is not a basis for
+  // a number the user reads off the screen. Selecting the column plainly puts it squarely inside the
+  // documented guarantee, and a NULL costs one `?? 0`.
+  const rows = db
+    .prepare(
+      `SELECT path, MAX(id) AS newest, media_files FROM scan_folders
+       WHERE org_id = ? AND drive_id = ? GROUP BY path`
+    )
+    .all(orgId, driveId) as Array<{ path: string; media_files: number | null }>;
+  return new Map(rows.map((r) => [r.path.toLowerCase(), r.media_files ?? 0]));
+}
+
+/** Which folders on this drive carry a user note — the tree's note marker. One query, not one per
+ *  folder: a drive with two thousand folders would otherwise be two thousand statements. */
+function notedPaths(db: Db, orgId: string, driveId: number): Set<string> {
+  const rows = db
+    .prepare("SELECT DISTINCT folder_path FROM scan_notes WHERE org_id = ? AND drive_id = ? AND archived_at IS NULL")
+    .all(orgId, driveId) as Array<{ folder_path: string }>;
+  return new Set(rows.map((r) => r.folder_path.toLowerCase()));
+}
 
 export function driveTree(db: Db, orgId: string, volumes: ScanVolume[]): ScanNotesDriveNode[] {
   const present = new Map(volumes.map((v) => [v.serial.toUpperCase(), v]));
@@ -588,6 +633,8 @@ export function driveTree(db: Db, orgId: string, volumes: ScanVolume[]): ScanNot
       )
       .all(orgId, d.id, FOLDER_FIRST_PAGE) as Array<{ path: string }>;
     const prev = renamedFromMap(db, orgId, d.id);
+    const media = mediaCountMap(db, orgId, d.id);
+    const noted = notedPaths(db, orgId, d.id);
     return {
       drive_id: d.id,
       volume_serial: d.volume_serial,
@@ -595,7 +642,7 @@ export function driveTree(db: Db, orgId: string, volumes: ScanVolume[]): ScanNot
       letter: vol?.letter ?? null,
       connected: vol != null,
       folder_total: total,
-      folders: folders.map((f) => toNode(f.path, prev)),
+      folders: folders.map((f) => toNode(f.path, prev, media, noted)),
     };
   });
 }
@@ -607,7 +654,7 @@ export function driveFolders(
   driveId: unknown,
   offset = 0,
   limit = 400
-): Array<{ path: string; name: string; renamedFrom: string | null }> {
+): Array<{ path: string; name: string; renamedFrom: string | null; mediaCount: number; hasNote: boolean }> {
   const id = Number(driveId);
   if (!Number.isFinite(id)) return [];
   const cap = Math.min(Math.max(Number(limit) || 400, 1), 2000);
@@ -618,7 +665,9 @@ export function driveFolders(
     )
     .all(orgId, id, cap, Math.max(0, Number(offset) || 0)) as Array<{ path: string }>;
   const prev = renamedFromMap(db, orgId, id);
-  return rows.map((r) => toNode(r.path, prev));
+  const media = mediaCountMap(db, orgId, id);
+  const noted = notedPaths(db, orgId, id);
+  return rows.map((r) => toNode(r.path, prev, media, noted));
 }
 
 // ============================================================================================

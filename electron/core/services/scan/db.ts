@@ -135,6 +135,14 @@ export function ensureScanSchema(db: Db): void {
     if (!runCols.includes("cleared_at")) db.exec("ALTER TABLE scan_runs ADD COLUMN cleared_at DATETIME;");
     if (!runCols.includes("report_local_path")) db.exec("ALTER TABLE scan_runs ADD COLUMN report_local_path TEXT;");
   }
+  // THE DRIVE-SCOPED FOLDER LOOKUP. Scan Notes reads scan_folders filtered on (org_id, drive_id)
+  // several times per drive to build its tree — the folder page, the media rollups, the note
+  // markers — and there was no index those could use, so each one was a full table scan plus a
+  // temp B-tree for the DISTINCT. scan_folders holds one row per folder PER RUN and is only ever
+  // pruned for explicitly nuked history, so it grows with every rescan: ten drives was thirty full
+  // scans on the thread that owns every window. `path` rides along so the DISTINCT and the GROUP BY
+  // are covered by the index rather than sorting.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_scan_folders_org_drive ON scan_folders (org_id, drive_id, path);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_scan_files_run_folder ON scan_files (run_id, folder_id);");
   // folder_id ALONE — folderCameras and any per-folder lookup query by folder_id without run_id;
   // without this it full-scans scan_files (1M+ rows), which froze the dashboard as the table grew.

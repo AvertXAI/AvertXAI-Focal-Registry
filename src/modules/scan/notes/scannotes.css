@@ -396,3 +396,6 @@
 /* Aligned to the folder NAMES, not the row edge: a row's content starts at 6px padding + 16px
    twisty + 4px gap = 26px, so the italic line sits under the names it is talking about. */
 .scannotes-hiddennote{font-size:11px;font-style:italic;color:var(--mc-dimmer);padding:6px 8px 2px 26px}
+/* A container that holds nothing itself prints its SUBTREE total instead of a bare 0 — dimmed and
+   arrowed, so it reads as "everything is below here" rather than as a filter that failed. */
+.scannotes-folder .n.sub{color:var(--mc-dimmer)}

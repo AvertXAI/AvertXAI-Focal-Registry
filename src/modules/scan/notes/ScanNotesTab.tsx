@@ -317,9 +317,27 @@ function Branch({
             {node.renamedFrom && <span className="old">{node.renamedFrom}</span>}
           </span>
           {node.hasNote && <span className="note" role="img" aria-label="Has a note">📝</span>}
-          {/* ITS OWN count, not the subtree's. The subtree total decides whether the row exists at
-              all; what the row PRINTS is what is actually inside this folder. */}
-          <span className="n">{node.mediaCount.toLocaleString()}</span>
+          {/*
+            WHAT THE ROW PRINTS HAS TO EXPLAIN WHY THE ROW IS THERE (Jason, on device 08-18-2026:
+            "show empty folders toggle doesnt work").
+
+            The first cut printed the folder's OWN count always. The filter, correctly, keys on the
+            SUBTREE total — so a container holding nothing itself but plenty underneath survived and
+            printed `0`. With "Show empty folders" switched OFF, a wall of visible rows reading `0`
+            is indistinguishable from a filter that is doing nothing at all, which is exactly how it
+            was reported. The logic was right and the column was lying about it.
+
+            So: its own count when it has one, and the subtree total — dimmed, with an arrow — when
+            it does not. Every visible row now shows a non-zero number, and that number is the reason
+            it is visible. A row printing `0` again would be a genuine defect rather than a puzzle.
+          */}
+          {node.mediaCount > 0 ? (
+            <span className="n">{node.mediaCount.toLocaleString()}</span>
+          ) : (
+            <span className="n sub" title={`Nothing in this folder itself — ${node.subtreeMedia.toLocaleString()} in folders below it`}>
+              ↳{node.subtreeMedia.toLocaleString()}
+            </span>
+          )}
         </button>
         <button
           type="button"

@@ -142,14 +142,28 @@ export function ensureScanNotesSchema(db: Db): void {
   {
     const cols = (db.pragma("table_info(scan_notes_updates)") as { name: string }[]).map((c) => c.name);
     const needFolder = !cols.includes("folder_path");
-    if (needFolder) db.exec("ALTER TABLE scan_notes_updates ADD COLUMN folder_path TEXT;");
-    if (!cols.includes("source_uuid")) db.exec("ALTER TABLE scan_notes_updates ADD COLUMN source_uuid TEXT;");
-    if (needFolder) {
-      const c = backfillFeedFolders(db);
-      console.info(
-        `[scan-notes] feed backfill — ${c.examined} rows examined, ${c.exact} matched deterministically, ` +
-          `${c.ambiguous} left NULL for ambiguity, ${c.none} left NULL with no candidate`
-      );
+    const needSource = !cols.includes("source_uuid");
+    if (needFolder || needSource) {
+      // THE TRANSACTION IS DECLARED HERE, NOT ASSUMED FROM THE CALLER, and an adversarial review on
+      // 08-18-2026 is why. The first cut's comment claimed the ALTER and the backfill shared "the
+      // migration's transaction" — there is none: `ensureAllModuleSchemas` (db/allSchemas.ts) is a
+      // bare loop, and every one of the four call sites invokes it without wrapping. So under
+      // better-sqlite3 the ALTER autocommitted on its own, and a crash between it and the backfill
+      // would have left the column present, this guard satisfied, and the repair skipped FOREVER —
+      // no marker row, no version counter, no way back in. SQLite makes DDL transactional, so
+      // declaring it here makes the pair genuinely atomic: either the column and the repaired rows
+      // both land, or neither does and the next launch tries again.
+      db.transaction(() => {
+        if (needFolder) db.exec("ALTER TABLE scan_notes_updates ADD COLUMN folder_path TEXT;");
+        if (needSource) db.exec("ALTER TABLE scan_notes_updates ADD COLUMN source_uuid TEXT;");
+        if (needFolder) {
+          const c = backfillFeedFolders(db);
+          console.info(
+            `[scan-notes] feed backfill — ${c.examined} rows examined, ${c.exact} matched and written, ` +
+              `${c.ambiguous} left NULL for ambiguity, ${c.none} left NULL with no candidate`
+          );
+        }
+      })();
     }
   }
   // Recent Work reads newest-first over the rows that HAVE a folder, which is a small subset of a

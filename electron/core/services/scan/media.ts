@@ -12,26 +12,54 @@
 // File: electron/core/services/scan/media.ts
 //------------------------------------------------------------
 
+import path from "node:path";
+
 export type MediaClass = "image" | "video" | "audio";
+
+/**
+ * THE ONE PLACE AN EXTENSION IS DERIVED FROM A PATH, and the reason it is a function rather than a
+ * habit: `path.extname` returns whatever case the filesystem gave it, every set in this file is
+ * lowercase, and `.MP4` is exactly as common on a camera card as `.mp4`. A comparison that
+ * skips this helper is a file the product silently refuses to open, with no error anywhere.
+ *
+ * Returns WITHOUT the leading dot, because that is the shape the sets are in.
+ *
+ * DISPLAY IS NOT COMPARISON. Nothing here rewrites a name. The user's casing survives in
+ * `filename`, in the tile label, in the modal title and in the notes — only the value being
+ * COMPARED is normalised.
+ */
+export function extOf(p: string): string {
+  return path.extname(p).slice(1).toLowerCase();
+}
+
+/** The same normalisation for an extension that did not come from a path — a column read back from
+ *  the database, a value off an interface. Tolerates a leading dot so either shape is safe. */
+export function normalizeExt(ext: string): string {
+  return ext.replace(/^\./, "").toLowerCase();
+}
+
+/** Normalised AT DEFINITION, not at every read. A set built from a list containing ".MP4" would be
+ *  just as broken as an un-normalised input, and this way it cannot be. */
+const lowerSet = (xs: string[]): Set<string> => new Set(xs.map((x) => x.toLowerCase()));
 
 // --- the media set (Jason-approved, 2026-07-19; extended 2026-07-20) — one place, one source ---
 // THM (Canon thumbnail sidecars) is deliberately EXCLUDED — it would inflate stills counts.
-export const STILL_EXTS = new Set([
+export const STILL_EXTS = lowerSet([
   "jpg", "jpeg", "png", "tif", "tiff", "heic", "heif", "webp", "bmp", "gif", "avif", "jxl",
   "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raf", "pef", "srw",
   "3fr", "rwl", "psd", "psb", // psd/psb get a row but NO parser call (same as bmp/gif)
 ]);
-export const VIDEO_EXTS = new Set([
+export const VIDEO_EXTS = lowerSet([
   "mp4", "mov", "m4v", "3gp", "avi", "mts", "m2ts", "m2t", "mkv", "wmv", "mpg", "mpeg", "mpe",
   "webm", "braw", "r3d", "mxf", "insv",
 ]);
-export const AUDIO_EXTS = new Set([
+export const AUDIO_EXTS = lowerSet([
   "wav", "mp3", "m4a", "m4b", "flac", "aac", "ogg", "opus", "wma", "aiff", "caf",
 ]);
 
 /** Media class of an extension, or null when the file is NOT media (counted + skipped). */
 export function mediaClass(ext: string): MediaClass | null {
-  const e = ext.toLowerCase();
+  const e = normalizeExt(ext);
   if (STILL_EXTS.has(e)) return "image";
   if (VIDEO_EXTS.has(e)) return "video";
   if (AUDIO_EXTS.has(e)) return "audio";
@@ -62,8 +90,8 @@ export const isExcludedDir = (name: string): boolean => EXCLUDED_DIR_NAMES.has(n
 // Only a real transport stream is video; a TypeScript .mts is non-media (counted, no row, no parser,
 // no error). The dir exclusions above remove nearly all of them; this catches the stray config/test
 // .mts that live outside node_modules (vitest.config.mts, *.spec.mts, …).
-export const CONTENT_SNIFF_EXTS = new Set(["mts"]);
-export const needsContentSniff = (ext: string): boolean => CONTENT_SNIFF_EXTS.has(ext.toLowerCase());
+export const CONTENT_SNIFF_EXTS = lowerSet(["mts"]);
+export const needsContentSniff = (ext: string): boolean => CONTENT_SNIFF_EXTS.has(normalizeExt(ext));
 
 /** True iff the first bytes are a real MPEG transport stream. Accepts BOTH packet strides so a
     genuine camcorder file is never skipped: 188-byte TS (sync 0x47 at 0/188/376) AND 192-byte
@@ -78,19 +106,19 @@ export function isMpegTransportStream(head: Uint8Array): boolean {
 // --- routing capability: only call a parser for a format it can actually read ---
 // exifr reads JPEG/TIFF(+TIFF-based RAW)/HEIC/AVIF/PNG/WebP headers; it CANNOT read bmp, gif, psd,
 // psb, or jxl — those get a row with the file-date baseline and NO parser call, NO error row.
-const EXIFR_READABLE = new Set([
+const EXIFR_READABLE = lowerSet([
   "jpg", "jpeg", "tif", "tiff", "heic", "heif", "avif", "png", "webp",
   "cr2", "cr3", "crw", "nef", "nrw", "arw", "srf", "sr2", "dng", "orf", "rw2", "raf", "pef", "srw", "3fr", "rwl",
 ]);
 // music-metadata parses these containers; it cannot read avi/mts/m2t/mpg/mpe/wmv/braw/r3d/mxf/insv —
 // handing those to it yields an empty shell, which must NOT become an error row (known-unsupported).
-const MUSIC_METADATA_READABLE = new Set([
+const MUSIC_METADATA_READABLE = lowerSet([
   "mp4", "mov", "m4v", "3gp", "mkv", "webm", // video containers mm understands
   "wav", "mp3", "m4a", "m4b", "flac", "aac", "ogg", "opus", "wma", "aiff", "caf", // audio
 ]);
 // isobmff geometry reader — ISO base-media containers only.
-const ISO_BMFF_READABLE = new Set(["mp4", "mov", "m4v", "3gp"]);
+const ISO_BMFF_READABLE = lowerSet(["mp4", "mov", "m4v", "3gp"]);
 
-export const canExifr = (ext: string): boolean => EXIFR_READABLE.has(ext.toLowerCase());
-export const canMusicMetadata = (ext: string): boolean => MUSIC_METADATA_READABLE.has(ext.toLowerCase());
-export const canIsoBmff = (ext: string): boolean => ISO_BMFF_READABLE.has(ext.toLowerCase());
+export const canExifr = (ext: string): boolean => EXIFR_READABLE.has(normalizeExt(ext));
+export const canMusicMetadata = (ext: string): boolean => MUSIC_METADATA_READABLE.has(normalizeExt(ext));
+export const canIsoBmff = (ext: string): boolean => ISO_BMFF_READABLE.has(normalizeExt(ext));

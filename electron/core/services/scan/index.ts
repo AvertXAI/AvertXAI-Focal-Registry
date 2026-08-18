@@ -15,7 +15,7 @@ import path from "node:path";
 import exifr from "exifr";
 import { parseFile } from "music-metadata";
 import { readIsoBmffGeometry } from "./isobmff-reader";
-import { canExifr, canIsoBmff, canMusicMetadata, isExcludedDir, isMpegTransportStream, mediaClass, needsContentSniff } from "./media";
+import { canExifr, canIsoBmff, canMusicMetadata, extOf, isExcludedDir, isMpegTransportStream, mediaClass, needsContentSniff } from "./media";
 import { generateUUIDv7 } from "../utils/uuidv7";
 import type { Db } from "./db";
 import type { ScanRunRow } from "./drives";
@@ -165,7 +165,7 @@ function logEvent(db: Db, orgId: string, runId: number, p: string | null, stage:
   db.prepare(
     `INSERT INTO scan_errors (uuid, org_id, run_id, path, extension, stage, error_text, code, occurred_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
-  ).run(generateUUIDv7(), orgId, runId, p, p ? path.extname(p).replace(/^\./, "") : null, stage, text, code);
+  ).run(generateUUIDv7(), orgId, runId, p, p ? extOf(p) : null, stage, text, code);
   db.prepare("UPDATE scan_runs SET errors_logged = errors_logged + 1 WHERE id = ?").run(runId);
 }
 
@@ -222,7 +222,7 @@ export async function countRun(
     for (const name of listing.files) {
       totalFiles += 1;
       if (fileSkipRule(name, rules)) continue;
-      const ext = path.extname(name).replace(/^\./, "");
+      const ext = extOf(name);
       if (mediaClass(ext) === null) continue;
       // Same content-sniff as the scan walk so the count denominator matches what actually gets rowed.
       if (needsContentSniff(ext) && !isRealTransportStream(path.join(dir, name))) continue;
@@ -710,7 +710,11 @@ export async function startRun(
         for (const name of listing.files) {
           totalFilesSeen += 1;
           if (fileSkipRule(name, rules)) continue; // deliberate skip — counted, no row, no error
-          const ext = path.extname(name).replace(/^\./, "");
+          // NORMALISED HERE, at the one point it enters the system. mediaClass has always lowercased
+          // internally so classification was never wrong, but the raw value was then STORED — so
+          // every downstream reader had to remember to lowercase, and one that forgot would refuse
+          // .MP4 while accepting .mp4. The filename keeps its real casing; only this does not.
+          const ext = extOf(name);
           const cls = mediaClass(ext);
           if (cls === null) continue; // NON-MEDIA — counted in totalFilesSeen, no row, no parser, no error
           const full = path.join(node.dir, name);

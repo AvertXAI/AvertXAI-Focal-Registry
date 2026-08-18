@@ -34,24 +34,37 @@ import exifr from "exifr";
 import fs from "node:fs";
 import path from "node:path";
 import type { Db } from "./notesDb";
-import { AUDIO_EXTS, STILL_EXTS, VIDEO_EXTS } from "./media";
+import { AUDIO_EXTS, STILL_EXTS, VIDEO_EXTS, extOf, normalizeExt } from "./media";
 import { isUnderScannedRoot } from "./index";
 
 export const MEDIA_SCHEME = "frmedia";
 
 /** Stills a browser can draw itself. Everything else in STILL_EXTS needs the embedded preview. */
-const BROWSER_IMAGE = new Set(["jpg", "jpeg", "png", "webp", "bmp", "gif", "avif"]);
+const BROWSER_IMAGE = new Set(["jpg", "jpeg", "png", "webp", "bmp", "gif", "avif"].map(normalizeExt));
 /** Containers Chromium plays natively. mkv/avi/wmv/mts/braw/r3d/mxf are listed in VIDEO_EXTS
  *  because a SCAN must count them; they are absent here because a PLAYER cannot open them, and
  *  offering a play button that produces a black rectangle is worse than saying so. */
-const BROWSER_VIDEO = new Set(["mp4", "m4v", "mov", "webm"]);
-const BROWSER_AUDIO = new Set(["mp3", "m4a", "wav", "flac", "ogg", "opus", "aac"]);
+const BROWSER_VIDEO = new Set(["mp4", "m4v", "mov", "webm"].map(normalizeExt));
+const BROWSER_AUDIO = new Set(["mp3", "m4a", "wav", "flac", "ogg", "opus", "aac"].map(normalizeExt));
 
 /** Base64 is 4/3 of the bytes it carries, so this is really a ~27 MB string per entry. */
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const CACHE_MAX = 40;
 
-const ext = (p: string): string => path.extname(p).slice(1).toLowerCase();
+// Was a private copy of the same one-liner. It is now media.ts's extOf, so there is exactly one
+// definition of "what is this file's extension" in the product and no second place to drift.
+const ext = extOf;
+
+/**
+ * CASE TRACE — the same hard gate as electron/diag.ts, off unless `DIAG=1` (npm run dev:diag).
+ *
+ * It is here because the uppercase-extension defect could NOT be reproduced by reading: every
+ * comparison in this chain already normalises, so either the refusal happens somewhere this
+ * inventory did not reach, or the cause was never the extension at all. Rather than guess, both
+ * gates a file must pass now say out loud what they extracted and which branch turned it away. A
+ * passing run prints one listing line per folder and nothing else; a failing one names the branch.
+ */
+const CASE_TRACE = process.env.DIAG === "1";
 
 export type MediaKind = "image" | "video" | "audio" | "other";
 export interface MediaItem {
@@ -94,8 +107,11 @@ export function listFolderMedia(db: Db, orgId: string, folderPath: unknown, limi
     size_bytes: number | null;
   }>;
 
-  return rows.map((r) => {
-    const e = (r.extension ?? ext(r.path)).toLowerCase();
+  const items = rows.map((r) => {
+    // The stored column is normalised on write now, but rows written before that change still carry
+    // the filesystem's casing — and an empty string is not nullish, so it must not win the ??.
+    const stored = (r.extension ?? "").trim();
+    const e = stored !== "" ? normalizeExt(stored) : ext(r.path);
     const kind: MediaKind =
       STILL_EXTS.has(e) ? "image" : VIDEO_EXTS.has(e) ? "video" : AUDIO_EXTS.has(e) ? "audio" : "other";
     const playable = kind === "video" ? BROWSER_VIDEO.has(e) : kind === "audio" ? BROWSER_AUDIO.has(e) : false;
@@ -110,6 +126,27 @@ export function listFolderMedia(db: Db, orgId: string, folderPath: unknown, limi
       streamUrl: playable ? streamUrl(r.path) : null,
     };
   });
+  traceListing(p, rows, items);
+  return items;
+}
+
+/** One line per folder listing when DIAG=1 — the gate BEFORE guardPath. If a tile never paints and
+ *  guardPath printed nothing, the file was refused here instead, and this says why: it reports how
+ *  many rows came back, how many were handed a stream URL, and every distinct extension that was
+ *  NOT, with the casing the database is holding. */
+function traceListing(folderPath: string, rows: Array<{ path: string; extension: string | null }>, out: MediaItem[]): void {
+  if (!CASE_TRACE) return;
+  const refused = new Map<string, number>();
+  out.forEach((item, n) => {
+    if (item.streamUrl !== null || item.kind === "image") return;
+    const stored = rows[n]?.extension ?? "(null)";
+    const label = `${item.kind}:${item.extension ?? "?"} stored="${stored}"`;
+    refused.set(label, (refused.get(label) ?? 0) + 1);
+  });
+  const summary = refused.size === 0
+    ? "none refused"
+    : [...refused].map(([k, n]) => `${k} x${n}`).join(", ");
+  console.info(`[scan-notes] listing ${path.basename(folderPath)}: ${out.length} rows, ${out.filter((i) => i.streamUrl !== null).length} streamable — ${summary}`);
 }
 
 /** `frmedia://media/?p=<encoded absolute path>`. The path is a QUERY value, never a URL path
@@ -247,20 +284,41 @@ function guardPath(db: Db, orgId: string, p: string, want: "image" | "playable")
   // an outbound SMB connection and hands the machine's credentials to whatever answers, and an
   // unresolvable host blocks on DNS and TCP for seconds. This check is a database lookup on path
   // prefixes and touches no filesystem, so refusing here costs nothing and reaches nothing.
-  if (!isUnderScannedRoot(db, orgId, p)) return "That file is outside any scanned drive.";
   const e = ext(p);
+  // The receipt names the branch, not just the refusal, so a device run distinguishes "the
+  // extension was read wrong" from "the file is outside a scanned root" from "the drive is gone".
+  const trace = (branch: string): string => {
+    if (CASE_TRACE) {
+      console.info(
+        `[scan-notes] guard REFUSED (${branch}) want=${want} ext="${e}" raw="${path.extname(p)}" ${path.basename(p)}`
+      );
+    }
+    return branch;
+  };
+
+  if (!isUnderScannedRoot(db, orgId, p)) {
+    trace("outside-scanned-root");
+    return "That file is outside any scanned drive.";
+  }
   const ok =
     want === "image"
       ? STILL_EXTS.has(e)
       : (VIDEO_EXTS.has(e) && BROWSER_VIDEO.has(e)) || (AUDIO_EXTS.has(e) && BROWSER_AUDIO.has(e));
-  if (!ok) return `${path.basename(p)} is not something this product can open.`;
+  if (!ok) {
+    trace("extension-not-openable");
+    return `${path.basename(p)} is not something this product can open.`;
+  }
   let stat: fs.Stats;
   try {
     stat = fs.statSync(p);
   } catch {
+    trace("stat-failed");
     return "That file is not there any more — the drive may be unplugged.";
   }
-  if (!stat.isFile()) return "That is not a file.";
+  if (!stat.isFile()) {
+    trace("not-a-file");
+    return "That is not a file.";
+  }
   return null;
 }
 
@@ -282,11 +340,15 @@ export function isPlayablePath(db: Db, orgId: string, target: string): boolean {
 /** Content types for the formats this product plays. .mov is served as video/mp4 deliberately: it is
  *  the same ISO base media container, and Chromium is markedly happier with that label than with
  *  video/quicktime. */
-const AV_MIME: Record<string, string> = {
+const AV_MIME_SOURCE: Record<string, string> = {
   mp4: "video/mp4", m4v: "video/mp4", mov: "video/mp4", webm: "video/webm",
   mp3: "audio/mpeg", m4a: "audio/mp4", wav: "audio/wav", flac: "audio/flac",
   ogg: "audio/ogg", opus: "audio/ogg", aac: "audio/aac",
 };
+/** Keys normalised at definition, for the same reason the extension sets are. */
+const AV_MIME: Record<string, string> = Object.fromEntries(
+  Object.entries(AV_MIME_SOURCE).map(([k, v]) => [normalizeExt(k), v])
+);
 
 /**
  * How much an OPEN-ENDED range (`bytes=0-`) returns in one response. Jason ruled the cap up on

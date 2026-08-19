@@ -1,7 +1,7 @@
-# DECISIONS-53.md
+# DECISIONS-54.md
 
 Settled choices. One line each, current state. Do not reopen unless Jason says so.
-*(Supersedes DECISIONS-52 — delete it after upload. Rotated 2026-08-17: Scan Notes ruled and mockup v4 approved — Scan charter amended to rename scanned folders via a pending queue; Scan Notes / Updated Notes / dual-tree sync / media browse rulings absorbed; sanctioned-writes list extended.)*
+*(Supersedes DECISIONS-53 — delete it after upload. Rotated 2026-08-18: the thumbnail ban RESCOPED to what it actually protects; RAW preview, media viewer, Recent Work, folder filter and developer-tools rulings absorbed.)*
 
 ## Product taxonomy (LOCKED 2026-06-28)
 - **AvertXAI = the company. MissionControl = the product** (the Electron platform/dashboard that houses everything). "AvertXAI CRM" as the platform name is RETIRED — Jason wasn't comfortable pitching "CRM" as the main dashboard; MissionControl is the pitch-ready name.
@@ -499,3 +499,24 @@ Settled choices. One line each, current state. Do not reopen unless Jason says s
 - **Media browse:** dual-purpose View media / Scan Notes toggle in the SAME window — image lightbox, H264 video player modal, camera RAW via the exifr embedded preview. Extends the 2026-07-26 Scan viewer relaxation; playback only, no extraction, no downloads — NOT a god-mode revival.
 - **Search:** in-module; filter dropdown on the search field (All · Folders · Notes · Reports · date ranges), sort by dates or folder names; notes content searchable.
 - **Forward-only:** Scan Notes populates from NEW scans; no retroactive generation from old scan records.
+
+## Focal Registry — media, thumbnails and RAW (RULED 2026-08-18)
+- **The thumbnail ban is RESCOPED, not lifted.** What it protects is the photographer's archive: **no derived file is ever written into the scanned tree or beside the footage.** Focal Registry MAY decode frames and MAY cache small jpegs inside the app-owned local tree. *(Supersedes the blanket "no thumbnail or preview generation, ever" wording — `CLAUDE.md` §4.1 and §5 still carry the old text and are Jason's to edit.)*
+- **A RAW file is opened READ-ONLY, always** — never written, never re-saved, never converted, never moved. A preview is the camera's own embedded jpeg, handed over unmodified.
+- **Preview extraction is ours, one entry point** — `previewFor()` picks by container: TIFF-based (CRW/CR2/NEF/ARW/ORF/RW2/DNG) walks the IFD chain; ISO-BMFF (CR3) walks named boxes only. Gate on the jpeg SOF marker and VERIFY PIXEL DIMENSIONS; a valid jpeg is not the right jpeg. Nikon and Sony slot into the same seam later — leave it, do not build for them now.
+- **A RAW-plus-jpeg pair shows as two tiles.** Grouping them is a separate feature with its own rules (which is canonical, what happens on rename) and is NOT ruled.
+- **Video plays in the SAME window via `frmedia`** — playback only, no extraction, no downloads. Open-ended ranges stream the whole remainder with **no size ceiling, ever**; explicit ranges are untouched.
+- **Audio is never a video failure.** Audio files never enter the thumbnail queue, never take a slot, show an audio glyph, and are excluded from failure counts and retries.
+- **Failures are classified before they are retried** — transient retries twice, unknown once, permanent never; the user can always force a retry, and that outranks the classifier.
+- **Media viewer** — one shell, three stages (still / video / audio), next-previous through the folder, filmstrip from cached thumbnails only (**never a new decode**), expand-to-window, Show in Explorer and Copy path. Arrow keys page on stills only; on video they belong to the transport.
+- **Empty states tell the truth, three of them:** genuinely empty says so with NO rescan invitation; a container names its subfolder totals and lists them as clickable rows; only a never-scanned folder gets the rescan copy.
+- **Folders with no media anywhere in their SUBTREE are hidden**, behind a persisted "Show empty folders" toggle. A folder whose media lives in its children stays.
+- **Recent Work** — folder name and kind icon only, fixed height, scrolls internally, fed from the updates feed (one source of truth). Feed rows record the folder path AND the source row id; historic rows were backfilled deterministically only, never by heuristic.
+- **Developer tools stay ON and ungated** — `Ctrl+Shift+I` and `F12`, owned via `before-input-event`, main window. A future View menu item calls the same function with NO accelerator.
+- **Back navigation inside Scan Notes is a stopgap** — the shell revamp owns back/forward in the top bar and this deletes cleanly when it lands.
+
+## Mission Control shell revamp (RULED 2026-08-18 — reference approved, not yet built)
+- **`BuildersAudit_Shell_Reference_v1_dc.html` is the source of truth**, adopted for the **Focal Registry** shell. Everything in it is in scope, converted to FR conventions and the three-mode `--mc-*` tokens; nothing ships as a light-mode literal.
+- **44-pixel top bar** with menu, rail pin/peek, search, back and forward. **210-pixel rail with peek-versus-pinned**, which REPLACES the current expand/collapse. **Cascading dark menu.** **Settings MODAL** — this satisfies canon's outstanding mockup-first requirement for it.
+- **The grouped nav survives** — Archive Media / Applications / Tools / Secured Vault / Marketplace. The reference's flat list is placeholder content.
+- **OPEN, not ruled:** whether the window goes frameless with renderer-drawn caption buttons. Recon reports the cost both ways; Jason rules.

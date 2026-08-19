@@ -1,8 +1,12 @@
-# FR-CANON-6.md — Focal Registry scoped canon INDEX
+# FR-CANON-7.md — Focal Registry scoped canon INDEX
 
 **Read this first. Read the four files below before any task.**
 
-*Derived 2026-08-14 from real canon: `CANON-3` · `DECISIONS-52` · `RULES-40` · `STATUS-38` · `PROJECTS-10` · `FACTS-10`, plus repo `CLAUDE.md`, the Secured Vault standalone lane, and the 2026-08-14 merge rulings. Supersedes FR-CANON-5 — delete it after placement.*
+*Derived 2026-08-18 from real canon: `CANON-3` · `DECISIONS-54` · `RULES-40` · `STATUS-40` · `PROJECTS-10` · `FACTS-11`, plus repo `CLAUDE.md`. Supersedes FR-CANON-6 — delete it after placement.*
+
+> **Correction, 2026-08-18.** FR-CANON-6's header named `DECISIONS-52` / `STATUS-38` while the four scoped files beneath it had already been derived from `DECISIONS-53` / `STATUS-39`. The index was stale, not the content. Four consecutive session reports flagged it. This index derives from `DECISIONS-54` / `STATUS-40` / `FACTS-11`.
+
+> **`CLAUDE.md` conflict, OPEN — Jason's file, Jason's edit.** §4.1 and §5 still carry the blanket "no thumbnail or preview generation, ever". DECISIONS-54 rescoped that ruling on 2026-08-18: nothing is written into the photographer's archive, but the app-owned local tree MAY hold cached previews. **Shipped, ruled code contradicts the standing text in two places.** Until §4.1 and §5 are reworded, an agent reading `CLAUDE.md` alone will try to remove the thumbnail cache. Canon (this set) governs.
 
 ---
 

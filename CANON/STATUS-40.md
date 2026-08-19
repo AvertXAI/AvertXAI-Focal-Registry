@@ -1,7 +1,8 @@
-# STATUS-39.md
+# STATUS-40.md
 
 Product state, one line each. LIVE → PARKED → DEAD.
-*(Supersedes STATUS-38 — delete it after upload. Rotated 2026-08-17: Scan Notes ruled, mockup v4 approved, recon assigned.)*
+*(Supersedes STATUS-39 — delete it after upload. Rotated 2026-08-18: Scan Notes BUILT; shell revamp reference approved.)*
+*(Focus 2026-08-18: **Scan Notes is BUILT and compiling green; the device gate is OWED** — nothing from 08-17/18 has rendered on Jason's screen. Sequence: device gate -> release 0.2.7 -> Mission Control shell revamp (recon written, not run) -> repackage. Five agents ran in parallel in this module; an adversarial review caught five defects pre-ship.)*
 *(Focus 2026-08-17: **Scan Notes is the next Focal Registry build** — mockup v4 approved; read-only recon assigned to Claude Code desktop (`PROMPT-scan-notes-recon-08-17-2026.md`); build prompt after Jason rules the recon forks. Vault Tier-1 fixes remain queued per the 08-14 sequence — never run both on one working tree.)*
 *(Focus 2026-08-14: **Focal Registry, sole focus** — 0.2.6 on the prerelease feed, main at `3e8a2d4`; Employees built through 3B.2; Complete Job + profit + invoices + purge fix shipped; Secured Vault standalone COMPLETE, mounting now. BuildersAudit beta tester waiting on same-app-or-separate. Lane: Claude Code desktop is THE build lane; Antigravity retired to surgical tasks.)*
 *(Focus 2026-07-26: **Focal Registry is the sole active workstream.** 0.2.4 LIVE on the feed. MindMerge rename, Software Update window, and Migrate Phase 1 all shipped to `main`. runbooks.systems ON HOLD — everything consolidates onto Focal Registry.)*
@@ -116,3 +117,15 @@ Product state, one line each. LIVE → PARKED → DEAD.
 **Known open:** dev/prod `userData` isolation not implemented · `focalregistry.com/releases` does not exist while the app links to it · FR scoped canon STALE (`FR-CANON-5` on disk vs `FR-CANON-1` named in CLAUDE.md §0.1 — regenerate to FR-CANON-6 and reword §0.1 to "highest-numbered") · root `CANON-UPDATES.md` prune (27 → 12) was the 08-10 session's deliberate applied-entry prune, commits with this rotation · vault-lane ledger (17 entries) merges into the root ledger at mount.
 
 **Dead — do not propose:** the Scan god-mode surface (wizard, search, extraction, viewers, delete, nuke) · anything named `runbooks` · org-database encryption · a $99 one-time price for Focal Registry · automating a bank payment send.
+
+## Focal Registry — Scan Notes (BUILT 2026-08-18, device gate OWED)
+- **Shipped this cycle:** per-folder notes and reports · folder rename with full history and reconnect queue · dual-tree markdown mirroring · Updated Notes feed · Recent Work · empty-folder hiding with toggle · three-state empty messages · search across old and new folder names, notes and reports, grouped by kind · media wall with disk-cached thumbnails · media viewer (still/video/audio, next-previous, filmstrip, expand, Show in Explorer, Copy path) · `frmedia` streaming with no size cap · RAW previews for CR2 and CR3 · classified failure log with retry · developer-tools shortcut owned.
+- **Measured on device:** 85 of 85 video thumbnails paint, `failed 0`; CR3 262 of 262 previews; CR2 415 files, no regression.
+- **OWED — the whole surface is unrendered.** Device gate at 740 and 1440, all three themes, rail expanded and collapsed. Nothing here has been seen on screen.
+- **NOT built, deliberately:** RAW-plus-jpeg grouping · embedded cover art for audio tiles · shot date and camera in the viewer footer (the media record does not carry them) · forward navigation (the shell owns it).
+
+## Mission Control shell revamp — RULED, recon written, NOT run
+- Reference approved (`BuildersAudit_Shell_Reference_v1_dc.html`), rulings in DECISIONS-54, read-only recon prompt written. **Runs after 0.2.7 ships.** The frameless-window fork is open and Jason's to rule from the recon's cost report.
+
+## Release
+- **0.2.7 PREPARED, NOT SHIPPED** — release prompt written; it stops before the single publish command per canon. 0.2.6 remains the live prerelease build; Paul auto-updates from it.

@@ -1,7 +1,7 @@
-# FACTS-10.md
+# FACTS-11.md
 
 Verified facts. One line each: value — source — verified-on. Re-verify if stale.
-*(How to maintain this file: see RULES-39.md. Supersedes FACTS-9.)*
+*(How to maintain this file: see RULES-39.md. Supersedes FACTS-10 — delete it after upload. Rotated 2026-08-18: RAW preview facts corrected and measured; `frmedia` scheme, thumbnail cache, and open-ended streaming recorded.)*
 
 ## Hardware — mini PC candidates
 - Beelink GTR9 Pro standard SKU (Ryzen AI Max+ 395, 128GB, 2TB, dual 10GbE, 185 reviews): $3,399 — Amazon US — 2026-06-07
@@ -129,10 +129,24 @@ Verified facts. One line each: value — source — verified-on. Re-verify if st
 - **The main process has no CORS restriction** — fetching a remote file MAIN-side removes any need for an `Access-Control-Allow-Origin` header on the server. CORS is a browser read-permission rule, not a server defence; it exposes nothing a public URL did not already expose.
 - **An Electron application's source is readable by anyone holding the installer** — never embed a secret, key, or token in a shipped build.
 - `signtool.exe` lines in an electron-builder log do NOT mean a build was signed — electron-builder ships its own copy and signs only when a certificate is configured. Confirm via Properties -> Digital Signatures.
-- Chromium cannot decode camera RAW (CR2, CR3, NEF, ARW). It renders jpeg, png, webp, and h264 video. RAW files carry an **embedded jpeg preview** written by the camera, extractable with `exifr` — that is how a RAW is shown without pixel decode.
+- Chromium cannot decode camera RAW (CRW, CR2, CR3, NEF, ARW). It renders jpeg, png, webp, and h264 video. RAW files carry an **embedded jpeg preview** written by the camera — that is how a RAW is shown without pixel decode.
+- **`exifr` reads EXIF, NOT previews.** It parses from a header window while a RAW's preview sits megabytes in, and it **throws** rather than returning null — CR2 threw with the file's own `ThumbnailLength` in the message. It **cannot read CR3 at all** ("Unknown file format"): CR3 is an ISO Base Media container (MP4/MOV box structure), not TIFF. Previews come from Focal Registry's own resolver — 2026-08-18
+- **A RAW preview must be gated on the jpeg SOF marker, never on `FF D8 FF`.** The largest `FF D8 FF` block inside a CR2 is ~30 MB of lossless-jpeg SENSOR data no browser can draw; taking it looks like success and caches garbage — 2026-08-18
+- **CR3 layout, measured on three files:** `THMB` box = 160x120 thumbnail; `PRVW` box = 1620x1080 preview sitting behind an **8-byte preamble `THMB` does not have**. `mdat` opens with a genuine 8192x5464 jpeg whose length no box header declares — reading "to the end of the box" returns 55 MB. Walk only named boxes; **validity checks do not prove correctness — verify pixel dimensions** — 2026-08-18
+- **Measured RAW preview extraction (Jason's D: drive, 2026-08-18):** CR3 262 of 262 at 1620x1080, zero fallbacks, ~1% of each 53 MB file read, 1.3 ms per file. CR2 415 files, previews at 6000x4000, no regression
 - Windows exposes a per-installation identifier (`MachineGuid`, registry) and a hardware UUID. Neither is broadcast or remotely queryable; the "FBI tracks this number" framing is INCORRECT. Verify the exact key at build time.
 - Database substring search: an indexed `LIKE` with wildcards is faster to query and cheaper to write than regular expressions, which force a full table scan and a custom function.
 - Scan measured ~2 million files in roughly 90 seconds on Jason's hardware — metadata extraction is NOT the bottleneck assumption previously held.
+
+## Focal Registry media pipeline — measured 2026-08-17/18
+- **`index.html` has no `media-src`** — media falls back to `default-src 'self'`, so `file:`, `blob:` and `data:` are all blocked for `<video>`. The single sanctioned exception is **`media-src frmedia:`**, added 2026-08-18 by Jason's ruling. Do not loosen anything else.
+- **`frmedia` is a privileged custom scheme** (`standard`, `secure`, `stream`, `supportFetchAPI`, `corsEnabled`), registered before `app.ready`, one caller only. `isUnderScannedRoot` runs on EVERY request before any file is opened.
+- **In CORS mode Chromium hides response headers from the media element unless exposed**, and a response WITHOUT `Access-Control-Allow-Origin` becomes a generic network error — a `guardPath` 403 then reads as a CORS failure. Every response path must carry the header.
+- **`ACAO: *` passes for a `file://` opaque origin** — Chromium's wildcard branch never consults the request origin when credentials mode is not `include`. Echoing the literal `null` would fail; mapping it to `*` is correct.
+- **A bounded answer to an open-ended range does not degrade, it DEADLOCKS.** Given a truncated `bytes=0-`, the player re-requests `bytes=0-` rather than reading the tail, so a trailing `moov` is never reached. **No size ceiling can ever be correct here** — the 64 -> 4 -> 64 MB oscillation was three attempts to find the right value for a number that must not exist. Open-ended ranges stream the whole remainder in 4 MB chunks; peak resident memory is ~24 MB at concurrency 6 and does not scale with file size.
+- **A painted `<video>` thumbnail holds a decoded frame at NATIVE resolution** — ~3 MB at 1080p, ~12 MB at 4K. A cached jpeg thumbnail is 10-20 KB. This is why thumbnails are captured to disk and the decoder torn down.
+- **Thumbnail cache** — content-addressed jpegs at `Documents\Focal Registry\Scan Notes\.thumbs\`, keyed on absolute path + size + mtime, 500 MB ceiling with least-recently-used sweep, hidden via `attrib.exe`. Built with the hand-built home path; **never `app.getPath("documents")`** (OneDrive redirect).
+- **`Ctrl+Shift+I` is NOT built into an Electron window** — it comes from the default application menu. An app with no menu has no shortcut. Focal Registry owns it via `before-input-event` (`electron/core/devtools.ts`); a future View menu item must carry NO accelerator or the two fire together and toggle twice.
 
 ## Third-party projects reviewed — fetched 2026-07-22/25
 - **Graphify** (`Graphify-Labs/graphify`) — MIT, **Python** command-line tool and agent skill. Outputs `graph.html`, `GRAPH_REPORT.md`, `graph.json`. Parses code locally with tree-sitter (no model); documents and images use a model pass. Has an MCP server plus `--obsidian` and `--wiki` flags and first-class Antigravity install. **CANNOT ship inside Focal Registry** — canon bans a Python runtime in the installer. Use it externally; the app reads its `graph.json`.

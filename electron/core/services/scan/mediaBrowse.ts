@@ -105,10 +105,50 @@ export interface MediaItem {
 
 /** One folder's media, straight out of scan_files — no directory walk, so an unplugged drive still
  *  lists what it holds and each tile says plainly that it cannot be opened right now. */
-export function listFolderMedia(db: Db, orgId: string, folderPath: unknown, limit = 500): MediaItem[] {
+/**
+ * A FOLDER'S MEDIA, AND HOW MUCH OF IT THIS IS.
+ *
+ * ===========================================================================================
+ * THE CLAMP THAT MADE THIS A DEFECT RATHER THAN A LIMIT. The default was 500 rows, with a hard
+ * `Math.min(..., 2000)` behind it, and the caller passed no argument. `D:\Summit\Day 1 - Jason`
+ * holds 415 JPEG plus 415 CR2 = 830 rows, so the wall showed the first 500 — about 250 photographs
+ * once RAW was hidden. 165 of a photographer's shoot were absent and NOTHING anywhere said so.
+ *
+ * A wall of 250 tiles looks exactly like a complete one. That is what kept it invisible, and it is
+ * why this is the most serious defect the module has had: in an archive tool, quietly omitting 40%
+ * of a shoot is worse than failing loudly, because the user never learns to distrust it.
+ *
+ * SO THE COUNT COMES BACK WITH THE ROWS. `total` is what the folder actually holds; `items` is what
+ * this reply carries. They are equal in every real folder, and when they are not, the renderer says
+ * "showing 2,500 of 3,100" out loud. A number the user cannot see is the defect being fixed here —
+ * a surviving ceiling is acceptable, a silent one never is.
+ * ===========================================================================================
+ */
+export interface FolderMedia {
+  items: MediaItem[];
+  /** Every row the folder has, before any ceiling. Equal to items.length unless truncated. */
+  total: number;
+}
+
+/** A sanity bound, NOT a product limit. Jason's real workload is 2,000-2,500 rows in one folder;
+ *  this is an order of magnitude above it so nothing breaks above the tuning point, while still
+ *  refusing to build a single array out of a pathological or corrupt row count. When it does bind,
+ *  it is reported, never silent. */
+const MAX_FOLDER_ROWS = 20_000;
+
+export function listFolderMedia(db: Db, orgId: string, folderPath: unknown, limit?: number): FolderMedia {
   const p = typeof folderPath === "string" ? folderPath : "";
-  if (p === "") return [];
-  const cap = Math.min(Math.max(Number(limit) || 500, 1), 2000);
+  if (p === "") return { items: [], total: 0 };
+  const asked = Number(limit);
+  const cap = Math.min(Number.isFinite(asked) && asked > 0 ? asked : MAX_FOLDER_ROWS, MAX_FOLDER_ROWS);
+  // COUNTED SEPARATELY, and it has to be: `rows.length` can only ever tell us how much came back,
+  // never how much was left behind. Same WHERE clause as the SELECT below, so the two cannot drift.
+  const total = (db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM scan_files
+       WHERE org_id = ? AND path LIKE ? AND path NOT LIKE ?`
+    )
+    .get(orgId, `${p}\\%`, `${p}\\%\\%`) as { n: number } | undefined)?.n ?? 0;
   const rows = db
     .prepare(
       `SELECT path, filename, extension, kind, size_bytes FROM scan_files
@@ -157,7 +197,12 @@ export function listFolderMedia(db: Db, orgId: string, folderPath: unknown, limi
     };
   });
   traceListing(p, rows, items);
-  return items;
+  // SAID OUT LOUD WHEN IT BINDS. The ceiling is a sanity bound and should never fire on a real
+  // archive; if it ever does, the log records it and the renderer tells the user the count.
+  if (total > items.length) {
+    console.warn(`[scan-notes] listing truncated: showing ${items.length} of ${total} in ${p}`);
+  }
+  return { items, total };
 }
 
 /** One line per folder listing when DIAG=1 — the gate BEFORE guardPath. If a tile never paints and

@@ -113,6 +113,15 @@ const RETRY_BACKOFF_MS = 3000;
  *  slow leak. Beyond it the oldest go, and a dropped one is a disk-cache hit, not a regeneration. */
 const SESSION_THUMB_MAX = 2000;
 
+/** How many paths go to the disk cache in ONE round trip.
+ *
+ *  `thumbsGet` is a synchronous statSync + readFileSync loop on the thread that owns every window,
+ *  and it answers with base64 — so both the block and the payload scale with the array handed over.
+ *  A 2,500-row folder in one call is a long block AND roughly 37 MB of string. At 500 the payload is
+ *  about 7 MB and the loop is a fifth of the work, and the batches land progressively so the top of
+ *  the wall paints while the rest is still being read. Matches THUMBS_MAX in ipc.ts. */
+const CACHE_BATCH = 500;
+
 
 type Settled = "painted" | "shown" | "failed" | "noframe";
 
@@ -915,6 +924,9 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
   /** This folder's cancellation token, issued by the main process. 0 until it answers — a tile that
    *  manages to ask before then sends 0, which is never treated as stale, so nothing is lost. */
   const [jobToken, setJobToken] = useState(0);
+  /** Rows the FOLDER holds, which is not always rows the wall received. Only ever differs if the
+   *  20,000-row sanity bound binds, and if it does the user is told rather than left to count. */
+  const [rowTotal, setRowTotal] = useState(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** WHICH ITEM IS OPEN, still held as the item itself so `onOpen` on four hundred tiles stays the
    *  plain `setOpen` it has always been. The viewer wants a POSITION — it counts, steps and reels off
@@ -1067,9 +1079,14 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
     // lands, and keys are absolute paths, so a stale entry can never match the wrong file.
     void window.api.scan.notes
       .media(folderPath)
-      .then((list) => {
+      .then((res) => {
         if (!live) return;
+        // TOLERATES THE OLD SHAPE. A reply that is still a bare array (an older main process during
+        // a hot reload) is treated as a complete folder rather than crashing the wall.
+        const list = Array.isArray(res) ? res : res.items;
+        const total = Array.isArray(res) ? res.length : res.total;
         setItems(list);
+        setRowTotal(total);
         const videos = list.filter((i) => i.kind === "video" && i.streamUrl !== null).map((i) => i.path);
         // STILLS ARE IN THE BATCH NOW. They were excluded because a still's cached form used to be
         // the whole file — hundreds of multi-megabyte data URLs on one round trip. A thumbnail is
@@ -1089,9 +1106,16 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
         // CACHE read landed in the catch below and called setItems([]) — so a folder full of media
         // rendered "No media recorded in this folder." because a thumbnail lookup failed. A cache is
         // never allowed to decide whether the listing exists.
-        void window.api.scan.notes
-          .thumbsGet(cacheable)
-          .then((hits) => {
+        // CHUNKED, AND THE CHUNKING IS THE FIX. `thumbsGet` is a SYNCHRONOUS loop of statSync +
+        // readFileSync on the thread that owns every window, and it returns base64 in the reply —
+        // both costs scale with the array length. One call for 2,500 rows is a long block AND a
+        // ~37 MB string. Batches of CACHE_BATCH bound the block and the payload, and they arrive
+        // progressively, so the top of the wall paints while the rest is still being read.
+        void (async () => {
+          for (let i = 0; i < cacheable.length; i += CACHE_BATCH) {
+            if (!live) return; // folder changed mid-sweep: stop asking for a folder nobody is on
+            const slice = cacheable.slice(i, i + CACHE_BATCH);
+            const hits = await window.api.scan.notes.thumbsGet(slice).catch(() => ({}) as Record<string, string>);
             if (!live) return;
             // MERGE, NEVER REPLACE. Tiles start generating the moment they scroll into view, so
             // this round trip can land AFTER some have already reported theirs — and replacing
@@ -1099,10 +1123,13 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
             setCached((c) => ({ ...hits, ...c }));
             if (TRACE) {
               const n = Object.keys(hits).length;
-              console.info(`[scan-notes] thumb cache: ${n} hit, ${videos.length - n} to generate, of ${videos.length} clips`);
+              console.info(
+                `[scan-notes] thumb cache batch ${i / CACHE_BATCH + 1}: ${n} hit of ${slice.length} asked ` +
+                  `(${cacheable.length} in folder)`
+              );
             }
-          })
-          .catch(() => undefined); // a miss for every tile; they generate as usual
+          }
+        })(); // a throw inside is impossible — every await already carries its own catch
       })
       .catch(() => { if (live) { setItems([]); setCached({}); setFailures({}); } });
     // ON THE WAY OUT TOO, and this is the case the `live` flags never covered: leaving Scan Notes
@@ -1193,6 +1220,16 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
   return (
     <>
       {hiddenLine}
+      {/* NOTHING MAY TRUNCATE SILENTLY. This is the whole point of the phase that removed the 500-row
+          clamp: a wall of 250 tiles looks exactly like a complete one, which is how 165 missing
+          photographs stayed invisible. The sanity bound should never fire on a real archive — but if
+          it ever does, the count is on screen rather than left for the user to discover by counting.
+          Deliberately ABOVE the grid, not below it: a notice under 20,000 tiles is not a notice. */}
+      {rowTotal > items.length && (
+        <div className="scannotes-truncline">
+          Showing {items.length.toLocaleString()} of {rowTotal.toLocaleString()} files in this folder.
+        </div>
+      )}
       <div className="scannotes-mediagrid">
         {shownItems.map((i) => (
           <Tile

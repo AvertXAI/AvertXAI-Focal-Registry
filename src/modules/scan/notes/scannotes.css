@@ -257,6 +257,11 @@
 /* ---------------------------------------------------------------- the media grid */
 /* Nothing here is saved to disk. A tile's picture is a data URL held in React state for as long as
    the tile is mounted — no thumbnail, proxy or preview file is ever written (§4.1). */
+/* The truncation notice. Loud enough to read as a limit rather than a caption — this is the line
+   that stops the wall from lying about how much of a shoot it is showing. */
+.scannotes-truncline{margin:0 0 10px;padding:7px 10px;border:1px solid var(--mc-border);
+  border-left:3px solid var(--mc-accent-primary);border-radius:var(--mc-radius);
+  background:var(--mc-nested);color:var(--mc-text);font-size:12.5px}
 .scannotes-mediagrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
 .scannotes-tile{border:1px solid var(--mc-border);border-radius:10px;overflow:hidden;background:var(--mc-panels);cursor:pointer;padding:0;font:inherit;color:var(--mc-text);text-align:left;display:block}
 .scannotes-tile:hover{border-color:var(--mc-accent-primary)}

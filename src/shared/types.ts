@@ -1488,7 +1488,10 @@ export interface Api {
       localRoot: () => Promise<string>;
       /** One folder's media, from the scan record — no directory walk, so an unplugged drive still
        *  lists what it holds. */
-      media: (folderPath: string) => Promise<ScanMediaItem[]>;
+      /** `total` is what the folder HOLDS; `items` is what this reply carries. They are equal in
+       *  every real folder. When they are not, the wall must say "showing N of M" — a ceiling is
+       *  acceptable, a silent one is the defect. */
+      media: (folderPath: string) => Promise<{ items: ScanMediaItem[]; total: number }>;
       /** One still as a data URL. RAW returns the camera's EMBEDDED preview — nothing is decoded and
        *  nothing is ever saved (§4.1). */
       image: (target: string) => Promise<{ ok: boolean; dataUrl?: string; embedded?: boolean; error?: string }>;

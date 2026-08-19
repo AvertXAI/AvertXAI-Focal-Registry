@@ -957,10 +957,14 @@ export function registerIpcHandlers(): void {
     if (reset === true) scanJobs.resetStats();
     return s;
   });
-  /** Upper bound on one thumbsGet. A folder listing is already clamped to 2000 (mediaBrowse.ts),
-   *  and this is the same discipline one layer down: an unbounded array is an unbounded synchronous
-   *  loop on the thread that owns every window. */
-  const THUMBS_MAX = 2000;
+  /** Upper bound on ONE thumbsGet call. This is no longer a ceiling on a folder — the renderer
+   *  now chunks its cache lookup and calls this repeatedly, so the bound is on the BATCH, which is
+   *  the thing that actually matters here: `getMany` is a synchronous loop of statSync + readFileSync
+   *  on the thread that owns every window, and it returns base64 in the reply. Both cost scale with
+   *  the array length, so bounding the array bounds the block AND the payload.
+   *
+   *  It used to be 2000 and sat silently below a folder that could legitimately exceed it. */
+  const THUMBS_MAX = 500;
   // THE THUMBNAIL CACHE. One call per FOLDER, not per tile — that is the whole point: a warm folder
   // opens on one round trip with no decoders at all. Both directions run the same guard every other
   // media path runs, so a renderer bug cannot turn this into "hash any file on this machine".

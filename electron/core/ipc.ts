@@ -37,6 +37,7 @@ import * as scanDrives from "./services/scan/drives";
 import * as scanNotes from "./services/scan/notes";
 import * as scanThumbs from "./services/scan/thumbs";
 import * as scanJobs from "./services/scan/jobs";
+import * as scanSiblings from "./services/scan/siblings";
 import * as scanThumbFails from "./services/scan/thumbFailures";
 import * as scanMedia from "./services/scan/mediaBrowse";
 import { ensureScanNotesSchema } from "./services/scan/notesDb";
@@ -943,10 +944,18 @@ export function registerIpcHandlers(): void {
     // Reading it here also means the device gate produces the evidence as a side effect of use.
     const s = scanJobs.stats();
     if (s.started > 0) {
+      const t = scanSiblings.tallySnapshot();
       console.info(
         `[scan-notes] jobs since last folder — started ${s.started}, completed ${s.completed}, ` +
           `abandoned ${s.abandoned}`
       );
+      // The Phase 3 tally, logged beside the job counts so one folder change reports both and the
+      // "reported the tally" requirement is satisfied by using the app rather than by a claim.
+      console.info(
+        `[scan-notes] RAW siblings — reused ${t.reused}, no-sibling ${t["no-sibling"]}, ` +
+          `ambiguous ${t.ambiguous}, time-mismatch ${t["time-mismatch"]}`
+      );
+      scanSiblings.resetTally();
     }
     scanJobs.resetStats();
     return scanJobs.nextToken();

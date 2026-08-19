@@ -22,6 +22,7 @@
 // reel, or the close-and-pick. Escape closes from every class. One listener, added on mount, removed
 // on unmount; the component only exists while the viewer is open.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ScanMediaItem } from "../../../shared/types";
 import { signalAppToast } from "../../../App";
 import MediaTransport from "./MediaTransport";
@@ -381,13 +382,33 @@ export default function MediaViewer({ items, index, onClose, onIndexChange, cach
   }, [items.length]);
 
 
-  return (
-    // data-modal-backdrop dims the OS-drawn min/max/close buttons — they are painted ABOVE all web
-    // content, so no DOM backdrop can cover them (§3.3/§3.4). The shell class carries the module
-    // tokens; .scannotes-overlay is the module's existing scrim and is reused as-is.
+  // ===========================================================================================
+  // THE NATIVE CAPTION BUTTONS MUST READ AS BEING *UNDER* THIS MODAL.
+  //
+  // They cannot literally go under it — the OS composites them above all web content and no DOM
+  // node can cover them (CLAUDE.md §3.4). The only way to put them behind the modal is to paint
+  // them the exact colour the scrim paints the topbar, so the eye reads one continuous dimmed
+  // surface. That requires THREE things to agree, and any one of them alone fails:
+  //
+  //   1. THE SCRIM MUST ACTUALLY REACH THE STRIP. `.scannotes-overlay` is `position:fixed`, but
+  //      `.scan-shell` carries `container-type:inline-size` (scan.css:22), which implies layout
+  //      containment and makes IT the containing block for fixed descendants — the scrim measured
+  //      1258x771 in a ~1690x1030 window. Hence the portal to `document.body`.
+  //   2. THE SCRIM'S COLOUR MUST BE THE ONE THE BLEND ASSUMES. `blendWithBackdrop` (windows.ts:96)
+  //      composites against rgba(4,8,16,.66) — the shell's `.overlay` backdrop (globals.css:381) —
+  //      NOT against this module's old rgba(0,0,0,.5). With the two matched, the strip and the
+  //      scrimmed topbar land on the same hex in every theme: light #595c61, dark #101217,
+  //      hybrid #070c15. See scannotes-viewer.css for the rule that changes it.
+  //   3. THE DIM MUST BE THE ORDINARY ONE, not the "viewer" mode — EXCEPT WHEN EXPANDED.
+  //      Un-expanded, what sits under the strip is the scrimmed topbar, so the theme blend is the
+  //      right answer. Expanded, the viewer's own header (#1c1917) sits under the strip instead,
+  //      and only OVERLAYS.viewer matches that. This is the one case the viewer mode was built for
+  //      and the only one where its reasoning survives arithmetic.
+  // ===========================================================================================
+  return createPortal(
     <div
       className={`scannotes-overlay scannotes-viewer-scrim${expanded ? " expanded" : ""}`}
-      data-modal-backdrop="viewer"
+      data-modal-backdrop={expanded ? "viewer" : ""}
       role="dialog"
       aria-modal="true"
       aria-label={item.filename}
@@ -601,6 +622,7 @@ export default function MediaViewer({ items, index, onClose, onIndexChange, cach
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

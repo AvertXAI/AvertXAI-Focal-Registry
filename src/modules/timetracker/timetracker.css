@@ -268,7 +268,7 @@
 
 /* 6B: attention toasts — APP-LEVEL (outside .tt-shell), so --mc-* tokens ONLY. Plain notice
    styling, no upsell; fixed bottom-right above the footer. */
-.tt-attn { position: fixed; right: 22px; bottom: 60px; z-index: 60; width: 340px; max-width: calc(100vw - 44px); background: var(--mc-panels); border: 1px solid var(--mc-border); border-left: 3px solid var(--mc-accent-primary); border-radius: 10px; padding: 12px 14px; box-shadow: 0 14px 40px rgba(0, 0, 0, .35); }
+.tt-attn { position: fixed; right: 22px; bottom: 60px; z-index: 70; /* 70, the App-level toast tier, same as .updatetoast (globals.css:437) — NOT 60. A break/idle prompt is actionable and time-sensitive, so it must outrank a lightbox: the Scan Notes media viewer's scrim is portalled to document.body at z-index 62 (scannotes-viewer.css), and at 60 this toast was painted behind it AND made unclickable for as long as the viewer stayed open. The two toasts stack rather than overlap (bottom 60px vs 16px), so sharing a tier is safe. */ width: 340px; max-width: calc(100vw - 44px); background: var(--mc-panels); border: 1px solid var(--mc-border); border-left: 3px solid var(--mc-accent-primary); border-radius: 10px; padding: 12px 14px; box-shadow: 0 14px 40px rgba(0, 0, 0, .35); }
 .tt-attnhead { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
 .tt-attnx { margin-left: auto; background: none; border: none; color: var(--mc-dimmer); cursor: pointer; font-size: 12px; padding: 2px 4px; }
 .tt-attnx:hover { color: var(--mc-text); }

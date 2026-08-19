@@ -409,7 +409,18 @@ export default function App() {
       void window.api.theme.setModalDim(open);
     };
     const obs = new MutationObserver(sync);
-    obs.observe(document.body, { childList: true, subtree: true });
+    // ATTRIBUTES TOO, AND THE ATTRIBUTE THIS VERY EFFECT DOCUMENTS. childList alone catches a modal
+    // opening and closing, but NOT a mounted modal changing which dim it wants — and the comment
+    // above tells new modals to "opt in with data-modal-backdrop", which is an attribute. The media
+    // viewer flips that value between "" and "viewer" when it expands, because what sits under the
+    // caption strip changes from the scrimmed topbar to its own header. Without this the flip was
+    // invisible here and the strip kept the wrong colour until the modal was closed and reopened.
+    obs.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-modal-backdrop"],
+    });
     sync();
     return () => { obs.disconnect(); if (dimmed) void window.api.theme.setModalDim(false); };
   }, []);

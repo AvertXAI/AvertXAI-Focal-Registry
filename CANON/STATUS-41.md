@@ -1,7 +1,8 @@
-# STATUS-40.md
+# STATUS-41.md
 
 Product state, one line each. LIVE → PARKED → DEAD.
-*(Supersedes STATUS-39 — delete it after upload. Rotated 2026-08-18: Scan Notes BUILT; shell revamp reference approved.)*
+*(Supersedes STATUS-40 — delete it after upload. Rotated 2026-08-19: Scan Notes device-gated and green; 0.2.7 release in progress.)*
+*(Focus 2026-08-19: **Scan Notes DEVICE-GATED and passing** — 415 of 415 stills, cold 6–8 s, steady fill, virtualized grid, background warm-up. **Next: release 0.2.7, then the Mission Control shell revamp.** Parked to 0.2.8: the manual rotate control, viewer focus-trap accessibility, the double-registered `diag:enabled` handler.)*
 *(Focus 2026-08-18: **Scan Notes is BUILT and compiling green; the device gate is OWED** — nothing from 08-17/18 has rendered on Jason's screen. Sequence: device gate -> release 0.2.7 -> Mission Control shell revamp (recon written, not run) -> repackage. Five agents ran in parallel in this module; an adversarial review caught five defects pre-ship.)*
 *(Focus 2026-08-17: **Scan Notes is the next Focal Registry build** — mockup v4 approved; read-only recon assigned to Claude Code desktop (`PROMPT-scan-notes-recon-08-17-2026.md`); build prompt after Jason rules the recon forks. Vault Tier-1 fixes remain queued per the 08-14 sequence — never run both on one working tree.)*
 *(Focus 2026-08-14: **Focal Registry, sole focus** — 0.2.6 on the prerelease feed, main at `3e8a2d4`; Employees built through 3B.2; Complete Job + profit + invoices + purge fix shipped; Secured Vault standalone COMPLETE, mounting now. BuildersAudit beta tester waiting on same-app-or-separate. Lane: Claude Code desktop is THE build lane; Antigravity retired to surgical tasks.)*
@@ -129,3 +130,10 @@ Product state, one line each. LIVE → PARKED → DEAD.
 
 ## Release
 - **0.2.7 PREPARED, NOT SHIPPED** — release prompt written; it stops before the single publish command per canon. 0.2.6 remains the live prerelease build; Paul auto-updates from it.
+
+## Focal Registry — Scan Notes, device-gated 2026-08-19
+- **PASSED on device.** `Day 1 - Jason` shows all 415 stills (was 250 — the clamp hid 165), cold in 6–8 seconds, filling at a steady rhythm rather than stalled clumps. RAW instant from cache.
+- **Shipped since STATUS-40:** worker-window thumbnails (`b77e0ac`, 2.15× landscape / 1.69× portrait, 8/8 orientation fixture) · job-token cancellation (`11e0164`) · the 500-row clamp and its four hidden caps (`0bdef1e`, `getMany` 926 ms → 154 ms, payload 27.2 MB → 7.2 MB) · sibling reuse with the capture-time guard (`9ae7a29`) · virtualized grid + background warm-up (`b4d2d9b`, ~415 elements → ~40–60).
+- **0.2.7 release IN PROGRESS** — gate, commit, version bump, `REVISIONS.md` for Jason's approval, package; publish is his single command. 0.2.6 is what Paul currently runs.
+- **Parked to 0.2.8:** manual rotate control (automatic orientation makes it a backstop, not a fix) · viewer declares `aria-modal` with no focus trap or restore · `diag:enabled` registered twice and throwing at boot under `DIAG=1` (pre-existing).
+- **Unproven, watch at the next gate:** whether Chromium decodes a `<video>` parked on the off-screen bench. If video tiles glyph where they used to paint, that bench is the cause — one CSS rule.

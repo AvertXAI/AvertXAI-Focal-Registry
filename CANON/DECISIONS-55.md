@@ -1,7 +1,7 @@
-# DECISIONS-54.md
+# DECISIONS-55.md
 
 Settled choices. One line each, current state. Do not reopen unless Jason says so.
-*(Supersedes DECISIONS-53 — delete it after upload. Rotated 2026-08-18: the thumbnail ban RESCOPED to what it actually protects; RAW preview, media viewer, Recent Work, folder filter and developer-tools rulings absorbed.)*
+*(Supersedes DECISIONS-54 — delete it after upload. Rotated 2026-08-19: worker, cancellation, clamp, sibling-guard, virtualization and warm-up rulings absorbed.)*
 
 ## Product taxonomy (LOCKED 2026-06-28)
 - **AvertXAI = the company. MissionControl = the product** (the Electron platform/dashboard that houses everything). "AvertXAI CRM" as the platform name is RETIRED — Jason wasn't comfortable pitching "CRM" as the main dashboard; MissionControl is the pitch-ready name.
@@ -520,3 +520,14 @@ Settled choices. One line each, current state. Do not reopen unless Jason says s
 - **44-pixel top bar** with menu, rail pin/peek, search, back and forward. **210-pixel rail with peek-versus-pinned**, which REPLACES the current expand/collapse. **Cascading dark menu.** **Settings MODAL** — this satisfies canon's outstanding mockup-first requirement for it.
 - **The grouped nav survives** — Archive Media / Applications / Tools / Secured Vault / Marketplace. The reference's flat list is placeholder content.
 - **OPEN, not ruled:** whether the window goes frameless with renderer-drawn caption buttons. Recon reports the cost both ways; Jason rules.
+
+## Focal Registry — media wall architecture (RULED 2026-08-18/19)
+- **Thumbnails are generated in a hidden WORKER WINDOW**, concurrency 4, scaled decode with decoder-side EXIF rotation. Main-process `nativeImage` remains the per-file FALLBACK only; its hand-written orientation table stays, marked as the fallback's.
+- **Background throttling is ACCEPTED.** A minimised app warms at ~two-thirds speed. **No main-process fallback for the minimised case** — that path's hand-written table is the one that shipped swapped and must not run unwatched.
+- **Cancellation is one monotonic job token.** Bumping it IS the cancellation; there is no list to walk, so nothing can be missed. Work is abandoned at four points, earliest first, and **partial results are still banked** — a generated thumbnail is correct even when unwanted.
+- **No silent truncation, ever.** A surviving ceiling is acceptable; a silent one is the defect. The wall states "Showing N of M" whenever a limit binds, above the grid. Listing bound is a 20,000-row sanity limit; cache lookups batch at 500.
+- **Sibling reuse FAILS CLOSED.** A RAW reuses a standard sibling's thumbnail only on a single candidate with a matching `captured_at`. No sibling, two or more candidates, differing times, or **missing times on either side** → generate. "Both unknown" is not evidence two files are the same photograph.
+- **A tile is no longer the thing that asks.** With a virtualized grid a tile exists only while on screen, so registration, observation and generation move to the LISTING — otherwise the folder would warm only as far as the user scrolled, which is the 250-tile defect in an invisible form.
+- **Windowing arithmetic fails open and self-checks.** Heavier is a performance problem; short is a correctness one.
+- **Folders warm in the background while Scan Notes is on screen** — standard photographs first, RAW second, what is on screen jumps both lanes. Two chips report progress; the odometer may lag the truth and never lead it.
+- **Manual rotate is a BACKSTOP, not the orientation fix** — automatic orientation is decoder-side. Parked to 0.2.8.

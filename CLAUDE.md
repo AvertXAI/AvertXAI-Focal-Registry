@@ -369,13 +369,23 @@ The shell's main window is a `BrowserWindow` with a system tray. **In this produ
 
 ## PART 4 — PRODUCT RULES SPECIFIC TO FOCAL REGISTRY
 
-### 4.1 Data only — no pixels
+### 4.1 Nothing derived is ever written into the archive
 
-This product answers **who, what, when, where, why** about a photographer's archive. It does not render, decode, or store image or video pixel data.
+*(RESCOPED 2026-08-18 by Jason's ruling, recorded in DECISIONS-54 and carried in DECISIONS-55. The previous wording — "no thumbnails are generated or saved, ever" — was written when Scan was inventory-only. It is superseded. **What this rule protects is the photographer's archive, not the existence of a preview.**)*
 
-- **No thumbnails are generated or saved. Ever.** This is strict.
-- No preview extraction, no proxy files, no image decode
-- Metadata reads only — timestamps, camera, lens, dimensions, codec, duration, file size, path
+**The line that does not move:**
+
+- **No derived file is EVER written into the scanned tree, onto the scanned drive, or beside the footage.** No thumbnails, no proxies, no sidecars, no converted copies, nothing.
+- **A source image or video is opened READ-ONLY, always.** Never written, never re-saved, never re-encoded in place, never moved. A RAW file is a photographer's negative.
+- Scan itself remains inventory and reporting. It renames folders it has scanned, on request; it never renames files and never deletes.
+
+**What IS permitted, and only here:**
+
+- **Scan Notes' media browse view MAY decode frames and MAY cache small JPEG thumbnails**, exclusively inside the app-owned local tree at `Documents\Focal Registry\Scan Notes\.thumbs\` — hidden, content-addressed, 500 megabyte ceiling, least-recently-used sweep.
+- A camera RAW's preview is the **camera's own embedded JPEG**, handed over unmodified. The RAW is never decoded.
+- The viewer receives the full-size image; the wall receives the cached thumbnail. Two ceilings on purpose.
+
+**If you are reading this file alone and about to remove the thumbnail cache: don't.** It is ruled, measured, shipped and device-gated. Canon (`DECISIONS-55`, `FACTS-12`) governs; this section previously contradicted shipped code and that is why it was reworded.
 
 ### 4.2 Scan covers video and audio too
 
@@ -414,7 +424,8 @@ The Python originals flushed results to disk as each folder finished, so a crash
 - No hardcoded nav entries
 - No non-additive migrations
 - No raw-secret `executeJavaScript`
-- No thumbnail or preview generation
+- No derived file written into the archive, the scanned drive, or beside the footage — see §4.1 for what the app-owned cache MAY do
+- No writing, re-saving, re-encoding or moving a source image or video, ever
 - No second writer of `setBackgroundColor` or `setTitleBarOverlay`
 - No claiming a user interface works from reading markup
 - No unlabeled factual claims

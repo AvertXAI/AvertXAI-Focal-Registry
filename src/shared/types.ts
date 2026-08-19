@@ -1494,7 +1494,13 @@ export interface Api {
       image: (target: string) => Promise<{ ok: boolean; dataUrl?: string; embedded?: boolean; error?: string }>;
       /** THE WALL's path — a ~320px JPEG, cached to .thumbs. `image` above is the VIEWER's and
        *  stays full-size, because zoom needs the pixels this one throws away. */
-      stillThumb: (target: string) => Promise<{ ok: boolean; dataUrl?: string; embedded?: boolean; error?: string }>;
+      stillThumb: (target: string, token?: number) =>
+        Promise<{ ok: boolean; dataUrl?: string; embedded?: boolean; error?: string; cancelled?: boolean }>;
+      /** Issue a new job token, abandoning every in-flight job carrying an older one. Call on
+       *  folder change, module change and teardown. */
+      jobToken: () => Promise<number>;
+      /** started / abandoned / completed since the last reset — the proof that cancellation works. */
+      jobStats: (reset?: boolean) => Promise<{ started: number; abandoned: number; completed: number; latest: number }>;
       /** Cached video thumbnails, keyed by absolute path. ONE call per folder — a hit renders an
        *  <img> with no decoder, no queue slot, and no frmedia request at all. Missing keys are
        *  simply absent from the result. */

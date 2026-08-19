@@ -36,6 +36,7 @@ import type { RenameSettings } from "../../src/shared/renamePreview";
 import * as scanDrives from "./services/scan/drives";
 import * as scanNotes from "./services/scan/notes";
 import * as scanThumbs from "./services/scan/thumbs";
+import * as scanJobs from "./services/scan/jobs";
 import * as scanThumbFails from "./services/scan/thumbFailures";
 import * as scanMedia from "./services/scan/mediaBrowse";
 import { ensureScanNotesSchema } from "./services/scan/notesDb";
@@ -930,9 +931,31 @@ export function registerIpcHandlers(): void {
   });
   // THE WALL'S path — tile-sized and cached. `scan:notesImage` above stays the VIEWER's path
   // and returns the full image, because zoom needs the pixels this one deliberately throws away.
-  safeHandle("scan:notesStillThumb", async (_e, target: unknown) => {
+  safeHandle("scan:notesStillThumb", async (_e, target: unknown, token: unknown) => {
     const { db, orgId } = scanCtx();
-    return scanMedia.readStillThumb(db, orgId, target);
+    return scanMedia.readStillThumb(db, orgId, target, token);
+  });
+  // CANCELLATION. Calling this issues a fresh token and thereby abandons every job carrying an
+  // older one — the renderer does not have to know what is outstanding. It is called on folder
+  // change, on module change and on teardown.
+  safeHandle("scan:notesJobToken", () => {
+    // LOGGED ON EVERY ISSUE, so "cancellation works" is a number in the log rather than a claim.
+    // Reading it here also means the device gate produces the evidence as a side effect of use.
+    const s = scanJobs.stats();
+    if (s.started > 0) {
+      console.info(
+        `[scan-notes] jobs since last folder — started ${s.started}, completed ${s.completed}, ` +
+          `abandoned ${s.abandoned}`
+      );
+    }
+    scanJobs.resetStats();
+    return scanJobs.nextToken();
+  });
+  // The counters behind the cancellation, so "it cancels" can be a number rather than a claim.
+  safeHandle("scan:notesJobStats", (_e, reset: unknown) => {
+    const s = scanJobs.stats();
+    if (reset === true) scanJobs.resetStats();
+    return s;
   });
   /** Upper bound on one thumbsGet. A folder listing is already clamped to 2000 (mediaBrowse.ts),
    *  and this is the same discipline one layer down: an unbounded array is an unbounded synchronous

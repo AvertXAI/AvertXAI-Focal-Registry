@@ -647,7 +647,7 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
 /** One tile. A CACHED picture short-circuits everything below — no queue slot, no decoder, no
  *  `frmedia` request. Only a cache miss is queued, and it converts to a cached <img> the moment
  *  its frame is captured. */
-function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, onCached, onAsk }: {
+function Tile({ item, queue, cachedUrl, failure, retryToken, token, onOutcome, onOpen, onCached, onAsk }: {
   item: ScanMediaItem;
   queue: ThumbQueue;
   cachedUrl: string | null;
@@ -661,6 +661,10 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, 
   onCached: (path: string, dataUrl: string) => void;
   /** Called the moment this tile actually requests generation — the counter's denominator. */
   onAsk: (path: string) => void;
+  /** THIS FOLDER'S JOB TOKEN. Sent with every generation request so the main process can abandon
+   *  the work outright when the folder changes, rather than completing it and having the answer
+   *  thrown away here. Zero means "not issued yet" and is never stale. */
+  token: number;
   onOpen: (i: ScanMediaItem) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -748,11 +752,14 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, 
         // returns the full file, which for this folder averages a 10.4 MB base64 string per tile.
         // The viewer still calls `image` — it needs the pixels this one throws away.
         void window.api.scan.notes
-          .stillThumb(item.path)
+          .stillThumb(item.path, token)
           .then((r) => {
             if (!live) return;
             if (r.ok && r.dataUrl) { setUrl(r.dataUrl); onCached(item.path, r.dataUrl); }
-            else setErr(r.error ?? "Could not read that file.");
+            // A CANCELLED JOB IS NOT A FAILURE AND MUST NOT PAINT ONE. The folder moved on while
+            // this was in flight; the tile asking for it is on its way out. Showing "could not
+            // read that file" here would be the app apologising for doing the right thing.
+            else if (!r.cancelled) setErr(r.error ?? "Could not read that file.");
           })
           // THE SECOND PLACE AN EXCEPTION BECAME USER-FACING COPY, found auditing the first. The
           // main process already answers `{ ok: false, error }` with a written sentence for every
@@ -768,7 +775,7 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, onOutcome, onOpen, 
     );
     io.observe(el);
     return () => { live = false; io.disconnect(); };
-  }, [item.path, item.kind, queue, onAsk]);
+  }, [item.path, item.kind, queue, onAsk, token]);
 
   // THE SWAP THAT RELEASES THE DECODER. Setting `url` makes `pic` non-null, which makes
   // `wantsVideo` false, which unmounts <VideoThumb> and re-runs the registration effect's cleanup.
@@ -905,6 +912,9 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
   /** True once the queue has drained at least once. The line under the grid waits for it, so nothing
    *  appears while tiles are still working — it must not flash and must not move the grid. */
   const [settled, setSettled] = useState(false);
+  /** This folder's cancellation token, issued by the main process. 0 until it answers — a tile that
+   *  manages to ask before then sends 0, which is never treated as stale, so nothing is lost. */
+  const [jobToken, setJobToken] = useState(0);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** WHICH ITEM IS OPEN, still held as the item itself so `onOpen` on four hundred tiles stays the
    *  plain `setOpen` it has always been. The viewer wants a POSITION — it counts, steps and reels off
@@ -1046,6 +1056,10 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
     setSettled(false);
     if (!folderPath) { setItems([]); setCached({}); setFailures({}); return; }
     let live = true;
+    // ISSUE THIS FOLDER'S TOKEN FIRST, BEFORE ANY TILE CAN ASK FOR ANYTHING. Bumping the counter
+    // main-side is itself the cancellation of the previous folder's outstanding work — there is no
+    // list of jobs to walk, and none can be missed. The await is one round trip per folder change.
+    void window.api.scan.notes.jobToken().then((t) => { if (live) setJobToken(t); }).catch(() => undefined);
     // NOT cleared here. Clearing it while the item list still held the OUTGOING folder made every one of
     // that folder's cached tiles lose their picture for a beat — so they flashed from a
     // picture to the film-reel glyph and started decoding themselves into the new folder's queue,
@@ -1091,7 +1105,10 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
           .catch(() => undefined); // a miss for every tile; they generate as usual
       })
       .catch(() => { if (live) { setItems([]); setCached({}); setFailures({}); } });
-    return () => { live = false; };
+    // ON THE WAY OUT TOO, and this is the case the `live` flags never covered: leaving Scan Notes
+    // entirely, or closing the window, left a folder's worth of decodes running to completion for
+    // a grid that no longer exists. Bumping the token on unmount abandons them.
+    return () => { live = false; void window.api.scan.notes.jobToken().catch(() => undefined); };
   }, [folderPath]);
 
   // A NEW FOLDER IS A NEW BATCH. Without this the counter would carry the previous folder's
@@ -1185,6 +1202,7 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
             cachedUrl={cached[i.path] ?? null}
             failure={failures[i.path] ?? null}
             retryToken={retrySet.has(i.path) ? retryRound : 0}
+            token={jobToken}
             onOutcome={onOutcome}
             onCached={onCached}
             onAsk={onAsk}

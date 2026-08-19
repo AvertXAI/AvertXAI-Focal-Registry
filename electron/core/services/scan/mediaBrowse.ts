@@ -41,6 +41,7 @@ import { isUnderScannedRoot } from "./index";
 import { previewFor } from "./rawPreview";
 import { makeStillThumb } from "./stillThumb";
 import { workerThumb } from "./thumbWorker";
+import * as jobs from "./jobs";
 import * as thumbs from "./thumbs";
 
 export const MEDIA_SCHEME = "frmedia";
@@ -55,6 +56,10 @@ const BROWSER_AUDIO = new Set(["mp3", "m4a", "wav", "flac", "ogg", "opus", "aac"
 
 /** Base64 is 4/3 of the bytes it carries, so this is really a ~27 MB string per entry. */
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/** What a cancelled job answers with. NOT an error: the tile that asked for it has already been
+ *  unmounted or superseded, so nothing is waiting to display this and nothing should log it. */
+const CANCELLED: ImageResult = { ok: false, cancelled: true };
 
 /** Guardrail on a WALL tile. A 320-pixel JPEG is tens of kilobytes; anything near this did not
  *  downscale, and shipping it would undo the whole point of the tile path. Matches stillThumb.ts. */
@@ -223,6 +228,9 @@ export interface ImageResult {
   /** true when what came back is the camera's embedded preview rather than the file itself. */
   embedded?: boolean;
   error?: string;
+  /** ABANDONED, NOT FAILED. The folder moved on while this was in flight. The tile that asked has
+   *  already gone, so the renderer must not show an error for it — there is nothing wrong. */
+  cancelled?: boolean;
 }
 
 const MIME: Record<string, string> = {
@@ -315,9 +323,14 @@ export async function readImage(db: Db, orgId: string, target: unknown): Promise
  * SAME STORE, SAME KEY, SAME SWEEP as the video thumbnails — `thumbs.getMany` / `thumbs.put`,
  * content-keyed on (path, size, mtime). No second cache exists.
  */
-export async function readStillThumb(db: Db, orgId: string, target: unknown): Promise<ImageResult> {
+export async function readStillThumb(db: Db, orgId: string, target: unknown, token?: unknown): Promise<ImageResult> {
   const p = typeof target === "string" ? target : "";
   if (p === "") return { ok: false, error: "No file was named." };
+
+  // THE EARLIEST SAFE POINT. A job for a folder the user has already left does no file read, no
+  // decode and no encode — it returns before touching the disk at all.
+  if (jobs.stale(token)) return CANCELLED;
+  jobs.markStarted();
 
   const guard = guardPath(db, orgId, p, "image");
   if (guard) return { ok: false, error: guard };
@@ -350,7 +363,7 @@ export async function readStillThumb(db: Db, orgId: string, target: unknown): Pr
     let url: string | null = null;
     const bytes = source ?? (await fs.promises.readFile(p).catch(() => null));
     if (bytes) {
-      const out = await workerThumb(bytes);
+      const out = await workerThumb(bytes, () => jobs.stale(token));
       // Only a real JPEG counts. The cache serves its bytes back verbatim, so anything else here
       // would pin a broken tile until the source file itself changed.
       if (out && out.length > 3 && out[0] === 0xff && out[1] === 0xd8 && out[2] === 0xff && out.length <= MAX_WALL_THUMB_BYTES) {
@@ -361,8 +374,12 @@ export async function readStillThumb(db: Db, orgId: string, target: unknown): Pr
     // NULL MEANS FALL BACK, NEVER FAIL — twice over. A dead or crashed worker drops to the
     // main-process path per file; a format that path refuses drops to the full-size image. Slower
     // and larger, but present. A working slow tile beats a broken fast one.
+    // BEFORE THE FALLBACK, NOT AFTER. `workerThumb` answers null both for "failed" and for
+    // "cancelled", and falling back on a cancelled job would run the whole expensive main-process
+    // path for a folder nobody is looking at — the exact work this phase exists to abandon.
+    if (jobs.stale(token)) { jobs.markDone(true); return CANCELLED; }
     if (url === null) url = await makeStillThumb(p, source);
-    if (url === null) return await readImage(db, orgId, p);
+    if (url === null) { jobs.markDone(true); return await readImage(db, orgId, p); }
 
     try {
       thumbs.put(p, url);
@@ -371,6 +388,11 @@ export async function readStillThumb(db: Db, orgId: string, target: unknown): Pr
       // next launch and broken never.
     }
     if (CASE_TRACE) console.info(`[scan-notes] still thumb ${path.basename(p)}: ${Math.round(url.length / 1024)} KB`);
+    // BANKED, THEN DROPPED. The thumbnail above is already written to the cache and is correct — it
+    // is simply not wanted on screen any more, so the base64 payload is not sent back across the
+    // boundary. Next time this folder opens it is a cache hit rather than a regeneration.
+    if (jobs.stale(token)) { jobs.markDone(true); return CANCELLED; }
+    jobs.markDone(false);
     return { ok: true, dataUrl: url, embedded };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;

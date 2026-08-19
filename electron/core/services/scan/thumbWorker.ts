@@ -224,8 +224,9 @@ function reportIdleMemory(w: BrowserWindow): void {
  * bigger and costs an encode on the main thread and a decode in the worker, which is precisely the
  * main-thread work this exists to remove.
  */
-export async function workerThumb(bytes: Buffer): Promise<Buffer | null> {
+export async function workerThumb(bytes: Buffer, cancelled?: () => boolean): Promise<Buffer | null> {
   if (bytes.length === 0 || bytes.length > MAX_WORKER_SOURCE_BYTES) return null;
+  if (cancelled?.()) return null;
   if (!(await ensureWorker())) return null;
   const w = win;
   if (!w || w.isDestroyed()) return null;
@@ -237,6 +238,15 @@ export async function workerThumb(bytes: Buffer): Promise<Buffer | null> {
     const start = (): void => {
       if (!win || win.isDestroyed()) {
         resolve(null);
+        return;
+      }
+      // CHECKED AGAIN HERE, AND THIS IS THE CHECK THAT MATTERS. A job waiting behind three others
+      // has had time for the folder to change; dispatching it anyway is exactly the wasted decode
+      // this exists to stop. The entry check above only catches work cancelled before it queued.
+      if (cancelled?.()) {
+        resolve(null);
+        const next = queue.shift();
+        if (next) next();
         return;
       }
       inFlight += 1;

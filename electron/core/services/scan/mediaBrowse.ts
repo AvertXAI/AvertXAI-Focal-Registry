@@ -40,6 +40,7 @@ import { AUDIO_EXTS, RAW_EXTS, STILL_EXTS, VIDEO_EXTS, extOf, normalizeExt } fro
 import { isUnderScannedRoot } from "./index";
 import { previewFor } from "./rawPreview";
 import { makeStillThumb } from "./stillThumb";
+import { workerThumb } from "./thumbWorker";
 import * as thumbs from "./thumbs";
 
 export const MEDIA_SCHEME = "frmedia";
@@ -54,6 +55,10 @@ const BROWSER_AUDIO = new Set(["mp3", "m4a", "wav", "flac", "ogg", "opus", "aac"
 
 /** Base64 is 4/3 of the bytes it carries, so this is really a ~27 MB string per entry. */
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+/** Guardrail on a WALL tile. A 320-pixel JPEG is tens of kilobytes; anything near this did not
+ *  downscale, and shipping it would undo the whole point of the tile path. Matches stillThumb.ts. */
+const MAX_WALL_THUMB_BYTES = 512 * 1024;
 const CACHE_MAX = 40;
 
 // Was a private copy of the same one-liner. It is now media.ts's extOf, so there is exactly one
@@ -338,9 +343,25 @@ export async function readStillThumb(db: Db, orgId: string, target: unknown): Pr
       if (!preview) return await readImage(db, orgId, p); // HEIC/PSD etc — old path, exifr fallback
       source = preview.bytes;
     }
-    const url = await makeStillThumb(p, source);
-    // NULL MEANS FALL BACK, NEVER FAIL. A format nativeImage refuses still gets its picture the old
-    // way — slower and larger, but present. A working slow tile beats a broken fast one.
+    // THE WORKER IS THE PRIMARY PATH. It decodes straight to tile size in a hidden window, so the
+    // thread that owns every window does no image work at all, and four files overlap. Crucially it
+    // applies EXIF rotation INSIDE Chromium's decoder — there is no transform table on this path to
+    // get backwards, which is the class of bug that shipped a folder upside down this morning.
+    let url: string | null = null;
+    const bytes = source ?? (await fs.promises.readFile(p).catch(() => null));
+    if (bytes) {
+      const out = await workerThumb(bytes);
+      // Only a real JPEG counts. The cache serves its bytes back verbatim, so anything else here
+      // would pin a broken tile until the source file itself changed.
+      if (out && out.length > 3 && out[0] === 0xff && out[1] === 0xd8 && out[2] === 0xff && out.length <= MAX_WALL_THUMB_BYTES) {
+        url = `data:image/jpeg;base64,${out.toString("base64")}`;
+      }
+    }
+
+    // NULL MEANS FALL BACK, NEVER FAIL — twice over. A dead or crashed worker drops to the
+    // main-process path per file; a format that path refuses drops to the full-size image. Slower
+    // and larger, but present. A working slow tile beats a broken fast one.
+    if (url === null) url = await makeStillThumb(p, source);
     if (url === null) return await readImage(db, orgId, p);
 
     try {

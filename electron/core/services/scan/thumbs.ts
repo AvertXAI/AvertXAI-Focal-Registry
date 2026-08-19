@@ -88,8 +88,13 @@ export function thumbsRoot(): string {
  *
  *   1 — original
  *   2 — 08-18-2026, EXIF orientation 6/8 fix
+ *   3 — 08-18-2026, stills now generated in the worker window. THREE independent reasons the bytes
+ *       differ from generation 2: rotation happens in Chromium's decoder rather than in our own
+ *       transform, `resizeQuality: "high"` is a different resampler from `nativeImage.resize`, and
+ *       the encoder is Chromium's rather than Electron's `toJPEG`. The two paths would otherwise
+ *       write mutually incompatible entries under one key.
  */
-const CACHE_GENERATION = 2;
+const CACHE_GENERATION = 3;
 
 export function keyFor(target: string, size: number, mtimeMs: number): string {
   const id =

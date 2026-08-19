@@ -45,6 +45,16 @@ const MAX_THUMB_BYTES = 512 * 1024;
 /**
  * EXIF orientation, as the eight transforms it actually means.
  *
+ * ===========================================================================================
+ * THIS IS THE FALLBACK PATH'S ORIENTATION HANDLING, AND ONLY THE FALLBACK PATH'S.
+ *
+ * Since 08-18-2026 the primary path is the worker window (`thumbWorker.ts`), which passes
+ * `imageOrientation: "from-image"` and lets Chromium's decoder do the rotation — no table, so
+ * nothing to get backwards. This file runs only when the worker is dead, crashed, timed out, or
+ * refused the bytes. It is kept, not deleted: a folder whose worker died must still show pictures,
+ * the right way up. KEEP IT CORRECT — the check below is not optional maintenance.
+ * ===========================================================================================
+ *
  * `[swapsAxes, flipX, flipY]` applied to the DESTINATION sampling. 1 is the identity and returns
  * early, which is the overwhelmingly common case and costs nothing.
  */

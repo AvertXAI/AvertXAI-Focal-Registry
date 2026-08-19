@@ -12,7 +12,7 @@
   },
   "scripts": {
     "build:renderer": "vite build",
-    "build:main": "esbuild electron/main.ts electron/preload.ts electron/update-preload.ts electron/mini-preload.ts --bundle --platform=node --external:electron --external:better-sqlite3-multiple-ciphers --external:argon2 --outdir=dist-electron --format=cjs --out-extension:.js=.cjs",
+    "build:main": "esbuild electron/main.ts electron/preload.ts electron/update-preload.ts electron/mini-preload.ts electron/thumb-preload.ts --bundle --platform=node --external:electron --external:better-sqlite3-multiple-ciphers --external:argon2 --outdir=dist-electron --format=cjs --out-extension:.js=.cjs",
     "build": "npm run build:renderer && npm run build:main",
     "dev": "npm run build && electron .",
     "dev:reset": "node scripts/reset.mjs && npm run dev",
@@ -40,6 +40,7 @@
       "dist-electron/preload.cjs",
       "dist-electron/update-preload.cjs",
       "dist-electron/mini-preload.cjs",
+      "dist-electron/thumb-preload.cjs",
       "build/icon.ico",
       "assets/sounds/**",
       "assets/fonts/**",

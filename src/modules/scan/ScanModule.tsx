@@ -374,7 +374,6 @@ export default function ScanModule() {
     void window.api.settings.get("scan.notes_tab").then((v) => {
       if (v && TABS.some(([k]) => k === v)) setTab(v as Tab);
     }).catch(() => undefined);
-    void window.api.settings.get("scan.notes_media_mode").then((v) => setMediaMode(v === "1")).catch(() => undefined);
     // A missing row is "off", never an error — the first run of this feature has no row.
     void window.api.settings.get("scan.notes_show_raw").then((v) => setShowRaw(v === "1")).catch(() => undefined);
   }, []);
@@ -396,12 +395,19 @@ export default function ScanModule() {
       return !on;
     });
   }, []);
+  // MEDIA MODE IS DELIBERATELY NOT STICKY. It was persisted to `scan.notes_media_mode` and restored
+  // at boot; Jason ruled that out on 08-18-2026. The app now always opens on the folder report, so
+  // the start state is the same every launch instead of depending on how the last session ended.
   const toggleMedia = useCallback(() => {
-    setMediaMode((m) => {
-      void window.api.settings.set("scan.notes_media_mode", m ? "0" : "1").catch(() => undefined);
-      return !m;
-    });
+    setMediaMode((m) => !m);
   }, []);
+
+  /** Picking a DIFFERENT folder returns to the report, even from the media wall — the report is the
+   *  answer to "what is in here", and it is what you want first about a folder you just opened.
+   *  Deliberately NOT wired to every folder change: the wall's own Back button and the container
+   *  empty-state's "the media is one level down" link both move the folder too, and bouncing those
+   *  out of media mode would make the wall impossible to browse. */
+  const leaveMedia = useCallback(() => setMediaMode(false), []);
 
   // Manual sync — the same work the reconnect consumer does. It is also the fallback if the WMI
   // watcher ever misses an event, which is why the button exists at all.
@@ -889,6 +895,7 @@ export default function ScanModule() {
                 refreshKey={notesRefresh}
                 mediaMode={mediaMode}
                 onFolderChange={setNotesFolder}
+                onLeaveMedia={leaveMedia}
                 jumpTo={jumpTo}
                 onSeeAll={() => chooseTab("updates")}
                 showRaw={showRaw}

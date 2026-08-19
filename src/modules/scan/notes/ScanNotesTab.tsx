@@ -182,6 +182,10 @@ export interface ScanNotesTabProps {
   /** Bumped by the parent on every scan:notes:changed push — a re-read trigger, not a payload. */
   refreshKey: number;
   mediaMode: boolean;
+  /** Called when the user PICKS a different folder — the tree or Recent Work — so the shell can drop
+   *  out of media mode. Not called by Back or by the container empty-state link, which navigate
+   *  within the media experience rather than away from it. */
+  onLeaveMedia: () => void;
   /** Opened when a folder is selected, so the parent's "View media" button knows what to browse. */
   onFolderChange: (folder: { path: string; driveId: number; letter: string | null } | null) => void;
   /** Rendered into the third pane in place of the editor when mediaMode is on (Phase 5). */
@@ -406,7 +410,7 @@ function ancestorsOf(p: string): string[] {
 }
 
 function Branch({
-  node, depth, selected, expanded, showEmpty, onToggle, onSelect, onRename,
+  node, depth, selected, expanded, showEmpty, onToggle, onOpenClose, onSelect, onRename,
 }: {
   node: TreeNode;
   depth: number;
@@ -415,7 +419,10 @@ function Branch({
   /** The Drives-header toggle. Off (the default) the whole no-media subtree is gone; on it comes
    *  back greyed, so "where did that folder go" is answerable without leaving the pane. */
   showEmpty: boolean;
+  /** The twist arrow: a plain toggle of THIS branch only, affecting nothing beneath it. */
   onToggle: (p: string) => void;
+  /** The folder name: opens if closed, and if already open folds the whole subtree away with it. */
+  onOpenClose: (p: string) => void;
   onSelect: (n: TreeNode) => void;
   onRename: (n: TreeNode) => void;
 }) {
@@ -443,7 +450,23 @@ function Branch({
         >
           {kids ? (open ? "▾" : "▸") : ""}
         </button>
-        <button type="button" className="scannotes-fname" onClick={() => onSelect(node)} title={node.path}>
+        {/* THE NAME IS THE OPEN/CLOSE CONTROL. Clicking it used to select only, so a folder whose
+            media all lives one level down looked empty until you found the twist arrow beside it —
+            two clicks and a small target to answer "what is in here". This is the shared row, so it
+            applies to every folder at every depth, not to any one of them.
+
+            CLICK OPENS, CLICK AGAIN FOLDS THE WHOLE SUBTREE AWAY. The second click closes not just
+            this folder but every branch you opened underneath it, so one click undoes an entire
+            excursion instead of leaving a stack of half-open levels to close by hand. Reopening the
+            folder therefore shows it as you first met it, not as you left it — which is the point:
+            the tree returns to a known shape rather than remembering a mess. The twist arrow keeps
+            the fine-grained toggle for anyone who wants to fold one level and keep the rest. */}
+        <button
+          type="button"
+          className="scannotes-fname"
+          onClick={() => { onSelect(node); if (kids) onOpenClose(node.path); }}
+          title={node.path}
+        >
           <span aria-hidden="true">📁</span>
           <span className="nm">
             {node.name}
@@ -484,7 +507,8 @@ function Branch({
       </div>
       {open && shown.map((c) => (
         <Branch key={c.path} node={c} depth={depth + 1} selected={selected}
-          expanded={expanded} showEmpty={showEmpty} onToggle={onToggle} onSelect={onSelect} onRename={onRename} />
+          expanded={expanded} showEmpty={showEmpty} onToggle={onToggle} onOpenClose={onOpenClose}
+          onSelect={onSelect} onRename={onRename} />
       ))}
     </>
   );
@@ -563,7 +587,7 @@ function Waiting({ what }: { what: string }) {
  *  behind the paint. Module-level on purpose — the same shape as the Vault list's cache. */
 let treeCache: ScanNotesDriveNode[] = [];
 
-export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, mediaPane, jumpTo, onSeeAll, showRaw, onToggleRaw, mediaProgress, hiddenRaw }: ScanNotesTabProps) {
+export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, onLeaveMedia, mediaPane, jumpTo, onSeeAll, showRaw, onToggleRaw, mediaProgress, hiddenRaw }: ScanNotesTabProps) {
   const [tree, setTree] = useState<ScanNotesDriveNode[]>(treeCache);
   const [loading, setLoading] = useState(treeCache.length === 0);
   const [folderBusy, setFolderBusy] = useState(false);
@@ -799,6 +823,35 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
     });
   }, []);
 
+  /** Deliberately separate from `goFolder`, which every navigation route shares. This is the
+   *  "the user chose a different folder" route only — the tree and Recent Work — and it is the one
+   *  that returns to the report. `goBack` and the empty-state link keep calling `goFolder` directly
+   *  so they stay inside media mode. */
+  const pickFolder = useCallback((p: string, dId?: number | null) => {
+    onLeaveMedia();
+    goFolder(p, dId);
+  }, [goFolder, onLeaveMedia]);
+
+  /**
+   * The folder name's open/close. Closed -> open. Open -> closed, AND every branch below it closes
+   * with it.
+   *
+   * The cascade is a prefix sweep over the expanded set rather than a walk of the tree, because the
+   * set is the only place "what is open" lives and it is small. The separator is appended before
+   * comparing so `D:\Summit` cannot swallow `D:\Summit2` — a plain `startsWith` on the bare path
+   * would close an unrelated sibling that merely shares an opening.
+   */
+  const openOrCloseBranch = useCallback((p: string) => {
+    setExpanded((s) => {
+      const k = p.toLowerCase();
+      if (!s.has(k)) { const n = new Set(s); n.add(k); return n; }
+      const prefix = k.endsWith("\\") ? k : k + "\\"; // a drive root already ends with one
+      const n = new Set<string>();
+      for (const e of s) if (e !== k && !e.startsWith(prefix)) n.add(e);
+      return n;
+    });
+  }, []);
+
   const toggleBranch = useCallback((p: string) => {
     setExpanded((s) => {
       const n = new Set(s);
@@ -837,7 +890,7 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
         <RecentWork
           rows={recent}
           selected={folder}
-          onPick={(r) => goFolder(r.path, r.drive_id)}
+          onPick={(r) => pickFolder(r.path, r.drive_id)}
           onSeeAll={onSeeAll ?? (() => undefined)}
         />
         {/* The filter lives in the Drives header, not on each drive: it is one preference about the
@@ -893,7 +946,8 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
                     expanded={expanded}
                     showEmpty={showEmpty}
                     onToggle={toggleBranch}
-                    onSelect={(node) => goFolder(node.path, d.drive_id)}
+                    onOpenClose={openOrCloseBranch}
+                    onSelect={(node) => pickFolder(node.path, d.drive_id)}
                     onRename={(node) => { setRenameErr(null); setRenaming({ path: node.path, name: node.name }); }}
                   />
                 ))}
@@ -945,7 +999,7 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
 
       {/* ---- pane 3: media grid, or the editor / rendered report ---- */}
       {mediaMode ? (
-        <div className="scannotes-pane">
+        <div className="scannotes-pane scannotes-mpane">
           {/* MEDIA PANE HEADER — one row: Back, breadcrumb, toggle. Built to
               MOCKUP-scan-notes-raw-toggle-08-18-2026.html, states A and B. State C in that file
               puts the toggle in the Drives header and is a REJECTED alternative — not built.
@@ -999,11 +1053,17 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, me
               media in it. MediaGrid's own message stays as the fallback for the one case this
               cannot cover: a record claiming files that the disk no longer has, where "scan it" is
               in fact the right advice. */}
-          {selectedNode !== null && selectedNode.mediaCount === 0 ? (
-            <FolderEmptyState node={selectedNode} onOpen={(p) => { goFolder(p, driveId); revealFolder(p, driveId); }} />
-          ) : (
-            mediaPane ?? <div className="scannotes-empty">Media browsing is not wired yet.</div>
-          )}
+          {/* THE SCROLLING BODY, AND THE HEADER IS NOT IN IT. That is the whole reason this wrapper
+              exists: with the wall inside its own scroller, a tile has nowhere to travel except
+              underneath the header, so nothing can appear above the row or in a gap below it.
+              Two earlier attempts at `position:sticky` both leaked — see scannotes.css above. */}
+          <div className="scannotes-mscroll">
+            {selectedNode !== null && selectedNode.mediaCount === 0 ? (
+              <FolderEmptyState node={selectedNode} onOpen={(p) => { goFolder(p, driveId); revealFolder(p, driveId); }} />
+            ) : (
+              mediaPane ?? <div className="scannotes-empty">Media browsing is not wired yet.</div>
+            )}
+          </div>
         </div>
       ) : (
         <div className="scannotes-pane">

@@ -431,14 +431,34 @@
    so it yields rather than pushing the toggle out of the row. `flex-wrap` is the backstop: if a
    theme's font metrics run wider than this arithmetic, the toggle drops to its own line instead
    of overflowing the pane. */
-/* STICKY. The pane scrolls; this row does not — Back, the folder you are in, what is loading and
-   the RAW toggle all stay reachable four hundred tiles down. It needs its own opaque background
-   (--mc-panels, the card surface it sits on) or the tiles scroll THROUGH it, and a z-index above
-   them for the same reason. The negative margins plus matching padding let that background run the
-   full width of the pane instead of leaving a transparent gutter at each edge. */
-.scannotes-mhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
-  position:sticky;top:0;z-index:2;background:var(--mc-panels);
-  margin:0 -12px 4px;padding:2px 12px 8px;border-bottom:1px solid var(--mc-border)}
+/* NOT STICKY, AND THAT IS THE FIX. This row is OUTSIDE the scrolling element entirely, so no tile
+   can pass above it or below it — not because an opaque background hides them, but because the
+   scroll area starts underneath it and there is nowhere else for them to be.
+
+   WHY STICKY WAS ABANDONED HERE, so nobody restores it. `position:sticky` was tried twice and
+   leaked twice, and the second attempt made it worse:
+
+     · Sticky is constrained against the scrollport, which is the container's PADDING BOX, and it
+       clamps the element's MARGIN box. `.scannotes-pane` carries `padding:12px` (line 125), so a
+       negative `margin-top:-12px` intended to pull the background up instead pushed the PAINTED
+       box twelve pixels DOWN once the row stuck — a wider transparent band, not a smaller one.
+     · Every sticky in this repo that actually works — `.dv-grid th`, `.rn-tbl th`,
+       `.scan-tbl.folders thead th`, `.vault-tscroll thead th` — sits in a scroll container with NO
+       padding. That is the real precedent, and this pane cannot join it without giving up the
+       padding that separates the wall from the card edge.
+
+   So the padding moved to `.scannotes-mscroll` below, which is the thing that scrolls, and this row
+   became a plain flex header beside it. No sticky, no z-index, no background trick, no arithmetic
+   against a container's padding — three fewer things to get wrong at the next change. */
+.scannotes-mhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:none;
+  padding:12px;border-bottom:1px solid var(--mc-border);background:var(--mc-panels)}
+/* The pane becomes a column: fixed header, scrolling body. `overflow:hidden` on the pane moves the
+   scrolling INTO `.scannotes-mscroll` — without it the pane would scroll too and the header would
+   ride up out of view, which is the bug in a different coat. `min-height:0` is what actually lets
+   the body scroll: a flex child defaults to min-content and would otherwise push the pane past its
+   own max-height instead of overflowing inside it. */
+.scannotes-pane.scannotes-mpane{display:flex;flex-direction:column;overflow:hidden;padding:0}
+.scannotes-mscroll{flex:1 1 auto;min-height:0;overflow:auto;padding:12px}
 .scannotes-back{display:flex;align-items:center;gap:6px;flex:none;font:inherit;font-size:12.5px;
   padding:6px 11px;border:1px solid var(--mc-border);background:var(--mc-nested);color:var(--mc-text);
   border-radius:var(--mc-radius);cursor:pointer}

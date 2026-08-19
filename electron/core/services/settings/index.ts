@@ -35,7 +35,6 @@ const RENDERER_KEYS = new Set([
   // tree itself has NO key: it is a fixed Documents path like documentsExportsDir(), not the
   // relocatable markdown_root tree.
   "scan.notes_tab", // which of the five tabs is open
-  "scan.notes_media_mode", // View media toggle — collapses the 3-pane grid to two
   "scan.notes_show_empty_folders", // tree toggle — "1" reveals folders whose whole subtree has no media
   "scan.notes_show_raw", // media wall — "1" shows camera RAW alongside the JPEGs; default off
   "tips.enabled", // helpful-tips master switch — ONE global toggle (Jason ruled: no per-tip settings), default on

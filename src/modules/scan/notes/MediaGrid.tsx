@@ -26,9 +26,11 @@
 // day. What the rule actually protects — no artefact left beside a photographer's footage — is
 // enforced, not merely intended: every byte lands in the app-owned hidden cache under the local tree
 // (electron/core/services/scan/thumbs.ts). Nothing is ever written to the scanned drive.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ScanMediaItem, ScanThumbFailReason, ScanThumbFailure } from "../../../shared/types";
 import MediaViewer from "./MediaViewer";
+import { computeWindow, checkWindowMath } from "./mediaWindow";
 import "./scannotes.css";
 
 /* The stem/extension split moved to MediaViewer.tsx with the header that used it — a tile shows the
@@ -52,14 +54,18 @@ const CONCURRENCY = 6;
 const FRAME_CEILING_MS = 10_000;
 
 /**
- * How many tiles may hold a decoded frame at once — but read THE MEMORY POSITION below, because this
- * is a floor on the bound and not the bound itself. Eviction yields to what is on screen, so the
- * real cap is `max(PAINTED_CEILING, tiles currently visible)`. At the 1920-by-1080 profile that
- * visible set is about eight columns by eight rows once the observer's 200-pixel margin is counted,
- * so the worst case is roughly seventy live elements rather than forty-six — and it is only
- * reachable at all when frame capture is unavailable and tiles cannot become plain images.
+ * THE DECODER CEILING IS NOW STRUCTURAL, WHICH IS WHY THERE IS NO CONSTANT HERE ANY MORE.
+ *
+ * There used to be a PAINTED_CEILING of 40 and an eviction pass to enforce it, because a tile that
+ * had painted from a live <video> was still holding the decoder and the decoded frame beside it.
+ * From this phase a decoder exists only inside a BENCH slot, and there are never more of those than
+ * CONCURRENCY — six, whatever the folder holds and wherever the user has scrolled to. A tile is an
+ * <img> or a glyph and holds nothing at all.
+ *
+ * So eviction is gone rather than tuned. It had one job, the bench does that job by construction,
+ * and a second mechanism aimed at the same thing is how a picture ended up being taken off the
+ * user's screen in the first place.
  */
-const PAINTED_CEILING = 40;
 
 /**
  * `noframe` IS NOT A FAILURE, AND CALLING IT ONE WAS A LIE THE COUNTS TOLD.
@@ -240,7 +246,19 @@ function capture(v: HTMLVideoElement): string | null {
 /** Tracing rides the shell's existing DIAG switch (env `DIAG=1`, `src/diag.ts`). Off, it costs one
  *  boolean read per queue transition and prints nothing. */
 let TRACE = false;
-void window.api.diag?.enabled().then((e) => { TRACE = e === true; }).catch(() => undefined);
+void window.api.diag?.enabled()
+  .then((e) => {
+    TRACE = e === true;
+    // THE WINDOW ARITHMETIC CHECKS ITSELF, under DIAG and nowhere else. A virtualized wall that
+    // renders the wrong slice cannot be caught by looking at it, so the four numbers that decide
+    // what exists are asserted against cases that include the last row and a folder shorter than a
+    // screen. It reports rather than throws: a broken assertion must never take the pane down.
+    if (!TRACE) return;
+    const bad = checkWindowMath();
+    if (bad.length > 0) console.error("[scan-notes] WINDOW ARITHMETIC IS WRONG —", bad);
+    else console.info("[scan-notes] window arithmetic checks out");
+  })
+  .catch(() => undefined);
 
 /**
  * THE THUMBNAIL QUEUE.
@@ -256,9 +274,11 @@ void window.api.diag?.enabled().then((e) => { TRACE = e === true; }).catch(() =>
  *
  * WHAT IS HERE. In-flight is a SET OF KEYS, not a counter — releasing is a delete, so releasing
  * twice is the same as releasing once and no exit path can corrupt the pool however often it fires.
- * The pending list is in document order and nothing is ever refused entry: every video tile in the
- * folder registers at mount and the whole folder warms in the background whether it is scrolled to
- * or not. Crossing the viewport is a PRIORITY signal that jumps the line — never the door.
+ * The pending list is in listing order and nothing is ever refused entry: every video in the FOLDER
+ * LISTING is registered as soon as that listing lands, so the whole folder warms whether or not the
+ * wall is even being shown. Being on screen is a PRIORITY signal that jumps the line — never the
+ * door, and no longer a registration: tiles come and go with the scroll now, and work that started
+ * when a tile mounted would stop the moment it scrolled away again.
  *
  * IT IS PER-FOLDER. MediaGrid builds one and cancels it on folder change or unmount, so a walk can
  * never outlive the folder it was walking.
@@ -282,19 +302,14 @@ class ThumbQueue {
   private readonly drops = new Map<string, () => void>();
   private readonly pending = new Set<string>();
   private readonly inFlight = new Set<string>();
-  /** key → the tick it was last on screen. Insertion order is not enough: eviction has to follow the
-   *  eye, not the order the loads happened to finish in. */
+  /** key → the tick it was last dealt with. Its remaining job is to stop a finished file being
+   *  queued a second time; the eviction order it used to carry no longer exists — see above. */
   private readonly painted = new Map<string, number>();
-  /** Keys the IntersectionObserver currently reports as intersecting — which is the viewport PLUS
-   *  its 200-pixel rootMargin, so roughly a row and a half beyond each edge, not the screen exactly.
-   *  Eviction consults this and nothing else can override it: a tile the user is looking at is never
-   *  taken away, however long it has been sitting there. */
-  private readonly visible = new Set<string>();
   private order: string[] = [];
   private urgent: string[] = [];
   private cancelled = false;
   private tick = 0;
-  readonly counts = { queued: 0, started: 0, painted: 0, failed: 0, gone: 0, evicted: 0, noframe: 0 };
+  readonly counts = { queued: 0, started: 0, painted: 0, failed: 0, gone: 0, noframe: 0 };
   /** The retry pass's own tally, written by MediaGrid — the classification lives up there, with the
    *  media element's error, and this object exists so ONE line tells the whole story of a run.
    *  `recovered` is the number that matters: it is the entire justification for the retry. */
@@ -305,7 +320,8 @@ class ThumbQueue {
    *  nobody is looking at while a tile on screen waits. */
   onIdle: (() => void) | null = null;
 
-  /** Called by every video tile at mount, in document order. This IS the background walk. */
+  /** Called once per video in the folder, in listing order, as soon as the listing lands. This IS
+   *  the background walk, and it is deliberately no longer driven by anything that can unmount. */
   register(key: string, start: () => void, drop: () => void): void {
     // Deliberately NOT gated on `cancelled` — see open(). Work that arrives while the queue is closed
     // is remembered and starts when it reopens; pump() is the one and only gate on starting.
@@ -314,24 +330,8 @@ class ThumbQueue {
     this.enqueue(key, false);
   }
 
-  /**
-   * On screen, or no longer on screen.
-   *
-   * THIS EXISTS BECAUSE "least recently seen" WAS A LIE WITHOUT IT. `tick` only advanced when a tile
-   * crossed the viewport or settled, so on a folder the user opens and does not scroll, no tick ever
-   * advances again and the "oldest" tile is simply the first one that finished — the top of the
-   * folder, in plain sight. Eviction would then walk down the visible rows taking pictures away, and
-   * they could not come back, because an IntersectionObserver does not re-fire for an element that
-   * never left the viewport. Tracking visibility directly is the fix: the tick ordering decides
-   * WHICH off-screen tile goes, and this decides that an on-screen one never does.
-   */
-  setVisible(key: string, on: boolean): void {
-    if (on) { this.visible.add(key); this.seen(key); }
-    else this.visible.delete(key);
-  }
-
-  /** The tile is on screen. Priority only — it can move a tile to the front of the line and it
-   *  renews a painted tile's place against eviction. It never decides whether work happens. */
+  /** The file is on screen. Priority only — it moves a waiting file to the front of the line. It
+   *  never decides whether work happens, and nothing anywhere waits on it. */
   seen(key: string): void {
     this.tick += 1;
     if (this.painted.has(key)) { this.painted.set(key, this.tick); return; }
@@ -344,8 +344,8 @@ class ThumbQueue {
   release(key: string, how: Outcome): void {
     this.pending.delete(key);
     if (this.inFlight.delete(key)) this.counts[how] += 1;
-    if (how === "painted") { this.painted.set(key, ++this.tick); this.trim(); }
-    else this.painted.delete(key); // failed, gone and noframe alike hold no decoder worth protecting
+    if (how === "painted") this.painted.set(key, ++this.tick);
+    else this.painted.delete(key); // failed, gone and noframe alike may all be asked for again
     this.pump();
   }
 
@@ -354,7 +354,6 @@ class ThumbQueue {
     this.release(key, "gone");
     this.starters.delete(key);
     this.drops.delete(key);
-    this.visible.delete(key);
   }
 
   /**
@@ -389,7 +388,7 @@ class ThumbQueue {
     const c = this.counts;
     const r = this.retry;
     const noframe = c.noframe > 0 ? `, no video track ${c.noframe}` : "";
-    const base = `queued ${c.queued} · slots taken ${c.started} · released: painted ${c.painted}, failed ${c.failed}${noframe}, unmounted ${c.gone} · evicted ${c.evicted} · still in flight ${this.inFlight.size} · still waiting ${this.pending.size}`;
+    const base = `queued ${c.queued} · slots taken ${c.started} · released: painted ${c.painted}, failed ${c.failed}${noframe}, dropped ${c.gone} · still in flight ${this.inFlight.size} · still waiting ${this.pending.size}`;
     // Appended only when there is something to say, so a healthy folder's line stays the one line
     // it has always been.
     if (r.retried === 0 && r.permanent === 0 && r.unknown === 0) return base;
@@ -407,26 +406,6 @@ class ThumbQueue {
     this.counts.queued += 1;
     if (urgent) this.urgent.unshift(key); else this.order.push(key);
     this.pump();
-  }
-
-  private trim(): void {
-    // Bounded by the map's own size: every pass deletes exactly one entry, and the guard means a
-    // drop callback that misbehaves cannot spin this loop.
-    let guard = this.painted.size;
-    while (this.painted.size > PAINTED_CEILING && guard-- > 0) {
-      let oldest: string | null = null;
-      let oldestTick = Infinity;
-      for (const [k, t] of this.painted) {
-        if (this.visible.has(k)) continue; // never take a picture off the user's screen
-        if (t < oldestTick) { oldestTick = t; oldest = k; }
-      }
-      // Everything painted is on screen. The ceiling yields rather than blanking the viewport — a
-      // viewport that large is a handful of extra decoders, and a blank tile is a defect.
-      if (oldest === null) return;
-      this.painted.delete(oldest);
-      this.counts.evicted += 1;
-      this.drops.get(oldest)?.(); // back to its glyph; `seen` re-queues it when it returns
-    }
   }
 
   private nextKey(): string | null {
@@ -653,201 +632,57 @@ function VideoThumb({ src, onSettled }: { src: string; onSettled: (how: Settled,
   return <video ref={ref} className="tvid" preload="metadata" muted playsInline disablePictureInPicture />;
 }
 
-/** One tile. A CACHED picture short-circuits everything below — no queue slot, no decoder, no
- *  `frmedia` request. Only a cache miss is queued, and it converts to a cached <img> the moment
- *  its frame is captured. */
-function Tile({ item, queue, cachedUrl, failure, retryToken, token, onOutcome, onOpen, onCached, onAsk }: {
+/**
+ * ONE TILE, AND IT NO LONGER FETCHES ANYTHING.
+ *
+ * WHAT MOVED, AND WHY IT HAD TO. A tile used to be the thing that asked: it registered itself with
+ * the thumbnail queue at mount, it ran its own IntersectionObserver, and it called `stillThumb` the
+ * first time it crossed the viewport. Every one of those is a promise that the tile EXISTS — and
+ * from this phase on, a tile only exists while it is on screen. Left as it was, virtualization would
+ * have quietly meant "the folder warms only as far as you scrolled", which is the 250-tile defect in
+ * a form nobody could see.
+ *
+ * So the asking lives in MediaGrid now, off the back of the LISTING rather than off the back of a
+ * mounted element, and a tile is what it always should have been: a picture, a name, and a click.
+ * `onSeen` is the one signal it still sends, and it is a PRIORITY signal, never a door — mounting
+ * means the user is looking at this file, so it jumps both queues. Nothing anywhere waits on it.
+ */
+function Tile({ item, pic, failReason, readErr, onSeen, onOpen }: {
   item: ScanMediaItem;
-  queue: ThumbQueue;
-  cachedUrl: string | null;
-  failure: ScanThumbFailure | null;
-  /** Bumped by the grid when THIS tile is chosen for a retry round. Zero means never chosen. */
-  retryToken: number;
-  onOutcome: (path: string, how: "painted" | "failed", why?: ScanThumbFailReason) => void;
-  /** Lifts a freshly generated thumbnail into the GRID's state so it outlives this component.
-   *  Without it, hiding a tile with the RAW toggle destroys its picture and showing it again
-   *  re-crosses IPC for something the session already had. */
-  onCached: (path: string, dataUrl: string) => void;
-  /** Called the moment this tile actually requests generation — the counter's denominator. */
-  onAsk: (path: string) => void;
-  /** THIS FOLDER'S JOB TOKEN. Sent with every generation request so the main process can abandon
-   *  the work outright when the folder changes, rather than completing it and having the answer
-   *  thrown away here. Zero means "not issued yet" and is never stale. */
-  token: number;
+  /** The picture, whatever produced it — the grid holds every one of them. Null is a glyph. */
+  pic: string | null;
+  /** Why this file has no picture, if it is known to have failed. Null while it is still coming. */
+  failReason: ScanThumbFailReason | null;
+  /** A read error in the file's own words, for the one case the classifier cannot cover. */
+  readErr: string | null;
+  /** "The user is looking at this one." Priority only. */
+  onSeen: (path: string) => void;
   onOpen: (i: ScanMediaItem) => void;
 }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [granted, setGranted] = useState(false);
-  const [videoFailed, setVideoFailed] = useState(false);
-  /** Why THIS session's attempt failed, for the tooltip. Seeded from the recorded log so a file that
-   *  is not attempted at all still explains itself. */
-  const [failWhy, setFailWhy] = useState<ScanThumbFailReason | null>(failure?.reason ?? null);
-  const box = useRef<HTMLButtonElement | null>(null);
-
-  const stream = item.streamUrl;
-  // The picture, whatever produced it: a still's data URL, a frame captured this session, or a hit
-  // from the disk cache. Once there is one, this tile never needs a decoder again.
-  const pic = url ?? cachedUrl;
-  // A RECORDED `permanent` FAILURE MEANS DO NOT TRY. That is the entire payoff of the log: this file
-  // has already proved on this machine that it cannot be decoded, so attempting it again would cost
-  // a queue slot, an frmedia request, a decoder and ten seconds of ceiling to learn nothing. The
-  // user's own Retry control clears the record and overrides this — the classifier may be wrong, but
-  // it does not get to be wrong repeatedly and for free.
-  const knownDead = failure?.reason === "permanent";
-  /**
-   * ONLY VIDEO EVER ENTERS THE THUMBNAIL QUEUE. The kind comes from the scanner's own extension
-   * lists (electron/core/services/scan/media.ts), resolved into `kind` by mediaBrowse.ts — there is
-   * no second list here and there must never be one.
-   *
-   * An audio file is therefore never queued, never given a slot, never handed to a <video> element
-   * and never counted. Device evidence on 08-18-2026 showed an .mp3 doing all four, which by this
-   * source is impossible: "mp3" is in AUDIO_EXTS and not in VIDEO_EXTS, and `kind` is recomputed
-   * from the extension on every listing — so for that .mp3 to reach a <video>, its `kind` must have
-   * arrived as "video".
-   *
-   * I could not reproduce that by reading, and did not guess at it. The one mechanism that produces
-   * it is the listing's stored extension disagreeing with the file's own name, and mediaBrowse.ts
-   * now names exactly that under DIAG. The `noframe` outcome above is the belt to that brace: even
-   * a mis-classified audio file can no longer be recorded or counted as a failure.
-   */
-  const isVideo = item.kind === "video";
-  const wantsVideo = isVideo && stream !== null && !videoFailed && !knownDead && pic === null;
-
-  // THE RETRY, from the tile's side, and it is deliberately three lines. Clearing videoFailed makes
-  // wantsVideo true again, which re-runs the registration effect below, which puts this tile back in
-  // the queue in the ordinary lane. There is no second queue and no second code path: a retry is
-  // just a tile asking again.
-  useEffect(() => {
-    if (retryToken === 0) return;
-    setVideoFailed(false);
-    setFailWhy(null);
-  }, [retryToken]);
-
-  // EVERY video tile registers here, at mount, in document order — this is the whole folder warming
-  // in the background. A tile that already has its picture never registers at all, which is what
-  // makes a warm folder open with no work: the queue is empty because there is nothing to do.
-  // `forget` is the unmount and folder-change release path.
-  useEffect(() => {
-    if (!wantsVideo) return;
-    const key = item.path;
-    queue.register(key, () => setGranted(true), () => setGranted(false));
-    return () => queue.forget(key);
-  }, [queue, item.path, wantsVideo]);
-
-  // Crossing the viewport is a priority signal for VIDEO, and it must keep firing — it also renews a
-  // painted tile's place against eviction — so that observer is never disconnected. An IMAGE is
-  // fetched once and held in state, so its observer is finished after the first crossing.
-  //
-  // Images stay in-view gated on purpose: each one crosses IPC as a base64 data URL of up to twenty
-  // megabytes, so warming a whole folder of them eagerly would trade this defect for a worse one.
-  useEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    if (item.kind !== "image" && item.kind !== "video") return; // audio never attempts a frame
-    let live = true;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (!live) return;
-        const on = entries.some((e) => e.isIntersecting);
-        // BOTH edges matter for video, not just entry: leaving the viewport is what makes a tile
-        // eligible for eviction, and staying in it is what protects it. Reporting only entry was how
-        // eviction ended up blanking rows the user was looking at.
-        if (item.kind === "video") { queue.setVisible(item.path, on); return; }
-        if (!on) return;
-        io.disconnect();
-        onAsk(item.path);
-        // THE THUMB, NOT THE IMAGE. `stillThumb` returns a ~320px JPEG of about 11 KB; `image`
-        // returns the full file, which for this folder averages a 10.4 MB base64 string per tile.
-        // The viewer still calls `image` — it needs the pixels this one throws away.
-        void window.api.scan.notes
-          .stillThumb(item.path, token)
-          .then((r) => {
-            if (!live) return;
-            if (r.ok && r.dataUrl) { setUrl(r.dataUrl); onCached(item.path, r.dataUrl); }
-            // A CANCELLED JOB IS NOT A FAILURE AND MUST NOT PAINT ONE. The folder moved on while
-            // this was in flight; the tile asking for it is on its way out. Showing "could not
-            // read that file" here would be the app apologising for doing the right thing.
-            else if (!r.cancelled) setErr(r.error ?? "Could not read that file.");
-          })
-          // THE SECOND PLACE AN EXCEPTION BECAME USER-FACING COPY, found auditing the first. The
-          // main process already answers `{ ok: false, error }` with a written sentence for every
-          // failure it can name, so anything reaching here is the channel itself falling over —
-          // and `e.message` for that is a stack-trace fragment, not something a photographer can
-          // act on. The reason is not lost: it goes to the console, where it is of use.
-          .catch((e: unknown) => {
-            console.error("[scan-notes] image read failed:", item.path, e);
-            if (live) setErr("Could not read that file just now.");
-          });
-      },
-      { rootMargin: "200px" } // start a screen early so scrolling does not stutter
-    );
-    io.observe(el);
-    return () => { live = false; io.disconnect(); };
-  }, [item.path, item.kind, queue, onAsk, token]);
-
-  // THE SWAP THAT RELEASES THE DECODER. Setting `url` makes `pic` non-null, which makes
-  // `wantsVideo` false, which unmounts <VideoThumb> and re-runs the registration effect's cleanup.
-  // Tearing the element down is not a side effect here — it is the entire point of capturing.
-  const onSettled = useCallback(
-    (how: Settled, shot?: string, why?: ScanThumbFailReason, detail?: string) => {
-      if (how === "painted" && shot !== undefined) {
-        setUrl(shot);
-        onCached(item.path, shot); // survives this tile being filtered out and back in
-        // Fire-and-forget: the tile already has its picture, so a cache that cannot write is slow
-        // next launch and broken never.
-        void window.api.scan.notes.thumbsPut(item.path, shot).catch(() => undefined);
-        onOutcome(item.path, "painted");
-      } else if (how === "failed") {
-        setVideoFailed(true);
-        setFailWhy(why ?? "unknown");
-        onOutcome(item.path, "failed", why ?? "unknown");
-        // Same fire-and-forget discipline as the cache write above, and for a stronger reason: the
-        // tile has already shown its glyph, so a log that cannot be written costs one wasted attempt
-        // next launch. A log that could BREAK the grid would be the exact inversion this exists to
-        // prevent, and that inversion has already happened once in this file.
-        void window.api.scan.notes.thumbFailurePut(item.path, why ?? "unknown", detail ?? "").catch(() => undefined);
-      } else if (how === "noframe") {
-        // Stop trying — there is nothing here to capture — and record NOTHING. This tile is not
-        // broken, is not counted under "couldn't be previewed", and is never retried. It falls back
-        // to its own glyph, which for audio is a note and not a film reel.
-        setVideoFailed(true);
-        if (TRACE) {
-          console.info(
-            `[scan-notes] no video track (not a failure): kind=${item.kind} ${item.filename}`
-          );
-        }
-      }
-      // "shown" deliberately sets NOTHING: pic stays null and videoFailed stays false, so wantsVideo
-      // stays true and the <video> stays mounted with its frame on screen. It is released to the
-      // queue as painted because it is holding a live decoder — which is exactly what
-      // PAINTED_CEILING governs, and why that ceiling is still here.
-      queue.release(item.path, how === "failed" ? "failed" : how === "noframe" ? "noframe" : "painted");
-    },
-    [queue, item.path, onOutcome, onCached]
-  );
+  // MOUNTING IS THE VIEWPORT SIGNAL NOW. With the wall virtualized, a tile that exists is a tile on
+  // screen or within the overscan margin — so the observer that used to establish this is redundant
+  // and has been removed rather than left to fire alongside it. One source of truth for "visible".
+  useEffect(() => { onSeen(item.path); }, [onSeen, item.path]);
 
   // An AUDIO file gets an audio glyph and never a film reel — it is not video and must not look it.
   const glyph = item.kind === "video" ? "🎬" : item.kind === "audio" ? "🎵" : "🖼";
 
-  // EVERY TILE STATE THAT HAS SOMETHING TO SAY, resolved in one place and said in one place. These
-  // were four separate spans appended to the caption; three of them are answers rather than the
-  // file's name, and the fourth was an exception message. Ordered most specific first: a concrete
-  // read failure beats the general "cannot open this format", which beats a size.
+  // EVERY TILE STATE THAT HAS SOMETHING TO SAY, resolved in one place and said in one place.
+  // Ordered most specific first: a concrete read failure beats the general "cannot open this
+  // format", which beats a size.
   const note =
-    err !== null && err !== ""
-      ? err
+    readErr !== null && readErr !== ""
+      ? readErr
       : !item.viewable
         ? `This product cannot open ${item.extension ?? "this format"}${fmtBytes(item.size_bytes) ? ` — ${fmtBytes(item.size_bytes)}` : ""}.`
-        : failWhy !== null && pic === null
-          ? failSentence(failWhy)
-          : item.embedded && url
+        : failReason !== null && pic === null
+          ? failSentence(failReason)
+          : item.embedded && pic
             ? "This is the preview the camera embedded in the file."
             : null;
 
   return (
     <button
-      ref={box}
       type="button"
       className={`scannotes-tile${item.viewable ? "" : " dead"}`}
       onClick={() => item.viewable && onOpen(item)}
@@ -859,106 +694,200 @@ function Tile({ item, queue, cachedUrl, failure, retryToken, token, onOutcome, o
     >
       {/* THE REASON RIDES ON THE GLYPH, which is the part of the tile that looks wrong. It is a
           plain sentence with no error code: a photographer cannot act on "MediaError 4", and a
-          number in the interface reads as a bug that shipped anyway. No title at all when there is
-          nothing to explain — the button's own path title shows through, and an empty tooltip is
-          a flicker of nothing on every hover. */}
+          number in the interface reads as a bug that shipped anyway. */}
       <div className={`thumb${item.kind === "video" ? " vid" : ""}`} title={note ?? undefined}>
         {/* A DOUBLED WALL HAS TO BE READABLE AT A GLANCE. With the toggle on, a RAW and its JPEG
             sibling are the same photograph twice; the badge is what tells them apart without
-            reading two filenames. Only rendered when RAW is shown, because when it is off every
-            tile on the wall is a JPEG and a badge on none of them says nothing. */}
+            reading two filenames. */}
         {item.raw && <span className="raw">RAW</span>}
-        {pic !== null ? (
-          <img src={pic} alt="" />
-        ) : granted && wantsVideo && stream !== null ? (
-          <VideoThumb src={stream} onSettled={onSettled} />
-        ) : (
-          <span aria-hidden="true">{glyph}</span>
-        )}
+        {pic !== null ? <img src={pic} alt="" /> : <span aria-hidden="true">{glyph}</span>}
       </div>
       <div className="nm">{item.filename}</div>
     </button>
   );
 }
 
-export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw }: {
+/**
+ * ONE BENCH SLOT — a <video> that exists to produce one JPEG and then goes away.
+ *
+ * THIS IS WHERE THE DECODERS LIVE NOW. VideoThumb is unchanged and still needs to be in the render
+ * tree at a real size (attempt one of this feature proved a detached element decodes nothing
+ * reliably), so the bench is positioned OFF-SCREEN at tile size rather than hidden — `display:none`
+ * or a zero-sized box would be attempt one again under a different name.
+ *
+ * It exists per KEY so `onSettled` can be stable per file. VideoThumb takes `onSettled` as an effect
+ * dependency, so a fresh closure on every grid render would tear the element down and reload it
+ * mid-decode, over and over, on a wall that re-renders every time a thumbnail lands.
+ */
+function BenchSlot({ path, src, onDone }: {
+  path: string;
+  src: string;
+  onDone: (path: string, how: Settled, shot?: string, why?: ScanThumbFailReason, detail?: string) => void;
+}) {
+  const settled = useCallback(
+    (how: Settled, shot?: string, why?: ScanThumbFailReason, detail?: string) => onDone(path, how, shot, why, detail),
+    [onDone, path]
+  );
+  return <VideoThumb src={src} onSettled={settled} />;
+}
+
+/** What the two chips report. Counted, never estimated: a file is done when a picture for it exists
+ *  or it has genuinely failed — so the number can lag the drive but can never lead it. */
+export interface WarmProgress {
+  photos: { done: number; total: number };
+  raw: { done: number; total: number };
+}
+
+/**
+ * THE TWO WARM-UP CHIPS, drawn in the Scan Notes tab action row to
+ * MOCKUP-scan-notes-background-warm-v2-08-18-2026.html.
+ *
+ * They live up in ScanModule beside "+ Add Note" and "View media" because that row is visible from
+ * the REPORT, which is where the user is standing while the folder warms — a counter inside the
+ * media pane would only ever appear once the work it describes was already finished.
+ *
+ * THE ODOMETER RULE. Both numbers are counts of files that genuinely have a picture (or have
+ * genuinely failed), never a share of elapsed time, so the figure can lag the drive and can never
+ * lead it. A stall holds the number where it is; the bar holds with it. Neither ever runs ahead to
+ * a hundred and then waits, which is the thing that makes a progress bar stop being believed.
+ *
+ * A LANE WITH NOTHING IN IT DRAWS NOTHING. A folder of JPEGs shows one chip, not a RAW chip reading
+ * "0 of 0".
+ */
+export function WarmChips({ warm }: { warm: WarmProgress | null }) {
+  if (warm === null) return null;
+  const lanes = [
+    { key: "photos", label: "Photos", ...warm.photos },
+    { key: "raw", label: "RAW", ...warm.raw },
+  ].filter((l) => l.total > 0);
+  if (lanes.length === 0) return null;
+  return (
+    <div className="scannotes-warmwrap">
+      {lanes.map((l) => {
+        const done = l.done >= l.total;
+        return (
+          <div key={l.key} className={`scannotes-warm${done ? " done" : ""}`}>
+            <span className="bar" aria-hidden="true">
+              <i style={{ width: `${Math.round((l.done / l.total) * 100)}%` }} />
+            </span>
+            <span className="num">
+              {done ? (
+                <>
+                  <span className="tick" aria-hidden="true">✓</span> {l.label} ready
+                </>
+              ) : (
+                `${l.label} ${l.done.toLocaleString()} of ${l.total.toLocaleString()}`
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** How many stills the background warm-up asks for at once. It matches the worker window's own pool
+ *  (electron/core/services/scan/thumbWorker.ts) — asking for more only queues them a layer earlier
+ *  and costs the main process a longer read queue for no extra throughput. */
+const STILL_CONCURRENCY = 4;
+
+/** How many rows of tiles stay mounted beyond each edge of the scrollport. Three is roughly a
+ *  flick's worth at this tile size: enough that a fast scroll lands on pictures rather than on
+ *  glyphs, few enough that the element count stays a screenful. */
+const OVERSCAN_ROWS = 3;
+
+/** How many tiles the wall renders before it has measured itself. One screenful at the widest
+ *  reachable pane plus overscan is under a hundred at this tile size; two hundred is that with room
+ *  to spare, and it exists for a single frame. */
+const PROBE_SLICE = 200;
+
+/** How often the warm figures are handed to the shell. The chips are drawn by ScanModule, so every
+ *  update re-renders the whole Scan surface including an 800-folder tree — at four hundred
+ *  thumbnails that is four hundred renders of everything. Four times a second is faster than a
+ *  reader can follow and cheap enough to be invisible. */
+const WARM_REPORT_MS = 250;
+
+export default function MediaGrid({ folderPath, showRaw, active, host, onProgress, onHiddenRaw, onWarm }: {
   folderPath: string | null;
   showRaw: boolean;
+  /** Is the media wall actually being shown? The pipeline runs either way — that is the whole point
+   *  of the warm-up — and this decides only whether a wall is drawn. */
+  active: boolean;
+  /** WHERE THE WALL IS DRAWN. This component is mounted permanently by ScanModule so a folder can
+   *  warm while the user is reading its report; the wall itself belongs inside the media pane's
+   *  scroller, which is ScanNotesTab's element. Portalling into it is what lets one mounted grid
+   *  serve both — moving the component between two parents would unmount it, and an unmounted grid
+   *  restarts the folder every time the user presses View media. */
+  host: HTMLElement | null;
   /** REPORTED UP, NOT RENDERED HERE. Jason placed the loading line in the media pane HEADER row,
    *  beside the Show RAW files toggle (annotated screenshot, 08-18-2026) — and that row belongs to
-   *  ScanNotesTab. Only this component knows the counts, so it hands them over and the header draws
-   *  them. Null means there is nothing in flight. */
+   *  ScanNotesTab. Only this component knows the counts, so it hands them over. */
   onProgress?: (p: { done: number; total: number } | null) => void;
   /** How many RAW the filter is holding back — drawn on the header row beside the loading line. */
   onHiddenRaw?: (n: number) => void;
+  /** The two warm-up chips, drawn in the tab action row (MOCKUP-scan-notes-background-warm-v2). */
+  onWarm?: (w: WarmProgress | null) => void;
 }) {
   const [items, setItems] = useState<ScanMediaItem[]>([]);
-  /** Path → cached thumbnail data URL. Fetched once per folder; a path that is absent is a miss. */
+  /** Path → thumbnail data URL. Every picture on the wall comes from here — the tiles hold none of
+   *  their own, which is what makes the RAW toggle a re-render rather than a reload and what lets a
+   *  virtualized tile be destroyed and rebuilt without losing anything. */
   const [cached, setCached] = useState<Record<string, string>>({});
   /** Path → the recorded failure, read once per folder open alongside the cache. A `permanent`
-   *  entry stops its tile from ever mounting a decoder; the rest are informational until the retry
-   *  pass reads them. */
+   *  entry is never attempted again until the user asks. */
   const [failures, setFailures] = useState<Record<string, ScanThumbFailure>>({});
   /** Failures observed THIS open, path → reason. Separate from `failures` on purpose: that one is
    *  what disk remembers, this one is what just happened, and the retry budget is spent against
    *  this one so a folder reopened an hour later gets a clean set of attempts. */
   const [failedNow, setFailedNow] = useState<Record<string, ScanThumbFailReason>>({});
-  /** Paths whose generation has actually been REQUESTED — the only honest denominator.
-   *
-   *  THE COUNTER USED TO COUNT THE FOLDER. A 500-file folder read `20 of 500` and sat there, because
-   *  480 of those had never been asked for and would not be until they scrolled into view: the line
-   *  promised work nobody had started. A progress indicator that looks stuck is worse than none, and
-   *  that is precisely the impression this feature exists to prevent. A ref, not state — it is
-   *  written from an observer callback and must not re-render on every tile that scrolls past. */
-  const asked = useRef<Set<string>>(new Set());
-  const [askedTick, setAskedTick] = useState(0);
+  /** A still that could not be read, in the main process's own words. Stills do not go through the
+   *  video classifier — there is no media element and no error code to classify. */
+  const [stillErr, setStillErr] = useState<Record<string, string>>({});
   /** Attempts spent per path THIS open. A ref, not state: it is read inside the retry decision and
    *  must never drive a render. */
   const attempts = useRef(new Map<string, number>());
-  /** The paths chosen for the current retry round, and the round number that arms them. */
-  const [retrySet, setRetrySet] = useState<ReadonlySet<string>>(new Set());
-  const [retryRound, setRetryRound] = useState(0);
   /** True once the queue has drained at least once. The line under the grid waits for it, so nothing
    *  appears while tiles are still working — it must not flash and must not move the grid. */
   const [settled, setSettled] = useState(false);
-  /** This folder's cancellation token, issued by the main process. 0 until it answers — a tile that
-   *  manages to ask before then sends 0, which is never treated as stale, so nothing is lost. */
-  const [jobToken, setJobToken] = useState(0);
   /** Rows the FOLDER holds, which is not always rows the wall received. Only ever differs if the
    *  20,000-row sanity bound binds, and if it does the user is told rather than left to count. */
   const [rowTotal, setRowTotal] = useState(0);
+  /** The video files currently holding a decoder on the bench. Never longer than CONCURRENCY. */
+  const [bench, setBench] = useState<string[]>([]);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** WHICH ITEM IS OPEN, still held as the item itself so `onOpen` on four hundred tiles stays the
-   *  plain `setOpen` it has always been. The viewer wants a POSITION — it counts, steps and reels off
-   *  it — so the render block below converts between the two in one line each way. */
+   *  plain `setOpen` it has always been. */
   const [open, setOpen] = useState<ScanMediaItem | null>(null);
 
+  /** PATHS THE USER IS ACTUALLY LOOKING AT. Written by every mounted tile, drained by the still
+   *  pump and by the video queue. A ref because it is written during other components' effects and
+   *  must never cause a render of its own — the tile it came from is already on screen. */
+  const urgent = useRef<Set<string>>(new Set());
+  /** Everything the pipeline has already dealt with this folder, so a re-entrant pump cannot ask
+   *  twice for the same file. Seeded from the disk-cache sweep. */
+  const have = useRef<Set<string>>(new Set());
+
   // ONE QUEUE PER FOLDER, and the old one is cancelled the moment the folder changes — a background
-  // walk must never outlive the folder it was walking. `folderPath` is a reset key, not a value the
-  // constructor reads; that is the whole point of the dependency.
+  // walk must never outlive the folder it was walking.
   const queue = useMemo(() => new ThumbQueue(), [folderPath]); // eslint-disable-line react-hooks/exhaustive-deps
   // open() on every setup, not just the first: React's development double-invoke closes this queue
-  // once before the component is really mounted, and without the re-open the first folder the media
-  // pane is opened against would never generate a single thumbnail.
+  // once before the component is really mounted, and without the re-open the first folder would
+  // never generate a single video thumbnail.
   useEffect(() => {
     queue.open();
     return () => queue.cancel();
   }, [queue]);
 
-  /** Every video tile's verdict lands here. Stable identity — it is a dependency of every tile's
-   *  onSettled, and a new function each render would re-run four hundred callbacks. */
   /**
-   * A THUMBNAIL LIVES IN THE GRID, NOT IN THE TILE. This is what makes the RAW toggle a re-render
-   * rather than a reload: a filtered-out tile unmounts and its local state dies with it, so before
-   * this the picture was fetched again the moment it came back. Keyed by path, so React reuses the
-   * tiles that did not move and the ones that did come back already holding their picture.
+   * A THUMBNAIL LIVES IN THE GRID, NOT IN THE TILE — and from this phase that is load-bearing rather
+   * than merely tidy. A virtualized tile is destroyed the moment it leaves the overscan margin, so a
+   * picture held inside one would be thrown away on every scroll and fetched again on the way back.
    *
-   * BOUNDED. At roughly 11 KB a thumbnail, SESSION_THUMB_MAX is about 22 MB at worst — but "small"
-   * is not "unbounded", and a session that browses forty folders would otherwise keep every tile
-   * it ever saw. Oldest keys are dropped first; a dropped one is a disk-cache hit next time, not a
-   * regeneration.
+   * BOUNDED. At roughly 11 KB a thumbnail, SESSION_THUMB_MAX is about 22 MB at worst. Oldest keys
+   * are dropped first; a dropped one is a disk-cache hit next time, not a regeneration.
    */
   const onCached = useCallback((p: string, dataUrl: string) => {
+    have.current.add(p);
     setCached((c) => {
       if (c[p] === dataUrl) return c;
       const next = { ...c, [p]: dataUrl };
@@ -968,11 +897,12 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
     });
   }, []);
 
-  const onAsk = useCallback((p: string) => {
-    if (asked.current.has(p)) return;
-    asked.current.add(p);
-    setAskedTick((n) => n + 1); // one render per newly-started tile, not per scroll event
-  }, []);
+  /** A tile came on screen. Priority in BOTH pipelines, and nothing else. */
+  const onSeen = useCallback((p: string) => {
+    if (have.current.has(p)) return;
+    urgent.current.add(p);
+    queue.seen(p); // a no-op for anything the video queue does not know about
+  }, [queue]);
 
   const onOutcome = useCallback((p: string, how: "painted" | "failed", why?: ScanThumbFailReason) => {
     if (how === "painted") {
@@ -992,46 +922,90 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
     setFailedNow((prev) => ({ ...prev, [p]: why ?? "unknown" }));
   }, [queue]);
 
+  /** Path → its stream URL, for the bench. Built once per listing rather than searched per slot. */
+  const streams = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const i of items) if (i.kind === "video" && i.streamUrl !== null) m.set(i.path, i.streamUrl);
+    return m;
+  }, [items]);
+
+  /**
+   * A BENCH SLOT FINISHED. This is the whole of the video pipeline's write side, and it is the same
+   * set of outcomes the tile used to handle — it has simply stopped being a tile's business.
+   *
+   * `shown` IS AN ACCEPTED LOSS HERE, and it is worth naming. It means a frame decoded but the
+   * canvas would not export it, which used to leave the live <video> on screen as the thumbnail. A
+   * bench slot is off-screen, so there is nothing to leave: that file glyphs instead. It only
+   * happens when frame capture is unavailable altogether — the console warning in `capture()` says
+   * so in as many words — and the alternative is keeping a decoder alive per file for the life of
+   * the folder, which is the memory position this whole design exists to escape.
+   */
+  const benchDone = useCallback(
+    (p: string, how: Settled, shot?: string, why?: ScanThumbFailReason, detail?: string) => {
+      if (how === "painted" && shot !== undefined) {
+        onCached(p, shot);
+        // Fire-and-forget: the picture already exists, so a cache that cannot write is slow next
+        // launch and broken never.
+        void window.api.scan.notes.thumbsPut(p, shot).catch(() => undefined);
+        onOutcome(p, "painted");
+      } else if (how === "failed") {
+        onOutcome(p, "failed", why ?? "unknown");
+        void window.api.scan.notes.thumbFailurePut(p, why ?? "unknown", detail ?? "").catch(() => undefined);
+      } else if (how === "noframe") {
+        // Nothing went wrong — there is simply no video track. Recorded NOWHERE, counted as no
+        // failure, never retried. An audio file mis-typed as video lands here.
+        have.current.add(p);
+      } else {
+        have.current.add(p); // "shown" — see above
+      }
+      setBench((b) => b.filter((k) => k !== p));
+      queue.release(p, how === "failed" ? "failed" : how === "noframe" ? "noframe" : "painted");
+    },
+    [onCached, onOutcome, queue]
+  );
+
   /**
    * THE RETRY ROUND. Armed by the queue draining, delayed by RETRY_BACKOFF_MS, and it re-queues only
-   * what still has budget. Everything else in this function is the stopping condition, which is the
-   * part that matters: a retry that cannot succeed is a treadmill, and a treadmill on a folder of
-   * four hundred clips is an application that never stops working.
+   * what still has budget. Everything else here is the stopping condition, which is the part that
+   * matters: a retry that cannot succeed is a treadmill.
    */
   useEffect(() => {
     queue.onIdle = () => {
       setSettled(true);
-      if (retryTimer.current !== null) return; // a round is already armed; draining again changes nothing
+      if (retryTimer.current !== null) return; // a round is already armed
       retryTimer.current = setTimeout(() => {
         retryTimer.current = null;
         setFailedNow((current) => {
           const entries = Object.entries(current);
           const due = entries.filter(([p, r]) => (attempts.current.get(p) ?? 0) < ATTEMPT_BUDGET[r]);
-          // The tally is SET rather than accumulated: it describes the folder as it stands, so a
-          // second drain does not double-count what the first one already reported.
+          // SET rather than accumulated: it describes the folder as it stands, so a second drain
+          // does not double-count what the first one already reported.
           queue.retry.gaveUp = entries.length - due.length;
           queue.retry.permanent = entries.filter(([, r]) => r === "permanent").length;
           queue.retry.unknown = entries.filter(([, r]) => r === "unknown").length;
           if (due.length > 0) {
             queue.retry.retried += due.length;
-            setRetrySet(new Set(due.map(([p]) => p)));
-            setRetryRound((n) => n + 1);
+            // RE-REGISTERED DIRECTLY, which is the whole of a retry now. There is no second queue
+            // and no second code path: a retry is a file asking again, in the ordinary lane.
+            for (const [p] of due) {
+              if (!streams.has(p)) continue;
+              have.current.delete(p);
+              queue.register(p, () => setBench((b) => (b.includes(p) ? b : [...b, p])), () => undefined);
+            }
           }
-          return current; // read-only use of the setter — nothing about the failure map changes here
+          return current; // read-only use of the setter
         });
       }, RETRY_BACKOFF_MS);
     };
-    // CANCELLED WITH THE FOLDER, exactly as the first pass is. A retry that outlived its folder would
-    // burn slots on files that have already unmounted, and the new folder would pay for it.
+    // CANCELLED WITH THE FOLDER, exactly as the first pass is.
     return () => {
       queue.onIdle = null;
       if (retryTimer.current !== null) { clearTimeout(retryTimer.current); retryTimer.current = null; }
     };
-  }, [queue]);
+  }, [queue, streams]);
 
   /** Everything that could not be previewed: what failed this session, plus what disk already knows
-   *  is hopeless — a `permanent` tile never attempts, so it never appears in failedNow, and leaving
-   *  it out of the count would be the silent film-glyph this feature exists to end. */
+   *  is hopeless — a `permanent` file is never attempted, so it never appears in failedNow. */
   const failedPaths = useMemo(() => {
     const s = new Set(Object.keys(failedNow));
     for (const i of items) if (failures[i.path]?.reason === "permanent") s.add(i.path);
@@ -1039,235 +1013,454 @@ export default function MediaGrid({ folderPath, showRaw, onProgress, onHiddenRaw
   }, [failedNow, failures, items]);
 
   /** The human override. It clears the record for this folder — `permanent` included — and re-arms
-   *  every failed tile. An explicit request outranks the classifier, which may be wrong; what it
+   *  every failed file. An explicit request outranks the classifier, which may be wrong; what it
    *  must not do is let the classifier be wrong repeatedly and for free. */
   const retryAll = useCallback(() => {
     if (failedPaths.length === 0) return;
     void window.api.scan.notes.thumbFailuresClear(failedPaths).catch(() => undefined);
     attempts.current.clear();
     queue.retry.retried += failedPaths.length;
-    setFailures({});   // drops knownDead, so a permanent tile mounts a decoder again
+    setFailures({});   // drops the `permanent` bar, so those files mount a decoder again
     setFailedNow({});
-    setRetrySet(new Set(failedPaths));
-    setRetryRound((n) => n + 1);
-  }, [failedPaths, queue]);
+    // VIDEO ONLY, exactly as before this phase. A still that could not be read has already had its
+    // one attempt and its own sentence on the tile; re-arming it here would clear the sentence
+    // without re-running the read, which is worse than leaving it — it would look fixed.
+    for (const p of failedPaths) {
+      if (!streams.has(p)) continue;
+      have.current.delete(p);
+      queue.register(p, () => setBench((b) => (b.includes(p) ? b : [...b, p])), () => undefined);
+    }
+  }, [failedPaths, queue, streams]);
 
-  // TILE NAMES FIRST, PICTURES A BEAT LATER, and deliberately in that order — the listing is one
-  // cheap query and the cache read is hundreds of file reads, so painting the wall before asking for
-  // thumbnails is the difference between a folder that opens and a folder that stalls.
-  //
-  // ONE CALL FOR THE WHOLE FOLDER, not one per tile: four hundred round trips would cost more in
-  // message overhead than the reads themselves. Every hit that comes back is a tile that will never
-  // create a decoder or take a queue slot.
+  /**
+   * THE FOLDER, END TO END: list it, read what the cache already has, then warm the rest.
+   *
+   * IT RUNS WHETHER OR NOT THE WALL IS SHOWING, and that is the entire point of the phase. A folder
+   * clicked in the tree opens on its report; by the time the user presses View media the pictures
+   * are already on disk. `active` is not a dependency here and must never become one.
+   *
+   * THE ORDER IS THE RULING. Standard photographs first, then video, then RAW — Jason's, on the
+   * grounds that a standard image is what you are most likely to want and a RAW is the one that
+   * costs an extraction. Anything the user actually looks at jumps all three lanes.
+   */
   useEffect(() => {
-    // A NEW FOLDER IS A CLEAN SLATE for everything the retry reasons about. The transient budget
-    // resets here and only here — "never more than once per open" is this line.
     attempts.current.clear();
+    urgent.current = new Set();
+    have.current = new Set();
     setFailedNow({});
-    setRetrySet(new Set());
+    setStillErr({});
+    setBench([]);
     setSettled(false);
-    if (!folderPath) { setItems([]); setCached({}); setFailures({}); return; }
+    if (!folderPath) { setItems([]); setCached({}); setFailures({}); setRowTotal(0); return; }
     let live = true;
-    // ISSUE THIS FOLDER'S TOKEN FIRST, BEFORE ANY TILE CAN ASK FOR ANYTHING. Bumping the counter
-    // main-side is itself the cancellation of the previous folder's outstanding work — there is no
-    // list of jobs to walk, and none can be missed. The await is one round trip per folder change.
-    void window.api.scan.notes.jobToken().then((t) => { if (live) setJobToken(t); }).catch(() => undefined);
-    // NOT cleared here. Clearing it while the item list still held the OUTGOING folder made every one of
-    // that folder's cached tiles lose their picture for a beat — so they flashed from a
-    // picture to the film-reel glyph and started decoding themselves into the new folder's queue,
-    // burning slots on files that were about to unmount. The map is replaced when the new listing
-    // lands, and keys are absolute paths, so a stale entry can never match the wrong file.
-    void window.api.scan.notes
-      .media(folderPath)
-      .then((res) => {
+
+    void (async () => {
+      // ISSUE THIS FOLDER'S TOKEN FIRST, BEFORE ANY WORK CAN BE ASKED FOR. Bumping the counter
+      // main-side is itself the cancellation of the previous folder's outstanding work — there is
+      // no list of jobs to walk, and none can be missed. THE PHASE 0 MECHANISM IS THE ONLY ONE:
+      // the warm-up deliberately adds no second notion of "stop".
+      // The token is a LOCAL, not state: only this run's own requests carry it, and a render has
+      // no use for it. Holding it in state would re-render the whole wall for a number nothing draws.
+      const token = await window.api.scan.notes.jobToken().catch(() => 0);
+      if (!live) return;
+
+      const res = await window.api.scan.notes.media(folderPath).catch(() => null);
+      if (!live) return;
+      if (res === null) { setItems([]); setCached({}); setFailures({}); setRowTotal(0); return; }
+      // TOLERATES THE OLD SHAPE. A reply that is still a bare array (an older main process during a
+      // hot reload) is treated as a complete folder rather than crashing the wall.
+      const list = Array.isArray(res) ? res : res.items;
+      setItems(list);
+      setRowTotal(Array.isArray(res) ? res.length : res.total);
+
+      const videos = list.filter((i) => i.kind === "video" && i.streamUrl !== null).map((i) => i.path);
+      // THE FAILURE LOG. Read with its own catch and never allowed to decide whether the LISTING
+      // happened — the names are already on screen by now, and no record is the same as no failures.
+      const dead = await window.api.scan.notes.thumbFailuresGet(videos)
+        .catch(() => ({}) as Record<string, ScanThumbFailure>);
+      if (!live) return;
+      setFailures(dead);
+
+      const cacheable = list.filter((i) => i.kind === "image" || (i.kind === "video" && i.streamUrl !== null)).map((i) => i.path);
+      if (cacheable.length === 0) { setCached({}); setFailures({}); return; }
+
+      // CHUNKED, AND THE CHUNKING IS THE FIX. `thumbsGet` is a SYNCHRONOUS statSync + readFileSync
+      // loop on the thread that owns every window and it answers with base64, so both the block and
+      // the payload scale with the array handed over. Batches bound each, and they land
+      // progressively, so the top of the wall paints while the rest is still being read.
+      for (let i = 0; i < cacheable.length; i += CACHE_BATCH) {
+        if (!live) return; // folder changed mid-sweep: stop asking for a folder nobody is on
+        const slice = cacheable.slice(i, i + CACHE_BATCH);
+        const hits = await window.api.scan.notes.thumbsGet(slice).catch(() => ({}) as Record<string, string>);
         if (!live) return;
-        // TOLERATES THE OLD SHAPE. A reply that is still a bare array (an older main process during
-        // a hot reload) is treated as a complete folder rather than crashing the wall.
-        const list = Array.isArray(res) ? res : res.items;
-        const total = Array.isArray(res) ? res.length : res.total;
-        setItems(list);
-        setRowTotal(total);
-        const videos = list.filter((i) => i.kind === "video" && i.streamUrl !== null).map((i) => i.path);
-        // STILLS ARE IN THE BATCH NOW. They were excluded because a still's cached form used to be
-        // the whole file — hundreds of multi-megabyte data URLs on one round trip. A thumbnail is
-        // about 11 KB, so a warm folder of four hundred stills is roughly 4 MB and ONE call, and
-        // every tile paints with no IPC of its own and no decode at all.
-        const cacheable = list.filter((i) => i.kind === "image" || (i.kind === "video" && i.streamUrl !== null)).map((i) => i.path);
-        if (cacheable.length === 0) { setCached({}); setFailures({}); return; }
-        // THE FAILURE LOG, read alongside the cache and never chained into it. Two independent
-        // round trips with independent catches: neither is allowed to decide whether the other
-        // happened, and neither is allowed to decide whether the LISTING happened. The tiles are
-        // already on screen by now.
-        void window.api.scan.notes
-          .thumbFailuresGet(videos)
-          .then((rec) => { if (live) setFailures(rec); })
-          .catch(() => undefined); // no record is the same as no failures — every tile attempts
-        // CAUGHT HERE, NOT DOWNSTREAM. Returning this promise into the outer chain meant a rejected
-        // CACHE read landed in the catch below and called setItems([]) — so a folder full of media
-        // rendered "No media recorded in this folder." because a thumbnail lookup failed. A cache is
-        // never allowed to decide whether the listing exists.
-        // CHUNKED, AND THE CHUNKING IS THE FIX. `thumbsGet` is a SYNCHRONOUS loop of statSync +
-        // readFileSync on the thread that owns every window, and it returns base64 in the reply —
-        // both costs scale with the array length. One call for 2,500 rows is a long block AND a
-        // ~37 MB string. Batches of CACHE_BATCH bound the block and the payload, and they arrive
-        // progressively, so the top of the wall paints while the rest is still being read.
-        void (async () => {
-          for (let i = 0; i < cacheable.length; i += CACHE_BATCH) {
-            if (!live) return; // folder changed mid-sweep: stop asking for a folder nobody is on
-            const slice = cacheable.slice(i, i + CACHE_BATCH);
-            const hits = await window.api.scan.notes.thumbsGet(slice).catch(() => ({}) as Record<string, string>);
-            if (!live) return;
-            // MERGE, NEVER REPLACE. Tiles start generating the moment they scroll into view, so
-            // this round trip can land AFTER some have already reported theirs — and replacing
-            // would throw those away and make them generate a second time. Session entries win.
-            setCached((c) => ({ ...hits, ...c }));
-            if (TRACE) {
-              const n = Object.keys(hits).length;
-              console.info(
-                `[scan-notes] thumb cache batch ${i / CACHE_BATCH + 1}: ${n} hit of ${slice.length} asked ` +
-                  `(${cacheable.length} in folder)`
-              );
-            }
-          }
-        })(); // a throw inside is impossible — every await already carries its own catch
-      })
-      .catch(() => { if (live) { setItems([]); setCached({}); setFailures({}); } });
+        for (const k of Object.keys(hits)) have.current.add(k);
+        // MERGE, NEVER REPLACE. Work started the moment the listing landed, so this round trip can
+        // arrive AFTER some pictures are already in — replacing would throw those away and make
+        // them generate a second time. Session entries win.
+        setCached((c) => ({ ...hits, ...c }));
+        if (TRACE) {
+          console.info(
+            `[scan-notes] thumb cache batch ${i / CACHE_BATCH + 1}: ${Object.keys(hits).length} hit of ${slice.length} asked ` +
+              `(${cacheable.length} in folder)`
+          );
+        }
+      }
+      if (!live) return;
+
+      // ---- THE VIDEO LANE. Registered from the LISTING, not from a mounted tile: that is the
+      // rehoming this phase is named for. A dead file (recorded `permanent`) is not registered at
+      // all — it has already proved on this machine that it cannot be decoded, and spending a
+      // decoder plus ten seconds of ceiling to learn that again is the whole point of the log.
+      for (const p of videos) {
+        if (have.current.has(p) || dead[p]?.reason === "permanent") continue;
+        queue.register(p, () => setBench((b) => (b.includes(p) ? b : [...b, p])), () => undefined);
+      }
+
+      // ---- THE STILL LANE. Standard photographs, then RAW, and whatever the user is looking at
+      // ahead of both. STILL_CONCURRENCY walkers share one cursor, so a slow file holds up nothing
+      // but its own walker.
+      const standard = list.filter((i) => i.kind === "image" && !i.raw).map((i) => i.path);
+      const raws = list.filter((i) => i.kind === "image" && i.raw).map((i) => i.path);
+      const lane = [...standard, ...raws];
+      const inLane = new Set(lane);
+      let cursor = 0;
+      const nextPath = (): string | null => {
+        // THE QUEUE-JUMP, and it is one loop rather than a second queue. A tile mounting is the only
+        // thing that puts a path here, so this is by definition what is on screen right now.
+        for (const u of urgent.current) {
+          urgent.current.delete(u);
+          if (inLane.has(u) && !have.current.has(u)) return u;
+        }
+        while (cursor < lane.length) {
+          const p = lane[cursor++];
+          if (!have.current.has(p)) return p;
+        }
+        return null;
+      };
+      const walk = async (): Promise<void> => {
+        for (;;) {
+          if (!live) return;
+          const p = nextPath();
+          if (p === null) return;
+          have.current.add(p); // claimed before the await, so two walkers can never take the same file
+          const r = await window.api.scan.notes.stillThumb(p, token).catch(() => null);
+          if (!live) return;
+          if (r === null) { setStillErr((e) => ({ ...e, [p]: "Could not read that file just now." })); continue; }
+          if (r.ok && r.dataUrl) { onCached(p, r.dataUrl); continue; }
+          // A CANCELLED JOB IS NOT A FAILURE AND MUST NOT PAINT ONE. The folder moved on while this
+          // was in flight. Showing "could not read that file" would be the app apologising for
+          // doing the right thing.
+          if (r.cancelled) return;
+          setStillErr((e) => ({ ...e, [p]: r.error ?? "Could not read that file." }));
+        }
+      };
+      await Promise.all(Array.from({ length: STILL_CONCURRENCY }, walk));
+      if (live && TRACE) console.info(`[scan-notes] still warm-up finished — ${lane.length} in folder`);
+    })();
+
     // ON THE WAY OUT TOO, and this is the case the `live` flags never covered: leaving Scan Notes
-    // entirely, or closing the window, left a folder's worth of decodes running to completion for
-    // a grid that no longer exists. Bumping the token on unmount abandons them.
+    // entirely, or closing the window, left a folder's worth of decodes running to completion for a
+    // grid that no longer exists. Bumping the token on unmount abandons them.
     return () => { live = false; void window.api.scan.notes.jobToken().catch(() => undefined); };
-  }, [folderPath]);
+  }, [folderPath, queue, onCached]);
 
-  // A NEW FOLDER IS A NEW BATCH. Without this the counter would carry the previous folder's
-  // denominator into a folder whose tiles have not been asked for yet.
-  useEffect(() => { asked.current = new Set(); setAskedTick(0); }, [folderPath]);
-
-  // THE STILL FETCH AND THE ESCAPE KEY BOTH MOVED INTO MediaViewer, and neither is duplicated here:
-  // the viewer steps between files on its own, so a copy of the image held in the GRID would be the
-  // wrong file the moment the user pressed Next, and a second window-level keydown listener would
-  // mean two handlers racing for one Escape.
   const close = useCallback(() => setOpen(null), []);
 
   /**
-   * THE RAW FILTER — a DERIVED list, deliberately not a second fetch.
-   *
-   * `items` holds the whole folder; this is what the wall actually renders. Filtering here rather
-   * than re-listing is what makes the toggle instant and leaves the thumbnail cache untouched: a
-   * RAW that was already extracted paints from cache the moment it is switched back on, because
-   * nothing was ever thrown away.
-   *
-   * IT IS ALSO WHERE THE COST GENUINELY DISAPPEARS, not merely where it is hidden. A still costs
-   * nothing until its Tile mounts and its IntersectionObserver fires the `image` call — no Tile,
-   * no observer, no IPC round trip, no preview extraction, no cache lookup. A filtered-out RAW
-   * never becomes an element, so the expensive half of a RAW-plus-JPEG folder is never asked for.
+   * THE RAW FILTER — a DERIVED list, deliberately not a second fetch. Filtering here rather than
+   * re-listing is what makes the toggle instant and leaves the thumbnail cache untouched: a RAW that
+   * was already extracted paints from cache the moment it is switched back on, because nothing was
+   * ever thrown away. Since the warm-up covers the whole folder, that is now true of every RAW in it
+   * rather than only the ones that had been scrolled past.
    */
-  // WHAT IS STILL COMING. A tile is "done" once the grid holds its picture or it has failed; the
-  // denominator is every tile on the wall that needs one. Stills get the same treatment as RAW,
-  // because a cold folder of JPEGs takes just as long and deserves the same honesty.
-  const shownItems = showRaw ? items : items.filter((i) => !i.raw);
+  const shownItems = useMemo(() => (showRaw ? items : items.filter((i) => !i.raw)), [items, showRaw]);
   const hiddenRaw = items.length - shownItems.length;
-  /* Nothing vanishes silently — the same voice as the hidden-folders line in the tree. Rendered
-     only when something IS hidden; a folder with no RAW gets no line and no explanation it does
-     not need. */
-  // OUTSTANDING WORK, NOT THE FOLDER. Only tiles that have actually requested generation count,
-  // so the line describes a batch that is genuinely running and clears when that batch lands.
-  // Scrolling queues more and the line comes back with new figures.
-  void askedTick; // the ref above is the source; this is what makes a new ask re-render
-  const inBatch = shownItems.filter((i) => asked.current.has(i.path));
+
+  /** Does this file want a picture at all? Audio never does, and neither does a video with no
+   *  stream. Counting those would give a denominator that can never be reached. */
+  const wantsPic = useCallback(
+    (i: ScanMediaItem) => i.kind === "image" || (i.kind === "video" && i.streamUrl !== null),
+    []
+  );
+  const isDone = useCallback(
+    (p: string) => cached[p] !== undefined || failedNow[p] !== undefined || stillErr[p] !== undefined,
+    [cached, failedNow, stillErr]
+  );
+
+  // ---------------------------------------------------------------- the warm-up chips
+  //
+  // COUNTED, NEVER ESTIMATED. `done` is files that have a picture or have genuinely failed, so the
+  // figure can lag the drive and can never lead it — which is the odometer rule, and the reason a
+  // percentage-of-elapsed-time bar was never on the table.
+  const warm = useMemo<WarmProgress | null>(() => {
+    const photos = items.filter((i) => i.kind === "image" && !i.raw);
+    const raw = items.filter((i) => i.kind === "image" && i.raw);
+    if (photos.length === 0 && raw.length === 0) return null;
+    return {
+      photos: { done: photos.filter((i) => isDone(i.path)).length, total: photos.length },
+      raw: { done: raw.filter((i) => isDone(i.path)).length, total: raw.length },
+    };
+  }, [items, isDone]);
+
+  /* HANDED UP ON A TIMER, NOT ON EVERY THUMBNAIL. The chips are drawn by ScanModule, so each report
+     re-renders the whole Scan surface — four hundred of those during a warm-up would be four hundred
+     renders of an 800-folder tree. The reported figures are compared before being sent, so a settled
+     folder costs nothing at all. */
+  const warmRef = useRef<WarmProgress | null>(warm);
+  warmRef.current = warm;
+  useEffect(() => {
+    if (!onWarm) return;
+    let last = "";
+    const push = (): void => {
+      const w = warmRef.current;
+      const key = w === null ? "" : `${w.photos.done}/${w.photos.total}/${w.raw.done}/${w.raw.total}`;
+      if (key === last) return;
+      last = key;
+      onWarm(w);
+    };
+    push();
+    const id = setInterval(push, WARM_REPORT_MS);
+    return () => { clearInterval(id); onWarm(null); };
+  }, [onWarm]);
+
+  /* WHAT IS STILL COMING, for the media pane's own header line. Every file on the wall that wants a
+     picture counts — which is honest now that every one of them is genuinely queued. */
+  const inBatch = shownItems.filter(wantsPic);
   const total = inBatch.length;
-  const doneCount = inBatch.filter((i) => cached[i.path] !== undefined || failedNow[i.path] !== undefined).length;
+  const doneCount = inBatch.filter((i) => isDone(i.path)).length;
   const pending = total - doneCount;
 
-  /* HANDED UP FOR THE HEADER TO DRAW. Reported from an effect on PRIMITIVES, never from render:
-     calling the parent's setState during render is what turns a progress readout into an infinite
-     loop. Null the moment nothing is in flight, so the header clears itself. */
+  /* Reported from an effect on PRIMITIVES, never from render: calling the parent's setState during
+     render is what turns a progress readout into an infinite loop. Null the moment nothing is in
+     flight, so the header clears itself. */
   useEffect(() => {
     onProgress?.(pending > 0 ? { done: doneCount, total } : null);
   }, [onProgress, pending, doneCount, total]);
-
-  /* On unmount — leaving media mode, or changing tab — the header must not keep a stale line. */
   useEffect(() => () => onProgress?.(null), [onProgress]);
 
   useEffect(() => { onHiddenRaw?.(hiddenRaw); }, [onHiddenRaw, hiddenRaw]);
   useEffect(() => () => onHiddenRaw?.(0), [onHiddenRaw]);
 
-  const hiddenLine = null; // it lives on the header row now — see ScanNotesTab's .scannotes-mhead
+  // ---------------------------------------------------------------- the window
+  //
+  // ONLY WHAT IS ON SCREEN EXISTS AS AN ELEMENT, and the numbers that decide which rows those are
+  // come from MEASURING the wall, never from assuming it. The pane is a three-column grid at 1440
+  // and a different count at 740, the rail collapses, and `auto-fill` re-flows on every one of
+  // those — so the column count is read out of the grid's own resolved `grid-template-columns` and
+  // the row height out of a real tile.
+  //
+  // IT FAILS OPEN. Until those measurements exist, or if they ever come back nonsense, `end` is the
+  // whole list and the wall renders complete — heavier, never short. A windowed grid that drops the
+  // tail is the 250-tile defect wearing a new coat, and it is invisible by nature, so the failure
+  // direction is the one design decision here that is not negotiable.
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const scroller = useRef<HTMLElement | null>(null);
+  const [geo, setGeo] = useState({ cols: 0, rowH: 0, gap: 0, gridTop: 0, viewH: 0 });
+  const [scrollTop, setScrollTop] = useState(0);
+  /** Set only if a grid WITH tiles in it refused to yield a column count or a row height. It is the
+   *  escape hatch that keeps the fail-open promise honest: without it, the pre-measurement slice
+   *  below would be a permanent silent truncation on any machine where the measurement broke. */
+  const [unmeasurable, setUnmeasurable] = useState(false);
 
-  if (!folderPath) return <div className="scannotes-empty">Pick a folder on the left.</div>;
-  if (items.length === 0) {
-    return <div className="scannotes-empty">No media recorded in this folder. Scan it and the files appear here.</div>;
-  }
-  // A RAW-ONLY SHOOT WITH THE TOGGLE OFF. The folder is not empty and must not claim to be — the
-  // count line is the whole trace of what is here, so it says so in full rather than leaving the
-  // user staring at a blank wall wondering whether the scan failed.
-  if (shownItems.length === 0) {
-    return (
-      <div className="scannotes-empty">
-        Every file in this folder is a RAW. Turn on <strong>Show RAW files</strong> above to see
-        {hiddenRaw === 1 ? " it." : ` all ${hiddenRaw.toLocaleString()} of them.`}
-      </div>
+  const measure = useCallback(() => {
+    const g = gridRef.current;
+    const s = scroller.current;
+    if (!g || !s) return;
+    const cs = getComputedStyle(g);
+    // `grid-template-columns` resolves to a list of used pixel values, one per column — this IS the
+    // measured count, whatever auto-fill decided at this width with this rail state.
+    const cols = cs.gridTemplateColumns.split(" ").filter((t) => t !== "").length;
+    const gap = Number.parseFloat(cs.rowGap) || 0;
+    const tile = g.querySelector(".scannotes-tile") as HTMLElement | null;
+    const rowH = tile ? tile.offsetHeight + gap : 0;
+    // Exact, and immune to whatever the offsetParent chain happens to be: the grid's top in the
+    // scroller's own content coordinates.
+    const gridTop = g.getBoundingClientRect().top - s.getBoundingClientRect().top + s.scrollTop;
+    if (tile !== null && (cols === 0 || rowH === 0)) setUnmeasurable(true);
+    setGeo((p) =>
+      p.cols === cols && p.rowH === rowH && p.gap === gap && p.gridTop === gridTop && p.viewH === s.clientHeight
+        ? p
+        : { cols, rowH, gap, gridTop, viewH: s.clientHeight }
     );
-  }
+  }, []);
+
+  /* The scroller belongs to ScanNotesTab, so it is found rather than owned. If it is ever not found
+     the wall simply does not window — complete and heavier, which is the safe direction. */
+  useEffect(() => {
+    if (!active || host === null) { scroller.current = null; return; }
+    const s = (host.closest(".scannotes-mscroll") as HTMLElement | null) ?? host;
+    scroller.current = s;
+    let raf = 0;
+    const onScroll = (): void => {
+      if (raf !== 0) return;
+      // rAF-coalesced: a scroll fires far faster than a frame, and one setState per event would
+      // re-render the wall dozens of times between paints for no visible difference.
+      raf = requestAnimationFrame(() => { raf = 0; setScrollTop(s.scrollTop); });
+    };
+    s.addEventListener("scroll", onScroll, { passive: true });
+    const ro = new ResizeObserver(measure);
+    ro.observe(s);
+    if (gridRef.current) ro.observe(gridRef.current);
+    measure();
+    setScrollTop(s.scrollTop);
+    return () => {
+      if (raf !== 0) cancelAnimationFrame(raf);
+      s.removeEventListener("scroll", onScroll);
+      ro.disconnect();
+    };
+  }, [active, host, measure]);
+
+  /* A tile has to exist before its height can be read, so the first measurement happens on the
+     commit that created it — a LAYOUT effect, so the corrected window is in place before the
+     browser paints and the slice above is never something the user sees. It re-runs whenever the
+     list changes size, because the trunc line appearing above the grid moves `gridTop`. */
+  useLayoutEffect(() => { measure(); }, [measure, shownItems.length, active, host]);
+
+  /* A NEW FOLDER STARTS AT THE TOP. Without this the scroller keeps the previous folder's offset,
+     which on a shorter folder is silently clamped to somewhere in the middle of it. */
+  useEffect(() => {
+    const s = scroller.current;
+    if (s) { s.scrollTop = 0; setScrollTop(0); }
+  }, [folderPath]);
+
+  /* THE FOUR NUMBERS THAT DECIDE WHAT EXISTS, computed by a pure function that has no React and no
+     DOM in it and checks itself under DIAG — see mediaWindow.ts. It fails open by construction:
+     any measurement it cannot use returns the whole list. */
+  const win = computeWindow({
+    count: shownItems.length,
+    cols: geo.cols,
+    rowH: geo.rowH,
+    gap: geo.gap,
+    gridTop: geo.gridTop,
+    viewH: geo.viewH,
+    scrollTop,
+    overscan: OVERSCAN_ROWS,
+  });
+  const { start, padTop, padBottom, windowed } = win;
+  const cols = geo.cols > 0 ? geo.cols : 1;
+  /* BEFORE THE FIRST MEASUREMENT there is no grid to measure, and a row height cannot be read from
+     tiles that do not exist yet. Rendering the whole folder for that one frame would cost exactly
+     the 2,500-element commit this phase removes, so the first pass renders a slice big enough to
+     fill any reachable viewport and the measurement corrects it on the same commit. If the
+     measurement ever comes back nonsense the slice is abandoned and the wall renders complete —
+     heavier is a performance problem, short is a correctness one. */
+  const end = windowed
+    ? win.end
+    : unmeasurable
+      ? shownItems.length
+      : Math.min(shownItems.length, PROBE_SLICE);
+
+  /** The first item on screen, kept current so the RAW toggle can put it back where it was. */
+  const anchor = useRef<string | null>(null);
+  /** Position in the FULL list, which is what survives a filter change. */
+  const fullIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    items.forEach((i, n) => m.set(i.path, n));
+    return m;
+  }, [items]);
+
+  /* NOTHING JUMPS WHEN THE FILTER FLIPS. Turning RAW off can halve the wall's height, and a browser
+     that finds its scroll offset past the new bottom silently clamps it — so the user lands
+     somewhere they never chose, and turning RAW back on does not undo it. The file that was at the
+     top of the screen is put back at the top of the screen instead. It runs BEFORE the effect that
+     refreshes the anchor, deliberately: on this render `anchor` still holds the pre-toggle file. */
+  const firstShowRaw = useRef(true);
+  useEffect(() => {
+    if (firstShowRaw.current) { firstShowRaw.current = false; return; }
+    const s = scroller.current;
+    const a = anchor.current;
+    if (!s || a === null || !windowed) return;
+    const want = fullIndex.get(a) ?? 0;
+    // The anchor itself may be a RAW that has just been hidden — in which case the nearest thing to
+    // "where you were" is the first surviving file at or after it.
+    let idx = shownItems.findIndex((i) => (fullIndex.get(i.path) ?? 0) >= want);
+    if (idx < 0) idx = Math.max(0, shownItems.length - 1);
+    s.scrollTop = Math.max(0, geo.gridTop + Math.floor(idx / cols) * geo.rowH);
+    setScrollTop(s.scrollTop);
+  }, [showRaw]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    anchor.current = shownItems[start]?.path ?? null;
+  }, [shownItems, start]);
 
   // THE OPEN ITEM AS A POSITION. Matched on the absolute PATH rather than on object identity, so a
   // listing replaced underneath an open viewer still finds its file; -1 means it genuinely is not in
   // this folder any more, and the viewer renders nothing rather than the wrong file.
-  // Indexed into the SHOWN list, not the full one, so Next and Previous in the viewer step through
-  // exactly what the wall is showing. Stepping into a tile the user cannot see would be a viewer
-  // that disagrees with the grid behind it.
   const openIndex = open === null ? -1 : shownItems.findIndex((i) => i.path === open.path);
+
+  const wall =
+    folderPath === null ? (
+      <div className="scannotes-empty">Pick a folder on the left.</div>
+    ) : items.length === 0 ? (
+      <div className="scannotes-empty">No media recorded in this folder. Scan it and the files appear here.</div>
+    ) : shownItems.length === 0 ? (
+      // A RAW-ONLY SHOOT WITH THE TOGGLE OFF. The folder is not empty and must not claim to be.
+      <div className="scannotes-empty">
+        Every file in this folder is a RAW. Turn on <strong>Show RAW files</strong> above to see
+        {hiddenRaw === 1 ? " it." : ` all ${hiddenRaw.toLocaleString()} of them.`}
+      </div>
+    ) : (
+      <>
+        {/* NOTHING MAY TRUNCATE SILENTLY. A wall of 250 tiles looks exactly like a complete one,
+            which is how 165 missing photographs stayed invisible. The sanity bound should never fire
+            on a real archive — but if it ever does, the count is on screen rather than left for the
+            user to discover by counting. Deliberately ABOVE the grid: a notice under 20,000 tiles is
+            not a notice. */}
+        {rowTotal > items.length && (
+          <div className="scannotes-truncline">
+            Showing {items.length.toLocaleString()} of {rowTotal.toLocaleString()} files in this folder.
+          </div>
+        )}
+        <div className="scannotes-mediagrid" ref={gridRef}>
+          {padTop > 0 && <div className="scannotes-vpad" style={{ height: padTop }} />}
+          {shownItems.slice(start, end).map((i) => (
+            <Tile
+              key={i.path}
+              item={i}
+              pic={cached[i.path] ?? null}
+              failReason={failedNow[i.path] ?? failures[i.path]?.reason ?? null}
+              readErr={stillErr[i.path] ?? null}
+              onSeen={onSeen}
+              onOpen={setOpen}
+            />
+          ))}
+          {padBottom > 0 && <div className="scannotes-vpad" style={{ height: padBottom }} />}
+        </div>
+
+        {/* ONE QUIET LINE, and only once the folder has settled. It sits BELOW the grid and is
+            conditional on a count, so it can never reflow the tiles while they are still working. */}
+        {settled && failedPaths.length > 0 && (
+          <div className="scannotes-failline">
+            <span>
+              {failedPaths.length} file{failedPaths.length === 1 ? "" : "s"} couldn&rsquo;t be previewed.
+            </span>
+            <button type="button" className="scannotes-failretry" onClick={retryAll}>
+              Retry
+            </button>
+          </div>
+        )}
+      </>
+    );
 
   return (
     <>
-      {hiddenLine}
-      {/* NOTHING MAY TRUNCATE SILENTLY. This is the whole point of the phase that removed the 500-row
-          clamp: a wall of 250 tiles looks exactly like a complete one, which is how 165 missing
-          photographs stayed invisible. The sanity bound should never fire on a real archive — but if
-          it ever does, the count is on screen rather than left for the user to discover by counting.
-          Deliberately ABOVE the grid, not below it: a notice under 20,000 tiles is not a notice. */}
-      {rowTotal > items.length && (
-        <div className="scannotes-truncline">
-          Showing {items.length.toLocaleString()} of {rowTotal.toLocaleString()} files in this folder.
-        </div>
-      )}
-      <div className="scannotes-mediagrid">
-        {shownItems.map((i) => (
-          <Tile
-            key={i.path}
-            item={i}
-            queue={queue}
-            cachedUrl={cached[i.path] ?? null}
-            failure={failures[i.path] ?? null}
-            retryToken={retrySet.has(i.path) ? retryRound : 0}
-            token={jobToken}
-            onOutcome={onOutcome}
-            onCached={onCached}
-            onAsk={onAsk}
-            onOpen={setOpen}
-          />
-        ))}
+      {/* THE BENCH. Off-screen, at tile size, and present whether or not the wall is — a folder
+          warms while its report is being read. It is never longer than the queue's own concurrency,
+          so this is at most a handful of decoders at any moment however large the folder. */}
+      <div className="scannotes-bench" aria-hidden="true">
+        {bench.map((p) => {
+          const s = streams.get(p);
+          return s ? <BenchSlot key={p} path={p} src={s} onDone={benchDone} /> : null;
+        })}
       </div>
 
-      {/* ONE QUIET LINE, and only once the folder has settled. It sits BELOW the grid and is
-          conditional on a count, so it can never reflow the tiles while they are still working —
-          nothing flashes and nothing pops. */}
-      {settled && failedPaths.length > 0 && (
-        <div className="scannotes-failline">
-          <span>
-            {failedPaths.length} file{failedPaths.length === 1 ? "" : "s"} couldn&rsquo;t be previewed.
-          </span>
-          <button type="button" className="scannotes-failretry" onClick={retryAll}>
-            Retry
-          </button>
-        </div>
-      )}
+      {active && host !== null ? createPortal(wall, host) : null}
 
-      {/* THE VIEWER. It owns its own scrim (data-modal-backdrop and all), its own keyboard, and its
-          own copy of whatever it is showing — this file hands it the folder, the position, and the
-          thumbnail cache it has ALREADY fetched. That last prop is the load-bearing one: the reel
-          renders out of this map and never starts a decode of its own, so the pipeline above stays
-          the only thing in this module that makes a thumbnail. */}
-      {openIndex >= 0 && (
+      {/* THE VIEWER. It owns its own scrim, its own keyboard, and its own copy of whatever it is
+          showing — this file hands it the folder, the position, and the thumbnail cache it has
+          ALREADY fetched. That last prop is the load-bearing one: the reel renders out of this map
+          and never starts a decode of its own. */}
+      {active && openIndex >= 0 && (
         <MediaViewer
           items={shownItems}
           index={openIndex}

@@ -18,7 +18,7 @@ import { formatRange, formatStamp } from "../../shared/datetime";
 import { PRINT_STYLESHEET, renderReportPrintHtml } from "./reportPrint";
 import ScanNotesTab from "./notes/ScanNotesTab";
 import UpdatesTab from "./notes/UpdatesTab";
-import MediaGrid from "./notes/MediaGrid";
+import MediaGrid, { WarmChips, type WarmProgress } from "./notes/MediaGrid";
 import { signalAppToast, withAppLoading } from "../../App";
 import { bumpRender } from "../../diag";
 import "./scan.css";
@@ -186,6 +186,12 @@ export default function ScanModule() {
    *  header that draws it lives in the sibling. */
   const [mediaProgress, setMediaProgress] = useState<{ done: number; total: number } | null>(null);
   const [hiddenRaw, setHiddenRaw] = useState(0);
+  /** THE WALL'S MOUNT POINT, handed over by ScanNotesTab. MediaGrid is mounted permanently below so
+   *  a folder warms while its report is being read, and it portals the wall into this node when the
+   *  user is actually in media mode. Null whenever the media pane is not on screen. */
+  const [mediaHost, setMediaHost] = useState<HTMLDivElement | null>(null);
+  /** The two background warm-up chips, reported up by MediaGrid on a timer. Null = nothing to say. */
+  const [warm, setWarm] = useState<WarmProgress | null>(null);
   const [notesRefresh, setNotesRefresh] = useState(0); // bumped by the push; every surface re-reads
   const [unseen, setUnseen] = useState(0);
   const [pendingRenames, setPendingRenames] = useState(0);
@@ -755,6 +761,9 @@ export default function ScanModule() {
           </div>
           {tab === "notes" && (
             <div className="scannotes-tabactions">
+              {/* THE WARM-UP CHIPS, leftmost on the row so the two actions keep the position the
+                  user already reaches for. They draw nothing at all when there is nothing warming. */}
+              <WarmChips warm={warm} />
               <button type="button" className="scannotes-btn pri" onClick={addNote}>+ Add Note</button>
               <button type="button" className="scannotes-btn pri" onClick={toggleMedia}>{mediaMode ? "Scan Notes" : "View media"}</button>
               {/* The ring only pulses when there is queued work — a control that breathes all day is
@@ -891,19 +900,35 @@ export default function ScanModule() {
         {NOTES_TABS.has(tab) && (
           <div className="scannotes-tabbody scannotes">
             {tab === "notes" ? (
-              <ScanNotesTab
-                refreshKey={notesRefresh}
-                mediaMode={mediaMode}
-                onFolderChange={setNotesFolder}
-                onLeaveMedia={leaveMedia}
-                jumpTo={jumpTo}
-                onSeeAll={() => chooseTab("updates")}
-                showRaw={showRaw}
-                onToggleRaw={toggleRaw}
-                mediaProgress={mediaProgress}
-                hiddenRaw={hiddenRaw}
-                mediaPane={<MediaGrid folderPath={notesFolder?.path ?? null} showRaw={showRaw} onProgress={setMediaProgress} onHiddenRaw={setHiddenRaw} />}
-              />
+              <>
+                <ScanNotesTab
+                  refreshKey={notesRefresh}
+                  mediaMode={mediaMode}
+                  onFolderChange={setNotesFolder}
+                  onLeaveMedia={leaveMedia}
+                  jumpTo={jumpTo}
+                  onSeeAll={() => chooseTab("updates")}
+                  showRaw={showRaw}
+                  onToggleRaw={toggleRaw}
+                  mediaProgress={mediaProgress}
+                  hiddenRaw={hiddenRaw}
+                  onMediaHost={setMediaHost}
+                />
+                {/* MOUNTED WHETHER OR NOT MEDIA MODE IS ON, and that is the whole of the background
+                    warm-up: selecting a folder starts its thumbnails immediately, so by the time
+                    "View media" is pressed the wall is already there. It draws nothing here — the
+                    wall is portalled into the pane's scroller, and the decoders sit on an off-screen
+                    bench. Unmounting it on every mode toggle would restart the folder each time. */}
+                <MediaGrid
+                  folderPath={notesFolder?.path ?? null}
+                  showRaw={showRaw}
+                  active={mediaMode}
+                  host={mediaHost}
+                  onProgress={setMediaProgress}
+                  onHiddenRaw={setHiddenRaw}
+                  onWarm={setWarm}
+                />
+              </>
             ) : (
               <UpdatesTab refreshKey={notesRefresh} />
             )}

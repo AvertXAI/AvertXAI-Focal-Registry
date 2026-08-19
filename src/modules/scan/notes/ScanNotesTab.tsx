@@ -188,8 +188,13 @@ export interface ScanNotesTabProps {
   onLeaveMedia: () => void;
   /** Opened when a folder is selected, so the parent's "View media" button knows what to browse. */
   onFolderChange: (folder: { path: string; driveId: number; letter: string | null } | null) => void;
-  /** Rendered into the third pane in place of the editor when mediaMode is on (Phase 5). */
-  mediaPane?: React.ReactNode;
+  /** WHERE THE MEDIA WALL IS DRAWN. This tab owns the pane and its scroller; the grid itself is
+   *  mounted permanently by ScanModule so a folder can warm in the background while its report is
+   *  being read, and it portals its wall into this element. Handing over the node rather than
+   *  taking the grid as a child is what keeps the grid from being unmounted every time the user
+   *  leaves media mode — an unmounted grid restarts the whole folder. Called with null when the
+   *  pane goes away. */
+  onMediaHost?: (el: HTMLDivElement | null) => void;
   /** "Show RAW files" — owned by ScanModule because MediaGrid needs it too, same as mediaMode. */
   showRaw: boolean;
   onToggleRaw: () => void;
@@ -587,7 +592,7 @@ function Waiting({ what }: { what: string }) {
  *  behind the paint. Module-level on purpose — the same shape as the Vault list's cache. */
 let treeCache: ScanNotesDriveNode[] = [];
 
-export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, onLeaveMedia, mediaPane, jumpTo, onSeeAll, showRaw, onToggleRaw, mediaProgress, hiddenRaw }: ScanNotesTabProps) {
+export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, onLeaveMedia, onMediaHost, jumpTo, onSeeAll, showRaw, onToggleRaw, mediaProgress, hiddenRaw }: ScanNotesTabProps) {
   const [tree, setTree] = useState<ScanNotesDriveNode[]>(treeCache);
   const [loading, setLoading] = useState(treeCache.length === 0);
   const [folderBusy, setFolderBusy] = useState(false);
@@ -1061,7 +1066,7 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, on
             {selectedNode !== null && selectedNode.mediaCount === 0 ? (
               <FolderEmptyState node={selectedNode} onOpen={(p) => { goFolder(p, driveId); revealFolder(p, driveId); }} />
             ) : (
-              mediaPane ?? <div className="scannotes-empty">Media browsing is not wired yet.</div>
+              <div className="scannotes-mhost" ref={onMediaHost ?? null} />
             )}
           </div>
         </div>

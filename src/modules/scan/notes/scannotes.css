@@ -498,3 +498,49 @@
 .scannotes-tile .thumb .raw{position:absolute;top:6px;left:6px;z-index:1;
   background:rgba(0,0,0,.62);color:#fff;font-family:var(--mc-mono);font-size:9px;letter-spacing:.06em;
   border-radius:4px;padding:1px 5px;pointer-events:none}
+
+/* ============================================================================================
+   THE VIRTUALIZED WALL, THE OFF-SCREEN BENCH, AND THE WARM-UP CHIPS  (phases 2 and 4)
+   ============================================================================================ */
+
+/* The wall's mount point. MediaGrid is mounted permanently by ScanModule and portals its wall in
+   here, so this element is the media pane's content and nothing else styles it. */
+.scannotes-mhost{min-width:0}
+
+/* THE WINDOW'S SPACERS. Only the rows on screen exist as elements; these two stand in for the ones
+   above and below so the scrollbar still describes the whole folder. `1/-1` makes each one a full
+   row rather than a tile in the auto-fill flow — without it the spacer would take a single column
+   and shove every tile one place along. */
+.scannotes-vpad{grid-column:1/-1}
+
+/* THE BENCH — where video thumbnails are actually decoded, now that no tile does it.
+   OFF-SCREEN, NOT HIDDEN, AND LAID OUT IN A ROW. Every part of that is deliberate:
+     · `display:none` or a zero-sized box is a detached element by another name, and a detached
+       <video> is not guaranteed to decode at all — that was attempt one of this whole feature.
+     · the slots sit side by side rather than stacked, so none of them is occluded by another.
+     · the strip is parked to the left of the viewport, so it costs no paint and cannot be seen.
+   It is never wider than CONCURRENCY slots (6 x 320px = 1920px), whatever the folder holds. */
+.scannotes-bench{position:fixed;top:0;left:-2400px;width:2320px;height:180px;display:flex;
+  overflow:hidden;pointer-events:none;z-index:-1}
+.scannotes-bench .tvid{width:320px;height:180px;flex:none;object-fit:cover;display:block;
+  background:var(--mc-nested)}
+
+/* THE TWO WARM-UP CHIPS, in the tab action row, to MOCKUP-scan-notes-background-warm-v2-08-18-2026.
+   Stacked rather than side by side so a long folder name in the breadcrumb below never has to
+   compete with them, and so the two lanes read as a pair. */
+.scannotes-warmwrap{display:flex;flex-direction:column;gap:4px}
+.scannotes-warm{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--mc-muted);
+  border:1px solid var(--mc-border);background:var(--mc-panels);border-radius:999px;
+  padding:4px 11px;white-space:nowrap}
+.scannotes-warm .bar{width:70px;height:5px;flex:none;border-radius:3px;background:var(--mc-nested);
+  position:relative;overflow:hidden}
+.scannotes-warm .bar i{position:absolute;left:0;top:0;bottom:0;width:0;border-radius:3px;
+  background:var(--mc-accent-primary);transition:width .25s linear}
+/* tabular-nums so a climbing odometer does not jitter the words after it as digits change width */
+.scannotes-warm .num{font-family:var(--mc-mono);font-variant-numeric:tabular-nums}
+/* FINISHED, THEN QUIET. Green and a tick, and no more counting — a chip that keeps talking after
+   the work is done is a chip the user learns to stop reading. */
+.scannotes-warm.done{color:var(--mc-green)}
+.scannotes-warm.done .bar i{background:var(--mc-green)}
+.scannotes-warm .tick{font-size:12px}
+@media (prefers-reduced-motion:reduce){.scannotes-warm .bar i{transition:none}}

@@ -13,7 +13,7 @@
      and scrolls its panes INTERNALLY, so no content ever runs under the footer (the Preset-truncation
      bug). box-sizing keeps the .wrap padding inside the height. */
   box-sizing:border-box;
-  height:calc(100vh - 58px - var(--mc-footer-height));
+  height:calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height));
   display:flex;flex-direction:column;overflow:hidden;
 }
 .rename-shell>.pagetitle,.rename-shell>.subtitle,.rename-shell>.rn-tabs,.rename-shell>.rn-error{flex-shrink:0}

@@ -4,7 +4,7 @@
 .mig-shell {
   --migrate-selection: color-mix(in srgb, var(--mc-accent-primary) 12%, var(--mc-panels));
   display: flex; flex-direction: column;
-  height: calc(100vh - 58px - var(--mc-footer-height, 0px));
+  height: calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height, 0px));
   background: var(--mc-base);
 }
 

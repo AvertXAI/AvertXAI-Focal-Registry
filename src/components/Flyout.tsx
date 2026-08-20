@@ -1,24 +1,29 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-// Persistent left rail — always open, zero menu-diving (DevOps-operator requirement).
-// Live: Home / Config-as-Data module rows / Settings; module buttons come from the DB
-// `modules` table (enabled rows only) — not a hardcoded list.
+// Module menu — the left nav panel. THREE states, one panel (was: expanded ↔ 58px icons + drag):
+//   hidden  — nothing but the edge tab
+//   peek    — hover the ◫ button or the left edge; the panel FLOATS, nothing reflows
+//   docked  — click pins it into the layout; body.nav-docked carries the padding-left
+//
+// Retired with this pass: the 58px icon rail, the drag-resize handle, flyout_width. The panel is a
+// fixed --mc-flyout-width (212px). Persisted state is the EXISTING app_settings 'rail_collapsed',
+// re-meaning "1" = docked, so an install reads straight across with no whitelist edit.
+//
+// Rows are Config-as-Data throughout (§6.3): enabled `modules` rows, grouped by nav_group, sections
+// at the MIN display_order of their members, standalone rows at their own. Nothing is hardcoded.
 import type { View } from "../App";
 import type { ModuleRow } from "../shared/types";
-import { ChevronDown } from "../icons";
+import { ChevronDown, Database } from "../icons";
 
 interface Props {
   view: View;
   modules: ModuleRow[];
   onSelect: (v: View) => void;
-  /** 1-click collapse state (persisted app_settings 'rail_collapsed', driven by App). */
-  collapsed: boolean;
-  onToggle: () => void;
-  /** Drag-resize (persisted app_settings 'flyout_width'): live width during drag / commit on release.
-      App owns the clamp ([200px, FLYOUT_MAX_WIDTH]); the rail is fixed at left:0 so clientX = width. */
-  onResize: (px: number) => void;
-  onResizeEnd: (px: number) => void;
-  /** Per-section expand/collapse (persisted app_settings 'nav_section_state', driven by App). A group
-      absent from the map defaults to expanded. */
+  /** Docked = pinned into the layout. Persisted app_settings 'rail_collapsed' ("1" = docked). */
+  docked: boolean;
+  /** Transient hover state, owned by App so the ◫ button and the panel share one flag. */
+  peek: boolean;
+  onPeekChange: (peek: boolean) => void;
+  /** Per-section expand/collapse (persisted app_settings 'nav_section_state'). Absent = expanded. */
   sections: Record<string, "expanded" | "collapsed">;
   onToggleSection: (group: string) => void;
 }
@@ -27,30 +32,27 @@ export default function Flyout({
   view,
   modules,
   onSelect,
-  collapsed,
-  onToggle,
-  onResize,
-  onResizeEnd,
+  docked,
+  peek,
+  onPeekChange,
   sections,
   onToggleSection,
 }: Props) {
+  const shown = docked || peek;
   const cls = (v: View) => `navitem${view === v ? " active" : ""}`;
 
   // Enabled modules, already display_order-sorted upstream (listModules ORDER BY display_order ASC).
   const enabled = modules.filter((m) => m.is_enabled === 1);
-  // Module button — IDENTICAL markup in both the flat (collapsed-rail) and grouped (expanded) modes.
   const moduleBtn = (m: ModuleRow) => (
     <button key={m.slug} className={cls(m.slug)} onClick={() => onSelect(m.slug)}>
       {moduleIcon(m.slug)}
       <span className="navlbl">{m.name}</span>
     </button>
   );
+
   // Nav model: two entry kinds, ONE ordered list. A row with nav_standalone=1 is a TOP-LEVEL
   // clickable link (Secured Vault, Marketplace) — section-header level, navigates on click, no
-  // children, no caret, and the collapse logic never sees it (it has no open state to persist).
-  // Everything else groups by nav_group (transiently-NULL row → "Applications"). Order is
-  // data-driven throughout: a section sits at the MIN display_order of its members, a standalone
-  // at its own display_order; within-section order is display_order, preserved from `enabled`.
+  // children, no caret. Everything else groups by nav_group (transiently-NULL row → "Applications").
   type NavEntry =
     | { kind: "section"; group: string; mods: ModuleRow[]; order: number }
     | { kind: "standalone"; mod: ModuleRow; order: number };
@@ -73,7 +75,7 @@ export default function Flyout({
   }
   entries.sort((a, b) => a.order - b.order);
   const isExpanded = (g: string): boolean => sections[g] !== "collapsed"; // unknown → expanded
-  // Standalone top-level link — header-tier visuals, module-row behaviour. Never a chevron.
+
   const standaloneBtn = (m: ModuleRow) => (
     <button
       key={m.slug}
@@ -84,87 +86,77 @@ export default function Flyout({
       <span className="navsection-label">{m.name}</span>
     </button>
   );
+
   return (
-    <aside className={`flyout${collapsed ? " collapsed" : ""}`} aria-label="Main navigation">
-        <div className="flyout-head">
-          <div className="brandmark">A</div>
-          <button
-            className="iconbtn"
-            onClick={onToggle}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-pressed={collapsed}
-          >
-            <span className="chev" aria-hidden="true">{collapsed ? "»" : "«"}</span>
-          </button>
-        </div>
-        <nav>
-          <button className={cls("home")} onClick={() => onSelect("home")}>
-            <HomeIcon />
-            <span className="navlbl">Home</span>
-          </button>
-          <hr className="navdiv" />
-          {/* MIDDLE — grouped collapsible sections + standalone top-level links when expanded, in
-              one display_order-driven sequence; flat icon list when the whole rail is collapsed
-              (headers skipped at 58px, exactly as the rail rendered before grouping — standalone
-              rows ride the same flat list, so nothing is unreachable at 58px). */}
-          {collapsed
-            ? enabled.map(moduleBtn)
-            : entries.map((e) =>
-                e.kind === "standalone" ? (
-                  standaloneBtn(e.mod)
-                ) : (
-                  <div className="navsection" key={e.group}>
-                    <button
-                      className="navsection-head"
-                      onClick={() => onToggleSection(e.group)}
-                      aria-expanded={isExpanded(e.group)}
-                    >
-                      <ChevronDown
-                        className={"navsection-chev" + (isExpanded(e.group) ? "" : " collapsed")}
-                      />
-                      <span className="navsection-label">{e.group}</span>
-                    </button>
-                    {isExpanded(e.group) && e.mods.map(moduleBtn)}
-                  </div>
-                )
-              )}
-          {/* Settings is PINNED to the rail's far bottom (Jason 08-10) — margin-top:auto inside the
-              flex-column nav pushes this block down; with an overflowing list it rides the end. */}
-          <div className="nav-bottom">
-            <hr className="navdiv" />
-            <button className={cls("settings")} onClick={() => onSelect("settings")}>
-              <GearIcon />
-              <span className="navlbl">Settings</span>
+    <>
+      {/* NO HOVER GUTTER (Jason, 08-19-2026). There was a transparent 16px-wide fixed strip down
+          the ENTIRE left edge of the window here, at z-index 39, that peeked the panel open on
+          hover. Two things were wrong with it. It was a second open/close control for a panel that
+          is ruled to have exactly one — the dock button in the top bar. And because the panel is
+          hidden by DEFAULT, that invisible strip covered the leftmost 16 pixels of every module
+          page and ate every click there: Scan's panel edge, MindMerge's rail, Vault's sidebar,
+          Scout Viewer's tool rail. `aria-hidden` does not disable hit-testing. Do not restore it —
+          the hover-peek it provided now works from the dock button, which has a close delay so the
+          pointer can cross the bar between the button and the panel. */}
+
+      {/* NO EDGE TAB ON THE SHELL RAIL (ruled 08-19-2026). The top bar's dock icon is this
+          panel's ONLY open/close control. The edge tab belongs to a MODULE's own secondary
+          sidebar — Vault, TimeTracker, Employees — welded to that sidebar's right edge.
+          Use the shared "edgetab" class in shell.css; do not reintroduce a tab here. */}
+
+      {shown && (
+        <aside
+          className={"navdock" + (peek && !docked ? " peek" : "")}
+          aria-label="Main navigation"
+          onMouseEnter={() => onPeekChange(true)}
+          onMouseLeave={() => onPeekChange(false)}
+        >
+          {/* Home | Database — two destinations, one control. Database opens the REAL Data Viewer
+              view (a core view, not a modules row), which also persists last_active_module. */}
+          <div className="navsplit">
+            <button className={view === "home" ? "on" : ""} onClick={() => onSelect("home")}>
+              <HomeIcon />
+              Home
+            </button>
+            <button className={view === "data-viewer" ? "on" : ""} onClick={() => onSelect("data-viewer")}>
+              <Database />
+              Database
             </button>
           </div>
-        </nav>
-        {/* right-edge drag handle — expanded only; pointer capture keeps the drag on this element */}
-        {!collapsed && (
-          <div
-            className="flyout-resizer"
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize sidebar"
-            title="Drag to resize"
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.currentTarget.setPointerCapture(e.pointerId);
-            }}
-            onPointerMove={(e) => {
-              if (e.buttons === 1) onResize(e.clientX);
-            }}
-            onPointerUp={(e) => onResizeEnd(e.clientX)}
-          />
-        )}
-      </aside>
+          <hr className="navdiv" />
+
+          <nav>
+            {entries.map((e) =>
+              e.kind === "standalone" ? (
+                standaloneBtn(e.mod)
+              ) : (
+                <div className="navsection" key={e.group}>
+                  <button
+                    className="navsection-head"
+                    onClick={() => onToggleSection(e.group)}
+                    aria-expanded={isExpanded(e.group)}
+                  >
+                    <ChevronDown className={"navsection-chev" + (isExpanded(e.group) ? "" : " collapsed")} />
+                    <span className="navsection-label">{e.group}</span>
+                  </button>
+                  {isExpanded(e.group) && e.mods.map(moduleBtn)}
+                </div>
+              )
+            )}
+
+            {/* NO Settings row here (Jason, 08-19-2026). Settings is reached from the application
+                menu — ▤ → File → Settings — and from nowhere else in the shell chrome. */}
+          </nav>
+        </aside>
+      )}
+    </>
   );
 }
 
-// Home glyph — house outline (converted from v7's solid path, Phase 1.b).
+// Home glyph — house outline.
 function HomeIcon() {
   return (
-    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+    <svg width={14} height={14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
       <path d="M2.6 7.2 8 2.8l5.4 4.4" />
       <path d="M4 6.6v6.4a.7.7 0 0 0 .7.7h6.6a.7.7 0 0 0 .7-.7V6.6M6.7 13.7v-3.5h2.6v3.5" />
     </svg>
@@ -197,7 +189,6 @@ function moduleIcon(slug: string) {
   }
 }
 
-// scan — viewfinder corners + scan line outline
 function ScanIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
@@ -206,8 +197,6 @@ function ScanIcon() {
     </svg>
   );
 }
-
-// rename — pencil-over-line outline
 function RenameIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
@@ -216,8 +205,6 @@ function RenameIcon() {
     </svg>
   );
 }
-
-// migrate — box-with-outbound-arrow outline (assets leaving for a new machine)
 function MigrateIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
@@ -226,8 +213,6 @@ function MigrateIcon() {
     </svg>
   );
 }
-
-// timetracker — clock outline (hands at ten past ten)
 function ClockIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
@@ -236,9 +221,6 @@ function ClockIcon() {
     </svg>
   );
 }
-
-// employees — two-person outline (hand-rolled, like every glyph here: @fluentui/react-icons is
-// BANNED at 172 MB installed)
 function PeopleIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
@@ -248,8 +230,6 @@ function PeopleIcon() {
     </svg>
   );
 }
-
-// mindmerge — document outline
 function DocIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
@@ -258,8 +238,6 @@ function DocIcon() {
     </svg>
   );
 }
-
-// scout-viewer — magnifying glass outline
 function SearchIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
@@ -268,8 +246,6 @@ function SearchIcon() {
     </svg>
   );
 }
-
-// marketplace — shopping-bag outline (browse + subscribe to modules)
 function MarketIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
@@ -278,23 +254,11 @@ function MarketIcon() {
     </svg>
   );
 }
-
-// vault (Secured Vault) — lock outline
 function LockIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
       <rect x="3.3" y="7" width="9.4" height="7" rx="1.2" />
       <path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" />
-    </svg>
-  );
-}
-
-// Settings — gear outline
-function GearIcon() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="8" cy="8" r="2.2" />
-      <path d="M8 1.6v1.8M8 12.6v1.8M14.4 8h-1.8M3.4 8H1.6M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3M12.5 12.5l-1.3-1.3M4.8 4.8 3.5 3.5" />
     </svg>
   );
 }

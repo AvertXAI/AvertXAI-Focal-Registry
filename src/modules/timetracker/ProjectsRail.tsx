@@ -35,36 +35,41 @@ export default function ProjectsRail({ projects, groups, totals, sortDir, select
         (p.note_body ?? "").toLowerCase().includes(q)
       );
 
-  // Collapsed: a narrow strip of project colour dots that still select on click, plus the expander.
+  // Collapsed is ZERO WIDTH (Jason 08-20-2026) — the rail is gone and the edge tab is all that is
+  // left of it. THE COLOUR-DOT STRIP WENT WITH IT: those dots lived in the old 44px collapsed rail
+  // and let you switch project without reopening it. Zero width has nowhere to put them. Deleted
+  // rather than parked behind a flag — `git show HEAD:src/modules/timetracker/ProjectsRail.tsx` has
+  // the markup if it comes back as a hover flyout.
   if (collapsed) {
     return (
       <aside className="tt-rail collapsed" aria-label="Projects (collapsed)">
-        <button className="tt-railtoggle" title="Expand the projects rail" aria-label="Expand the projects rail" onClick={onToggleCollapse}>»</button>
-        <div className="tt-raildots">
-          {projects.map((p) => (
-            /* The group's icon rides BESIDE the colour dot — colour is unchanged (ruling 2). */
-            <span key={p.id} className="tt-raildotwrap">
-              <button
-                className={"tt-raildot" + (p.id === selectedId ? " on" : "")}
-                style={{ background: p.color }}
-                title={p.name}
-                aria-label={`Select ${p.name}`}
-                onClick={() => onSelect(p.id)}
-              />
-              {p.group_icon && <span className="tt-groupicon rail" aria-hidden="true">{p.group_icon}</span>}
-            </span>
-          ))}
-        </div>
+      <button
+        className="edgetab"
+        title={collapsed ? "Expand the projects rail" : "Collapse the projects rail"}
+        aria-label={collapsed ? "Expand the projects rail" : "Collapse the projects rail"}
+        aria-expanded={!collapsed}
+        onClick={onToggleCollapse}
+      >
+        {collapsed ? "»" : "«"}
+      </button>
       </aside>
     );
   }
 
   return (
     <aside className="tt-rail" aria-label="Projects">
+      <button
+        className="edgetab"
+        title={collapsed ? "Expand the projects rail" : "Collapse the projects rail"}
+        aria-label={collapsed ? "Expand the projects rail" : "Collapse the projects rail"}
+        aria-expanded={!collapsed}
+        onClick={onToggleCollapse}
+      >
+        {collapsed ? "»" : "«"}
+      </button>
       <div className="tt-railhead">
         <span className="tt-railtitle">Projects</span>
         <span className="tt-railcount">{projects.length}</span>
-        <button className="tt-railtoggle" title="Collapse the projects rail" aria-label="Collapse the projects rail" onClick={onToggleCollapse}>«</button>
         <button className="tt-archbtn" title="Archived projects" aria-label="Open the archive" onClick={onOpenArchive}>
           <svg width={14} height={14} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M2 3h12v3H2zM3 6v6.3a.7.7 0 0 0 .7.7h8.6a.7.7 0 0 0 .7-.7V6M6.5 8.6h3" />

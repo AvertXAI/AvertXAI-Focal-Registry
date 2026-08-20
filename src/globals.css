@@ -81,9 +81,14 @@ svg{display:block;flex:none}
 /* ---------- top bar (frameless, edge-to-edge) ---------- */
 /* container-type: tiers below query the TOPBAR's real width (rail + DPI independent), not the
    window's — a container can't style itself, so the flex row lives on the inner .topbar-in */
-.topbar{padding:12px 16px;border-bottom:1px solid var(--mc-border);container-type:inline-size}
+/* 8px padding + a 28px .iconbtn + 8px + 1px border = 45px, down from 57 (Jason 08-20-2026 — the
+   header was too tall). NOTHING downstream needs touching: --mc-topbar-height is measured from this
+   element by a ResizeObserver in App.tsx, so the docked panel and all ten module panes follow.
+   FLOOR: the OS-drawn caption strip is OVERLAY_HEIGHT = 36px (electron/core/windows.ts). Take this
+   header below that and the native buttons hang past its background. 45 leaves 9px of slack. */
+.topbar{padding:8px 16px;border-bottom:1px solid var(--mc-border);container-type:inline-size}
 .topbar-in{display:flex;align-items:center;gap:8px}
-.iconbtn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;
+.iconbtn{display:flex;align-items:center;justify-content:center;width:28px;height:28px;
   border-radius:var(--mc-radius);color:var(--mc-muted)}
 .iconbtn:hover{background:var(--mc-nested);color:var(--mc-text)}
 .brandmark{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;
@@ -290,7 +295,7 @@ tbody tr:hover{background:var(--mc-nested)}
 /* ============================================================
    Data Viewer module — read-only SQLite browser.
    ============================================================ */
-.dv-shell{display:flex;height:calc(100vh - 58px - var(--mc-footer-height));overflow:hidden}
+.dv-shell{display:flex;height:calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height));overflow:hidden}
 .dv-rail{width:180px;flex:0 0 180px;border-right:1px solid var(--mc-border);
   background:var(--mc-panels);display:flex;flex-direction:column;overflow:hidden;position:relative}
 /* drag handle on the rail's right edge — 6px of grab area over a 1px visual line */
@@ -404,6 +409,104 @@ tbody tr:hover{background:var(--mc-nested)}
 .bootterm .bt-dim{color:#8ca3c2}
 .bootterm .bt-err{color:#f87171}
 .bootterm .bt-warn{color:var(--mc-orange)}
+/* Held line — the boot script stopped here waiting on the vault setup wizard. Amber, not the
+   --mc-orange warn tone: nothing has gone wrong, and orange means not-built in this shell (§3.6). */
+.bootterm .bt-hold{color:#d4a843}
+
+/* --- Setup wizards (src/components/FirstRunWizard.tsx and VaultSetupWizard.tsx) --- */
+/* ONE block serves BOTH wizards. FirstRunWizard renders the same `vsw-*` class names rather than
+   owning a parallel set: two palettes for two wizards that must look identical is two places to
+   drift, and the token names stay `--vaultsetup-*` because renaming them would touch every rule
+   here for no behavioural gain. */
+/* THIS SURFACE IS FIXED-LIGHT IN ALL THREE THEMES, and that is the ruling, not an oversight: it
+   renders BEFORE boot:done, inside a frame that is boot-dark (#0b0e16) in every theme. There is no
+   active theme to honour yet. The tokens are scoped to .vsw rather than :root for the same reason —
+   nothing outside this wizard should ever be able to reach a palette that ignores the theme.
+   Prefix is the full word per the module-token law; the shell's --mc-* set is untouched. */
+.vsw{
+  --vaultsetup-modal:#ffffff;      --vaultsetup-ink:#1f2937;
+  --vaultsetup-label:#6b7280;      --vaultsetup-hint:#9aa0a8;
+  --vaultsetup-line:#e5e7eb;       --vaultsetup-salmon:#e2795c;
+  --vaultsetup-salmon-soft:#f0b39e;--vaultsetup-salmon-hover:#d56d51;
+  --vaultsetup-req:#e2603d;        --vaultsetup-green:#16a34a;
+  --vaultsetup-check-bg:#eaf7ee;   --vaultsetup-opt-bg:#fafafa;
+  --vaultsetup-btn-hover:#d4cec5;   --vaultsetup-hint-gap:8px;
+  /* z 65: ABOVE .bootterm (60) — the terminal keeps running behind it — and below the update
+     toast (70), which must never be buried by a modal it cannot be dismissed from. */
+  position:fixed;inset:0;z-index:65;display:flex;align-items:center;justify-content:center;
+  color:var(--vaultsetup-ink);font-family:var(--mc-font)}
+.vsw-dimmer{position:absolute;inset:0;background:rgba(8,10,16,.72);backdrop-filter:blur(2px)}
+
+/* 560 wide fits the 740 floor with 90px of slack; the tallest card (step 2, Business) computes to
+   535 against a 640 floor, so nothing scrolls at minimum size. Re-run that math before adding a
+   field — the slack is 105 pixels, not 300. */
+.vsw-card{position:relative;background:var(--vaultsetup-modal);border-radius:16px;padding:28px 30px;
+  box-shadow:0 12px 44px rgba(0,0,0,.45);width:560px;max-width:calc(100vw - 40px)}
+.vsw-card h2{font-size:19px;font-weight:700;margin:0 0 6px}
+.vsw-sub{font-size:13.5px;color:var(--vaultsetup-label);line-height:1.55;margin:0}
+.vsw-sub b{color:var(--vaultsetup-ink)}
+
+.vsw-steps{display:flex;gap:6px;margin:0 0 20px}
+.vsw-steps i{flex:1;height:3px;border-radius:2px;background:var(--vaultsetup-line)}
+.vsw-steps i.done{background:var(--vaultsetup-salmon-soft)}
+.vsw-steps i.now{background:var(--vaultsetup-salmon)}
+.vsw-eyebrow{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--vaultsetup-hint);margin:0 0 10px}
+
+.vsw label.vsw-f{display:block;font-size:13px;color:var(--vaultsetup-label);margin:18px 0 6px}
+.vsw-req{color:var(--vaultsetup-req)}
+.vsw input[type=text],.vsw input[type=email],.vsw input[type=password]{width:100%;
+  border:1px solid var(--vaultsetup-line);border-radius:10px;padding:11px 13px;font-size:14px;
+  font-family:var(--mc-font);color:var(--vaultsetup-ink);background:var(--vaultsetup-modal);outline:none}
+.vsw input:focus{border-color:var(--vaultsetup-salmon)}
+/* The Done step's password display: a read-only input, not a field to edit. Tinted so it reads as
+   something to copy rather than something to change, and it keeps a text cursor for selection. */
+.vsw input[readonly]{background:var(--vaultsetup-opt-bg);color:var(--vaultsetup-ink)}
+.vsw input[readonly]:focus{border-color:var(--vaultsetup-line)}
+.vsw input.vsw-mono{font-family:var(--mc-mono);letter-spacing:.04em}
+
+.vsw-opts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+.vsw-opt{border:1px solid var(--vaultsetup-line);border-radius:12px;padding:16px;cursor:pointer;
+  background:var(--vaultsetup-opt-bg);text-align:left;font-family:var(--mc-font);color:var(--vaultsetup-ink)}
+.vsw-opt:hover{border-color:var(--vaultsetup-salmon-soft)}
+.vsw-opt.sel{background:var(--vaultsetup-salmon);border-color:var(--vaultsetup-salmon);color:#fff}
+.vsw-opt strong{display:block;font-size:15px;margin-bottom:3px}
+.vsw-opt span{font-size:12.5px;color:var(--vaultsetup-label);line-height:1.45}
+.vsw-opt.sel span{color:rgba(255,255,255,.88)}
+
+.vsw-pwrow{display:flex;gap:8px;align-items:center}
+.vsw-pwrow input{flex:1;min-width:0}
+.vsw-mini{background:var(--vaultsetup-modal);border:1px solid var(--vaultsetup-line);border-radius:9px;
+  padding:10px 12px;font-size:12.5px;cursor:pointer;color:var(--vaultsetup-ink);white-space:nowrap;font-family:var(--mc-font)}
+.vsw-mini:hover{border-color:var(--vaultsetup-salmon-soft)}
+
+.vsw-meter{height:4px;border-radius:2px;background:var(--vaultsetup-line);margin-top:9px;overflow:hidden}
+.vsw-meter i{display:block;height:100%;width:0;transition:width .18s}
+.vsw-meterlbl{font-size:12px;color:var(--vaultsetup-hint);margin-top:6px;min-height:16px}
+/* Sub-field guidance — sits under the input it explains, not above it. */
+.vsw-hint{font-size:12.5px;color:var(--vaultsetup-hint);line-height:1.5;margin:var(--vaultsetup-hint-gap) 0 0}
+/* min-height, not &nbsp; — the row reserves its space so the card does not jump as the user types */
+.vsw-err{font-size:12.5px;color:var(--vaultsetup-req);margin-top:7px;min-height:16px}
+
+.vsw-sum{margin-top:18px;border-top:1px solid var(--vaultsetup-line)}
+.vsw-sum div{display:flex;justify-content:space-between;gap:16px;padding:10px 2px;
+  border-bottom:1px solid var(--vaultsetup-line);font-size:13.5px}
+.vsw-sum div span:first-child{color:var(--vaultsetup-label);flex:none}
+.vsw-sum div span:last-child{color:var(--vaultsetup-ink);font-family:var(--mc-mono);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.vsw-actions{display:flex;justify-content:space-between;gap:10px;margin-top:26px}
+.vsw-spacer{flex:1}
+.vsw-btn{background:var(--vaultsetup-modal);border:1px solid var(--vaultsetup-line);border-radius:10px;
+  padding:11px 20px;font-size:14px;cursor:pointer;color:var(--vaultsetup-ink);font-family:var(--mc-font)}
+.vsw-btn:hover{border-color:var(--vaultsetup-btn-hover)}
+.vsw-btn.pri{background:var(--vaultsetup-salmon);border-color:var(--vaultsetup-salmon);color:#fff}
+.vsw-btn.pri:hover{background:var(--vaultsetup-salmon-hover)}
+.vsw-btn[disabled]{opacity:.45;cursor:not-allowed}
+.vsw-btn[disabled]:hover{border-color:var(--vaultsetup-line)}
+.vsw-btn.pri[disabled]:hover{background:var(--vaultsetup-salmon);border-color:var(--vaultsetup-salmon)}
+
+.vsw-check{width:52px;height:52px;border-radius:50%;background:var(--vaultsetup-check-bg);
+  color:var(--vaultsetup-green);display:flex;align-items:center;justify-content:center;font-size:26px;margin-bottom:16px}
 
 /* Setting row: label with its control hugging right after it (hint sits below the row) */
 .setrow{display:flex;align-items:center;gap:12px}

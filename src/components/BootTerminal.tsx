@@ -12,7 +12,8 @@ const FAIL_MS = 1500; // pause after the last failure line so the user can read 
 
 interface Line {
   text: string;
-  tone?: "dim" | "err" | "warn"; // default (no tone) = terminal green, per the mockup
+  tone?: "dim" | "err" | "warn" | "hold"; // default (no tone) = terminal green, per the mockup
+  slug?: string; // module rows only — how holdSlug finds its line WITHOUT counting the preamble
 }
 
 interface Props {
@@ -21,12 +22,26 @@ interface Props {
       lands (same Promise as modules), so the lead line always shows the real name, never a flash. */
   orgName: string | null;
   error: string | null; // non-null switches to the failure script
+  /** Slug of a module whose line the script STOPS on — it prints as "... setup required" and the
+      typing loop holds there indefinitely, with no timeout and no fallback, until the parent sets
+      this back to null. Matched by SLUG, never by position: the script's order is `display_order`
+      straight out of the database and has already surprised once. null = type straight through. */
+  holdSlug: string | null;
+  /** Fired ONCE, at the moment the script actually stops on the held line — not when the parent
+      decides a hold is needed. Those are different moments and the gap is the whole boot script:
+      whatever the parent puts on screen in response must not appear until the user has watched the
+      boot get there, or the wizard covers a terminal that has barely started. */
+  onHold: () => void;
   onComplete: () => void;
   onFail: () => void;
 }
 
-export default function BootTerminal({ modules, orgName, error, onComplete, onFail }: Props) {
+export default function BootTerminal({ modules, orgName, error, holdSlug, onHold, onComplete, onFail }: Props) {
   const failed = error !== null;
+  // Latched, never cleared: this boot stopped for setup at some point. It survives holdSlug going
+  // back to null, which is what lets the resumed script end on "> Opening Secured Vault..." — the
+  // line only makes sense on a boot that actually held.
+  const [held, setHeld] = useState(false);
   const lines = useMemo<Line[]>(
     () =>
       failed
@@ -43,25 +58,47 @@ export default function BootTerminal({ modules, orgName, error, onComplete, onFa
             { text: "> Loading platform configurations..." },
             { text: "Connecting to local sqlite... OK", tone: "dim" },
             { text: "> Parsing 'modules' table..." },
-            ...(modules ?? []).map((m): Line => ({ text: `   - Mod: ${m.name} loaded.`, tone: "dim" })),
+            ...(modules ?? []).map((m): Line =>
+              m.slug === holdSlug
+                ? { text: `   - Mod: ${m.name} ... setup required`, tone: "hold", slug: m.slug }
+                : { text: `   - Mod: ${m.name} loaded.`, tone: "dim", slug: m.slug }
+            ),
             { text: "> Rendering Interface..." },
+            ...(held ? [{ text: "> Opening Secured Vault...", tone: "dim" } as Line] : []),
           ],
-    [modules, orgName, error, failed]
+    [modules, orgName, error, failed, holdSlug, held]
   );
   const [shown, setShown] = useState(0);
+  // -1 when there is nothing to hold for, and ALSO when holdSlug names a module that is not in the
+  // list (disabled, or not seeded). A slug the script never prints must not stall the boot forever.
+  const holdIndex = useMemo(() => (holdSlug === null ? -1 : lines.findIndex((l) => l.slug === holdSlug)), [lines, holdSlug]);
 
   useEffect(() => {
     // Gate: hold the typing loop (cursor blinks) until the workspace name resolves — it arrives in
     // the same settings Promise as the module rows, so this never waits longer than the data read.
     // A failed read bypasses the gate (the FATAL script doesn't use the name).
     if (!failed && orgName === null) return;
+    // Second gate, same primitive: stop with the held line VISIBLE (shown === holdIndex + 1) and
+    // stay there. No timer is set, so nothing can advance past it — the only way out is the parent
+    // clearing holdSlug, which re-runs this effect and resumes typing from where it stopped. That
+    // is deliberate: a timeout here would let the user into a vault still holding its seeded
+    // password, which is the exact state the wizard exists to end.
+    if (!failed && holdIndex >= 0 && shown > holdIndex) {
+      // Guarded so it fires once. The parent is told HERE, with the held line already painted, so
+      // the wizard opens over a boot the user has watched run — not over an empty terminal.
+      if (!held) {
+        setHeld(true);
+        onHold();
+      }
+      return;
+    }
     const done = shown >= lines.length;
     const t = window.setTimeout(
       () => (done ? (failed ? onFail() : onComplete()) : setShown(shown + 1)),
       done ? (failed ? FAIL_MS : DONE_MS) : LINE_MS
     );
     return () => window.clearTimeout(t);
-  }, [shown, lines.length, failed, orgName, onComplete, onFail]);
+  }, [shown, lines.length, failed, orgName, holdIndex, held, onHold, onComplete, onFail]);
 
   return (
     <div className="bootterm">

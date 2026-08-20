@@ -6,7 +6,7 @@
    own and hardcodes NO color that competes with one. Classes carry the scv- prefix so nothing
    collides with shell classes (.view/.modal/.card/.nav/.item all exist in globals.css). */
 
-.scv-shell{position:relative;display:flex;flex-direction:column;height:calc(100vh - 58px - var(--mc-footer-height));overflow:hidden;background:var(--mc-base);color:var(--mc-text)}
+.scv-shell{position:relative;display:flex;flex-direction:column;height:calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height));overflow:hidden;background:var(--mc-base);color:var(--mc-text)}
 
 /* ---------- browser chrome (back/fwd/reload · URL bar · Go) ---------- */
 .scv-chrome{display:flex;align-items:center;gap:10px;padding:11px 18px;border-bottom:1px solid var(--mc-border);background:var(--mc-topbar)}
@@ -50,6 +50,26 @@
 .scv-mt .scv-k{color:var(--mc-dimmer);font-weight:500;margin-left:8px;font-size:12px}
 .scv-mx{margin-left:auto;background:transparent;border:none;color:var(--mc-muted);font-size:16px;cursor:pointer}
 .scv-mbody{padding:12px 14px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+
+/* ---- the experimental-use gate (Jason 08-20-2026) --------------------------------------------
+   Reuses .scv-mwrap / .scv-modal / .scv-mhead / .scv-mbody wholesale, so this is an INSTANCE of the
+   module's existing modal rather than a new surface — only the prose block, the tick and the single
+   action are new. The wrapper carries no onClick here: backdrop-dismiss is what makes the other two
+   modals casual, and this one must not be. */
+.scv-gate{width:min(560px,86%)}
+/* Justified, with hyphenation. `hyphens:auto` is not decoration here — this column is about 530px
+   and the prose carries long unbreakable runs ("experimental", "acknowledgement", the quoted
+   verify-you-are-a-human string). Justifying without it stretches the spaces on those lines into
+   visible rivers, which reads worse than ragged-right did. */
+.scv-gp{font-size:12.5px;line-height:1.65;color:var(--mc-muted);margin:0 0 10px;
+  text-align:justify;hyphens:auto}
+.scv-gp b{color:var(--mc-text)}
+.scv-gcheck{display:flex;align-items:flex-start;gap:9px;margin-top:4px;padding:10px 12px;cursor:pointer;
+  font-size:12.5px;line-height:1.5;color:var(--mc-text);background:var(--mc-nested);
+  border:1px solid var(--mc-border);border-radius:10px}
+.scv-gcheck input{flex:none;margin-top:2px;cursor:pointer}
+.scv-gactions{display:flex;justify-content:flex-end;margin-top:14px}
+.scv-gactions .scv-b:disabled{opacity:.45;cursor:default}
 .scv-item{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:8px 10px;border-radius:7px;font-size:12.5px;color:var(--mc-muted);cursor:pointer;width:100%;text-align:left;background:transparent;border:none}
 .scv-item:hover{background:var(--mc-nested)}
 .scv-item .scv-i{width:15px;text-align:center;opacity:.85;margin-right:6px}

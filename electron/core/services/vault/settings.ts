@@ -96,9 +96,20 @@ export const VAULT_DEFAULTS = {
    * wanted was a decision that stays made. A dial on a pane that cannot move is a readout of a
    * constant, so the two travel together.
    *
-   * Default ON while the widths are still being calibrated; turn it off before this ships.
+   * NOW OFF BY DEFAULT (Jason 08-20-2026) — this is the "turn it off before this ships" the line
+   * below used to promise. The widths are calibrated: SIDE_DEFAULTS in Sidebar.tsx carries the four
+   * per-section numbers he read off the dial, so the divider has nothing left to discover and a
+   * drag handle on a settled layout is just a way to knock it out of true by accident.
+   *
+   * IT IS A DEFAULT, NOT A REMOVAL. The switch stays in Vault → Settings (SidebarEditor.tsx), and
+   * it stays IN THE VAULT rather than moving to the shell Settings modal — Jason 08-20-2026: the
+   * vault is encrypted, and someone without access should not learn what settings it has. Flipping
+   * it back restores the handle and the dial together, which is why they were one setting.
+   *
+   * Reads fall through to this constant (getSetting: `row?.value ?? VAULT_DEFAULTS[key]`), so an
+   * install that never touched the switch is locked by this change alone — no migration.
    */
-  "sidebar.width_adjustable": "1",
+  "sidebar.width_adjustable": "0",
   // KEPT THOUGH NOTHING READS IT. The note list is a constant now (NotesView.LIST_WIDTH), but a
   // stored row still carries this key and dropping it from the whitelist would be a non-additive
   // change (§3.9). An ignored row costs one line; a removed key costs a migration.

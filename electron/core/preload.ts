@@ -54,6 +54,11 @@ const api: Api = {
       invoke("db:rows", table, limit, offset, sortColumn, sortDir),
     fks: (table: string) => invoke("db:fks", table),
   },
+  // Artwork only. One call at mount hands over the label→domain map so a tile resolves locally;
+  // there is deliberately no per-tile channel, which would put vault labels on an IPC hot path.
+  brandpack: {
+    map: () => invoke("brandpack:map"),
+  },
   dataviewer: {
     getDevMode: () => invoke("dataviewer:getDevMode"),
     updateRow: (table: string, pkValue: unknown, changes: Record<string, unknown>) => invoke("dataviewer:updateRow", table, pkValue, changes),
@@ -61,7 +66,10 @@ const api: Api = {
     setDevMode: (on: boolean) => invoke("dataviewer:setDevMode", on),
   },
   getFirstRunStatus: () => invoke("firstRun:get"),
-  completeFirstRun: (orgName: string) => invoke("firstRun:complete", orgName),
+  /** Escape from a setup wizard — quits outright, never hides to tray (see electron/main.ts). */
+  setupQuit: () => ipcRenderer.send("setup:quit"),
+  /** The master password crosses ONCE, here, and is never sent back. */
+  completeFirstRun: (orgName: string, masterPassword: string) => invoke("firstRun:complete", orgName, masterPassword),
   getModules: () => invoke("modules:get"),
   settings: {
     get: (key: string) => invoke("settings:get", key),
@@ -87,6 +95,7 @@ const api: Api = {
     reload: () => ipcRenderer.send("scout:reload"),
     stop: () => ipcRenderer.send("scout:stop"),
     setModalState: (open: boolean) => ipcRenderer.send("scout:modal", open),
+    setShellOverlay: (open: boolean) => ipcRenderer.send("scout:shell-overlay", open),
     domRead: () => invoke("scout:dom-read"),
     onSnapshot: (cb: (dataUrl: string) => void) => subscribe("scout:snapshot", cb),
     onTabReady: (cb: () => void) => subscribe("scout:tab-ready", cb),
@@ -423,6 +432,11 @@ const api: Api = {
     unlock: (password: string) => invoke("vault:unlock", password),
     lock: () => invoke("vault:lock"),
     changeMasterPassword: (current: string, next: string) => invoke("vault:changeMasterPassword", current, next),
+    /** The boot wizard's trigger. Boolean only — no credential material crosses either way. */
+    setupRequired: () => invoke("vault:setupRequired"),
+    /** The wizard's one write: the one-time change presented as setup. The CURRENT password is
+     *  re-derived main-side and never crosses this bridge — see vault/ipc.ts. */
+    completeSetup: (next: string) => invoke("vault:completeSetup", next),
     devRevealInitial: () => invoke("vault:devRevealInitial"),
     create: (input: unknown) => invoke("vault:createSecret", input),
     list: (includeArchived?: boolean) => invoke("vault:listSecrets", includeArchived === true),

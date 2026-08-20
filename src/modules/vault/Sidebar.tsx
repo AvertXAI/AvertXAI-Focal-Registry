@@ -92,6 +92,27 @@ export const SIDE_MIN = 200;
 export const SIDE_MAX = 320;
 export const SIDE_DEFAULT = 270;
 
+/**
+ * PER-SECTION CALIBRATED WIDTHS (Jason 08-20-2026), read off the dial on each tab in turn.
+ *
+ * `sidebar.widths` was already a per-section map — these are the seeded defaults that map filled in
+ * with one shared 270 before. Passwords and the two list-ish tabs need less room than Secured Notes,
+ * whose tree carries folder names; giving all four the same number was giving three of them slack
+ * the content pane wanted.
+ *
+ * HIS NUMBERS, off the dial. Same rule as the three constants above: do not re-derive them, and do
+ * not estimate a replacement off a screenshot. All four sit inside SIDE_MIN..SIDE_MAX, so clampWidth
+ * passes them through untouched.
+ */
+export const SIDE_DEFAULTS: Partial<Record<Section, number>> = {
+  passwords: 210,
+  notes: 270,
+  infra: 215,
+  repos: 215,
+};
+/** The default for one section, and the width its divider double-click resets to. */
+export const sideDefault = (s: Section): number => SIDE_DEFAULTS[s] ?? SIDE_DEFAULT;
+
 export default function Sidebar(p: SidebarProps) {
   /**
    * THE WIDTH WHILE YOU ARE DRAGGING IT. The prop is the persisted truth; this is what is on screen
@@ -140,11 +161,9 @@ export default function Sidebar(p: SidebarProps) {
           collapsed — "just remove it altogether"). Nothing is lost: every Passwords view carries its
           own + New entry (EntriesView, CollageView, PanesView), Notes has + New, Repos has + Add
           repo. This was the duplicate, and it was the one that broke. */}
-      <div className="vault-sidetop">
-        <button className="vault-collapse" title={p.collapsed ? "Expand" : "Collapse"} onClick={() => p.onCollapse(!p.collapsed)}>
-          {p.collapsed ? "»" : "«"}
-        </button>
-      </div>
+      {/* The corner chevron that used to sit in a .vault-sidetop strip here is GONE (Jason
+          08-20-2026). Every module sidebar now collapses from ONE control in ONE place: the
+          .edgetab welded to this pane's right edge, at the bottom of this component. */}
 
       <div className="vault-sidescroll">
         {/* The "Search secrets" box moved to the ONE global search at the top of the module
@@ -245,13 +264,12 @@ export default function Sidebar(p: SidebarProps) {
           </>
         )}
 
-      </div>
-
-      <div className="vault-sidefoot">
-        <button className={`vault-gear${p.section === "settings" ? " on" : ""}`} onClick={() => p.onSection("settings")}>
-          <span className="vault-gearicon" aria-hidden="true">⚙</span>
-          <span className="vault-railname sbtxt">Settings</span>
-        </button>
+        {/* NO SETTINGS CONTROL IN THIS RAIL (Jason 08-20-2026). It was a .vault-sidefoot pinned
+            under the scroller, which clipped out of view the moment the rail's content was taller
+            than the pane; it spent one revision as a row in this list, and now it is the gear at the
+            far right of the .vault-navbar in VaultModule. It is the ONLY route into the vault's
+            settings surface — the rows above at `p.section === "settings"` render only once you are
+            already there — so wherever it goes, it has to stay reachable. */}
       </div>
 
       {/* The neighbour is .vault-body — everything right of the rail — and its floor is 560, which is
@@ -264,13 +282,25 @@ export default function Sidebar(p: SidebarProps) {
           width={live}
           min={SIDE_MIN}
           max={SIDE_MAX}
-          reset={SIDE_DEFAULT}
+          reset={sideDefault(p.section)}
           neighbour={{ selector: ".vault-body", min: 560 }}
           onDrag={setLive}
           onDone={p.onWidth}
           label="Sidebar width"
         />
       )}
+
+      {/* THE ONE COLLAPSE CONTROL. Outside the pane's box by design (left:100%), so it stays put
+          when the pane drops to width 0 and remains the only way back. */}
+      <button
+        className="edgetab"
+        title={p.collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
+        aria-label={p.collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
+        aria-expanded={!p.collapsed}
+        onClick={() => p.onCollapse(!p.collapsed)}
+      >
+        {p.collapsed ? "»" : "«"}
+      </button>
     </div>
   );
 }

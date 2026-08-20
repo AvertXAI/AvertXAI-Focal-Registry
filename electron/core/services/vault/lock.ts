@@ -84,6 +84,96 @@ export function ensureMasterPassword(db: Db, orgId: string): void {
   setInternal(db, orgId, VERIFIER_KEY, derive(deriveInitialMasterPassword(), salt));
 }
 
+/**
+ * SEED THE VERIFIER FROM A PASSWORD THE USER CHOSE — first run's one write into the vault.
+ *
+ * This is `ensureMasterPassword` with the password supplied instead of derived, and it exists so a
+ * brand-new install never meets a second setup wizard. `isSetupRequired` below returns true only
+ * when the stored verifier matches the DERIVED initial; seeding from a chosen password means it
+ * cannot match, so the boot-time vault wizard answers "not required" and never fires. **No flag, no
+ * migration, no change to the detector** — the existing mechanism gives the right answer for free.
+ *
+ * IT MAY ONLY EVER ACT ON A VAULT THAT HAS NEVER BEEN SEEDED. The early return is the same guard
+ * `ensureMasterPassword` uses, and it is the difference between a first-run helper and a silent
+ * password reset: without it, any later call would overwrite a password its caller never knew.
+ *
+ * THE PASSWORD APPEARS IN NO ERROR MESSAGE. Both throws below describe the rule that was broken and
+ * quote nothing. A first-run failure surfaces to the user, and an error string is the easiest place
+ * in a codebase for a credential to end up in a log file.
+ *
+ * IT DERIVES FROM THE RAW STRING, not the trimmed one, even though the length check uses the
+ * trimmed length. `verify()` below derives from exactly what the user types at the unlock screen —
+ * seeding a trimmed value while verifying an untrimmed one would lock the owner out of their own
+ * vault on the first restart. The trim is a validity test only; it never reaches `derive`.
+ */
+export function seedMasterPassword(db: Db, orgId: string, password: unknown): void {
+  if (getInternal(db, orgId, VERIFIER_KEY)) return; // already seeded — never overwrite
+  if (typeof password !== "string") {
+    throw new Error("A master password is required.");
+  }
+  if (password.length < 12) {
+    throw new Error("A master password must be at least 12 characters.");
+  }
+  // THE TRAILING-SPACE LOCKOUT, CLOSED HERE PERMANENTLY. This used to validate the TRIMMED length
+  // and derive from the RAW string, which let a password with a trailing space pass the check and
+  // seed a verifier containing the space — while the Done step printed it, and a trailing space is
+  // invisible even in monospace. The user writes down what they can see, restarts, and is locked out
+  // of their own vault with no recovery path.
+  //
+  // `verify()` below does not trim, and MUST NOT: trimming on one side only is what creates the
+  // lockout in the first place. So the fix is to refuse the ambiguous input outright rather than
+  // silently normalise it, and to refuse it on BOTH sides. The renderer now trims before it submits,
+  // which means this branch can never fire in practice — it exists so the two sides can never
+  // silently disagree again.
+  if (password !== password.trim()) {
+    throw new Error("A master password cannot begin or end with a space.");
+  }
+  const salt = crypto.randomBytes(16).toString("hex");
+  setInternal(db, orgId, SALT_KEY, salt);
+  setInternal(db, orgId, VERIFIER_KEY, derive(password, salt));
+}
+
+/**
+ * HAS THE USER EVER SET THEIR OWN MASTER PASSWORD? — the vault setup wizard's one trigger.
+ *
+ * NOTHING STORED ANSWERS THIS, and that is why the shape is what it is. `ensureMasterPassword`
+ * above and `changeMasterPassword` below write the SAME two keys, with the same random salt and the
+ * same scrypt output: a seeded verifier and a chosen one are byte-for-byte indistinguishable. There
+ * is no `set_at`, no flag, no provenance column anywhere.
+ *
+ * So this RECOMPUTES rather than reads — Jason's ruling, DECISIONS-56: "recompute-and-compare, zero
+ * schema change". `deriveInitialMasterPassword()` is deterministic per machine and `derive()` is a
+ * pure function of password and salt, so re-deriving against the STORED salt and comparing to the
+ * STORED verifier answers the question with no migration and no new write, and it answers it
+ * correctly for vaults that already exist.
+ *
+ * IT FAILS QUIET, NOT LOUD, AND THAT IS RULED. `deriveInitialMasterPassword()` throws when device
+ * identity is unavailable (see above). A machine that cannot answer must not have its boot held
+ * behind a wizard it can never satisfy, so a throw is logged and reported as "no setup required" —
+ * the user reaches their application, and the vault behaves exactly as it did before this existed.
+ *
+ * IT LEAKS NOTHING. The return value is a boolean. The derived password, the salt and the verifier
+ * never leave this function, and the error path logs the failure WITHOUT the value.
+ */
+export function isSetupRequired(db: Db, orgId: string): boolean {
+  const stored = getInternal(db, orgId, VERIFIER_KEY);
+  const salt = getInternal(db, orgId, SALT_KEY);
+  // Nothing seeded yet — a genuinely fresh vault. `ensureMasterPassword` seeds it on the very next
+  // vaultCtx(), and what it seeds is the derived initial, so setup is required either way.
+  if (!stored || !salt) return true;
+  try {
+    const seeded = derive(deriveInitialMasterPassword(), salt);
+    const a = Buffer.from(seeded, "hex");
+    const b = Buffer.from(stored, "hex");
+    // Same constant-time compare as verify() below. The timing of THIS call is not a secret, but a
+    // second comparison convention in one file is how the careful one eventually gets edited away.
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch (e) {
+    console.error("[vault] setup check could not derive the initial master password:", e);
+    return false;
+  }
+}
+
 /** Constant-time compare — a length-varying or short-circuiting compare leaks by timing. */
 function verify(db: Db, orgId: string, password: string): boolean {
   const stored = getInternal(db, orgId, VERIFIER_KEY);

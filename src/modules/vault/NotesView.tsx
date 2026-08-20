@@ -753,7 +753,7 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
               <span aria-hidden="true">⭳</span> Import
             </button>
           )}
-          <button className="vault-collapse" title="Collapse the list" onClick={() => setCollapsed(!collapsed)}>{collapsed ? "»" : "«"}</button>
+          {/* chevron removed 08-20-2026 — this list collapses from the .edgetab on its right edge */}
         </div>
         <div className="vault-nlstyles">
           {STYLES.map(([s, label]) => (
@@ -891,6 +891,18 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
             </div>
           )}
         </div>
+
+        {/* THE ONE COLLAPSE CONTROL for this list — welded to its right edge, between the list and
+            the editor. Sits outside the pane's box, so width:0 cannot take it with it. */}
+        <button
+          className="edgetab"
+          title={collapsed ? "Expand the list" : "Collapse the list"}
+          aria-label={collapsed ? "Expand the list" : "Collapse the list"}
+          aria-expanded={!collapsed}
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          {collapsed ? "»" : "«"}
+        </button>
       </div>
 
       <div className="vault-noteedit">

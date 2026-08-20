@@ -21,7 +21,7 @@
   --timetracker-chart-costs-color: var(--timetracker-paused-color);
   --timetracker-chart-grid-color: var(--mc-border);
   display: flex;
-  height: calc(100vh - 58px - var(--mc-footer-height, 0px));
+  height: calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height, 0px));
   background: var(--mc-base);
   color: var(--mc-text);
   overflow: hidden;
@@ -37,7 +37,8 @@
 [data-theme="dark"] .tt-shell { --timetracker-on-accent-ink: #ffffff; }
 
 /* ---------- nested Projects rail (fixed width, always visible) ---------- */
-.tt-rail { width: var(--timetracker-rail-width); flex: none; display: flex; flex-direction: column; background: var(--mc-panels); border-right: 1px solid var(--mc-border); min-height: 0; }
+/* position:relative anchors the .edgetab (shell.css) — this rail's ONE collapse control. */
+.tt-rail { position: relative; width: var(--timetracker-rail-width); flex: none; display: flex; flex-direction: column; background: var(--mc-panels); border-right: 1px solid var(--mc-border); min-height: 0; }
 .tt-railhead { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }
 .tt-railtitle { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mc-muted); }
 .tt-railcount { margin-left: auto; font-size: 11px; font-family: var(--mc-mono); color: var(--mc-dimmer); background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 9px; padding: 1px 7px; }
@@ -292,15 +293,15 @@
 .tt-archbtn:hover { color: var(--mc-text); border-color: var(--mc-accent-primary); }
 
 /* ---------- Phase 6A — rail collapse (persisted via timetracker.rail_collapsed) ---------- */
-.tt-railtoggle { margin-left: auto; background: none; border: 1px solid var(--mc-border); border-radius: 6px; color: var(--mc-muted); font-size: 12px; line-height: 1; padding: 3px 7px; cursor: pointer; }
-.tt-railtoggle:hover { color: var(--mc-text); border-color: var(--mc-accent-primary); }
-.tt-railhead .tt-railtoggle { margin-left: auto; }
+/* .tt-railtoggle and the .tt-raildot* strip were deleted 08-20-2026 with the corner chevron and the
+   zero-width collapse — the rail's control is the shared .edgetab now, and a 0px rail has nowhere to
+   put colour dots. Their markup is in git if the dots return as a hover flyout. */
 .tt-railhead .tt-archbtn { margin-left: 4px; }
-.tt-rail.collapsed { width: 44px; align-items: center; padding-top: 10px; gap: 10px; }
-.tt-rail.collapsed .tt-railtoggle { margin-left: 0; }
-.tt-raildots { display: flex; flex-direction: column; align-items: center; gap: 8px; overflow-y: auto; min-height: 0; padding-bottom: 10px; }
-.tt-raildot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; flex: none; }
-.tt-raildot.on { border-color: var(--mc-text); box-shadow: 0 0 0 2px var(--mc-panels); }
+/* COLLAPSED IS ZERO (Jason 08-20-2026), matching every other module sidebar. This DID cost the
+   44px strip of project colour dots — at width 0 there is nowhere to put them. Called out in the
+   change report rather than quietly dropped; say the word and they come back as a flyout. */
+.tt-rail.collapsed { width: 0; }
+.tt-rail.collapsed > *:not(.edgetab) { display: none; }
 
 /* ---------- Phase 6A — the TimeTracker section inside the SHARED Settings surface.
    These classes render OUTSIDE .tt-shell, so they use --mc-* shell tokens only. ---------- */
@@ -534,8 +535,6 @@
 /* GROUP ICON beside the colour dot — three render sites, colour untouched at every one */
 .tt-groupicon { flex: none; font-size: 12px; line-height: 1; }
 .tt-groupicon.big { font-size: 17px; }
-.tt-raildotwrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.tt-groupicon.rail { font-size: 10px; }
 
 /* --- 08-05-2026 device-feedback fixes --- */
 /* The attach button was full-width and enormous. Sized to its own words, with a sane ceiling so a

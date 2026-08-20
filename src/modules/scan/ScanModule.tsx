@@ -675,8 +675,15 @@ export default function ScanModule() {
               when you ask; never renames files, never deletes.
             </p>
           </div>
-          {NOTES_TABS.has(tab) && (
-            <div className="scannotes-headright">
+          {/* THE COLUMN IS ALWAYS RENDERED, only its contents are conditional (Jason 08-20-2026).
+              This is the "scan notes search" half of the container jumping. .scannotes-headright is
+              `flex:0 1 400px; min-width:220px`, so when it was absent .scannotes-headleft — which is
+              `flex:1 1 300px` — took the whole row, and the subtitle fitted on ONE line. With the
+              search present the subtitle was squeezed onto TWO, making the header a line taller on
+              exactly the two tabs that have a search. Reserving the column keeps the wrap identical
+              on all five tabs; an empty div still holds its flex-basis. */}
+          <div className="scannotes-headright">
+            {NOTES_TABS.has(tab) && (
               <div className={`scannotes-searchwrap${searchOpen ? " open" : ""}`} ref={searchBox}>
                 <div className="scannotes-search">
                   <span aria-hidden="true">🔍</span>
@@ -746,11 +753,15 @@ export default function ScanModule() {
                   </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        <div className={`scan-tabs${NOTES_TABS.has(tab) ? " scannotes-tabrow scannotes" : ""}`}>
+        {/* The row now joins the panel on EVERY tab (Jason 08-20-2026), not just the two Scan
+            Notes ones. It was conditional, which is half of why the container jumped between tabs:
+            .scan-tabs carries margin-bottom:20px and .scannotes-tabrow zeroes it, so the gap under
+            the tabs appeared and vanished as you moved across the strip. */}
+        <div className="scan-tabs scannotes-tabrow scannotes">
           <div className="scannotes-tablist">
             {TABS.map(([key, label]) => (
               <button key={key} className={`scan-tab${tab === key ? " on" : ""}`} onClick={() => chooseTab(key)}>
@@ -759,8 +770,14 @@ export default function ScanModule() {
               </button>
             ))}
           </div>
-          {tab === "notes" && (
-            <div className="scannotes-tabactions">
+          {/* SAME TREATMENT, and this is the "buttons" half. The cluster is 48px tall (a 40px
+              .scannotes-iconbtn plus its own 8px padding-bottom) against a ~31px tab button, and the
+              row is align-items:flex-end — so the strip stood 48px on Scan Notes and 31px everywhere
+              else, moving the panel top by seventeen pixels. The wrapper now renders on every tab
+              with a min-height that matches its own filled height. */}
+          <div className="scannotes-tabactions">
+            {tab === "notes" && (
+              <>
               {/* THE WARM-UP CHIPS, leftmost on the row so the two actions keep the position the
                   user already reaches for. They draw nothing at all when there is nothing warming. */}
               <WarmChips warm={warm} />
@@ -795,12 +812,22 @@ export default function ScanModule() {
               >
                 🔗
               </button>
-            </div>
-          )}
+              </>
+            )}
+          </div>
         </div>
 
         {error && <div className="scan-card2 scan-note" style={{ marginBottom: 14 }}>{error}</div>}
 
+        {/* ONE PANEL, FIVE TABS (Jason 08-20-2026: "when i select different tabs not scan notes,
+            the window/container moves vertically up and down, i want it to look consistant").
+            Every tab's content used to be its own sibling — Scan Notes got .scannotes-tabbody and a
+            480px floor from its grid, Updated Notes got the same panel with no floor at 146px, and
+            History, Reports and New scan got no panel at all and collapsed to their content: 102px
+            for an empty Reports card. Five tabs, four different heights, so the whole surface jumped
+            on every click. The floor moved off .scannotes-grid onto this panel, so it applies to all
+            five rather than to the one tab that happened to own the grid. */}
+        <div className="scannotes-tabbody scannotes">
         {tab === "new" && (
           <div className="scan-split">
             {/* LEFT — drives list (Option B), always visible */}
@@ -898,7 +925,7 @@ export default function ScanModule() {
         {tab === "reports" && <ReportsList runs={runs} onView={viewReport} onFolder={openReportsFolder} />}
         {/* The two Scan Notes surfaces share one panel that the selected tab joins onto. */}
         {NOTES_TABS.has(tab) && (
-          <div className="scannotes-tabbody scannotes">
+          <>
             {tab === "notes" ? (
               <>
                 <ScanNotesTab
@@ -932,8 +959,9 @@ export default function ScanModule() {
             ) : (
               <UpdatesTab refreshKey={notesRefresh} />
             )}
-          </div>
+          </>
         )}
+        </div>
       </div>
 
       {reportModal && (

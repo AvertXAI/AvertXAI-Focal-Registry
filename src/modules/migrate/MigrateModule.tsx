@@ -9,6 +9,7 @@ import type {
 } from "../../shared/types";
 import Tip from "../../components/Tip";
 import "./migrate.css";
+import { bumpRender } from "../../diag";
 
 type TabView = "wizard" | "results" | "bundle";
 interface TabState {
@@ -59,6 +60,7 @@ const fmtBytes = (n: number | null | undefined): string => {
 };
 
 export default function MigrateModule() {
+  bumpRender("migrate"); // DIAG-2
   const api = window.api;
   const [tabs, setTabs] = useState<TabState[]>(() => tabsCache ?? [newTab()]);
   const [activeId, setActiveId] = useState<string>(() => (tabsCache?.[0] ?? tabs[0]).id);

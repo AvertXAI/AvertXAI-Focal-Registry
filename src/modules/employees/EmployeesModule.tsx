@@ -37,12 +37,36 @@ const NOT_BUILT: Record<Exclude<Tab, "ledger" | "adjustments">, string> = {
 
 // Module-level caches — instant re-entry paint, the same pattern the other modules use. Never
 // localStorage. A stale cache can only ever affect what paints first; every read still runs.
+// Module-scope, survives a remount within one session; app_settings survives the restart. Same
+// two-tier pattern as TimeTracker's railCollapsedCache — null means "not read yet", NOT "open".
+let empRailCollapsedCache: boolean | null = null;
 let peopleCache: EmployeePerson[] | null = null;
 let selectedCache: number | null = null;
 
 export default function EmployeesModule() {
   bumpRender("employees"); // DIAG-2
   const api = window.api;
+  // People-rail collapse — the module's OWN sidebar control, not the shell rail. Mirrors
+  // TimeTracker exactly: module-scope cache so a same-session remount paints right on frame one,
+  // app_settings for the restart. DEFAULTS OPEN — only a stored "1" collapses it.
+  const [railCollapsed, setRailCollapsed] = useState<boolean>(() => empRailCollapsedCache ?? false);
+  // Warm from app_settings on every mount — a renderer reload wipes the module-scope cache.
+  useEffect(() => {
+    void api.settings.get("employees.rail_collapsed").then((v) => {
+      if (v !== null) {
+        empRailCollapsedCache = v === "1";
+        setRailCollapsed(v === "1");
+      }
+    }).catch(() => {});
+  }, [api]);
+  const toggleRail = (): void => {
+    setRailCollapsed((prev) => {
+      const next = !prev;
+      empRailCollapsedCache = next;
+      void api.settings.set("employees.rail_collapsed", next ? "1" : "0").catch(() => {});
+      return next;
+    });
+  };
   const [people, setPeople] = useState<EmployeePerson[]>(() => peopleCache ?? []);
   const [selectedId, setSelectedId] = useState<number | null>(() => selectedCache);
   const [tab, setTab] = useState<Tab>("ledger");
@@ -211,6 +235,8 @@ export default function EmployeesModule() {
   return (
     <main className="view shown emp-shell">
       <PeopleRail
+        collapsed={railCollapsed}
+        onToggleCollapse={toggleRail}
         people={people}
         hoursById={hoursById}
         selectedId={selectedId}

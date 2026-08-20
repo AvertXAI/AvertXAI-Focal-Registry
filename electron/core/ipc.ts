@@ -14,6 +14,7 @@ import path from "node:path";
 import { defaultSettings, type MindMergeSettings } from "../../src/modules/mindmerge/config.manifest";
 import { getDb } from "./services/db";
 import { getActiveOrg } from "./services/db/registry";
+import { vendorMap } from "./services/brandpack";
 import * as dataviewer from "./services/dataviewer";
 import * as firstrun from "./services/firstrun";
 import * as modules from "./services/modules";
@@ -267,6 +268,9 @@ export function registerIpcHandlers(): void {
   // Employees module (employees:*) — same shape: registration and its lazy org context live in the
   // module's own ipc file. No service start, no ticker, no push channel — reads only until asked.
   registerEmployeesIpc();
+  // Brand pack artwork. Returns null until a pack has downloaded, which the renderer reads as
+  // "no artwork" and renders the colour-and-initials tile — the pre-pack behaviour, unchanged.
+  ipcMain.handle("brandpack:map", () => vendorMap());
   // Secured Vault (vault:*) — same shape again; its lazy ctx also derives the SQLCipher key and
   // defensively ensures the vault schema (a wizard-minted org never reaches main.ts's boot ensure).
   registerVaultIpc();
@@ -316,7 +320,9 @@ export function registerIpcHandlers(): void {
 
   // first-run wizard — service validates orgName, then seeds settings + modules in one transaction.
   safeHandle("firstRun:get", () => firstrun.getFirstRunStatus());
-  safeHandle("firstRun:complete", (_e, orgName: unknown) => firstrun.completeFirstRun(orgName));
+  safeHandle("firstRun:complete", (_e, orgName: unknown, masterPassword: unknown) =>
+    firstrun.completeFirstRun(orgName, masterPassword)
+  );
 
   // LOCAL device identity for the Settings "This device" read-only surface. Prefers the provenance
   // row written at account creation; an install that predates that row gets a LIVE probe (read-only,
@@ -1199,6 +1205,9 @@ export function registerIpcHandlers(): void {
   });
   safeOn("scout:stop", (e) => {
     if (fromShell(e)) scout.stopLoad();
+  });
+  safeOn("scout:shell-overlay", (e, open: unknown) => {
+    if (fromShell(e)) scout.setShellOverlay(open === true);
   });
   safeOn("scout:modal", (e, open: unknown) => {
     if (fromShell(e)) scout.setModalOpen(open === true);

@@ -1329,6 +1329,10 @@ export interface Api {
     rows: (table: string, limit: number, offset: number, sortColumn?: string, sortDir?: "ASC" | "DESC") => Promise<DbRowsPage>;
     fks: (table: string) => Promise<DbForeignKey[]>;
   };
+  /** Brand pack artwork: the label→domain map, or null until a pack has downloaded. */
+  brandpack: {
+    map: () => Promise<{ version: number; vendors: Record<string, string> } | null>;
+  };
   /** Data Viewer persisted View(false)/Developer(true) mode — app_settings 'dataviewer_dev_mode'. */
   dataviewer: {
     getDevMode: () => Promise<boolean>;
@@ -1339,7 +1343,9 @@ export interface Api {
   };
   /** First-Run Setup Wizard — true once an active org exists in the platform registry. */
   getFirstRunStatus: () => Promise<boolean>;
-  completeFirstRun: (orgName: string) => Promise<void>;
+  completeFirstRun: (orgName: string, masterPassword: string) => Promise<void>;
+  /** Escape from a setup wizard: a real quit, not a hide-to-tray. */
+  setupQuit: () => void;
   /** Config-as-Data module registry rows (ordered by display_order) — drive nav + routing. */
   getModules: () => Promise<ModuleRow[]>;
   /** Key-whitelisted app_settings access (currently: 'skip_fast_boot'). */
@@ -1374,6 +1380,8 @@ export interface Api {
     reload: () => void;
     stop: () => void;
     setModalState: (open: boolean) => void;
+    /** Shell chrome (peeking nav panel, Settings modal) is over the module — hide the native guest. */
+    setShellOverlay: (open: boolean) => void;
     domRead: () => Promise<ScoutDomCard | null>;
     onSnapshot: (cb: (dataUrl: string) => void) => () => void;
     onTabReady: (cb: () => void) => () => void;

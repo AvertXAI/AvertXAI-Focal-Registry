@@ -14,12 +14,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { ScoutDomCard, ScoutTargetRow } from "../../shared/types";
 import "./scout-viewer.css";
+import { bumpRender } from "../../diag";
 
 /** The start page and the Home button target. Google for now — a deliberate placeholder until a
     real default is ruled, kept in ONE place so changing it is a one-line edit. */
 export const HOME_URL = "https://www.google.com";
 
 export default function ScoutViewerModule() {
+  bumpRender("scout-viewer"); // DIAG-2
   const holeRef = useRef<HTMLDivElement | null>(null);
   const [urlText, setUrlText] = useState(HOME_URL);
   // The ACTIVE page ({url,title} straight from the engine) — distinct from urlText, which the user
@@ -31,6 +33,16 @@ export default function ScoutViewerModule() {
   const [snapshot, setSnapshot] = useState<string | null>(null);
   const [snapFading, setSnapFading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  /**
+   * THE EXPERIMENTAL-USE GATE (Jason 08-20-2026, after a live reCAPTCHA challenge).
+   *
+   * `null` = the stored answer has not come back yet, and it is deliberately NOT `false`: defaulting
+   * to false would flash the gate open for a frame on every mount for someone who accepted months
+   * ago. Nothing renders and the guest stays hidden until the read resolves.
+   */
+  const [gateAck, setGateAck] = useState<boolean | null>(null);
+  const [gateTicked, setGateTicked] = useState(false);
+  const gateUp = gateAck === false;
   const [card, setCard] = useState<ScoutDomCard | null>(null);
   // Browse targets (scout_targets CRUD) — loaded fresh each time the sessions modal opens.
   const [targets, setTargets] = useState<ScoutTargetRow[] | null>(null);
@@ -62,6 +74,41 @@ export default function ScoutViewerModule() {
       for (const un of unsubscribe) un();
     };
   }, []);
+
+  // Read the acknowledgement once per mount. A failed read is treated as NOT acknowledged — the
+  // gate is a warning, so the safe direction on error is to show it again rather than skip it.
+  useEffect(() => {
+    void window.api.settings
+      .get("scoutviewer.experimental_ack")
+      .then((v) => setGateAck(v === "1"))
+      .catch(() => setGateAck(false));
+  }, []);
+
+  /**
+   * THE GUEST IS A NATIVE WebContentsView AND IT PAINTS ABOVE ALL WEB CONTENT — a renderer modal
+   * cannot be z-indexed over it, so the module tells main to hide it while anything is up. That is
+   * the existing `setModalState` dance the sessions and vault modals already do; the gate simply
+   * joins the same OR. Without this the warning would render underneath a live browser view.
+   *
+   * It also means the gate genuinely gates: the page cannot be seen, let alone used, until the
+   * acknowledgement is in — including while the stored answer is still loading.
+   */
+  useEffect(() => {
+    if (gateAck === null) { window.api.scout.setModalState(true); return; }
+    if (gateUp) window.api.scout.setModalState(true);
+  }, [gateAck, gateUp]);
+
+  const acceptGate = (): void => {
+    if (!gateTicked) return;
+    setGateAck(true);
+    // Hand the viewport back to the guest ONLY if nothing else still needs it hidden. The chrome row
+    // sits outside the guest hole, so the sessions and vault modals are both reachable while the
+    // gate is up — releasing unconditionally would raise the native view straight through whichever
+    // one was open. (These read fine from a closure declared above them: acceptGate is not called
+    // during the render pass, only after the whole body has run.)
+    if (!modalOpen && !vaultOpen) window.api.scout.setModalState(false);
+    void window.api.settings.set("scoutviewer.experimental_ack", "1").catch(() => {});
+  };
 
   // Snapshot teardown: tab-ready starts the CSS fade; drop the node after the transition window.
   useEffect(() => {
@@ -244,6 +291,9 @@ export default function ScoutViewerModule() {
             className="scv-urltext"
             value={urlText}
             spellCheck={false}
+            aria-label="Address or search"
+            placeholder="Enter a web address, or type to search"
+            title="Type a web address, or any phrase to search the web"
             onChange={(e) => setUrlText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -251,7 +301,6 @@ export default function ScoutViewerModule() {
                 navigate();
               }
             }}
-            aria-label="Address"
           />
         </div>
         <button
@@ -296,6 +345,63 @@ export default function ScoutViewerModule() {
         {/* CENTER browser viewport — live hole for the guest WebContentsView; snapshots overlay here */}
         <div className="scv-view" ref={holeRef}>
           {snapshot && <img className={"scv-snap" + (snapFading ? " fade" : "")} src={snapshot} alt="" />}
+
+          {/* THE EXPERIMENTAL-USE GATE. Deliberately NOT dismissible: no ✕, no backdrop click, and
+              Escape is swallowed rather than ignored — `onKeyDown` stops the key here so it cannot
+              reach the vault modal's Escape handler or anything the shell might add later. The tick
+              is the only thing that arms Continue, and Continue is the only way out. */}
+          {gateUp && (
+            <div className="scv-mwrap" role="presentation" onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); } }}>
+              <div
+                className="scv-modal scv-gate"
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="scv-gate-title"
+                aria-describedby="scv-gate-body"
+              >
+                <div className="scv-mhead">
+                  <div className="scv-mt" id="scv-gate-title">
+                    Scout Viewer is experimental<span className="scv-k">— read this before you browse</span>
+                  </div>
+                  {/* no ✕ on purpose — see the note above */}
+                </div>
+                <div className="scv-mbody" id="scv-gate-body">
+                  <p className="scv-gp">
+                    Scout Viewer works, and it has just been updated — but it is <b>not finished</b>,
+                    and you should not rely on it yet.
+                  </p>
+                  <p className="scv-gp">
+                    Some sites challenge it with a <b>&ldquo;verify you are a human&rdquo;</b> check.
+                    Scout browses inside this application rather than in Chrome, and a few services
+                    treat anything that is not a normal browser window as automated traffic. The
+                    browser identity it reports was corrected on 08-20-2026; whether that clears a
+                    given site is <b>not yet proven</b>, and some sites — Google sign-in among them —
+                    block embedded browsers as a matter of policy and will never allow it.
+                  </p>
+                  <p className="scv-gp">
+                    Treat it as <b>experimental only</b>. Do not use it for anything that matters,
+                    and do not assume a page that fails here would fail in a real browser.
+                  </p>
+                  <label className="scv-gcheck">
+                    {/* autoFocus so a keyboard user lands inside the dialog rather than on
+                        whatever held focus in the chrome row behind it. */}
+                    <input
+                      type="checkbox"
+                      autoFocus
+                      checked={gateTicked}
+                      onChange={(e) => setGateTicked(e.target.checked)}
+                    />
+                    <span>I understand Scout Viewer is experimental and may be blocked by some sites.</span>
+                  </label>
+                  <div className="scv-gactions">
+                    <button className="scv-b" disabled={!gateTicked} onClick={acceptGate}>
+                      I understand — continue
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           {modalOpen && (
             <div className="scv-mwrap" onClick={closeModal}>
               <div className="scv-modal" role="dialog" aria-label="Client tabs" onClick={(e) => e.stopPropagation()}>

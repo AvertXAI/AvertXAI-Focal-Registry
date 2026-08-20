@@ -16,6 +16,7 @@ import type { RenameBatchRow, RenamePresetRow, RenameProgress, RenameRevertRow }
 import { buildPreview, type RenameSettings, type RenameSourceFile } from "../../shared/renamePreview";
 import { formatStamp } from "../../shared/datetime";
 import "./rename.css";
+import { bumpRender } from "../../diag";
 
 type Tab = "new" | "revert" | "history" | "presets";
 const MAX_PREVIEW_ROWS = 200; // render the head only — a 100k-file batch must not build 100k DOM rows
@@ -45,6 +46,7 @@ const DEFAULT_SETTINGS: RenameSettings = {
 const fmtInt = (n: number): string => n.toLocaleString();
 
 export default function RenameModule() {
+  bumpRender("rename"); // DIAG-2
   const api = window.api.rename;
   const [tab, setTab] = useState<Tab>("new");
   const [error, setError] = useState<string | null>(null);

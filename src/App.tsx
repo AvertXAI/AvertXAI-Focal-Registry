@@ -1,13 +1,15 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
 // AvertXAI Focal Registry shell — top bar + flyout nav + view routing.
 // Live surfaces: Home / Settings / Data Viewer, plus the generated module slots below.
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import TopBar from "./components/TopBar";
 import Flyout from "./components/Flyout";
 import FirstRunWizard from "./components/FirstRunWizard";
+import VaultSetupWizard from "./components/VaultSetupWizard";
 import BootTerminal from "./components/BootTerminal";
 import NotBuilt from "./components/NotBuilt";
 import AppFooter from "./components/AppFooter";
+import SettingsModal from "./components/SettingsModal";
 import ScanModule from "./modules/scan/ScanModule";
 import RenameModule from "./modules/rename/RenameModule";
 import MigrateModule from "./modules/migrate/MigrateModule";
@@ -15,7 +17,7 @@ import TimeTrackerModule from "./modules/timetracker/TimeTrackerModule";
 import AttentionToast from "./modules/timetracker/AttentionToast";
 import type { ModuleRow } from "./shared/types";
 import Home from "./views/Home";
-import Settings, { warmToggleCache } from "./views/Settings";
+import { warmToggleCache } from "./views/Settings";
 import { Spark } from "./icons";
 import DataViewerModule from "./modules/data-viewer/DataViewerModule";
 import VaultModule from "./modules/vault/VaultModule";
@@ -35,22 +37,26 @@ export type View = "home" | "settings" | "data-viewer" | (string & {});
 // 3-state theme toggle (System = Hybrid navy default; Light/Dark = the annotated palettes).
 export type ThemeMode = "system" | "light" | "dark";
 
-// Shell sidebar drag-resize bounds. MAX = the historical fixed width — the user can drag SMALLER,
-// never wider than today's rail; raise this one constant to allow more.
-const FLYOUT_MAX_WIDTH = 300;
-const FLYOUT_MIN_WIDTH = 200;
-// A NEW organization starts at the NARROW end (Jason 08-01-2026): the rail opens at the minimum and
-// the user drags it OUT toward 300, rather than opening wide and only ever dragging in. The range is
-// unchanged — this switches which end is the default. Keep in sync with --mc-flyout-width in
-// globals.css, which governs the very first paint before this state reaches the DOM.
-const FLYOUT_DEFAULT_WIDTH = FLYOUT_MIN_WIDTH;
-const clampFlyoutWidth = (px: number): number =>
-  Math.min(FLYOUT_MAX_WIDTH, Math.max(FLYOUT_MIN_WIDTH, Math.round(px)));
+// Retired 08-19: the nav panel is a FIXED --mc-flyout-width (212px, re-valued in shell.css).
+// hidden / peek / docked replaced expanded <-> 58px-icons <-> drag-resize. `flyout_width` stays on
+// the RENDERER_KEYS whitelist (harmless, no whitelist diff) and is simply no longer read.
+// Below 900px the dock auto-releases; rail_collapsed is NOT rewritten by the auto-release, so the
+// dock returns when the window widens back out.
+const NAV_DOCK_MIN_WIDTH = 900;
 
 // Labels for the core surfaces only — module labels come from their DB rows.
+/* The Secured Vault's slug, seeded at electron/core/services/firstrun/index.ts:71. The boot hold
+   matches on THIS, never on a position in the boot script — that script is ordered by the database
+   column `display_order`, and its real order has already surprised once. */
+const VAULT_SLUG = "vault";
+
 const LEAF: Record<string, string> = {
   home: "Home",
-  settings: "Settings",
+  // `settings` REMOVED 08-19-2026. Settings is a pure OVERLAY now — `view` never becomes "settings",
+  // so nothing renders it. Leaving the entry here let the boot-routing guard below (the LEAF[lastMod]
+  // branch) restore a stored last_active_module of "settings" into a view with no renderer: working
+  // chrome, empty content area, no error. Removing it makes that guard reject the stale value and
+  // fall through to the default view.
   "data-viewer": "Data Viewer",
 };
 
@@ -263,10 +269,27 @@ export default function App() {
   const [modules, setModules] = useState<ModuleRow[] | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
   const [isBooting, setIsBooting] = useState(true);
-  // Sidebar collapse — persisted in app_settings (key 'rail_collapsed'), NOT localStorage (canon).
-  const [railCollapsed, setRailCollapsed] = useState(false);
-  // Sidebar width — persisted app_settings 'flyout_width'; live while dragging, written on drag-end.
-  const [flyoutWidth, setFlyoutWidth] = useState(FLYOUT_DEFAULT_WIDTH);
+  /** Does the vault still hold the password the app itself seeded? Resolved in the SAME Promise.all
+      as the module rows, which is what closes the race: the boot script cannot type past the vault
+      line before this lands, because the existing orgName gate already holds it until that Promise
+      settles. Resolving it later would mean sometimes missing the line entirely. */
+  const [vaultSetupNeeded, setVaultSetupNeeded] = useState(false);
+  /** Separate from the flag above ON PURPOSE. `vaultSetupNeeded` is known as soon as the vault
+      answers — near-instantly — but the wizard must not appear until the boot script has typed its
+      way down to the vault line and stopped there. The terminal says when that happened; rendering
+      off the answer instead of off the event buries the whole boot behind a modal. */
+  const [vaultWizardOpen, setVaultWizardOpen] = useState(false);
+  // Nav dock — persisted app_settings 'rail_collapsed', RE-MEANT: "1" = docked, "0" = hidden.
+  // Reused rather than replaced so an existing install reads straight across (Jason 08-19).
+  const [navDocked, setNavDocked] = useState(false);
+  // Transient hover peek — never persisted. Owned here so the dock button, the edge gutter and the
+  // panel itself all share ONE flag instead of three that can disagree.
+  const [navPeek, setNavPeek] = useState(false);
+  // Settings is a PURE OVERLAY: it is not a View, so `view` never becomes "settings" and the
+  // arrows and last_active_module never see it.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Narrow-window auto-release (see NAV_DOCK_MIN_WIDTH).
+  const [tooNarrowToDock, setTooNarrowToDock] = useState(false);
   // Nav section expand/collapse — persisted app_settings 'nav_section_state' (JSON). Absent group = expanded.
   const [navSections, setNavSections] = useState<Record<string, "expanded" | "collapsed">>({});
   // Theme mode — persisted app_settings 'theme_mode'; applied as <html data-theme>. Seeded from
@@ -302,21 +325,26 @@ export default function App() {
     // reload painted default knobs before flipping. Warm here = correct on frame one by nav time.
     void warmToggleCache().catch(() => {});
     try {
-      const [rows, skip, themeM, org, railC, lastMod, fw, nss] = await Promise.all([
+      const [rows, skip, themeM, org, railC, lastMod, nss, vaultNeedsSetup] = await Promise.all([
         window.api.getModules(),
         window.api.settings.get("skip_fast_boot"),
         window.api.settings.get("theme_mode"),
         window.api.settings.get("org_name"),
         window.api.settings.get("rail_collapsed"),
         window.api.settings.get("last_active_module"),
-        window.api.settings.get("flyout_width"),
         window.api.settings.get("nav_section_state"),
+        // .catch, NOT part of the rejection: a vault that cannot answer must not take the whole
+        // Config-as-Data read down with it and drop the shell into Safe Mode. Unanswerable reads
+        // as "no setup needed", which is exactly how the app behaved before this existed.
+        window.api.vault.setupRequired().catch(() => false),
       ]);
       setModules(rows);
+      // Gated on the ROW as well as the check — a slug the boot script never prints could never be
+      // held on, and the wizard would flash over a boot that had already finished.
+      setVaultSetupNeeded(vaultNeedsSetup === true && rows.some((m) => m.slug === VAULT_SLUG && m.is_enabled === 1));
       if (themeM === "light" || themeM === "dark") setThemeMode(themeM); // else system (default)
       setOrgName(org || "AvertXAI"); // resolved — fallback applied here, never a blank name
-      setRailCollapsed(railC === "1"); // restore the persisted sidebar collapse state
-      if (fw) setFlyoutWidth(clampFlyoutWidth(parseInt(fw, 10) || FLYOUT_DEFAULT_WIDTH)); // clamped to [200, 300]
+      setNavDocked(railC === "1"); // "1" = docked (re-meant 08-19)
       if (nss) {
         try {
           setNavSections(JSON.parse(nss)); // restore per-section collapse; corrupt → all default expanded
@@ -360,19 +388,48 @@ export default function App() {
     return () => document.removeEventListener("click", onClick, true);
   }, []);
 
+  // --mc-topbar-height is measured by TopBar itself now, off a callback ref. It used to be this
+  // component's job via `document.querySelector(".topbar")` in an effect — and that effect NEVER
+  // ONCE ATTACHED. The boot branch above returns <BootTerminal> for the whole shell, TopBar
+  // included, so at the moment the effect ran the header did not exist, `if (!el) return` fired,
+  // and nothing re-ran it. The token sat on its 58px seed forever. That hid as a 1px gap while the
+  // real header was 57; at 45 it became a visible 13px band under the top bar. A callback ref
+  // cannot miss the mount, whatever gates the render.
+
+  /**
+   * Scout Viewer's guest is a native WebContentsView that paints above all web content, so shell
+   * chrome cannot be z-indexed over it — it has to be told to stand down.
+   *
+   * TWO CASES, and only two. A PEEKING nav panel floats over the module and reflows nothing, so the
+   * guest kept covering it. The Settings modal is the same story. A DOCKED panel is deliberately
+   * absent: docking reflows the layout, which resizes Scout's viewport hole, which fires the
+   * module's own ResizeObserver and moves the guest out of the way — no help needed.
+   *
+   * Sent unconditionally rather than only on the Scout view: main no-ops when no guest exists, and
+   * a conditional here would need this component to track which module owns a native view.
+   */
+  useEffect(() => {
+    window.api.scout.setShellOverlay(settingsOpen || (navPeek && !navDocked));
+  }, [settingsOpen, navPeek, navDocked]);
+
   // DIAG-1: start the dev-gated render reporter once (no-op unless DIAG=1).
   useEffect(() => { startDiagReporter(); }, []);
 
-  // Reflect sidebar collapse on <body> so the fixed rail's padding-left compensation follows it.
+  // ONE class drives the content offset: body.nav-docked { padding-left: var(--mc-flyout-width) }.
+  // A PEEKING panel deliberately does NOT set it — peek floats over the content so nothing reflows
+  // on hover. Auto-released at narrow widths, so the body keeps full width below 900px.
   useEffect(() => {
-    document.body.classList.toggle("rail-collapsed", railCollapsed);
-  }, [railCollapsed]);
+    document.body.classList.toggle("nav-docked", navDocked && !tooNarrowToDock);
+  }, [navDocked, tooNarrowToDock]);
 
-  // Sidebar width: ONE custom property drives both .flyout{width} and body{padding-left}, so the
-  // rail and the content offset can never disagree. Collapsed rules (58px) still override it.
+  // Narrow-width auto-release. matchMedia, not a resize listener — it fires only on the crossing.
   useEffect(() => {
-    document.body.style.setProperty("--mc-flyout-width", `${flyoutWidth}px`);
-  }, [flyoutWidth]);
+    const mq = window.matchMedia(`(max-width: ${NAV_DOCK_MIN_WIDTH - 1}px)`);
+    const sync = () => setTooNarrowToDock(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   // Apply the theme as <html data-theme> — 'system' clears it (falls back to :root Hybrid navy).
   useEffect(() => {
@@ -439,21 +496,39 @@ export default function App() {
     void window.api.settings.set("theme_mode", mode);
   };
 
-  // Drag-resize: live width while dragging; persist once on drag-end (same bridge as rail_collapsed).
-  const onFlyoutResize = (px: number) => setFlyoutWidth(clampFlyoutWidth(px));
-  const onFlyoutResizeEnd = (px: number) => {
-    const w = clampFlyoutWidth(px);
-    setFlyoutWidth(w);
-    void window.api.settings.set("flyout_width", String(w));
-  };
-
-  // Toggle + persist through the settings IPC bridge (DB app_settings, never localStorage).
-  const toggleRail = () => {
-    setRailCollapsed((c) => {
-      const next = !c;
+  // Click pins or unpins. Unpinning also drops the peek, or the panel would stay visible under the
+  // pointer and the click would read as doing nothing.
+  const toggleNavDock = () => {
+    // At narrow widths the dock is auto-released and the button changes NOTHING on screen — but it
+    // used to still flip and persist rail_collapsed, so invisible clicks below 900px decided where
+    // the panel sat the next time the window was widened. Refuse instead.
+    if (tooNarrowToDock) return;
+    setNavDocked((d) => {
+      const next = !d;
+      setNavPeek(next);
       void window.api.settings.set("rail_collapsed", next ? "1" : "0");
       return next;
     });
+  };
+
+  /**
+   * HOVER-PEEK NEEDS A GRACE PERIOD ON THE WAY OUT, and without it the feature is unusable.
+   * The dock button spans roughly y 12-44; the panel starts at y 58. Moving the pointer from one to
+   * the other crosses ~14 pixels of bare top bar, which fires `mouseleave` and unmounts the panel
+   * before the pointer ever arrives — so the tooltip's promise of "hover to peek" only ever worked
+   * via the left-edge gutter, which is now gone. Opening stays instant; only closing waits.
+   */
+  const peekTimer = useRef<number | null>(null);
+  const setPeek = (on: boolean): void => {
+    if (peekTimer.current !== null) {
+      window.clearTimeout(peekTimer.current);
+      peekTimer.current = null;
+    }
+    if (on) {
+      setNavPeek(true);
+      return;
+    }
+    peekTimer.current = window.setTimeout(() => setNavPeek(false), 220);
   };
 
   const select = (v: View) => {
@@ -494,13 +569,35 @@ export default function App() {
   if (isBooting) {
     if (new URLSearchParams(window.location.search).get("skipBoot") === "1") return null;
     return (
-      <BootTerminal
-        modules={modules}
-        orgName={orgName}
-        error={bootError}
-        onComplete={() => setIsBooting(false)}
-        onFail={() => setIsBooting(false)} // Safe Mode: land in the chrome (banner below), modules empty
-      />
+      <>
+        <BootTerminal
+          modules={modules}
+          orgName={orgName}
+          error={bootError}
+          // A failed Config-as-Data read prints the FATAL script and must not be held: Safe Mode has
+          // no vault row to set up, and holding there would strand the user with no Retry banner.
+          holdSlug={vaultSetupNeeded && !bootError ? VAULT_SLUG : null}
+          onHold={() => setVaultWizardOpen(true)} // the script has stopped ON the vault line
+          onComplete={() => setIsBooting(false)}
+          onFail={() => setIsBooting(false)} // Safe Mode: land in the chrome (banner below), modules empty
+        />
+        {vaultWizardOpen && (
+          <VaultSetupWizard
+            onComplete={() => {
+              // setView, NOT select() — select() writes last_active_module on every call
+              // (see below), so routing the user here would also rewrite where they land on the
+              // NEXT launch. A vault new to setup opens on the vault; every other boot keeps the
+              // destination fetchModules already restored, defaulting to Home.
+              setView(VAULT_SLUG);
+              setVaultWizardOpen(false);
+              // Releasing the hold LAST: the terminal re-runs its gate, repaints the held line as
+              // "loaded.", types the rest of the script, and boot:done fires through the untouched
+              // path. The user watches the boot finish — it does not cut straight to the shell.
+              setVaultSetupNeeded(false);
+            }}
+          />
+        )}
+      </>
     );
   }
 
@@ -512,7 +609,20 @@ export default function App() {
 
   return (
     <>
-      <TopBar leaf={leaf} orgName={orgName ?? "AvertXAI"} onOpenDataViewer={() => select("data-viewer")} themeMode={themeMode} onThemeChange={onThemeChange} />
+      <TopBar
+        leaf={leaf}
+        orgName={orgName ?? "AvertXAI"}
+        view={view}
+        modules={activeModules.filter((m) => m.is_enabled === 1)}
+        onSelect={select}
+        onOpenDataViewer={() => select("data-viewer")}
+        onOpenSettings={() => { setNavPeek(false); setSettingsOpen(true); }}
+        navDocked={navDocked && !tooNarrowToDock}
+        onToggleNavDock={toggleNavDock}
+        onPeekChange={setPeek}
+        themeMode={themeMode}
+        onThemeChange={onThemeChange}
+      />
       {bootError && (
         <div className="safemode" role="alert">
           <span>Safe Mode: Database connection failed. Modules unavailable.</span>
@@ -527,7 +637,16 @@ export default function App() {
           </button>
         </div>
       )}
-      <Flyout view={view} modules={activeModules} onSelect={select} collapsed={railCollapsed} onToggle={toggleRail} onResize={onFlyoutResize} onResizeEnd={onFlyoutResizeEnd} sections={navSections} onToggleSection={toggleNavSection} />
+      <Flyout
+        view={view}
+        modules={activeModules}
+        onSelect={select}
+        docked={navDocked && !tooNarrowToDock}
+        peek={navPeek}
+        onPeekChange={setPeek}
+        sections={navSections}
+        onToggleSection={toggleNavSection}
+      />
       <UpdateToast />
       {/* Mounted at the shell root so the scrim covers the rail and the topbar too — a spinner that
           stops at the edge of a pane does not answer "is this application alive". */}
@@ -536,13 +655,22 @@ export default function App() {
       <AttentionToast />
 
       {view === "home" && <Home onNavigate={select} modules={activeModules} />}
-      {view === "settings" && <Settings themeMode={themeMode} onThemeChange={onThemeChange} />}
       {view === "data-viewer" && <DataViewerModule />}
       {ActiveModule && <ActiveModule />}
       {!ActiveModule && activeRow && <NotBuilt name={activeRow.name} />}
 
       {/* Standing AvertXAI footer — one instance, below the module content on every page (root-lane). */}
       <AppFooter />
+
+      {/* PURE OVERLAY — `view` is untouched, so closing returns you exactly where you were.
+          Mounted outside the bootError guard on purpose: available in Safe Mode. */}
+      {settingsOpen && (
+        <SettingsModal
+          onClose={() => setSettingsOpen(false)}
+          themeMode={themeMode}
+          onThemeChange={onThemeChange}
+        />
+      )}
 
       {/* AI spark — present in v7 chrome; not-built stub (wiring is a later phase). */}
       <button className="spark nb" aria-label="AI assistant">

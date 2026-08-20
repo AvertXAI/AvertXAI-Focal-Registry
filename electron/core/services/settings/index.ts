@@ -42,6 +42,9 @@ const RENDERER_KEYS = new Set([
   // rail's « collapse, persisted like mindmerge.rail_collapsed. Licence/break keys stay OFF this
   // list: they write through validated timetracker:* channels only.
   "timetracker.rail_collapsed",
+  "employees.rail_collapsed", // people-rail « collapse — same UI-only pref, same sanctioned path
+  // Scout Viewer's experimental-use acknowledgement. "1" once the user has ticked and continued.
+  "scoutviewer.experimental_ack",
   "timetracker.notes_sort", // Notes pad block order ("newest" | "oldest") — a sticky view preference
   // BUSINESS PROFILE (08-06, ruled with the invoice build) — the bill-from block, payment terms and
   // the default tax rate every invoice reads. Config-as-Data rows, written from Settings through
@@ -55,6 +58,13 @@ const RENDERER_KEYS = new Set([
   "business.terms",
   "business.tax_rate",
   "business.logo_path",
+  // MY PROFILE (08-19-2026) — the person using this install, as distinct from the business they
+  // invoice as. Added when the two setup wizards merged into one: the vault wizard used to collect
+  // these on a details step, which the merge deleted, so they need a home that is editable later.
+  "profile.full_name",
+  "profile.email",
+  "profile.phone",
+  "profile.website",
 ]);
 
 function safeKey(key: unknown): string {

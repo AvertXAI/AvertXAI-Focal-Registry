@@ -16,6 +16,7 @@ import { addOrg, getActiveOrg } from "../db/registry";
 import { generateUUIDv7 } from "../utils/uuidv7";
 import { deriveVaultKey, getOrCreateVaultSecret } from "../vault/crypto";
 import { ensureVaultSchema } from "../vault/db";
+import { seedMasterPassword } from "../vault/lock";
 import { readDeviceIdentity, type DeviceIdentity } from "../identity";
 
 export function getFirstRunStatus(): boolean {
@@ -74,9 +75,15 @@ export function createOrgDatabase(dbPath: string, orgId: string, orgName: string
 }
 
 // IPC boundary: orgName arrives as unknown from the renderer — validate before touching the DB.
-export async function completeFirstRun(orgName: unknown): Promise<void> {
+export async function completeFirstRun(orgName: unknown, masterPassword: unknown): Promise<void> {
   if (typeof orgName !== "string" || orgName.trim() === "") {
     throw new Error("completeFirstRun: orgName must be a non-empty string");
+  }
+  // Checked HERE, before a single file or row is created, so a bad password cannot leave a
+  // half-built install behind. The message names the rule and quotes nothing — this string reaches
+  // the renderer, and a first-run failure is exactly where a credential would end up in a log.
+  if (typeof masterPassword !== "string" || masterPassword.trim().length < 12) {
+    throw new Error("completeFirstRun: a master password of at least 12 characters is required");
   }
   if (getActiveOrg()) return; // idempotent — an active org means setup already happened
 
@@ -105,6 +112,11 @@ export async function completeFirstRun(orgName: unknown): Promise<void> {
   const vaultKey = await deriveVaultKey(getOrCreateVaultSecret(orgId));
   const vaultDb = openDb(path.join(userData, `${orgId}.atd`), "vault", vaultKey);
   ensureVaultSchema(vaultDb);
+  // The user's own password, seeded at birth — which is what stops a new install ever meeting the
+  // retrofit vault wizard (see seedMasterPassword). It runs BEFORE addOrg deliberately: addOrg is
+  // the commit point, so a throw here leaves the registry empty and first run simply happens again,
+  // rather than activating an org whose vault holds a password nobody chose.
+  seedMasterPassword(vaultDb, orgId, masterPassword);
 
   addOrg(orgId, "focalregistry", name);
 }

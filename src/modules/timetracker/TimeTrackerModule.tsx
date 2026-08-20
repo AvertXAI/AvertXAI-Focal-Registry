@@ -28,6 +28,7 @@ import CompletedView from "./CompletedView";
 import AnalyticsView from "./AnalyticsView";
 import { appendQuickNote, parseSessionNotes } from "../../shared/ttNotes";
 import "./timetracker.css";
+import { bumpRender } from "../../diag";
 
 type Tab = "tracker" | "logbook" | "analytics" | "adjust" | "activity" | "completed" | "archive";
 
@@ -49,6 +50,7 @@ export const fmtHours = (seconds: number): string => {
 };
 
 export default function TimeTrackerModule() {
+  bumpRender("timetracker"); // DIAG-2
   const api = window.api;
   const [projects, setProjects] = useState<TimeTrackerProjectListItem[]>(() => projectsCache ?? []);
   const [groups, setGroups] = useState<TimeTrackerGroup[]>([]);

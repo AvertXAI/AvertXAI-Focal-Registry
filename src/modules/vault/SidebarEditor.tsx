@@ -10,7 +10,7 @@ import { useState } from "react";
 // The width constants come from the components that OWN them — quoting 216 or 320 as a literal here
 // is how the topbar's 58px ended up duplicated in three stylesheets and drifting.
 import { LIST_WIDTH } from "./NotesView";
-import { SIDE_DEFAULT, SIDE_MAX, SIDE_MIN, type Shortcut } from "./Sidebar";
+import { SIDE_MAX, SIDE_MIN, sideDefault, type Shortcut } from "./Sidebar";
 import type { VaultFolder, VaultSecretMeta } from "./vaultApi";
 
 const SECTIONS: Shortcut[] = [
@@ -148,8 +148,8 @@ export default function SidebarEditor({
         </label>
         <div className="vault-hint" style={{ paddingLeft: 2 }}>
           {adjustable
-            ? `On — the sidebar's right edge is a handle, and dragging it shows a live pixel readout. Double-click resets to ${SIDE_DEFAULT}, arrow keys step 16. Range ${SIDE_MIN}–${SIDE_MAX}.`
-            : `Off — the sidebar is fixed at its saved width and the edge is just a border. No handle, no readout.`}
+            ? `On — the sidebar's right edge is a handle, and dragging it shows a live pixel readout. Each tab keeps its own width; double-click resets that tab to its calibrated default (Passwords ${sideDefault("passwords")}, Secured Notes ${sideDefault("notes")}, Infrastructure ${sideDefault("infra")}, Repos ${sideDefault("repos")}). Arrow keys step 16. Range ${SIDE_MIN}–${SIDE_MAX}.`
+            : `Off, and this is the default — each tab sits at its calibrated width and the edge is just a border. No handle, no readout. Turn it on only to re-measure.`}
           {" "}The note list beside your notes is a fixed {LIST_WIDTH} pixels either way.
         </div>
       </div>

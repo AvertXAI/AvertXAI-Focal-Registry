@@ -217,6 +217,50 @@ export function registerVaultIpc(): void {
     const { db, orgId } = await vaultCtx();
     return lock.lock(db, orgId, RENDERER_CALLER);
   });
+  /**
+   * DOES THE VAULT STILL HOLD ITS SEEDED PASSWORD? — the boot wizard's trigger.
+   *
+   * ⚠ DELIBERATELY NOT BEHIND `gated()`, AND THAT IS THE WHOLE POINT. `gated()` refuses while the
+   * vault is locked, and the vault is ALWAYS locked at boot — lock state is in-process and never
+   * persisted (`lock.ts:64-66`), so a restart always lands locked. Wrapping this in `gated()` would
+   * produce a wizard that can never fire, on any machine, ever. `vaultCtx()` is the right context
+   * and is what `vault:lockState` and `vault:unlock` already use for the same reason.
+   *
+   * It answers with a boolean and nothing else — no password, no salt, no verifier.
+   */
+  safeHandle("vault:setupRequired", async () => {
+    const { db, orgId } = await vaultCtx();
+    return lock.isSetupRequired(db, orgId);
+  });
+
+  /**
+   * THE WIZARD'S ONE WRITE — the one-time change presented as setup, ruled since 2026-08-14.
+   *
+   * IT CALLS THE EXISTING `changeMasterPassword` UNMODIFIED. No new credential storage was written
+   * for the wizard: the same validation, the same fresh salt, the same scrypt verifier.
+   *
+   * THE CURRENT PASSWORD IS SUPPLIED MAIN-SIDE, and it has to be. `changeMasterPassword` requires
+   * the current password and verifies it — a change path that skipped that would turn any unlocked
+   * screen into a permanent takeover. But the wizard's user has never been told the seeded value
+   * and must never be: canon is explicit that "the user is never told a prior value existed". So
+   * the derived initial is re-derived HERE, handed to the existing function, and never crosses the
+   * bridge in either direction.
+   *
+   * IT RE-CHECKS `isSetupRequired` FIRST, which is the guard that matters. Without it this channel
+   * would be a password reset that skips knowing the old password — reachable by any forged call,
+   * at any time, against a vault whose owner had already chosen their own. With it, the channel can
+   * only ever act on a vault still holding the value the app itself seeded.
+   */
+  safeHandle("vault:completeSetup", async (_e, next: unknown) => {
+    const { db, orgId } = await vaultCtx();
+    if (!lock.isSetupRequired(db, orgId)) {
+      throw new Error("This vault has already been set up.");
+    }
+    lock.changeMasterPassword(db, orgId, lock.deriveInitialMasterPassword(), next);
+    logEvent(db, orgId, { level: "info", area: "vault", message: "Vault setup completed.", actor: "main" });
+    return true;
+  });
+
   safeHandle("vault:changeMasterPassword", async (_e, current: unknown, next: unknown) => {
     const { db, orgId } = await gated();
     lock.changeMasterPassword(db, orgId, current, next);

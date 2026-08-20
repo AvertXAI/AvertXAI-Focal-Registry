@@ -33,11 +33,12 @@ import NotesView from "./NotesView";
 import { NotesHelpModal } from "./NotesHelp";
 import ReposView from "./ReposView";
 import { clampWidth } from "./Resizer";
-import Sidebar, { SIDE_DEFAULT, SIDE_MAX, SIDE_MIN, ShortcutModal, parseShortcuts, type Section, type Shortcut } from "./Sidebar";
+import Sidebar, { SIDE_MAX, SIDE_MIN, ShortcutModal, parseShortcuts, sideDefault, type Section, type Shortcut } from "./Sidebar";
 import { AccessLogView, GeneratorView, HealthView } from "./ToolsViews";
 import VaultSettingsView from "./VaultSettingsView";
 import { vaultApi, type VaultFolder, type VaultLockState, type VaultRepo, type VaultSecretMeta, type VaultServer } from "./vaultApi";
 import "./vault.css";
+import { bumpRender } from "../../diag";
 
 /** How Passwords shows its entries. Grid is the main page (Jason 08-06-2026); persisted, never localStorage. */
 type ViewMode = "grid" | "list" | "panes";
@@ -52,6 +53,7 @@ const NAV: [Section, string][] = [
 ];
 
 export default function VaultModule() {
+  bumpRender("vault"); // DIAG-2
   const api = vaultApi();
   const [lock, setLock] = useState<VaultLockState | null>(null);
   const [lockError, setLockError] = useState(false);
@@ -485,6 +487,19 @@ export default function VaultModule() {
               ⚠ {errorCount > 99 ? "99+" : errorCount}
             </button>
           )}
+          {/* VAULT SETTINGS — icon only, pinned to the far right of the strip (Jason 08-20-2026).
+              Deliberately NOT a sixth tab: the row is one line by design and already needs close to
+              the full width available at the 740px floor, so this stays a fixed-size glyph that
+              cannot push the tabs into a wrap. It is the only way in — see Sidebar.tsx. */}
+          <button
+            className={`vault-navgear${section === "settings" ? " on" : ""}`}
+            title="Vault settings"
+            aria-label="Vault settings"
+            aria-pressed={section === "settings"}
+            onClick={() => setSection("settings")}
+          >
+            ⚙
+          </button>
         </div>
 
         <div className="vault-shellbody">
@@ -508,7 +523,7 @@ export default function VaultModule() {
             onShortcuts={setShortcuts}
             onFoldersChanged={() => { void api.listFolders().then(setFolders); loadData(); }}
             onAddShortcut={() => setShortcutModal(true)}
-            width={clampWidth(railWidths[section], SIDE_MIN, SIDE_MAX, SIDE_DEFAULT)}
+            width={clampWidth(railWidths[section], SIDE_MIN, SIDE_MAX, sideDefault(section))}
             onWidth={(w) => setSetting("sidebar.widths", JSON.stringify({ ...railWidths, [section]: w }))}
             adjustable={settings["sidebar.width_adjustable"] !== "0"}
             openFolders={openFolders}

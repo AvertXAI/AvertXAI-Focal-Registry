@@ -27,6 +27,10 @@ interface Props {
   archivedError: boolean;
   onRestore: (id: number) => void;
   restoringId: number | null;
+  /** Collapse is the module's OWN sidebar control (Jason 08-19-2026) — it never touches the shell
+      rail. Defaults OPEN, persisted to app_settings "employees.rail_collapsed". */
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }
 
 /** Deterministic avatar colour — the same person always gets the same swatch, no storage needed. */
@@ -57,6 +61,8 @@ export default function PeopleRail({
   archivedError,
   onRestore,
   restoringId,
+  collapsed,
+  onToggleCollapse,
 }: Props) {
   // E13 (08-06): the Projects rail's search idiom, mirrored — same live substring filter, no
   // debounce (ProjectsRail has none; twenty local rows need none), same nothing-matches copy shape.
@@ -67,8 +73,34 @@ export default function PeopleRail({
     ? people
     : people.filter((p) => p.name.toLowerCase().includes(q) || (p.role ?? "").toLowerCase().includes(q));
 
+  // Collapsed is ZERO WIDTH (Jason 08-20-2026) — the edge tab is the whole collapsed state.
+  if (collapsed) {
+    return (
+      <aside className="emp-rail collapsed" aria-label="People (collapsed)">
+      <button
+        className="edgetab"
+        title={collapsed ? "Expand the people rail" : "Collapse the people rail"}
+        aria-label={collapsed ? "Expand the people rail" : "Collapse the people rail"}
+        aria-expanded={!collapsed}
+        onClick={onToggleCollapse}
+      >
+        {collapsed ? "»" : "«"}
+      </button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="emp-rail" aria-label="People">
+      <button
+        className="edgetab"
+        title={collapsed ? "Expand the people rail" : "Collapse the people rail"}
+        aria-label={collapsed ? "Expand the people rail" : "Collapse the people rail"}
+        aria-expanded={!collapsed}
+        onClick={onToggleCollapse}
+      >
+        {collapsed ? "»" : "«"}
+      </button>
       <div className="emp-railhead">
         <span className="emp-railtitle">People</span>
         {!loading && !error && <span className="emp-railcount">{people.length}</span>}

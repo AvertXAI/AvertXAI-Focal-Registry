@@ -11,6 +11,7 @@ import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/cr
 import { ensureVaultSchema } from "./core/services/vault/db";
 import { registerIpcHandlers } from "./core/ipc";
 import { registerMediaScheme } from "./core/services/scan/mediaBrowse";
+import { installBrandProtocol, loadLocalPack, registerBrandScheme, seedBundledPack, syncBrandPack } from "./core/services/brandpack";
 import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overlayFor, setBooting, setMainWindow, showMain } from "./core/windows";
 import { initUpdater, notifyUpdaterBootDone } from "./core/updater";
 import { attachDevToolsShortcut } from "./core/devtools";
@@ -28,6 +29,9 @@ import { initDiag } from "./diag";
 // scheme only declares it; the handler (and every one of its guards) is installed after ready, from
 // registerIpcHandlers.
 registerMediaScheme();
+// Brand pack artwork rides the same pre-ready rule as the media scheme above: declare now,
+// install the handler after ready. Nothing is fetched here.
+registerBrandScheme();
 
 const mcGpu = process.env.MC_GPU;
 console.log("[MC_GPU] backend =", mcGpu ?? "default(d3d11)");
@@ -41,7 +45,11 @@ if (mcGpu === "off") {
 // Boot theme — resolved from the org DB BEFORE the window is created, so the very first frame
 // (constructor backgroundColor + native overlay) is already the persisted theme. No org / read
 // failure -> "system" (Hybrid). The renderer receives it via the loadFile query param.
-let bootThemeMode = "system";
+// LIGHT, not "system" — and this initial is load-bearing, not decoration. `readBootTheme()` below
+// is only reached `if (org)` (see whenReady), so on a FIRST-RUN install — no org yet — this value is
+// what the window is actually built with. Left at "system" a brand-new install booted Hybrid navy
+// no matter what the default was supposed to be. Jason ruled light the default 08-19-2026.
+let bootThemeMode = "light";
 // Skip-Fast-Boot, read at boot and handed to the renderer via ?skipBoot= so it can decide BEFORE the
 // first paint not to render the JARVIS terminal — otherwise the dark terminal flashes for a frame
 // before the async setting read bypasses it.
@@ -85,6 +93,14 @@ app.on("will-quit", () => closeAllDbs());
 // channel then destroys its window and calls app.quit(). (Second listener, no import cycle.)
 ipcMain.on("updwin:quit", () => {
   isQuitting = true;
+});
+// Escape out of a setup wizard. It must be a REAL quit and not hide-to-tray: an install that is
+// only half configured has no shell to go back to, so a hidden window would leave the user with a
+// tray icon and no way in. Sets the real-quit flag in THIS scope first, exactly as the tray's own
+// Exit does, so the ✕ handler cannot intercept it.
+ipcMain.on("setup:quit", () => {
+  isQuitting = true;
+  app.quit();
 });
 // Held so the OS doesn't garbage-collect the tray; process exit clears it (no destroy needed).
 let tray: Tray | null = null;
@@ -251,6 +267,18 @@ app.whenReady().then(async () => {
   // Own app identity so Windows uses our icon/identity AND so we don't collide
   // (single-instance lock + userData) with other AvertXAI builds.
   if (process.platform === "win32") app.setAppUserModelId("com.avertxai.focalregistry");
+
+  // Brand artwork. Serve whatever pack is already on disk immediately — an offline boot, or a
+  // first run before any download, simply falls back to the colour-and-initials tile. The sync is
+  // deliberately NOT awaited: it is cosmetic, and boot must not wait on the network for it.
+  installBrandProtocol();
+  // Disk first (a previous sync may be ahead of what shipped), then the bundled copy on a
+  // fresh install so tiles are right from the very first frame rather than after a download.
+  if (!loadLocalPack()) seedBundledPack();
+  void syncBrandPack().then((r) => {
+    if (r.updated) console.info(`[brandpack] updated to v${r.version}`);
+    else console.info(`[brandpack] v${r.version ?? "none"} — ${r.reason ?? "no change"}`);
+  });
 
   // --- Config-as-Data gatekeeper: the platform registry routes boot to the active org's DBs.
   // No active org yet → skip the org DBs entirely; the renderer boots into the First-Run

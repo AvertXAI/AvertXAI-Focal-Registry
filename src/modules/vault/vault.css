@@ -20,7 +20,7 @@
   --vault-highlighter-background: #ffe14d;
   --vault-highlighter-foreground: #1a1500;
   display: flex;
-  height: calc(100vh - 58px - var(--mc-footer-height, 0px));
+  height: calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height, 0px));
   background: var(--mc-base);
   color: var(--mc-text);
   overflow: hidden;
@@ -69,6 +69,17 @@
   white-space: nowrap; font-family: inherit; }
 .vault-navtab:hover { color: var(--mc-text); }
 .vault-navtab.on { color: var(--mc-text); font-weight: 600; background: var(--mc-base); border-color: var(--mc-border); }
+/* The settings gear, far right of the tab strip. `margin-left:auto` is what pins it there — but
+   .vault-naverr already carries the same auto, and two autos in one flex row split the free space
+   between them instead of pushing both to the end. So when the error pill is present it takes the
+   auto and the gear just sits beside it, keeping the pair together on the right. */
+.vault-navgear { margin-left: auto; flex: none; background: none; border: 1px solid transparent;
+  border-radius: 7px; color: var(--mc-muted); font-size: 15px; line-height: 1; padding: 6px 9px;
+  margin-bottom: 6px; cursor: pointer; font-family: inherit; }
+.vault-naverr + .vault-navgear { margin-left: 4px; }
+.vault-navgear:hover { color: var(--mc-text); background: var(--mc-nested); }
+.vault-navgear.on { color: var(--mc-accent-primary); background: var(--mc-nested); border-color: var(--mc-border); }
+.vault-navgear:focus-visible { outline: 2px solid var(--mc-accent-primary); outline-offset: 1px; }
 
 /* ---------- the draggable vertical dividers (Jason 08-12-2026) --------------------------------- */
 /* A 6-pixel grab strip on a pane's right edge, sitting ON its border rather than beside it — so the
@@ -105,12 +116,17 @@ body.vault-resizing .vault-notelist { transition: none !important; }
    is what the resize handle anchors to. */
 .vault-side { width: var(--vault-rail-width); flex: 0 0 var(--vault-rail-width); display: flex; flex-direction: column;
   background: var(--mc-panels); border-right: 1px solid var(--mc-border); min-height: 0;
-  position: relative; transition: width .16s ease, flex-basis .16s ease; overflow: hidden; }
-/* Collapsed hides the handle — there is nothing to widen, and a grab strip on a 46px rail is a trap. */
+  /* overflow:hidden REMOVED 08-20-2026 — it clipped the .edgetab, which hangs past this pane's
+     right edge by design. It was here to stop content spilling during the .16s width transition;
+     the collapsed rule below now hides every child outright, which does that job strictly better. */
+  position: relative; transition: width .16s ease, flex-basis .16s ease; }
+/* Collapsed hides the handle — there is nothing to widen, and a grab strip on a 0px rail is a trap. */
 .vault-side.collapsed .vault-resizer { display: none; }
-/* Collapsed is 46px — the collapse chevron and the Settings gear, nothing else. (The New-entry
-   glyph this comment once named was removed — see Sidebar.tsx's own note.) */
-.vault-side.collapsed { width: 46px; flex-basis: 46px; }
+/* COLLAPSED IS ZERO (Jason 08-20-2026), not the old 46px stub. The pane goes away entirely and the
+   edge tab — which lives outside the box — is the only thing left, sitting against the shell rail.
+   Every child hides: at width 0 anything still displayed would spill across the content pane. */
+.vault-side.collapsed { width: 0; flex-basis: 0; }
+.vault-side.collapsed > *:not(.edgetab) { display: none; }
 .vault-side.collapsed .sbtxt,
 .vault-side.collapsed .vault-sidesearch,
 .vault-side.collapsed .vault-railcount,
@@ -125,7 +141,6 @@ body.vault-resizing .vault-notelist { transition: none !important; }
 .vault-side.collapsed .vault-folderadd,
 .vault-side.collapsed .vault-lockerror,
 .vault-side.collapsed .vault-sbadge { display: none; }
-.vault-sidetop { display: flex; align-items: center; gap: 7px; padding: 12px 10px 6px; }
 .vault-collapse { flex: none; background: none; border: 1px solid var(--mc-border); border-radius: 6px;
   color: var(--mc-muted); cursor: pointer; font-size: 11px; padding: 4px 7px; font-family: var(--mc-mono); }
 .vault-collapse:hover { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
@@ -133,12 +148,9 @@ body.vault-resizing .vault-notelist { transition: none !important; }
 .vault-sidesearch { width: 100%; background: var(--mc-field); border: 1px solid var(--mc-border); border-radius: 8px;
   padding: 8px 11px; font-size: 12px; color: var(--mc-text); margin-bottom: 4px; }
 .vault-sidesearch:focus { outline: none; border-color: var(--mc-accent-primary); }
-.vault-sidefoot { flex: none; border-top: 1px solid var(--mc-border); padding: 8px; }
-.vault-gear { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 9px; border-radius: 7px;
-  background: none; border: none; color: var(--mc-text); font-size: 12.5px; cursor: pointer; text-align: left; }
-.vault-gear:hover { background: var(--mc-nested); }
-.vault-gear.on { background: var(--vault-selection-background); font-weight: 600; box-shadow: inset 3px 0 0 var(--mc-accent-primary); }
-.vault-gearicon { flex: none; font-size: 15px; line-height: 1; }
+/* .vault-sidefoot, .vault-gear and .vault-gearicon are all GONE (Jason 08-20-2026). The footer was
+   pinned below a scrolling rail, so it clipped out of view whenever the rail's content was taller
+   than the pane. The control is .vault-navgear on the tab strip now — see above. */
 /* Shortcuts — user-composed, above the section groups. */
 .vault-addsc { margin-left: auto; background: none; border: none; color: var(--mc-accent-primary); cursor: pointer;
   font-size: 11px; font-weight: 700; font-family: inherit; padding: 0 2px; }
@@ -545,8 +557,12 @@ body.vault-resizing .vault-notelist { transition: none !important; }
 /* Width is an inline style now, driven by notes.list_width and the drag handle. `position: relative`
    anchors that handle; the 266px here is the fallback if the setting never loads. */
 .vault-notelist { position: relative; width: 266px; flex: none; border-right: 1px solid var(--mc-border); display: flex;
-  flex-direction: column; overflow: hidden; transition: width .16s ease; }
-.vault-notelist.collapsed { width: 44px; }
+  flex-direction: column; transition: width .16s ease; }
+/* Same two changes as .vault-side: no overflow clip (the tab hangs past the right edge), and
+   collapsed is zero rather than a 44px stub. .vault-notewrap still clips, which is what keeps the
+   tab from escaping the rounded card — it sits between the list and the editor, so it never tries. */
+.vault-notelist.collapsed { width: 0; }
+.vault-notelist.collapsed > *:not(.edgetab) { display: none; }
 .vault-notelist.collapsed .vault-nlbody,
 .vault-notelist.collapsed .vault-nlsearch,
 .vault-notelist.collapsed .vault-nlimport,
@@ -1035,10 +1051,14 @@ span.vault-notetitle.inhdr.ro { display: block; white-space: nowrap;
 /* ---- ONE global search (Jason 08-11-2026) — replaces the sidebar box and the notes box ---------
    Sits at the top of the module. In the real shell this row merges into the Mission Control
    topbar, which is a root-lane task; the component is written so only its wrapper moves. ------- */
-.vault-topsearch { padding: 9px 12px 0; }
+/* HEIGHT SPACE (Jason 08-20-2026 — the field read as truncated). It was `9px 12px 0`: nine pixels
+   above, NOTHING below. The field then sat flush on the tab row, and .vault-gsin.focus paints a 3px
+   box-shadow ring that had nowhere to go, so focusing the search clipped its own glow. Padding on
+   all four sides, and the field itself is 2px taller top and bottom — 43px block to roughly 62. */
+.vault-topsearch { padding: 12px 12px 10px; }
 .vault-gsearch { position: relative; max-width: 720px; }
 .vault-gsin { display: flex; align-items: center; gap: 7px; background: var(--mc-field);
-  border: 1px solid var(--mc-border); border-radius: 9px; padding: 6px 10px; }
+  border: 1px solid var(--mc-border); border-radius: 9px; padding: 8px 11px; }
 .vault-gsin.focus { border-color: var(--mc-accent-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-accent-primary) 16%, transparent); }
 .vault-gsin input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: 13px var(--mc-font);
@@ -1309,11 +1329,26 @@ span.vault-notetitle.inhdr.ro { display: block; white-space: nowrap;
 .vault-collapse:focus { outline: none; }
 .vault-collapse:focus-visible { outline: 2px solid var(--mc-accent-primary); outline-offset: 1px; }
 /* The collapsed sidebar centres its chevron instead of leaving it hard against the left edge. */
-.vault-side.collapsed .vault-sidetop { padding: 9px 0; justify-content: center; }
 
-/* The module must FILL the space #root gives it rather than growing past it — the other half of the
-   fix above. Without this the shell still sizes to its content and the inner scrolls never engage. */
-.view.shown.vault-shell { height: 100%; min-height: 0; overflow: hidden; }
+/* THE SAME calc AS EVERY OTHER MODULE, and `height: 100%` is what it replaced (Jason 08-20-2026:
+   the Storage card in Vault → Settings sat under the app footer and read as truncated).
+
+   THE ARITHMETIC. Globals sets `*{box-sizing:border-box}` and `body{height:100%;
+   padding-bottom:var(--mc-footer-height)}`, so body's CONTENT box — and therefore #root — is
+   100vh - 34. This rule then asked for 100% of that while starting BELOW the 57px topbar, so the
+   shell ended at 57 + 100vh - 34 = 100vh + 23: twenty-three pixels past the bottom of the window,
+   with the fixed footer covering thirty-four more. The overshoot is unreachable, so .vault-body's
+   own scroller could never bring the end of a long settings page into view.
+
+   Vault was the ONLY module with a `.view.shown.<shell>` height override; the other eight all use
+   this calc directly. It existed at 0,1,0 in this very file (line 23) and was simply being beaten
+   by this selector at 0,3,0 — the specificity trap the comment up there warns about, sprung on the
+   rule that warns about it. Keep the calc HERE, where it wins. */
+.view.shown.vault-shell {
+  height: calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height, 0px));
+  min-height: 0;
+  overflow: hidden;
+}
 /* The tab strip and the module body: strip fixed, body scrolls. Applies to all four tabs, which is
    why the bug looked like four separate bugs. */
 .vault-navbar { flex: none; }

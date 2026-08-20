@@ -43,8 +43,13 @@ export function initDiag(): void {
   ipcMain.on("diag:perModule", (_e, m: Record<string, ModuleBucket>) => {
     if (m && typeof m === "object") lastPerModule = m;
   });
-  // Renderer asks once on mount whether to start its counter/reporter.
-  ipcMain.handle("diag:enabled", () => true);
+  // NO "diag:enabled" HANDLER HERE (08-20-2026). ipc.ts:297 already registers one, unconditionally
+  // and with the honest answer (`process.env.DIAG === "1"`). This file's copy only registered when
+  // DIAG=1 and always returned a constant true — so the two coexisted fine with DIAG unset and
+  // collided the moment the flag was on: "Attempted to register a second handler for
+  // 'diag:enabled'", thrown out of initDiag as an unhandled rejection. The one mode this file
+  // exists to serve was the only mode it broke. The renderer is unaffected either way — it invokes
+  // the same channel and ipc.ts answers it.
 
   write({
     type: "session_start",

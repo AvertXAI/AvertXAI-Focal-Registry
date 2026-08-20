@@ -1,0 +1,433 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* File: src/shell.css — NEW shell-chrome stylesheet for the updated navigation.
+   Additive: imported by src/main.tsx AFTER globals.css so it can re-value a token and override a
+   shell rule without editing globals.css. Tokens only — no literal colour where an --mc-* exists.
+   The two exceptions are declared as tokens below and documented at their declaration. */
+
+:root {
+  /* RE-VALUED, not renamed (§3.2). The nav panel is now a FIXED width — hidden / peek / docked —
+     so nothing writes this per-drag any more, but every existing consumer (body padding-left,
+     .flyout width, module stylesheets) keeps reading the same token. */
+  --mc-flyout-width: 212px;
+
+  /* PROMOTED, AND NOW MEASURED. §4.1 flags the 58px header as a known drift defect: it lived as a
+     `calc(100vh - 58px)` LITERAL in nine module stylesheets plus globals.css. All ten now read this
+     token, and App.tsx observes the real <header class="topbar"> and writes its measured height
+     here on every resize. That matters because 58 was never right: 12px padding + a 32px .iconbtn
+     + 12px padding + a 1px bottom border is 57, so the docked panel started one pixel below the
+     header and every module pane was one pixel short. The literal below is only the pre-measure
+     seed for frame one — do NOT hand-tune it, and do NOT reintroduce a 58px literal anywhere. */
+  --mc-topbar-height: 58px;
+
+  /* RE-VALUED, and this is the fix for the dead band above the footer in EVERY module.
+     globals.css:23 still says 65px — a value that was measured exactly against the OLD two-line
+     footer (2 x 18px text + 28px padding + 1px border = 65). This file then slimmed .app-footer to
+     `min-height:34px; padding:6px 14px; font-size:11.5px` (see the SLIM FOOTER block below), whose
+     real rendered height is 34px — but nobody re-valued the token.
+     The stale 31px leaked into TWO places at once: `body{padding-bottom}` (globals.css:151) and the
+     NINE module panes that size themselves `calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height))` —
+     data-viewer, employees, migrate, mindmerge, rename, scan, scout-viewer, timetracker, vault.
+     That is why the gap showed up module by module rather than in one place. One token closes all
+     ten. Do not "fix" this by padding an individual module. */
+  --mc-footer-height: 34px;
+
+  /* The media viewer's own chrome. KEEP IN SYNC with OVERLAYS.viewer in electron/core/windows.ts —
+     deliberately the same near-black in all three themes so the OS-drawn caption buttons recede
+     INTO the modal's header instead of blending toward a theme the modal is not showing. */
+  --mc-viewer-chrome: #1c1917;
+  --mc-viewer-chrome-ink: #4a4642;
+
+  /* Snail fade for the cascading menus (Jason 08-19). Opacity only — no transform. */
+  --mc-menu-fade: 0.6s;
+}
+
+/* ─────────────────────────── NAV DOCK (replaces the collapsing rail) ───────────────────────────
+   Three states, one panel:
+     hidden  — body padding-left 0, panel not rendered; the top bar's dock button is the ONLY
+               way back (there is deliberately no edge tab and no hover gutter on the shell rail)
+     peek    — panel FLOATS over the content (hover), body padding-left still 0, nothing reflows
+     docked  — panel is in the layout, body padding-left = --mc-flyout-width
+   The 58px icon rail and the drag handle are retired; body.rail-collapsed is no longer used. */
+
+body {
+  padding-left: 0;
+}
+body.nav-docked {
+  padding-left: var(--mc-flyout-width);
+}
+
+/* THE TOP BAR SPANS THE WINDOW, ALWAYS — hidden, peeking or docked.
+   `.topbar` is `position: sticky` (globals.css:286), which means it is IN FLOW, so the rule
+   directly above pushes the whole header right by the panel width: the menu button ends up
+   floating in the middle of the window instead of sitting in the top-left corner. The nav panel
+   is `position: fixed; top: var(--mc-topbar-height)` — it belongs BELOW the header, not beside it.
+
+   Pulled back with a negative margin rather than by switching to `position: fixed`, deliberately.
+   Fixed would take the header out of flow, and everything below it would then depend on
+   --mc-topbar-height matching the header's real rendered height to the pixel — so a font change or
+   a padding change would silently open a gap or clip the content. Sticky keeps the header
+   self-measuring; this only cancels the padding it should never have inherited. */
+body.nav-docked .topbar {
+  margin-left: calc(-1 * var(--mc-flyout-width));
+  width: calc(100% + var(--mc-flyout-width));
+}
+
+.navdock {
+  position: fixed;
+  top: var(--mc-topbar-height);
+  bottom: 0;
+  left: 0;
+  width: var(--mc-flyout-width);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 10px 14px;
+  overflow-y: auto;
+  white-space: nowrap;
+  background: var(--mc-sidebar);
+  border-right: 1px solid var(--mc-border);
+  box-sizing: border-box;
+}
+/* Peek floats: same panel, lifted off the layout with a shadow so it reads as temporary.
+   z-index 45, NOT 60. It must clear the docked panel's own 40 and the footer's 20, but it must stay
+   BELOW `.overlay` — at 60 a peeking panel painted OVER the Settings modal's dimming scrim,
+   undimmed and still clickable, so the user could navigate underneath an aria-modal dialog. (That
+   scrim is raised to 61 further down, so 45 clears it with room either side.) */
+.navdock.peek {
+  z-index: 45;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 0.28);
+}
+
+/* ── THREE RULES THAT DIED WITH THE RENAME, and their loss is silent ──
+   The old panel was `.flyout`; this one is `.navdock`. Every `.flyout`-SCOPED rule in globals.css
+   therefore stopped matching the moment the class changed, and CSS has no way to warn about that —
+   nothing errors, the layout just quietly degrades. These three carried real behaviour:
+     globals.css:165  `.flyout nav{display:flex;flex-direction:column;flex:1;padding:0 8px 16px}`
+     globals.css:182  `.flyout:not(.collapsed) .navsection .navitem{padding-left:34px}`
+     globals.css:160  `.flyout .navlbl{overflow:hidden;text-overflow:ellipsis}`
+   Re-scoped, not re-invented — the values are the originals. */
+.navdock nav {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 0 8px 16px;
+}
+/* Child indent under a section header. Without it every module row sits flush with its own group
+   heading and the nav hierarchy reads as one flat list. */
+.navdock .navsection .navitem {
+  padding-left: 34px;
+}
+/* `.navdock` sets `white-space:nowrap` and `overflow-y:auto`, which computes `overflow-x:auto` — so
+   without truncation a long module name does not clip, it gives the whole panel a horizontal
+   scrollbar. `.navsection-label` never had a rule at all, in either stylesheet. */
+.navdock .navlbl,
+.navdock .navsection-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* THE FLOATING ACTION BUTTON WAS PUNCHING THROUGH EVERY MODAL SCRIM.
+   `.spark` is z-index 60 (globals.css:276) and `.overlay` is 50 (globals.css:382), and `.spark` is
+   an unconditional root-level sibling rendered AFTER the modal — so the blue circle painted on top
+   of the Settings modal's own dimming backdrop, bottom-right. 61 clears `.spark` and the peeking
+   nav panel, and stays under the loading scrim (65), the update toast (70) and the media viewer's
+   own scrim (62), none of which a settings dialog should ever cover. */
+.overlay {
+  z-index: 61;
+}
+
+/* ── FIVE CLASSES THE NEW MARKUP EMITS WITH NO CSS BEHIND THEM AT ALL ──
+   Each of these is rendered by TopBar.tsx and styled by nothing, in either stylesheet. */
+
+/* `.topbar-div` (TopBar.tsx) — the intended separator between the menu/dock pair and the arrows.
+   An empty span with no rule renders at zero width, so the icons read as one undifferentiated run. */
+.topbar-div {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  flex: none;
+  background: var(--mc-border);
+}
+/* `.iconbtn.on` — the dock button's pinned state. Without it, docked and hidden look identical and
+   `aria-pressed` is the only signal that the control did anything. */
+.iconbtn.on {
+  color: var(--mc-accent-primary);
+  background: var(--mc-nested);
+}
+/* `.navarrow` disabled — `.iconbtn` has no `:disabled` variant anywhere, and Chromium still matches
+   `:hover` on a disabled button, so the inert arrows lit up on hover exactly like live ones. */
+.iconbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.iconbtn:disabled:hover {
+  color: var(--mc-muted);
+  background: none;
+}
+
+/* ───────────────────────── EDGE TAB — MODULE SIDEBARS ONLY ─────────────────────────
+   RULED 08-19-2026. The SHELL rail has NO edge tab; the top bar's dock icon is its only
+   open/close control. The old shell tab class is retired — do not reintroduce it.
+
+   This class is for a MODULE that owns a secondary sidebar. It is the ONE collapse control that
+   sidebar gets — the corner chevrons are gone from all four (Jason 08-20-2026).
+
+   ABSOLUTE, NOT FIXED, and that is the whole trick. It used to be `position:fixed; top:190px;
+   left:0`, which meant every module had to compute and re-compute its own `left` as the pane was
+   dragged, and 190px was not the middle of anything. Anchored to the sidebar instead, `left:100%`
+   rides the pane's right edge for free — through a drag, a collapse, any width — and `top:50%`
+   is the middle of that pane by construction rather than by arithmetic.
+
+   THE HOST MUST BE `position: relative` AND MUST NOT CLIP. `overflow:hidden` on the sidebar eats
+   a tab that by definition hangs past its right edge; .vault-side and .vault-notelist both had it
+   and both had to give it up (see vault.css). A collapsed pane is width:0, so its children are
+   hidden individually instead — which is what kept the overflow rule honest.
+
+   z-index 7 clears the resizer (5) and the dial (6) and NOTHING MORE. The old 62 sat above
+   `.overlay` (61), which would have floated this tab on top of the Settings modal. */
+.edgetab {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  transform: translateY(-50%);
+  z-index: 7;
+  /* 16x40, down from 20x52 (Jason 08-20-2026 — "too big"). Still a comfortable pointer target:
+     40px of height is well past the 24px minimum, and the width is the part that intrudes on the
+     pane beside it, so that is the dimension that came down proportionally hardest. */
+  width: 16px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font: 11px/1 var(--mc-font);
+  color: var(--mc-muted);
+  cursor: pointer;
+  background: var(--mc-panels);
+  border: 1px solid var(--mc-border);
+  border-left: 0;
+  border-radius: 0 var(--mc-radius) var(--mc-radius) 0;
+  box-shadow: 2px 0 6px rgba(20, 22, 28, 0.10);
+}
+.edgetab:hover {
+  color: var(--mc-accent-primary);
+  border-color: var(--mc-accent-primary);
+}
+
+/* Home | Database split — one control, two destinations. */
+.navsplit {
+  display: flex;
+  flex: none;
+  margin-bottom: 8px;
+  /* `clip` not `hidden`: both round the children to the 8px radius, but `hidden` also cropped the
+     :focus-visible ring flush to the border. The 3px margin lets the ring out and nothing else. */
+  overflow: clip;
+  overflow-clip-margin: 3px;
+  background: var(--mc-panels);
+  border: 1px solid var(--mc-border);
+  border-radius: 8px;
+}
+.navsplit button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 6px;
+  font: 600 12.5px var(--mc-font);
+  color: var(--mc-muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+.navsplit button + button {
+  border-left: 1px solid var(--mc-border);
+}
+.navsplit button:hover {
+  color: var(--mc-text);
+}
+.navsplit button.on {
+  color: var(--mc-accent-primary);
+  background: color-mix(in oklab, var(--mc-accent-primary) 12%, transparent);
+}
+
+/* ───────────────────────────── CASCADING MENUS (the ▤ button) ─────────────────────────────
+   Dark panels in every theme — this is an application menu, not page content, and it reads as
+   system chrome. Anchored to the ▤ button, opening to its right. */
+.shellmenu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 118;
+}
+.shellmenu-wrap {
+  position: fixed;
+  top: 44px;
+  left: 38px;
+  z-index: 130;
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+.shellmenu {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px;
+  background: #262626;
+  border-radius: 12px;
+  border: 1px solid #3f3f3f; /* WITHOUT THIS the menu is invisible in DARK: its #262626 background
+     is byte-identical to --mc-topbar AND --mc-sidebar in that theme, and a shadow alone cannot
+     separate a panel from a surface of exactly its own colour. */
+  box-shadow: 0 14px 44px rgb(0 0 0 / 0.55);
+  animation: shellmenu-fade var(--mc-menu-fade) ease-out;
+}
+@keyframes shellmenu-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shellmenu { animation: none; }
+}
+.shellmenu-sections { width: 96px; }
+.shellmenu-panel { width: 250px; }
+.shellmenu-sub { width: 160px; }
+/* A submenu is positioned by its OWN trigger row, never by a hand-counted offset. The two
+   `marginTop: 266 / 96` literals that used to live in ShellMenu.tsx were measured once against a
+   panel whose row count has since changed twice, so the Theme flyout opened level with the wrong
+   item. `top:-6px` cancels the parent panel's 5px padding + 1px border so the submenu's first row
+   lines up with its trigger; `margin-left:6px` pushes it clear of that same padding on the right. */
+.shellmenu-item { position: relative; }
+.shellmenu-item > .shellmenu-sub {
+  position: absolute;
+  top: -6px;
+  left: 100%;
+  margin-left: 6px;
+}
+
+.shellmenu button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 6px 11px;
+  font: 12px var(--mc-font);
+  /* HARDCODED LIGHT, NOT var(--mc-text) — and that token was the bug (Jason 08-20-2026: "in the
+     file menu i cant see the font"). This panel is #262626 in ALL THREE themes by design, but the
+     ink was following the theme, so in light mode it resolved to #1A1A1A: near-black text on a
+     near-black panel, 1.2:1. The background is a constant here, so the foreground has to be one
+     too. #f2f2f2 on #262626 is 12.9:1. Never point this at a theme token again. */
+  color: #f2f2f2;
+  text-align: left;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: 7px;
+}
+.shellmenu button:hover,
+.shellmenu button.on {
+  background: #3a3a3a;
+}
+.shellmenu button.on { font-weight: 700; }
+.shellmenu button:disabled {
+  /* Inert rows stay dim but must still be READABLE — #6f6f6f on #262626 was 2.4:1, below the 4.5
+     floor. #8f8f8f is 4.5:1 and still reads as clearly not-live beside the #f2f2f2 rows. */
+  color: #8f8f8f;
+  cursor: default;
+}
+.shellmenu button:disabled:hover { background: none; }
+/* A not-built (.nb) row must READ as not built. App's capture-phase interceptor swallows the click
+   silently (§6.6 — no orange glow in this product), and a row that looks live but does nothing is
+   worse than one that looks inert. Same treatment as :disabled, without the attribute, because
+   these are placeholders rather than temporarily-unavailable commands. */
+.shellmenu button.nb { color: #8f8f8f; cursor: default; }
+.shellmenu button.nb:hover { background: none; }
+.shellmenu button.nb .menu-key { color: #7a7a7a; }
+.shellmenu .menu-key {
+  margin-left: auto;
+  font: 11px var(--mc-mono);
+  color: #9a9a9a;
+}
+.shellmenu .menu-caret {
+  margin-left: auto;
+  font-size: 15px;
+  line-height: 1;
+  color: #9a9a9a;
+}
+.shellmenu .menu-check {
+  width: 12px;
+  color: var(--mc-accent-primary);
+}
+.shellmenu hr {
+  margin: 5px 10px;
+  border: 0;
+  border-top: 1px solid #3f3f3f;
+}
+
+/* ───────────────────────────────── SETTINGS MODAL ─────────────────────────────────
+   Carries the shell's .overlay class, so App's body observer dims the native strip with no
+   per-modal wiring, and declares data-modal-backdrop="viewer" so the caption buttons recede into
+   the modal's own dark header band rather than blending toward the active theme (§3.3/§3.4). */
+.settings-modal {
+  display: flex;
+  flex-direction: column;
+  width: 980px;
+  max-width: 95vw;
+  height: 86vh;
+  overflow: hidden;
+  background: var(--mc-panels);
+  border: 1px solid var(--mc-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 0.42);
+}
+/* The modal's title row. THEMED, like every other modal header in this application — an unfilled
+   row separated by a border, exactly as `.scan-modal-head` and the Data Viewer's `.modal` do. It is
+   NOT a near-black band: see the long note in SettingsModal.tsx for why the band never reached the
+   caption strip it was drawn to match. */
+.settings-modal-chrome {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  min-height: 44px;
+  padding: 0 12px 0 18px;
+  color: var(--mc-text);
+  border-bottom: 1px solid var(--mc-border);
+}
+.settings-modal-title {
+  font: 600 12.5px var(--mc-font);
+  letter-spacing: 0.3px;
+}
+.settings-modal-close {
+  margin-left: auto;
+  padding: 4px 8px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--mc-muted);
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+.settings-modal-close:hover { color: #e8e6e3; }
+.settings-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ───────────────────────────────── SLIM FOOTER ─────────────────────────────────
+   Overrides the reserved height in globals.css — a status strip, not a band. */
+.app-footer {
+  min-height: 34px;
+  padding: 6px 14px;
+  /* CORRECTION 08-19-2026 — globals.css:207 sets `left: var(--mc-flyout-width)` UNCONDITIONALLY, and
+     its follow-up `body.rail-collapsed .app-footer { left: 58px }` is dead (the class is no longer
+     toggled). Without this reset the footer starts 212px in while the panel is hidden or peeking,
+     leaving a gap across the bottom-left corner. Mirrors exactly how `body` is handled above. */
+  left: 0;
+}
+body.nav-docked .app-footer {
+  left: var(--mc-flyout-width);
+}
+.app-footer-txt { font-size: 11.5px; }

@@ -33,7 +33,7 @@ let deviceCache: DeviceIdentityInfo | null = null;
 // same-session remounts; app_settings "settings_active_section" (bare snake_case — shell-level
 // key, in RENDERER_KEYS) survives a restart. Unknown/stale values fall back to General.
 let sectionCache: string | null = null;
-const LIVE_SECTIONS = new Set(["General", "Appearance", "Storage", "Business Profile", "Scan", "TimeTracker", "Vault"]);
+const LIVE_SECTIONS = new Set(["General", "Appearance", "Storage", "My Profile", "Business Profile", "Scan", "TimeTracker", "Vault"]);
 
 /** Business Profile keys (08-06) — the invoice's bill-from block, terms and default tax rate.
     Config-as-Data rows in app_settings; every key is in RENDERER_KEYS. */
@@ -47,6 +47,16 @@ const BIZ_FIELDS = [
   { key: "business.terms", label: "Terms", hint: "Payment terms shown on the invoice, e.g. \"Due on receipt\".", multi: true },
   { key: "business.tax_rate", label: "Default tax rate (%)", hint: "Sales tax percent, e.g. 8.25. Leave empty for no tax line." },
   { key: "business.logo_path", label: "Logo path", hint: "Reserved for a later invoice revision — stored, not yet printed." },
+] as const;
+
+/** My Profile keys (08-19) — the person, not the business. Same dotted convention and the same
+    sanctioned path as BIZ_FIELDS above; every key is in RENDERER_KEYS. These arrived here when the
+    two setup wizards merged and the vault wizard's details step was removed. */
+const PROFILE_FIELDS = [
+  { key: "profile.full_name", label: "Full name" },
+  { key: "profile.email", label: "Main email" },
+  { key: "profile.phone", label: "Contact number" },
+  { key: "profile.website", label: "Website", hint: "Optional." },
 ] as const;
 
 // Warm the toggle cache from app_settings. Called at APP BOOT (App.tsx) — not just on Settings
@@ -90,6 +100,12 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   // Business Profile (08-06) — nine app_settings values; loaded when the section opens, saved on blur.
   const [biz, setBiz] = useState<Record<string, string>>({});
   const saveBiz = (key: string, value: string): void => {
+    void window.api.settings.set(key, value).catch(() => {});
+  };
+  // My Profile (08-19) — four app_settings values, same load-on-open / save-on-blur as Business
+  // Profile. Separate state so opening one section never clobbers the other's in-flight edits.
+  const [profile, setProfile] = useState<Record<string, string>>({});
+  const saveProfile = (key: string, value: string): void => {
     void window.api.settings.set(key, value).catch(() => {});
   };
   // B6 easter egg — ten clicks on the leaf unlock developer mode. NO counter is shown; the count
@@ -145,6 +161,13 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
         const next: Record<string, string> = {};
         BIZ_FIELDS.forEach((f, i) => { next[f.key] = vals[i] ?? ""; });
         setBiz(next);
+      }).catch(() => {});
+    }
+    if (activeSection === "My Profile") {
+      void Promise.all(PROFILE_FIELDS.map((f) => window.api.settings.get(f.key))).then((vals) => {
+        const next: Record<string, string> = {};
+        PROFILE_FIELDS.forEach((f, i) => { next[f.key] = vals[i] ?? ""; });
+        setProfile(next);
       }).catch(() => {});
     }
   }, [activeSection]);
@@ -243,6 +266,10 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
             <button className={nav("Storage")} onClick={() => openSection("Storage")}>
               <FolderIcon />
               Storage
+            </button>
+            <button className={nav("My Profile")} onClick={() => openSection("My Profile")}>
+              <PersonIcon />
+              My Profile
             </button>
             <button className={nav("Business Profile")} onClick={() => openSection("Business Profile")}>
               <BriefcaseIcon />
@@ -471,6 +498,28 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
               </>
             )}
 
+            {activeSection === "My Profile" && (
+              <>
+                <h2>My Profile</h2>
+                <p className="hint" style={{ marginBottom: 20 }}>
+                  You, rather than the business you invoice as — saved as you leave each field.
+                </p>
+                {PROFILE_FIELDS.map((f) => (
+                  <div className="field" key={f.key} style={{ marginBottom: 18 }}>
+                    <label htmlFor={f.key} style={{ display: "block", marginBottom: 6 }}>{f.label}</label>
+                    <input
+                      id={f.key}
+                      className="settext"
+                      value={profile[f.key] ?? ""}
+                      onChange={(e) => setProfile((p) => ({ ...p, [f.key]: e.target.value }))}
+                      onBlur={(e) => saveProfile(f.key, e.target.value)}
+                    />
+                    {"hint" in f && f.hint && <p className="hint" style={{ marginTop: 6 }}>{f.hint}</p>}
+                  </div>
+                ))}
+              </>
+            )}
+
             {activeSection === "Business Profile" && (
               <>
                 <h2>Business Profile</h2>
@@ -577,6 +626,16 @@ function LeafIcon() {
 }
 
 // Briefcase outline — Business Profile, same hand-rolled 16-grid the other nav icons use.
+// Person outline — My Profile, same hand-rolled 16-grid the other nav icons use.
+function PersonIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="5.2" r="2.6" />
+      <path d="M2.8 13.4c0-2.4 2.3-3.9 5.2-3.9s5.2 1.5 5.2 3.9" />
+    </svg>
+  );
+}
+
 function BriefcaseIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">

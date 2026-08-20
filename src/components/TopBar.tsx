@@ -1,168 +1,198 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
-// Top bar — breadcrumb, search + acts (mostly orange-not-built). No hamburger: the nav rail is
-// persistent (always open), so there is nothing to toggle. Brandmark lives in the rail head.
-// Narrow tiers (SOP): <1200px the inline searchbox collapses to the magnifier, which opens a
-// popup search bar; <950px the acts cluster wraps under the native min/□/✕ strip (CSS tiers).
-import { useEffect, useState } from "react";
-import { Bell, Database, Lock, Plus, Search } from "../icons";
-import type { ThemeMode } from "../App";
-
-// Dev readout (gated OFF): flip to true for a live .topbar width badge when tuning the tier.
-const SHOW_WIDTH_BADGE = false;
+// Top bar — application menu (▤), nav-dock toggle (◫), module back/forward, breadcrumb, alerts.
+// The native min/□/✕ strip is OS-drawn: the .topbar keeps its padding-right reserve from
+// globals.css and nothing is rendered for those buttons here.
+//
+// Changed from the previous shell:
+//   · the three theme pills are GONE from the header — the control lives in View → Theme
+//   · ▤ opens the cascading application menu (ShellMenu)
+//   · ◫ toggles the nav dock; hovering it peeks the panel, leaving peeks it back
+//   · ← → step the module order, which is read from the Config-as-Data rows, and STOP at both ends
+//
+// STRIPPED 08-19-2026 (Jason): the search magnifier, the inline search box, the create-new (+) and
+// the Data Viewer (database) buttons, and the account avatar are all GONE from this bar. The alert
+// bell is the only thing that stays on the right. Nothing was lost with them — the Data Viewer and
+// Settings are both reachable from the ▤ menu, and search was never wired to an engine.
+import { useCallback, useRef, useState } from "react";
+import { Bell, Lock } from "../icons";
+import type { ModuleRow } from "../shared/types";
+import type { ThemeMode, View } from "../App";
+import ShellMenu from "./ShellMenu";
 
 interface Props {
   leaf: string;
   /** Active org display name — Config-as-Data 'org_name', drives the brand crumb. */
   orgName: string;
+  /** Active view, so the arrows and the Go menu know where they are. */
+  view: View;
+  /** Enabled, display_order-sorted module rows — the arrows and Go read this, never a hardcode. */
+  modules: ModuleRow[];
+  onSelect: (v: View) => void;
   /** Opens the Data Viewer — a REAL handler (button omits `nb`, so App's .nb interceptor lets it through). */
   onOpenDataViewer: () => void;
-  /** 3-state theme toggle (System/Light/Dark), driven + persisted by App. */
+  /** Settings is a pure overlay: it never changes the active module, so it is not a `select`. */
+  onOpenSettings: () => void;
+  /** Nav dock — click pins/unpins, hover peeks. */
+  navDocked: boolean;
+  onToggleNavDock: () => void;
+  onPeekChange: (peek: boolean) => void;
+  /** Still owned + persisted by App; surfaced through View → Theme instead of header pills. */
   themeMode: ThemeMode;
   onThemeChange: (mode: ThemeMode) => void;
 }
 
-export default function TopBar({ leaf, orgName, onOpenDataViewer, themeMode, onThemeChange }: Props) {
-  const [searchOpen, setSearchOpen] = useState(false);
-  // Native min/□/✕ can't sit under a DOM backdrop (OS-drawn above the page) — dim them via the
-  // shell's modal-dim path while the search popup is open; restore follows the ACTIVE theme
-  // (main reads currentOverlayMode at call time). Same pattern as the Distributor modals.
-  useEffect(() => {
-    void window.api.theme.setModalDim(searchOpen);
-    return () => void window.api.theme.setModalDim(false);
-  }, [searchOpen]);
-  const [barWidth, setBarWidth] = useState(0);
-  // Throwaway width badge — ResizeObserver catches window resizes AND rail expand/collapse.
-  useEffect(() => {
-    if (!SHOW_WIDTH_BADGE) return;
-    const bar = document.querySelector(".topbar");
-    if (!bar) return;
-    const ro = new ResizeObserver(() => setBarWidth((bar as HTMLElement).clientWidth));
-    ro.observe(bar);
-    return () => ro.disconnect();
+export default function TopBar({
+  leaf,
+  orgName,
+  view,
+  modules,
+  onSelect,
+  onOpenDataViewer,
+  onOpenSettings,
+  navDocked,
+  onToggleNavDock,
+  onPeekChange,
+  themeMode,
+  onThemeChange,
+}: Props) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  /**
+   * THE HEADER MEASURES ITSELF into --mc-topbar-height, which the docked nav panel and all ten
+   * module panes size themselves against.
+   *
+   * A CALLBACK REF, not an effect, and that is the whole point. App.tsx used to do this with
+   * `document.querySelector(".topbar")` inside a useEffect — but App returns <BootTerminal> for the
+   * entire shell while booting, so this header did not exist when that effect ran; it took the
+   * `if (!el) return` branch and never re-attached. The token kept its 58px seed, which was
+   * invisible against a 57px header and became a 13px gap when the header came down to 45.
+   * React calls a ref callback exactly when the node mounts and again with null when it unmounts,
+   * so this cannot be out-raced by a render gate.
+   */
+  const roRef = useRef<ResizeObserver | null>(null);
+  const measureRef = useCallback((el: HTMLElement | null) => {
+    roRef.current?.disconnect();
+    roRef.current = null;
+    if (!el) return;
+    const write = (): void => {
+      document.documentElement.style.setProperty(
+        "--mc-topbar-height",
+        `${el.getBoundingClientRect().height}px`
+      );
+    };
+    write(); // first paint, before the observer's own initial callback lands
+    const ro = new ResizeObserver(write);
+    ro.observe(el);
+    roRef.current = ro;
   }, []);
+
+  // MODULE ORDER — data-driven (§6.3). Home first, then the enabled rows in display_order.
+  // Settings is absent on purpose: it is a pure overlay and never a destination.
+  const order: View[] = ["home", ...modules.map((m) => m.slug as View)];
+  const idx = order.indexOf(view);
+  // An off-order view (the Data Viewer) parks the arrows rather than jumping somewhere arbitrary.
+  const atStart = idx <= 0;
+  const atEnd = idx < 0 || idx >= order.length - 1;
+  const labelFor = (v: View): string =>
+    v === "home" ? "Home" : (modules.find((m) => m.slug === v)?.name ?? v);
+
   return (
-    <header className="topbar">
-      {/* container-query wrapper — the header is the container; this inner row is what wraps */}
+    <header className="topbar" ref={measureRef}>
       <div className="topbar-in">
-      <div className="crumbs">
-        {/* one inline run so the chain can text-overflow:ellipsis as a unit (a flex row can't) */}
-        <span className="crumbtext">
-          {/* prefix collapses away below the ~700px container tier — leaf + lock always remain */}
-          <span className="crumb-prefix">
-            <span>{orgName}</span>
-            <span className="sep">-</span>
-            <span>Focal Registry</span>
-            <span className="sep">/</span>
-          </span>
-          <span className="leaf">{leaf}</span>
-        </span>
-        <Lock className="lock" size={15} />
-      </div>
-      <button className="searchbox nb">
-        <Search size={14} />
-        <span>Type</span>
-        <kbd>/</kbd>
-        <span>to search</span>
-      </button>
-      <div className="acts">
-        <button className="iconbtn search-sm" aria-label="Search" onClick={() => setSearchOpen(true)}>
-          <Search />
-        </button>
-        <button className="iconbtn nb" aria-label="Create new">
-          <Plus />
-        </button>
-        <button className="iconbtn" aria-label="Data Viewer" onClick={onOpenDataViewer}>
-          <Database />
-        </button>
-        <button className="iconbtn nb" aria-label="Notifications">
-          <Bell />
-        </button>
-        <div className="themeseg" role="group" aria-label="Theme">
-          <button
-            className={"segbtn" + (themeMode === "system" ? " on" : "")}
-            onClick={() => onThemeChange("system")}
-            title="System theme"
-            aria-label="System theme"
-            aria-pressed={themeMode === "system"}
-          >
-            <MonitorIcon />
-          </button>
-          <button
-            className={"segbtn" + (themeMode === "light" ? " on" : "")}
-            onClick={() => onThemeChange("light")}
-            title="Light theme"
-            aria-label="Light theme"
-            aria-pressed={themeMode === "light"}
-          >
-            <SunIcon />
-          </button>
-          <button
-            className={"segbtn" + (themeMode === "dark" ? " on" : "")}
-            onClick={() => onThemeChange("dark")}
-            title="Dark theme"
-            aria-label="Dark theme"
-            aria-pressed={themeMode === "dark"}
-          >
-            <MoonIcon />
-          </button>
-        </div>
-        <button className="avatar nb" aria-label="Account">
-          JC
-        </button>
-      </div>
-      </div>
-
-      {/* Popup search — magnifier tier. Outside click / Esc closes; the search ENGINE itself is
-          still not built (same as the inline box), so the input is a UI shell for now. */}
-      {searchOpen && (
-        <div className="overlay" onClick={() => setSearchOpen(false)}>
-          <div className="search-pop" role="search" onClick={(e) => e.stopPropagation()}>
-            <Search size={14} />
-            <input
-              placeholder="Type to search (coming soon)"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setSearchOpen(false);
-              }}
-            />
-            <kbd>esc</kbd>
-          </div>
-        </div>
-      )}
-
-      {/* THROWAWAY width badge — delete next pass */}
-      {SHOW_WIDTH_BADGE && (
-        <div
-          style={{ position: "fixed", bottom: 8, left: 8, zIndex: 99, font: "11px var(--mc-mono)", color: "var(--mc-muted)", background: "var(--mc-panels)", border: "1px solid var(--mc-border)", borderRadius: 4, padding: "2px 6px", pointerEvents: "none" }}
+        <button
+          className="iconbtn"
+          onClick={() => setMenuOpen((v) => !v)}
+          title="Application menu"
+          aria-label="Application menu"
+          aria-expanded={menuOpen}
         >
-          topbar {barWidth}px · container {Math.max(0, barWidth - 166)}px
+          <MenuIcon />
+        </button>
+        <button
+          className={"iconbtn" + (navDocked ? " on" : "")}
+          onClick={onToggleNavDock}
+          onMouseEnter={() => onPeekChange(true)}
+          onMouseLeave={() => onPeekChange(false)}
+          title={navDocked ? "Let the module menu hide again" : "Hover to peek · click to keep it open"}
+          aria-label="Toggle module menu"
+          aria-pressed={navDocked}
+        >
+          <PanelIcon />
+        </button>
+        <span className="topbar-div" aria-hidden="true" />
+
+        <button
+          className="iconbtn navarrow"
+          disabled={atStart}
+          onClick={() => onSelect(order[idx - 1])}
+          title={atStart ? "First module" : `Back to ${labelFor(order[idx - 1])}`}
+          aria-label="Previous module"
+        >
+          ←
+        </button>
+        <button
+          className="iconbtn navarrow"
+          disabled={atEnd}
+          onClick={() => onSelect(order[idx + 1])}
+          title={atEnd ? "Last module" : `Forward to ${labelFor(order[idx + 1])}`}
+          aria-label="Next module"
+        >
+          →
+        </button>
+
+        <div className="crumbs">
+          {/* one inline run so the chain can text-overflow:ellipsis as a unit (a flex row can't) */}
+          <span className="crumbtext">
+            {/* prefix collapses away below the container tier — leaf + lock always remain */}
+            <span className="crumb-prefix">
+              <span>{orgName}</span>
+              <span className="sep">-</span>
+              <span>Focal Registry</span>
+              <span className="sep">/</span>
+            </span>
+            <span className="leaf">{leaf}</span>
+          </span>
+          <Lock className="lock" size={15} />
         </div>
+
+        {/* The bell is the ONLY act left on this bar. `.acts` keeps margin-left:auto, which is what
+            pushes it right — without a search box between them the crumb would otherwise stretch. */}
+        <div className="acts">
+          <button className="iconbtn nb" aria-label="Notifications">
+            <Bell />
+          </button>
+        </div>
+      </div>
+
+      {menuOpen && (
+        <ShellMenu
+          view={view}
+          modules={modules}
+          onSelect={onSelect}
+          onClose={() => setMenuOpen(false)}
+          onOpenSettings={onOpenSettings}
+          onOpenDataViewer={onOpenDataViewer}
+          themeMode={themeMode}
+          onThemeChange={onThemeChange}
+        />
       )}
     </header>
   );
 }
 
-// Hand-rolled OUTLINE theme glyphs (no @fluentui), 16px viewBox.
-function MonitorIcon() {
+// Hand-rolled OUTLINE glyphs, 16px viewBox — @fluentui/react-icons stays BANNED (RULES-24).
+function MenuIcon() {
   return (
-    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
-      <rect x="1.8" y="2.5" width="12.4" height="8" rx="1.2" />
-      <path d="M6 13.2h4M8 10.5v2.7" />
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="currentColor">
+      <path d="M1 2.75h14v1.5H1zm0 4.5h14v1.5H1zm0 4.5h14v1.5H1z" />
     </svg>
   );
 }
-function SunIcon() {
+function PanelIcon() {
   return (
-    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="8" cy="8" r="3" />
-      <path d="M8 1.4v1.6M8 13v1.6M14.6 8H13M3 8H1.4M12.7 3.3l-1.1 1.1M4.4 11.6l-1.1 1.1M12.7 12.7l-1.1-1.1M4.4 4.4 3.3 3.3" />
-    </svg>
-  );
-}
-function MoonIcon() {
-  return (
-    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M13.2 9.4A5.6 5.6 0 0 1 6.6 2.8a5.6 5.6 0 1 0 6.6 6.6Z" />
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round">
+      <rect x="1.8" y="2.6" width="12.4" height="10.8" rx="1.4" />
+      <path d="M6.2 2.6v10.8" />
     </svg>
   );
 }

@@ -46,7 +46,7 @@
    no markup change, and the nested .scan-folders-scroll keeps its own region. */
 .wrap.scan-shell{
   margin-left:0; margin-right:0; max-width:none;
-  height:calc(100vh - 58px - var(--mc-footer-height, 0px));
+  height:calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height, 0px));
   overflow-y:auto;
 }
 

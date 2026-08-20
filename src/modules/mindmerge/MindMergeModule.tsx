@@ -15,6 +15,7 @@ import { defaultSettings, type MindMergeSettings } from "./config.manifest";
 import { formatStamp } from "../../shared/datetime";
 import { highlightText, renderMarkdown } from "./markdown";
 import "./mindmerge.css";
+import { bumpRender } from "../../diag";
 
 // Injected by root ("Expose, Don't Connect", DECISIONS-37): the module renders its own controls but
 // never owns persistence — settings arrive as props, writes go back through onChange. BOTH props are
@@ -97,6 +98,7 @@ const vaultPointers = (md: string): string[] =>
 let listCache: { rows: NoteRow[]; quar: NoteRow[]; ok: number; clients: string[] } | null = null;
 
 export default function MindMergeModule({ settings, onChange }: Props) {
+  bumpRender("mindmerge"); // DIAG-2
   const [chipIdx, setChipIdx] = useState(0);
   const [client, setClient] = useState("");
   const [clients, setClients] = useState<string[]>(() => listCache?.clients ?? []);

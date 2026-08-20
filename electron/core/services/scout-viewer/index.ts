@@ -23,10 +23,26 @@ import { getTabState, saveTabState, saveTabUrl } from "./tab-state";
 const START_URL = "https://www.google.com";
 const DEFAULT_CLIENT = "halo";
 // Present as stock Chrome — the default Electron UA trips SaaS bot/compat firewalls (HaloPSA, Pylon,
-// etc.). Compatibility spoof for an authorized first-party tool, not evasion. Bump the Chrome major
-// occasionally so it doesn't rot into a "suspiciously old browser" signal.
+// etc.). Compatibility spoof for an authorized first-party tool, not evasion.
+//
+// DERIVED FROM THE ENGINE, NOT HARDCODED (08-20-2026). The major used to be a literal with a comment
+// telling whoever read it to "bump the Chrome major occasionally" — and it had rotted from 126 to
+// twenty majors behind the Chromium this Electron actually ships. Two separate signals came out of
+// that, and the second is the one that actually matters:
+//
+//   1. "Suspiciously old browser". A UA twenty versions stale is itself a risk marker.
+//   2. THE CONTRADICTION. setUserAgent() rewrites the User-Agent header and nothing else. Chromium
+//      still derives the Sec-CH-UA / Sec-CH-UA-Platform client hints — and navigator.userAgentData —
+//      from its REAL brand and version. So the request said Chrome/126 in one header and Chrome/146
+//      in the next one down. A stale UA is a weak signal; a UA that disagrees with its own client
+//      hints is a much stronger one, because no real browser can produce it.
+//
+// Reading the major off process.versions.chrome makes the two agree by construction and means this
+// can never rot again. `.0.0.0` matches Chrome's own reduced-UA format — real Chrome freezes the
+// last three components exactly like this, so the shape is right as well as the number.
 const CHROME_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+  `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) ` +
+  `Chrome/${process.versions.chrome.split(".")[0]}.0.0.0 Safari/537.36`;
 const DOM_READ_WORLD = 1013; // isolated world id — never 0 (that's the page's main world)
 const SWAP_PAINT_DELAY_MS = 50; // one-two frames: let the shell paint the snapshot before the swap
 const SWAP_REVEAL_TIMEOUT_MS = 10000; // hard cap — the overlay must never wedge on a dead site
@@ -39,6 +55,20 @@ let swapping = false;
 // shell modal is open (the native view would occlude it) — the module drives both flags over IPC.
 let moduleVisible = false;
 let modalOpen = false;
+/**
+ * SHELL chrome is over the module — the peeking nav panel, or the Settings modal.
+ *
+ * A SECOND flag rather than reusing modalOpen, because the two have different owners: modalOpen is
+ * the Scout module's own sessions/vault/gate dialogs, shellOverlay is App.tsx. One flag shared by
+ * two writers is a latch bug waiting to happen — closing a module modal would clear the shell's
+ * state and raise the guest straight through a peeking panel.
+ *
+ * WHY IT IS NEEDED AT ALL: the guest is a native WebContentsView and paints above ALL web content,
+ * so nothing in the renderer can be z-indexed over it. Docking the panel is fine — that reflows the
+ * layout, the module's ResizeObserver reports new bounds and the guest moves out of the way — but a
+ * PEEKING panel floats and reflows nothing, so the guest sat on top of it and clipped it.
+ */
+let shellOverlay = false;
 // Estimate only; the module's ResizeObserver corrects it on first layout (ScoutViewerModule).
 let lastBounds = { x: 359, y: 165, width: 800, height: 600 };
 
@@ -64,6 +94,43 @@ export function normalizeHttpUrl(raw: unknown): string | null {
   if (!trimmed) return null;
   const candidate = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
   return isHttpUrl(candidate) ? new URL(candidate).toString() : null;
+}
+
+/**
+ * WHAT THE URL BAR DOES WITH SOMETHING THAT IS NOT A URL (Jason 08-20-2026: "im not able to search
+ * the web"). Until now: nothing, silently. normalizeHttpUrl prepends https:// to anything without a
+ * scheme, so "focal registry photography" became "https://focal registry photography", new URL()
+ * threw on the spaces, navigate() got null and dropped it without a word. A single word was worse —
+ * "cats" became the perfectly VALID https://cats/ and died on DNS instead.
+ *
+ * This is the omnibox rule, cut to its bones: an explicit scheme is a URL and must be http(s); a
+ * whitespace-free string whose head has a dot (or is localhost) is a host; everything else is a
+ * search. Deliberately NOT reusing normalizeHttpUrl — that one still gates the saved-targets CRUD,
+ * where a typo silently becoming a web search would be a worse failure than a rejection.
+ *
+ * DUCKDUCKGO, NOT GOOGLE, and that is on purpose: Google is the engine that challenged this viewer
+ * with "verify you are a human" in the first place, so defaulting searches there would walk
+ * straight back into the CAPTCHA. Change the constant if you want a different engine.
+ */
+const SEARCH_URL = "https://duckduckgo.com/?q=";
+
+export function resolveNavTarget(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const t = raw.trim();
+  if (!t) return null;
+  // Explicit scheme → it is a URL claim, so hold it to http(s). file:/javascript: still die here
+  // rather than being quietly re-read as a search phrase.
+  //
+  // THE `(?!\d)` IS LOAD-BEARING: without it "localhost:5173" reads as scheme "localhost:", fails
+  // the http(s) test and gets dropped — as does any bare host:port. No real scheme is followed by a
+  // digit, so refusing that shape sends host:port down to the host branch below where it belongs.
+  if (/^[a-z][a-z0-9+.-]*:(?!\d)/i.test(t)) return isHttpUrl(t) ? new URL(t).toString() : null;
+  const head = t.split(/[/?#]/)[0];
+  if (!/\s/.test(t) && (head.includes(".") || /^localhost(:\d+)?$/i.test(head))) {
+    const candidate = `https://${t}`;
+    if (isHttpUrl(candidate)) return new URL(candidate).toString();
+  }
+  return SEARCH_URL + encodeURIComponent(t);
 }
 
 // The ONLY string that reaches the session name (persist:client_<id>). Strict charset by design.
@@ -93,7 +160,27 @@ function send(channel: string, ...args: unknown[]): void {
 }
 
 function applyVisibility(): void {
-  guestView?.setVisible(moduleVisible && !modalOpen && !swapping);
+  const show = moduleVisible && !modalOpen && !shellOverlay && !swapping;
+  /**
+   * DIAG-2 (08-20-2026) — THE FOUR FLAGS, PRINTED, and this is the instrumentation this module
+   * actually needed. Nothing here has arithmetic worth a self-check the way the media wall does;
+   * what it has is one boolean decided by four inputs owned by THREE different writers — the module
+   * (moduleVisible, modalOpen), the shell (shellOverlay) and the tab swapper (swapping).
+   *
+   * Every Scout bug this session was a wrong combination of exactly these: the guest painting over
+   * a peeking nav panel, over the Settings modal, and over the experimental gate. All three look
+   * identical from the renderer — a native view where chrome should be — and none of them can be
+   * seen in DevTools, because the WebContentsView is not in the DOM. A line per transition is the
+   * difference between reading the answer and guessing at it.
+   *
+   * Cost when DIAG is unset: one `===` against a string, once per visibility change.
+   */
+  if (process.env.DIAG === "1") {
+    console.info(
+      `[scout] visible=${show}  module=${moduleVisible} modal=${modalOpen} shellOverlay=${shellOverlay} swapping=${swapping}`
+    );
+  }
+  guestView?.setVisible(show);
 }
 
 // --- guest engine ---------------------------------------------------------------------------------
@@ -287,6 +374,12 @@ export function setModalOpen(open: boolean): void {
   applyVisibility();
 }
 
+/** Shell chrome (peeking nav panel / Settings modal) is covering the module — see shellOverlay. */
+export function setShellOverlay(open: boolean): void {
+  shellOverlay = open === true;
+  applyVisibility();
+}
+
 export function setBounds(raw: unknown): void {
   const bounds = clampBounds(raw);
   if (!bounds || !guestView) return;
@@ -295,7 +388,8 @@ export function setBounds(raw: unknown): void {
 }
 
 export function navigate(raw: unknown): void {
-  const url = normalizeHttpUrl(raw); // bare host → https://; explicit non-http(s) still dropped
+  // resolveNavTarget, not normalizeHttpUrl: the bar accepts a search phrase as well as a URL.
+  const url = resolveNavTarget(raw);
   if (!url || !guestView) return;
   void guestView.webContents.loadURL(url);
 }

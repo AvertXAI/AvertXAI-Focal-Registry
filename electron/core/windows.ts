@@ -80,14 +80,16 @@ const OVERLAYS: Record<string, { color: string; symbolColor: string }> = {
 const OVERLAY_HEIGHT = 36; // matches the drag strip in main.ts
 
 export function overlayFor(mode: string | null): { color: string; symbolColor: string; height: number } {
-  return { ...(OVERLAYS[mode ?? "system"] ?? OVERLAYS.system), height: OVERLAY_HEIGHT };
+  return { ...(OVERLAYS[mode ?? "light"] ?? OVERLAYS.light), height: OVERLAY_HEIGHT };
 }
 
 // Modal dim: the native overlay is OS-drawn ABOVE all web content, so a DOM modal's backdrop can
 // never cover it. Instead we blend the active theme's overlay colors with the .overlay backdrop
 // (rgba(4,8,16,.66) in globals.css) while a modal is open, so the buttons visually recede with
 // the rest of the chrome.
-let currentOverlayMode: string | null = "system";
+// LIGHT is the product default (Jason 08-19-2026). This is the value the funnel resolves against
+// before any theme has been pushed, so a "system" here reintroduces a hybrid frame on first run.
+let currentOverlayMode: string | null = "light";
 /** false = normal · true = an ordinary modal is open · "viewer" = the media viewer is open. */
 let overlayDimmed: boolean | "viewer" = false;
 // Boot flag — while true, the funnel paints the boot-dark frame/strip regardless of theme, so
@@ -112,7 +114,7 @@ const BASE_BG: Record<string, string> = {
 
 /** The --mc-base value for a theme mode (main.ts uses this for the constructor backgroundColor). */
 export function baseFor(mode: string | null): string {
-  return BASE_BG[mode ?? "system"] ?? BASE_BG.system;
+  return BASE_BG[mode ?? "light"] ?? BASE_BG.light;
 }
 
 // SINGLE WRITER for the native strip + frame color — theme switches, modal dim, and the resize

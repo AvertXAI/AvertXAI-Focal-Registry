@@ -21,7 +21,7 @@
   --employees-modal-width: 520px;
   --employees-modal-scrim: color-mix(in srgb, var(--mc-base) 62%, transparent);
   display: flex;
-  height: calc(100vh - 58px - var(--mc-footer-height, 0px));
+  height: calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height, 0px));
   background: var(--mc-base);
   color: var(--mc-text);
   overflow: hidden;
@@ -40,7 +40,7 @@
 [data-theme="dark"] .emp-shell { --employees-on-accent-ink: #ffffff; }
 
 /* ---------- PEOPLE rail (fixed width, mirrors .tt-rail) ---------- */
-.emp-rail { width: var(--employees-rail-width); flex: none; display: flex; flex-direction: column;
+.emp-rail { position: relative; width: var(--employees-rail-width); flex: none; display: flex; flex-direction: column;
   background: var(--mc-panels); border-right: 1px solid var(--mc-border); min-height: 0; }
 .emp-railhead { display: flex; align-items: center; gap: 8px; padding: 14px 14px 10px; }
 .emp-railtitle { font-size: 10.5px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase;
@@ -48,6 +48,12 @@
 .emp-railcount { margin-left: auto; font-family: var(--mc-mono); font-size: 11px; color: var(--mc-dimmer);
   background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 10px; padding: 1px 8px; }
 .emp-raillist { flex: 1; overflow-y: auto; min-height: 0; padding: 0 8px 12px; }
+
+/* People-rail collapse — persisted employees.rail_collapsed, defaults open. The control is the
+   shared .edgetab on this rail's right edge (shell.css); the header button it replaced lasted one
+   day, 08-19 to 08-20. Collapsed is ZERO, matching every other module sidebar. */
+.emp-rail.collapsed { width: 0; }
+.emp-rail.collapsed > *:not(.edgetab) { display: none; }
 .emp-personrow { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 9px;
   border-radius: 7px; background: none; border: none; color: var(--mc-text); font-size: 13px;
   cursor: pointer; text-align: left; position: relative; }

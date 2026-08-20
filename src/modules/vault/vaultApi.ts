@@ -139,6 +139,14 @@ export interface VaultApi {
   changeMasterPassword: (current: string, next: string) => Promise<VaultLockState>;
   /** [master-password-placeholder] — dev-mode only; RECOMPUTES the derived initial, never reads stored state. */
   devRevealInitial: () => Promise<string>;
+  /** Has the user never chosen their own master password? The boot setup wizard's one trigger.
+   *  Boolean only, and NOT gated on unlock — the vault is always locked at boot, so a gated
+   *  trigger could never fire. Recomputes and compares; reads no stored credential out. */
+  setupRequired: () => Promise<boolean>;
+  /** The wizard's one write — the first master password, presented as setup. The password it
+   *  replaces is re-derived main-side and never crosses the bridge; main refuses this call once
+   *  the vault has been set up. */
+  completeSetup: (next: string) => Promise<boolean>;
   create: (input: VaultSecretInput) => Promise<VaultSecretMeta>;
   list: (includeArchived?: boolean) => Promise<VaultSecretMeta[]>;
   /** THE one credential path. Access-logged main-side, misses included. */

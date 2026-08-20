@@ -88,7 +88,11 @@
 .scannotes-tablist{display:flex;gap:6px;flex-wrap:wrap;flex:1}
 .scannotes-tbadge{position:absolute;top:-4px;right:2px;background:var(--scannotes-badge-background);color:var(--scannotes-badge-foreground);font-size:9.5px;font-family:var(--mc-mono);border-radius:8px;padding:0 5px;line-height:15px}
 .scan-tab{position:relative}
-.scannotes-tabactions{display:flex;gap:10px;align-items:center;padding-bottom:8px;flex-wrap:wrap}
+/* min-height = the cluster's own filled height: a 40px .scannotes-iconbtn (the tallest child, and
+   an explicit constant below) + this 8px padding-bottom. The wrapper renders on EVERY tab now, so
+   this is what stops the tab strip — and therefore the panel below it — from changing height when
+   the buttons are not there. If .scannotes-iconbtn's height changes, change this with it. */
+.scannotes-tabactions{display:flex;gap:10px;align-items:center;padding-bottom:8px;flex-wrap:wrap;min-height:48px}
 .scannotes-btn{font:inherit;font-size:13px;padding:9px 14px;border:1px solid var(--mc-border);background:var(--mc-nested);color:var(--mc-text);border-radius:10px;cursor:pointer;white-space:nowrap}
 .scannotes-btn:hover:not(:disabled){border-color:var(--mc-accent-primary)}
 .scannotes-btn:disabled{opacity:.5;cursor:default}
@@ -105,7 +109,10 @@
 @media (prefers-reduced-motion:reduce){.scannotes-iconbtn.alert,.scannotes-iconbtn.spin{animation:none}}
 
 /* the panel the tabs join onto — the selected tab's bottom border is painted with this surface */
-.scannotes-tabbody{background:var(--mc-nested);border:1px solid var(--mc-border);border-top:none;border-radius:0 0 12px 12px;padding:16px}
+/* min-height MOVED HERE from .scannotes-grid (Jason 08-20-2026). On the grid it only floored the
+   Scan Notes tab, which is exactly why every other tab was a different height. On the panel it
+   floors all five, so the surface stops jumping when you move across the tab strip. */
+.scannotes-tabbody{background:var(--mc-nested);border:1px solid var(--mc-border);border-top:none;border-radius:0 0 12px 12px;padding:16px;min-height:480px}
 .scan-shell .scan-tabs.scannotes-tabrow .scan-tab.on{border-bottom-color:var(--mc-nested);background:var(--mc-nested)}
 
 /* ---------------------------------------------------------------- the three-pane grid */
@@ -117,7 +124,7 @@
    panes full width, in order — and only becomes three columns at 900px, where 900 - 58 - 32 - 34 -
    518 = 258px of editor and up. There is no 375px rule and no second breakpoint: this shell can
    never render below 740 (§3.4). */
-.scannotes-grid{display:grid;grid-template-columns:1fr;gap:14px;min-height:480px}
+.scannotes-grid{display:grid;grid-template-columns:1fr;gap:14px}
 @container (min-width:900px){
   .scannotes-grid{grid-template-columns:250px 240px 1fr}
   .scannotes-grid.media{grid-template-columns:250px 1fr}

@@ -4,6 +4,17 @@ Newest first. The **Summary** block (400 characters max) is what the in-app Soft
 shows; the **Details** sections are for the website changelog. `scripts/release.mjs` parses this file,
 injects the current version's Summary into the update feed, and publishes this file to the feed root.
 
+## 0.2.9 — August 20, 2026
+
+**Summary:** Sample data is now a developer tool only. Until now the vault's settings offered a button that loaded forty-six made-up logins with deliberately weak passwords straight into your vault. It is hidden, and refused outright unless developer mode is on. If you already loaded it, Purge is still there and still removes exactly what it added.
+
+### Details
+
+#### Fixed
+
+- The Seed data card in the vault's settings was visible to everyone. It loads a sample workbook of forty-six invented logins, chosen to have poor passwords so the health check has something to report — useful while building the app, and something no one else should be able to put into a real vault by accident. It now appears only in developer mode, and the app refuses the request outright if it arrives any other way.
+- Purging is deliberately left alone. If a previous version put sample data in your vault, the Purge button is still there and still removes exactly what was loaded and nothing you created yourself.
+
 ## 0.2.8 — August 20, 2026
 
 **Summary:** Your saved accounts now show the real company logo instead of coloured initials — more than a thousand of them, from banks and airlines to camera shops and photo labs. Open an entry and the company's name mark sits across the top. It all ships inside the app, so nothing is fetched while you browse and no one learns which companies you hold accounts with.

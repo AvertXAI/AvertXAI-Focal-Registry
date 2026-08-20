@@ -407,11 +407,22 @@ export function registerVaultIpc(): void {
   });
 
   // ---- seed data (the Database card in vault settings) ----
+  //
+  // LOADING IS DEVELOPER-ONLY (08-20-2026). This shipped ungated through 0.2.8: any user could put
+  // forty-six fake logins with deliberately weak passwords into their own vault from one button,
+  // and the health check would then report their vault as compromised on data we invented. The
+  // gate is the service's, not the card's — vault:devRevealInitial two hundred lines up already
+  // does exactly this, and this handler simply never got the same treatment.
+  //
+  // seedStatus and purgeSeed stay OPEN, deliberately. Status returns a count and nothing else, and
+  // purge must keep working for the vaults that already took the seed before this gate existed —
+  // gating removal would strand fake credentials in a real user's vault with no way to clear them.
   safeHandle("vault:seedStatus", async () => {
     const { db, orgId } = await gated();
     return seed.seedStatus(db, orgId);
   });
   safeHandle("vault:loadSeed", async () => {
+    if (!getDevMode()) throw new Error("Developer mode is required.");
     const { db, orgId } = await gated();
     return seed.loadSeed(db, orgId);
   });

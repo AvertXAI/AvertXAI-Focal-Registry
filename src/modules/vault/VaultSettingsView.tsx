@@ -27,6 +27,16 @@ export interface VaultSettingsProps {
 export default function VaultSettingsView({ settings, lockState, onSetting, onLockChanged, onDataChanged, shortcuts, onShortcuts, secrets, folders }: VaultSettingsProps) {
   const api = vaultApi();
   const [seed, setSeed] = useState<{ present: boolean; count: number } | null>(null);
+  /**
+   * SEED DATA IS DEVELOPER-ONLY (08-20-2026). The card shipped ungated: every user of 0.2.8 and
+   * earlier could load forty-six fake logins with deliberately weak passwords into their own vault,
+   * one click, no warning. The service gates the LOAD too — this only hides the button.
+   *
+   * `|| seed?.present` is the part that matters and is easy to delete by accident. Anyone who
+   * already loaded seed data before this gate existed must still be able to PURGE it; hiding the
+   * card outright on dev-mode alone would strand that data in their vault with no way out.
+   */
+  const [devMode, setDevMode] = useState(false);
   const [seedBusy, setSeedBusy] = useState(false);
   const [seedMessage, setSeedMessage] = useState<string | null>(null);
   const [seedError, setSeedError] = useState<string | null>(null);
@@ -41,6 +51,7 @@ export default function VaultSettingsView({ settings, lockState, onSetting, onLo
 
   useEffect(() => {
     loadSeedStatus();
+    void window.api.dataviewer.getDevMode().then(setDevMode).catch(() => setDevMode(false));
   }, [loadSeedStatus]);
 
   const runSeed = (which: "load" | "purge"): void => {
@@ -189,7 +200,8 @@ export default function VaultSettingsView({ settings, lockState, onSetting, onLo
         </div>
       </div>
 
-      {/* ---- Seed data (Jason's ruling, 08-06-2026) ---- */}
+      {/* ---- Seed data (Jason's ruling, 08-06-2026; gated to developer mode 08-20-2026) ---- */}
+      {(devMode || seed?.present === true) && (
       <div className="vault-card">
         <div className="vault-cardhead">
           <span className="vault-cardtitle">Seed data</span>
@@ -209,14 +221,19 @@ export default function VaultSettingsView({ settings, lockState, onSetting, onLo
           </div>
         )}
         <div className="vault-btnrow" style={{ marginTop: 12 }}>
-          <button className="vault-btn primary" disabled={seedBusy || seed?.present === true} onClick={() => runSeed("load")}>
-            {seedBusy ? "Working…" : "Load seed data"}
-          </button>
+          {/* Loading is developer-only. Purging is not: a vault that already holds seed data must
+              always be able to get rid of it, dev mode or not. */}
+          {devMode && (
+            <button className="vault-btn primary" disabled={seedBusy || seed?.present === true} onClick={() => runSeed("load")}>
+              {seedBusy ? "Working…" : "Load seed data"}
+            </button>
+          )}
           <button className="vault-btn danger" disabled={seedBusy || seed?.present !== true} onClick={() => runSeed("purge")}>
             Purge seed data
           </button>
         </div>
       </div>
+      )}
 
       {/* ---- Storage facts ---- */}
       <div className="vault-card">

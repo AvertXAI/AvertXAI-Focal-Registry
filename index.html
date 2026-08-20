@@ -10,10 +10,18 @@
       (electron/core/services/scan/mediaBrowse.ts). Stills still arrive as data URLs under the
       existing img-src, and needed no change at all. Nothing else in this policy moved, and mini.html
       and update.html are untouched. Do not widen this to file:, blob:, or '*'.
+
+      `img-src brand:` is the second addition (08-20-2026). Vault tiles render brand artwork out of
+      the downloaded pack over the privileged brand: scheme, whose handler resolves a domain against
+      an in-memory index and can reach nothing else on disk
+      (electron/core/services/brandpack/index.ts). Omitting it is not a soft failure: CSP refuses the
+      request synchronously, which fires the img error BEFORE React attaches onError, so the tile
+      keeps a broken-image glyph instead of falling back to initials. That is exactly how it shipped
+      broken the first time.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src frmedia:; font-src 'self'; object-src 'none'; base-uri 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: brand:; media-src frmedia:; font-src 'self'; object-src 'none'; base-uri 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Focal Registry</title>

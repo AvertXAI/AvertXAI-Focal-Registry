@@ -36,6 +36,11 @@ export default function BrandLockup({ label, size = 38 }: { label: string; size?
         style={{ height: "100%", width: "auto", maxWidth: 190, objectFit: "contain" }}
         loading="lazy"
         decoding="async"
+        // Same reason as BrandMark: a synchronous refusal fires error before this handler attaches,
+        // so an already-failed image has to be caught on the ref as well.
+        ref={(el) => {
+          if (el && el.complete && el.naturalWidth === 0) setFailed(true);
+        }}
         onError={() => setFailed(true)}
       />
     </span>

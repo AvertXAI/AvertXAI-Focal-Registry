@@ -44,6 +44,8 @@ export default function BrandMark({ label, size = 34 }: { label: string; size?: 
   const packed = bundled || packFailed ? null : iconUrl(label);
   const src = bundled ?? packed;
 
+  const fell = (): void => (bundled ? setBundledFailed(true) : setPackFailed(true));
+
   if (src) {
     return (
       <span className="vault-mark vault-mark-icon" style={{ width: size, height: size }}>
@@ -54,7 +56,15 @@ export default function BrandMark({ label, size = 34 }: { label: string; size?: 
           height={size}
           loading="lazy"
           decoding="async"
-          onError={() => (bundled ? setBundledFailed(true) : setPackFailed(true))}
+          // onError ALONE IS NOT ENOUGH. A refusal that resolves synchronously — a Content Security
+          // Policy miss is the one that bit us — fires error before React has attached this handler,
+          // and the tile then keeps a broken-image glyph forever instead of falling back. The ref
+          // catches that case: an <img> that is `complete` with zero natural width has already
+          // failed, whether or not anyone heard it.
+          ref={(el) => {
+            if (el && el.complete && el.naturalWidth === 0) fell();
+          }}
+          onError={fell}
         />
       </span>
     );

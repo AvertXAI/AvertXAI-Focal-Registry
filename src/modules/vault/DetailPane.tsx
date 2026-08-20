@@ -8,7 +8,7 @@
 // shows NUMBERS AND DATES ONLY; the service refuses to return a past value at all, so there is no
 // second way out even if this component asked for one.
 import { useCallback, useEffect, useState } from "react";
-import BrandMark from "./BrandMark";
+import BrandLockup from "./BrandLockup";
 import { shortDate } from "./EntriesView";
 import { vaultApi, type VaultSecretExtras, type VaultSecretMeta, type VaultVersionRow } from "./vaultApi";
 
@@ -79,7 +79,9 @@ export default function DetailPane({ secret, onReload, onEdit, onClose }: Detail
   return (
     <div className="vault-detail">
       <div className="vault-detailhead">
-        <BrandMark label={secret.label} size={38} />
+        {/* Wide surface, so the wordmark gets used here and only here; it falls back to the
+            square tile for any vendor the pack has no wordmark for. */}
+        <BrandLockup label={secret.label} size={38} />
         <div style={{ minWidth: 0 }}>
           <h3>{secret.label}</h3>
           {secret.full_name && <div className="vault-who">{secret.full_name}</div>}

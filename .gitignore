@@ -17,3 +17,7 @@ Thumbs.db
 # local-only credential placeholder; conflicts on any other machine, helps nobody
 .claude/
 .qwen/
+
+# Brand pack: built from the LogoScrape workspace (node pack.js), copied in at package time.
+# Deliberately NOT tracked - a 20MB binary that changes weekly is ~1GB of git history a year.
+resources/brandpack*

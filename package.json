@@ -1,7 +1,7 @@
 {
   "name": "avertxai-focal-registry",
   "productName": "Focal Registry",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "private": true,
   "description": "Photography Archive Tools",
   "author": "AvertXAI",
@@ -71,7 +71,13 @@
     },
     "portable": {
       "artifactName": "Focal-Registry-Portable-${version}.${ext}"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "resources/brandpack-1.bin.gz",
+        "to": "brandpack-1.bin.gz"
+      }
+    ]
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",

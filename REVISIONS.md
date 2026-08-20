@@ -4,6 +4,26 @@ Newest first. The **Summary** block (400 characters max) is what the in-app Soft
 shows; the **Details** sections are for the website changelog. `scripts/release.mjs` parses this file,
 injects the current version's Summary into the update feed, and publishes this file to the feed root.
 
+## 0.2.8 — August 20, 2026
+
+**Summary:** Your saved accounts now show the real company logo instead of coloured initials — more than a thousand of them, from banks and airlines to camera shops and photo labs. Open an entry and the company's name mark sits across the top. It all ships inside the app, so nothing is fetched while you browse and no one learns which companies you hold accounts with.
+
+### Details
+
+#### Added
+
+- Real company logos on your saved accounts. Over a thousand marks are included, covering banks, airlines, insurers, retailers, camera shops, photo labs and the software you sign in to — not just the well-known technology names.
+- Opening an entry shows that company's full name mark across the top of the detail panel, where there is room for it to be read.
+
+#### Changed
+
+- An account with no logo still shows its coloured initials, exactly as before. A missing logo is only ever cosmetic.
+
+#### Notes
+
+- The artwork is installed with the app. Nothing is looked up while you browse, so opening the vault cannot tell anyone — us included — which companies you keep accounts with.
+- New logos can arrive later without waiting for an app update. The app asks our server once at startup whether a newer set exists; that request is identical for everyone and says nothing about your vault.
+
 ## 0.2.7 — August 19, 2026
 
 **Summary:** New Scan Notes: keep notes and the scan report with each folder, and rename folders from inside the app with their old names kept on record. Browse a folder's photos, video and audio as thumbnails and open them in a built-in viewer and player. Search folder names old and new, your notes and your reports. Recent Work shows where you left off.

@@ -10,6 +10,7 @@
 //------------------------------------------------------------
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DbColumn, DbForeignKey, DbRowsPage, DbTable } from "../../shared/types";
+import ProcessesView from "./components/ProcessesView";
 // The one shell toast (Settings.tsx precedent) — long seed messages truncated in the header strip.
 import { signalAppToast } from "../../App";
 import RecordModal from "./components/RecordModal";
@@ -83,6 +84,9 @@ export default function DataViewerModule() {
   const [page, setPage] = useState<DbRowsPage | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [devMode, setDevMode] = useState(false);
+  /** Which surface is showing. Session-only, like the rail width — persisting it would mean a new
+      app_settings key plus its RENDERER_KEYS entry for a choice that costs one click to remake. */
+  const [tab, setTab] = useState<"tables" | "processes">("tables");
   const [fks, setFks] = useState<DbForeignKey[]>([]);
   const [record, setRecord] = useState<Record<string, unknown> | null>(null);
   const [changed, setChanged] = useState<Set<number>>(new Set()); // row indices flashing after a live update
@@ -178,6 +182,19 @@ export default function DataViewerModule() {
   }, [columns, selected]);
 
   return (
+    <div className="dv-outer">
+      {/* Processes is DEVELOPER-ONLY (08-21-2026). With developer mode off there is no strip at all,
+          so this surface is byte-for-byte what it has always been for a customer. The tab is the
+          first of two layers — procmon:* refuses main-side regardless, because a hidden tab is not
+          a control. House tab standard (08-02-2026): the selected tab's bottom border is painted the
+          body's own surface so tab and panel read as one face. */}
+      {devMode && (
+        <div className="dv-tabs">
+          <button className={`dv-tab ${tab === "tables" ? "on" : ""}`} onClick={() => setTab("tables")}>Tables</button>
+          <button className={`dv-tab ${tab === "processes" ? "on" : ""}`} onClick={() => setTab("processes")}>Processes</button>
+        </div>
+      )}
+      {devMode && tab === "processes" ? <ProcessesView /> : (
     <div className="dv-shell">
       <aside className="dv-rail" style={{ width: railWidth, flexBasis: railWidth }}>
         <div className="dv-rail-head">
@@ -446,6 +463,8 @@ export default function DataViewerModule() {
             void window.api.devseed.status().then(setDemo).catch(() => {});
           }}
         />
+      )}
+    </div>
       )}
     </div>
   );

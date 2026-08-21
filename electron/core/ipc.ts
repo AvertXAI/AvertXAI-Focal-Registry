@@ -16,6 +16,7 @@ import { getDb } from "./services/db";
 import { getActiveOrg } from "./services/db/registry";
 import { vendorMap } from "./services/brandpack";
 import * as dataviewer from "./services/dataviewer";
+import * as procmon from "./services/procmon";
 import * as firstrun from "./services/firstrun";
 import * as modules from "./services/modules";
 import * as mindmergeApi from "./services/mindmerge/api";
@@ -317,6 +318,23 @@ export function registerIpcHandlers(): void {
     return r;
   });
   safeHandle("dataviewer:setDevMode", (_e, on: unknown) => dataviewer.setDevMode(on === true));
+
+  // Process monitor (08-21-2026) — lives on the Data Viewer's Processes tab and inherits its gate.
+  // Gated HERE as well as in the renderer, because a hidden tab is not a control: the same two-layer
+  // rule the seed-data and package-ledger fixes were written to. No push channel and no polling in
+  // main — the renderer asks on its own interval, so nothing runs when the tab is not open.
+  safeHandle("procmon:list", () => {
+    if (!dataviewer.getDevMode()) throw new Error("Developer mode is required.");
+    return procmon.listProcesses();
+  });
+  safeHandle("procmon:kill", (_e, pid: unknown) => {
+    if (!dataviewer.getDevMode()) throw new Error("Developer mode is required.");
+    return procmon.killProcess(pid);
+  });
+  safeHandle("procmon:killOthers", () => {
+    if (!dataviewer.getDevMode()) throw new Error("Developer mode is required.");
+    return procmon.killOthers();
+  });
 
   // first-run wizard — service validates orgName, then seeds settings + modules in one transaction.
   safeHandle("firstRun:get", () => firstrun.getFirstRunStatus());

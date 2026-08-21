@@ -65,6 +65,11 @@ const api: Api = {
     deleteRow: (table: string, pkValue: unknown) => invoke("dataviewer:deleteRow", table, pkValue),
     setDevMode: (on: boolean) => invoke("dataviewer:setDevMode", on),
   },
+  procmon: {
+    list: () => invoke("procmon:list"),
+    kill: (pid: number) => invoke("procmon:kill", pid),
+    killOthers: () => invoke("procmon:killOthers"),
+  },
   getFirstRunStatus: () => invoke("firstRun:get"),
   /** Escape from a setup wizard — quits outright, never hides to tray (see electron/main.ts). */
   setupQuit: () => ipcRenderer.send("setup:quit"),

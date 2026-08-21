@@ -296,6 +296,55 @@ tbody tr:hover{background:var(--mc-nested)}
    Data Viewer module — read-only SQLite browser.
    ============================================================ */
 .dv-shell{display:flex;height:calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height));overflow:hidden}
+/* The Processes tab (08-21-2026) puts a strip above the shell, so the height moves to the wrapper
+   and the shell becomes the flexing child. min-height:0 is load-bearing — without it a flex child
+   refuses to shrink below its content and the grid pushes the footer off screen. */
+.dv-outer{display:flex;flex-direction:column;height:calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height));overflow:hidden}
+.dv-outer > .dv-shell{height:auto;flex:1;min-height:0}
+
+/* Module tab strip — the house standard (ruled 08-02-2026). The selected tab's bottom border is
+   painted the body's own surface, so tab and panel share one continuous face. Tokens only, which is
+   what makes it correct in all three themes with no per-theme rule. */
+.dv-tabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--mc-border);flex:none;padding:10px 14px 0}
+.dv-tab{background:none;border:1px solid transparent;border-radius:7px 7px 0 0;padding:7px 14px;
+  font-size:12.5px;color:var(--mc-muted);cursor:pointer;white-space:nowrap;margin-bottom:-1px;font-family:inherit}
+.dv-tab:hover{color:var(--mc-text)}
+.dv-tab.on{color:var(--mc-text);font-weight:600;border-color:var(--mc-border);
+  border-bottom-color:var(--mc-base);background:var(--mc-base)}
+
+/* ---- Processes ---- */
+.pm-wrap{flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:16px 18px;overflow:auto}
+.pm-stats{display:flex;gap:9px;flex-wrap:wrap}
+.pm-stat{background:var(--mc-nested);border:1px solid var(--mc-border);border-radius:9px;padding:9px 14px;min-width:104px}
+.pm-stat .k{display:block;font-size:9.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mc-muted);font-weight:700;margin-bottom:4px}
+.pm-stat .v{font:700 18px/1 var(--mc-mono);color:var(--mc-text)}
+.pm-warn{border:1px solid #5d2b30;background:rgba(224,86,92,.09);color:#e0847f;border-radius:9px;padding:11px 14px;font-size:12.5px;line-height:1.55}
+.pm-bar{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.pm-spacer{margin-left:auto}
+.pm-cardtitle{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--mc-muted);font-weight:700}
+.pm-note{font-size:12.5px;color:var(--mc-muted);border-left:2px solid var(--mc-accent-primary);padding-left:10px}
+.pm-scroll{overflow:auto;border:1px solid var(--mc-border);border-radius:9px}
+.pm-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.pm-table th{position:sticky;top:0;background:var(--mc-panels);text-align:left;font-size:9.5px;
+  letter-spacing:1.5px;text-transform:uppercase;color:var(--mc-muted);font-weight:700;padding:9px 10px;
+  border-bottom:1px solid var(--mc-border)}
+.pm-table td{padding:8px 10px;border-bottom:1px solid var(--mc-border);color:var(--mc-text)}
+.pm-table tbody tr:hover{background:var(--mc-nested)}
+.pm-table tbody tr.picked{background:var(--mc-nested);box-shadow:inset 3px 0 0 var(--mc-accent-primary)}
+.pm-table tbody tr.isself td{color:var(--mc-muted)}
+.pm-mono{font-family:var(--mc-mono)}
+.pm-dim{color:var(--mc-muted)}
+.pm-rank{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;
+  border:1px solid;font:700 10.5px/1 var(--mc-mono)}
+.pm-role{display:flex;align-items:center;font-weight:600}
+.pm-dot{width:8px;height:8px;border-radius:50%;margin-right:8px;flex:none}
+.pm-exe{color:var(--mc-muted);font-weight:400;margin-left:8px;font-size:11.5px}
+.pm-pill{font-size:9.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;padding:2px 7px;border-radius:5px;border:1px solid}
+.pm-pill.run{color:#16a34a;border-color:#1d5c38;background:rgba(22,163,74,.1)}
+.pm-pill.stale{color:#e0565c;border-color:#5d2b30;background:rgba(224,86,92,.1)}
+.pm-pill.self{color:var(--mc-accent-primary);border-color:var(--mc-accent-primary);background:transparent}
+.pm-hint{font-size:11.5px;color:var(--mc-muted);line-height:1.65}
+.pm-state{padding:24px;color:var(--mc-muted);text-align:center}
 .dv-rail{width:180px;flex:0 0 180px;border-right:1px solid var(--mc-border);
   background:var(--mc-panels);display:flex;flex-direction:column;overflow:hidden;position:relative}
 /* drag handle on the rail's right edge — 6px of grab area over a 1px visual line */

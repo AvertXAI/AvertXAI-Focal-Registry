@@ -15,6 +15,22 @@ export interface DbTable {
   name: string;
   rows: number;
 }
+
+/** Process monitor. `rank` is IMPORTANCE, not usage — MAIN holds the single-instance lock, so it
+    leads even when a renderer is using ten times the memory. */
+export type ProcRole = "MAIN" | "renderer" | "gpu-process" | "utility" | "node";
+export interface ProcRow {
+  pid: number;
+  parentPid: number;
+  name: string;
+  role: ProcRole;
+  rank: number;
+  memoryMb: number;
+  /** This app, or one of its own children. Shown, never killed by "end the others". */
+  isSelf: boolean;
+  /** A packaged "Focal Registry.exe" — during dev this one is the stale-bundle trap. */
+  packaged: boolean;
+}
 export interface DbColumn {
   name: string;
   type: string;
@@ -1340,6 +1356,14 @@ export interface Api {
     updateRow: (table: string, pkValue: unknown, changes: Record<string, unknown>) => Promise<{ changed: number }>;
     deleteRow: (table: string, pkValue: unknown) => Promise<{ changed: number }>;
     setDevMode: (on: boolean) => Promise<void>;
+  };
+  /** Process monitor — developer mode only (service-enforced, same gate as the raw row writes). */
+  procmon: {
+    list: () => Promise<ProcRow[]>;
+    /** Ends one process and its children. Refuses this app's own main process. */
+    kill: (pid: number) => Promise<{ killed: number }>;
+    /** The device gate: ends every OTHER instance and deliberately leaves this one running. */
+    killOthers: () => Promise<{ killed: number }>;
   };
   /** First-Run Setup Wizard — true once an active org exists in the platform registry. */
   getFirstRunStatus: () => Promise<boolean>;

@@ -319,6 +319,34 @@ export function ensureVaultSchema(db: Db): void {
     "bytes BLOB NOT NULL",
   ]);
 
+  /**
+   * Brand icons and logos for the collage tiles (RULED 08-20-2026). Bytes live here rather than
+   * in a loose asset tree so the artwork travels as one file with the vault, and so no lookup
+   * ever reaches the filesystem — let alone the network — while a card renders.
+   *
+   * The WHOLE pack is stored, not a per-vault selection. The pack is byte-identical on every
+   * install, so its presence says nothing about this user, and a vendor added months from now
+   * already has its artwork with no fetch of any kind.
+   *
+   * `variant` is "" for the default file and "light"/"dark" for background-specific artwork —
+   * empty string, not NULL, because a UNIQUE index treats every NULL as distinct and the upsert
+   * below would then insert a duplicate row on every single import.
+   *
+   * No foreign key to a secret ON PURPOSE, matching every soft reference in this file: artwork is
+   * keyed by domain, many secrets share one domain, and a domain nothing references any more is
+   * dead weight reclaimed by compaction — never a crash.
+   */
+  createTable(db, "vault_brand_assets", [
+    "org_id TEXT NOT NULL",
+    "domain TEXT NOT NULL", // registrable domain, already lowercased — the join key, never shown
+    "kind TEXT NOT NULL", // 'icon' | 'logo'
+    "variant TEXT NOT NULL DEFAULT ''", // '' | 'light' | 'dark'
+    "mime TEXT NOT NULL",
+    "byte_count INTEGER NOT NULL",
+    "bytes BLOB NOT NULL",
+    "pack_version TEXT NOT NULL", // compared against the published pack to decide on a download
+  ]);
+
   // ---- indexes — one per hot query, IF NOT EXISTS so the ensure stays rerunnable. (Per-secret
   // ---- version lookups ride vault_secret_versions_uniq above — see its comment.)
   // audit surface: newest-first page over the whole log
@@ -333,6 +361,10 @@ export function ensureVaultSchema(db: Db): void {
   db.exec("CREATE INDEX IF NOT EXISTS idx_vault_secrets_folder ON vault_secrets (folder_id);");
   // the folder tree: children of one node
   db.exec("CREATE INDEX IF NOT EXISTS idx_vault_folders_parent ON vault_folders (parent_id);");
+  // brand artwork: the single lookup every tile render makes, and the upsert target on import
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS vault_brand_assets_uniq ON vault_brand_assets (org_id, domain, kind, variant);"
+  );
   // the note tree: children of one node, and every note in one folder
   db.exec("CREATE INDEX IF NOT EXISTS idx_vault_note_folders_parent ON vault_note_folders (parent_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_vault_notes_folder ON vault_notes (folder_id);");

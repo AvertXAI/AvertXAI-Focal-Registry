@@ -67,6 +67,7 @@ const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AN
 assert.deepEqual(tables, [
   "vault_access_log",
   "vault_attachments", // 08-16-2026 — pasted-image bytes; the note body carries vault://<uuid>
+  "vault_brand_assets", // 08-20-2026 — brand icon/logo bytes, keyed by domain; whole-pack import
   "vault_dns_records",
   "vault_event_log",
   "vault_folders",

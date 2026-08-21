@@ -59,8 +59,17 @@
 .rn-btn.rev{background:var(--rename-accent);border-color:var(--rename-accent);color:#fff;font-weight:600}
 .rn-btn.primary:hover,.rn-btn.rev:hover{filter:brightness(1.06)}
 
-.rn-seg{display:flex;border:1px solid var(--mc-border);border-radius:8px;overflow:hidden;margin-bottom:9px}
-.rn-seg div{flex:1;text-align:center;padding:8px 4px;font-size:12px;cursor:pointer;color:var(--mc-muted);background:var(--mc-field);border-right:1px solid var(--mc-border)}
+/* flex:none is LOAD-BEARING, do not drop it. .rn-left is a column flex container whose content
+   overflows, and .rn-seg is its only child with overflow:hidden (it needs it to clip the segment
+   corners to the 8px radius). Per the flexbox spec a flex item that is a scroll container gets an
+   automatic minimum size of ZERO instead of min-content, so .rn-seg was the one item in the column
+   free to absorb all the negative free space: it shrank, clipped its own labels, and eventually
+   collapsed to a bare line. Every sibling has overflow:visible and refuses to shrink past its text,
+   which is why this element and only this element vanished. */
+.rn-seg{display:flex;flex:none;border:1px solid var(--mc-border);border-radius:8px;overflow:hidden;margin-bottom:9px}
+/* Explicit line-height so the box height does not depend on the inherited body 1.5,
+   plus 1px more padding for breathing room. */
+.rn-seg div{flex:1;text-align:center;padding:9px 6px;font-size:12px;line-height:1.4;cursor:pointer;color:var(--mc-muted);background:var(--mc-field);border-right:1px solid var(--mc-border)}
 .rn-seg div:last-child{border-right:0}
 .rn-seg div.on{background:var(--rename-accent-soft);color:var(--rename-accent);font-weight:600}
 

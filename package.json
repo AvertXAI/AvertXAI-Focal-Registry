@@ -1,7 +1,7 @@
 {
   "name": "avertxai-focal-registry",
   "productName": "Focal Registry",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "private": true,
   "description": "Photography Archive Tools",
   "author": "AvertXAI",
@@ -17,6 +17,8 @@
     "dev": "npm run build && electron .",
     "dev:reset": "node scripts/reset.mjs && npm run dev",
     "dev:diag": "set DIAG=1&& npm run dev",
+    "pids": "powershell -ExecutionPolicy Bypass -File scripts/pids.ps1",
+    "kill": "powershell -ExecutionPolicy Bypass -File scripts/pids.ps1 -Kill",
     "package": "npm run build && electron-builder --win",
     "release": "npm run build && electron-builder --win && node scripts/release.mjs",
     "postinstall": "electron-rebuild -f -w better-sqlite3-multiple-ciphers,argon2"

@@ -4,16 +4,26 @@ Newest first. The **Summary** block (400 characters max) is what the in-app Soft
 shows; the **Details** sections are for the website changelog. `scripts/release.mjs` parses this file,
 injects the current version's Summary into the update feed, and publishes this file to the feed root.
 
-## 0.2.9 — August 20, 2026
+## 0.2.10 — August 21, 2026
 
-**Summary:** Sample data is now a developer tool only. Until now the vault's settings offered a button that loaded forty-six made-up logins with deliberately weak passwords straight into your vault. It is hidden, and refused outright unless developer mode is on. If you already loaded it, Purge is still there and still removes exactly what it added.
+**Summary:** A developer tool was reachable on the vault's Infrastructure tab, its been resolved. None of your own data was ever involved.
 
 ### Details
 
 #### Fixed
 
-- The Seed data card in the vault's settings was visible to everyone. It loads a sample workbook of forty-six invented logins, chosen to have poor passwords so the health check has something to report — useful while building the app, and something no one else should be able to put into a real vault by accident. It now appears only in developer mode, and the app refuses the request outright if it arrives any other way.
-- Purging is deliberately left alone. If a previous version put sample data in your vault, the Purge button is still there and still removes exactly what was loaded and nothing you created yourself.
+- A developer tool was reachable on the vault's Infrastructure tab, its been resolved. None of your own data was ever involved.
+
+## 0.2.9 — August 20, 2026
+
+**Summary:** A developer tool was reachable in the vault's settings, its been resolved. If you used it previously, the button that clears what it added is still there and still works.
+
+### Details
+
+#### Fixed
+
+- A developer tool was reachable in the vault's settings, its been resolved.
+- If a previous version used it, the button that clears what it added is still there, and it still removes exactly what was added and nothing you created yourself.
 
 ## 0.2.8 — August 20, 2026
 
@@ -131,9 +141,9 @@ injects the current version's Summary into the update feed, and publishes this f
 
 #### Changed
 
-- The Secure Note module is renamed MindMerge end to end: navigation, module slug, service, database, and settings keys (existing settings migrate automatically).
+- The Secure Note module is now called MindMerge. Your existing settings carry over automatically.
 - Product identity is now "Focal Registry": window title, taskbar name, tray tooltip (with "Photography Archive Tools" as the second line), installer artifact names, and the first-run welcome screen.
-- The internal shell bridge was renamed from the legacy RunBooks name; boot behavior is unchanged.
+- Internal housekeeping. Boot behavior is unchanged.
 
 #### Fixed
 
@@ -141,4 +151,4 @@ injects the current version's Summary into the update feed, and publishes this f
 
 #### Removed
 
-- The legacy RunBooks-era database migration and its last remnants — no existing install carries data that needs it.
+- Unused legacy code. No existing install carries data that needs it.

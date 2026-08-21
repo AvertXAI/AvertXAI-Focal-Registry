@@ -1,7 +1,7 @@
-# FACTS-11.md
+# FACTS-12.md
 
 Verified facts. One line each: value — source — verified-on. Re-verify if stale.
-*(How to maintain this file: see RULES-39.md. Supersedes FACTS-10 — delete it after upload. Rotated 2026-08-18: RAW preview facts corrected and measured; `frmedia` scheme, thumbnail cache, and open-ended streaming recorded.)*
+*(How to maintain this file: see RULES-39.md. Supersedes FACTS-11 — delete it after upload. Rotated 2026-08-19: worker-window, throttling, virtualization and SQL-LIKE facts measured and recorded.)*
 
 ## Hardware — mini PC candidates
 - Beelink GTR9 Pro standard SKU (Ryzen AI Max+ 395, 128GB, 2TB, dual 10GbE, 185 reviews): $3,399 — Amazon US — 2026-06-07
@@ -147,6 +147,17 @@ Verified facts. One line each: value — source — verified-on. Re-verify if st
 - **A painted `<video>` thumbnail holds a decoded frame at NATIVE resolution** — ~3 MB at 1080p, ~12 MB at 4K. A cached jpeg thumbnail is 10-20 KB. This is why thumbnails are captured to disk and the decoder torn down.
 - **Thumbnail cache** — content-addressed jpegs at `Documents\Focal Registry\Scan Notes\.thumbs\`, keyed on absolute path + size + mtime, 500 MB ceiling with least-recently-used sweep, hidden via `attrib.exe`. Built with the hand-built home path; **never `app.getPath("documents")`** (OneDrive redirect).
 - **`Ctrl+Shift+I` is NOT built into an Electron window** — it comes from the default application menu. An app with no menu has no shortcut. Focal Registry owns it via `before-input-event` (`electron/core/devtools.ts`); a future View menu item must carry NO accelerator or the two fire together and toggle twice.
+
+## Media pipeline — measured 2026-08-18/19
+- **`nativeImage` does NOT exist inside a `utilityProcess`** — the child sees only `net` and `systemPreferences`. A utility process cannot make thumbnails — 2026-08-18
+- **`nativeImage` IGNORES the EXIF orientation tag.** A hand-written transform table shipped with entries 6 and 8 swapped and rendered a whole shoot upside down; both are axis-swap transforms, so the output was the right SHAPE and the wrong way up — a 90° error presenting as 180° — 2026-08-18
+- **`createImageBitmap(blob, { imageOrientation: "from-image" })` applies EXIF in the DECODER** — rotation is never expressed as a table, so that bug class is unrepresentable on that path. Eight-orientation `ABCD/EFGH` fixture: 8/8 — 2026-08-18
+- **A hidden `BrowserWindow` IS throttled while the app is minimised** — timers 213/s → 69/s, work ~168 ms → ~229 ms per file (~36% slower). **`backgroundThrottling: false` makes NO measurable difference** on this Electron; tested twice with the flag as the only variable. Work slows, it does not stop — 2026-08-18
+- **The worker is NOT faster per file at concurrency 1** — 149 ms against the main process's 141. **The win is parallelism**: 80.9 ms/file at 4 in flight (~1.75×), off the thread that owns every window. Knee at 3; 3→4 buys 15%, 4→6 buys 16% for 50% more contention — 2026-08-18
+- **A thumbnail cache key must carry a GENERATION.** Keyed on (path, size, mtime) it is correct for "the file changed" and useless for "our generator changed" — every wrong thumbnail keeps serving as a valid hit after the code is fixed — 2026-08-18
+- **`_` is a single-character WILDCARD in SQL `LIKE`, and camera stems are `IMG_0541`** — `LIKE 'folder\stem.%'` silently matches `IMGX0541.jpg`, a different photograph. One query per folder plus exact string equality has neither that problem nor the `ESCAPE`-versus-backslash collision — 2026-08-19
+- **Measured, one call vs batched at 500** (1,896 cached thumbnails): main-process block **926 ms → 154 ms** worst, reply **27.2 MB → 7.2 MB**, and batching is faster outright (574 ms vs 926 ms) — no single call has to build a 27 MB string — 2026-08-19
+- **Virtualized grid: ~415 elements → ~40–60** on a 415-row folder, computed from real stylesheet values. Windowing arithmetic **fails open** — any measurement it cannot use renders the whole list, because heavy is a performance problem and short is a correctness one — 2026-08-19
 
 ## Third-party projects reviewed — fetched 2026-07-22/25
 - **Graphify** (`Graphify-Labs/graphify`) — MIT, **Python** command-line tool and agent skill. Outputs `graph.html`, `GRAPH_REPORT.md`, `graph.json`. Parses code locally with tree-sitter (no model); documents and images use a model pass. Has an MCP server plus `--obsidian` and `--wiki` flags and first-class Antigravity install. **CANNOT ship inside Focal Registry** — canon bans a Python runtime in the installer. Use it externally; the app reads its `graph.json`.

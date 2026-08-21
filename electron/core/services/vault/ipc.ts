@@ -908,8 +908,20 @@ export function registerVaultIpc(): void {
     return r;
   });
   // Live reading of the installed tree — main-side fs, nothing stored, nothing sent anywhere.
+  //
+  // DEVELOPER-ONLY (08-21-2026). This shipped ungated through 0.2.9: any user who unlocked the vault
+  // could read the whole dependency inventory — every package, version, licence, folder size, and our
+  // own §2.10 verdict text ("§2.10 stops the line", "Licence undeterminable"). The packaged asar
+  // carries the production node_modules tree, so it renders POPULATED on a customer's machine; this
+  // was never an empty screen. It is a build-governance instrument, not a photographer's feature.
+  //
+  // Gated at BOTH layers, exactly as the 0.2.9 seed-data fix was: the rail row and the tab are hidden
+  // in the renderer, and this handler refuses regardless, because a hidden control is not a control.
+  // Unlike seed data there is no "already present" exception — the ledger stores nothing and sends
+  // nothing, so there is no residue a user could ever need to clear.
   safeHandle("vault:scanPackages", async () => {
     await gated();
+    if (!getDevMode()) throw new Error("Developer mode is required.");
     return repos.scanPackages(app.getAppPath());
   });
 

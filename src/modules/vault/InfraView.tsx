@@ -24,7 +24,7 @@ type Tab = "servers" | "ssh" | "packages" | "import";
  * So the rows were written and this view never asked again — until something unrelated happened to
  * remount it, which is the five minutes. Same one-counter fix the notes list needed.
  */
-export default function InfraView({ secrets, onReload, onImport, onAddKey, reloadKey }: { secrets: VaultSecretMeta[]; onReload: () => void; onImport: () => void; onAddKey: () => void; reloadKey: number }) {
+export default function InfraView({ secrets, onReload, onImport, onAddKey, reloadKey, devMode }: { secrets: VaultSecretMeta[]; onReload: () => void; onImport: () => void; onAddKey: () => void; reloadKey: number; devMode: boolean }) {
   const api = vaultApi();
   const [tab, setTab] = useState<Tab>("servers");
   const [servers, setServers] = useState<VaultServer[]>([]);
@@ -111,7 +111,11 @@ export default function InfraView({ secrets, onReload, onImport, onAddKey, reloa
           {/* Package ledger sits BETWEEN SSH keys and Import records (Jason 08-11-2026) — it moved
               here from Repos, because it inventories what this machine stands on, which is what
               every other tab on this surface does. */}
-          {([["servers", "Servers & DNS"], ["ssh", "SSH keys"], ["packages", "Package ledger"], ["import", "Import records"]] as [Tab, string][]).map(([t, l]) => (
+          {/* The Package ledger tab is DEVELOPER-ONLY from 08-21-2026 — filtered out rather than
+              rendered-and-disabled, because a greyed tab still tells a customer the surface exists.
+              The rail row in Sidebar.tsx hides on the same flag and vault:scanPackages refuses on it
+              main-side, so the tab is the third layer, not the control. */}
+          {([["servers", "Servers & DNS"], ["ssh", "SSH keys"], ["packages", "Package ledger"], ["import", "Import records"]] as [Tab, string][]).filter(([t]) => t !== "packages" || devMode).map(([t, l]) => (
             <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>{l}</button>
           ))}
         </div>
@@ -215,7 +219,7 @@ export default function InfraView({ secrets, onReload, onImport, onAddKey, reloa
       )}
 
       {tab === "ssh" && <SshPane keys={sshKeys} onReload={onReload} onAddKey={onAddKey} />}
-      {tab === "packages" && <PackageLedger />}
+      {devMode && tab === "packages" && <PackageLedger />}
       {tab === "import" && <ImportRecords onImported={() => { load(); setTab("servers"); }} />}
 
       {ask && (

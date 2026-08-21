@@ -511,6 +511,7 @@ export default function VaultModule() {
             tool={tool}
             collapsed={sidebarCollapsed}
             shortcuts={shortcuts}
+            devMode={devMode}
             onSearch={setSearch}
             onFilter={(f) => { setFilter(f); setSection("passwords"); }}
             onTool={setTool}
@@ -537,7 +538,7 @@ export default function VaultModule() {
                 note dragged into a folder updated the counts and not the list it was sitting in
                 (Jason 08-12-2026). One counter, both listeners — that is the whole fix. */}
             {section === "notes" && <ErrorBoundary surface="Secured Notes"><NotesView secrets={secrets} settings={settings} onSetting={setSetting} onHelp={() => setHelpModal(true)} onImport={() => setImportModal("notes")} folderId={noteFolder} reloadKey={noteReloadKey} onNotesChanged={() => setNoteReloadKey((k) => k + 1)} openUuid={pendingNote} onOpened={onNoteOpened} /></ErrorBoundary>}
-            {section === "infra" && <ErrorBoundary surface="Infrastructure"><InfraView secrets={secrets} onReload={loadData} onImport={() => setImportModal("infra")} onAddKey={() => { setNewKind("ssh_key"); setEditing("new"); }} reloadKey={noteReloadKey} /></ErrorBoundary>}
+            {section === "infra" && <ErrorBoundary surface="Infrastructure"><InfraView secrets={secrets} onReload={loadData} onImport={() => setImportModal("infra")} onAddKey={() => { setNewKind("ssh_key"); setEditing("new"); }} reloadKey={noteReloadKey} devMode={devMode} /></ErrorBoundary>}
             {section === "repos" && <ErrorBoundary surface="Repos"><ReposView secrets={secrets} /></ErrorBoundary>}
             {section === "settings" && (
               <ErrorBoundary surface="Settings"><VaultSettingsView settings={settings} lockState={lock} onSetting={setSetting} onLockChanged={setLock}

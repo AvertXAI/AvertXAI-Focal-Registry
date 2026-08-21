@@ -51,6 +51,9 @@ export interface SidebarProps {
   tool: string | null;
   collapsed: boolean;
   shortcuts: Shortcut[];
+  /** Developer mode. Gates the Package ledger row — see the row itself for why. Passed down rather
+      than fetched here so the module reads the flag once and every consumer agrees with it. */
+  devMode: boolean;
   onSearch: (v: string) => void;
   onFilter: (f: string) => void;
   onTool: (t: string | null) => void;
@@ -231,8 +234,11 @@ export default function Sidebar(p: SidebarProps) {
             <div className="vault-railhead"><span className="sbtxt">Infrastructure</span></div>
             <Row on colour="var(--vault-strong-color)" label="Servers & DNS" onClick={() => p.onSection("infra")} />
             <Row colour="var(--vault-note-color)" label="SSH keys" n={p.secrets.filter((s) => s.kind === "ssh_key" && !s.archived_at).length} onClick={() => p.onSection("infra")} />
-            {/* Between SSH keys and Import records, matching the tab strip (Jason 08-11-2026). */}
-            <Row colour="var(--vault-warn-color)" label="Package ledger" onClick={() => p.onSection("infra")} />
+            {/* Between SSH keys and Import records, matching the tab strip (Jason 08-11-2026).
+                DEVELOPER-ONLY from 08-21-2026 — it lists our dependency tree and our own licence
+                rulings, which is a workshop instrument, not something a customer should be reading.
+                Hidden here AND on the tab strip, and vault:scanPackages refuses either way. */}
+            {p.devMode && <Row colour="var(--vault-warn-color)" label="Package ledger" onClick={() => p.onSection("infra")} />}
             <Row colour="var(--mc-muted)" label="Import records" onClick={() => p.onSection("infra")} />
           </>
         )}

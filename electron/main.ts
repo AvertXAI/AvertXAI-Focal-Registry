@@ -1,7 +1,7 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
 // Focal Registry — the ONE Electron main process. Hosts the platform shell window and the
 // shared spine: the local SQLite org DB (focalregistry_{org_id}.db) and the Data Viewer IPC channels.
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, shell, Tray } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } from "electron";
 import path from "node:path";
 import { closeAllDbs, getDb, initDb, openDb } from "./core/services/db";
 import { ensureAllModuleSchemas } from "./core/services/db/allSchemas";
@@ -16,6 +16,21 @@ import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overl
 import { initUpdater, notifyUpdaterBootDone } from "./core/updater";
 import { attachDevToolsShortcut } from "./core/devtools";
 import { initDiag } from "./diag";
+import * as feedback from "./core/services/feedback";
+
+/**
+ * DEV SANDBOX (Jason 08-24-2026). An unpackaged run must NEVER share data with the installed app.
+ * Until this line, `npm run dev` and the real install both opened %APPDATA%\Focal Registry — which
+ * meant dev:reset could wipe the production vault, and dev scans landed in the customer database.
+ * One path swap, before anything touches disk, separates the worlds completely:
+ *   packaged  → %APPDATA%\Focal Registry        (the user's real data — untouchable from dev)
+ *   dev       → %APPDATA%\Focal Registry (dev)  (the sandbox; dev:reset targets ONLY this)
+ * This must run before ANY getPath("userData") consumer — registry, org DBs, feedback outbox — so it
+ * sits directly under the imports, ahead of everything.
+ */
+if (!app.isPackaged) {
+  app.setPath("userData", path.join(app.getPath("appData"), "Focal Registry (dev)"));
+}
 
 // ── REVERTIBLE GPU-BACKEND EXPERIMENT (resize-band probe) — REMOVE WHEN DONE ──
 // Override the graphics backend by setting MC_GPU before launch:
@@ -54,6 +69,10 @@ let bootThemeMode = "light";
 // first paint not to render the JARVIS terminal — otherwise the dark terminal flashes for a frame
 // before the async setting read bypasses it.
 let bootSkip = false;
+// Persisted window geometry (Jason 08-26-2026: "it didnt save the window size i had already set,
+// and it didnt open in the monitor i had chosen"). Read from app_settings in the same org gate as
+// the theme; null = never saved (or no org) → Electron's default placement.
+let bootBounds: { x: number; y: number; width: number; height: number; max?: boolean } | null = null;
 function readBootTheme(): string {
   try {
     const row = getDb().prepare("SELECT value FROM app_settings WHERE key = 'theme_mode'").get() as
@@ -160,9 +179,24 @@ function hardenWebContents(win: BrowserWindow): void {
 }
 
 function createWindow(): BrowserWindow {
+  // Restore saved geometry ONLY when its centre still lands on a live display's work area —
+  // monitors get unplugged, and a window restored off-screen is a window that "won't open".
+  let geom: { x?: number; y?: number; width: number; height: number } = { width: 1280, height: 800 };
+  if (bootBounds) {
+    const cx = bootBounds.x + bootBounds.width / 2;
+    const cy = bootBounds.y + bootBounds.height / 2;
+    const onScreen = screen.getAllDisplays().some(
+      (d) =>
+        cx >= d.workArea.x && cx < d.workArea.x + d.workArea.width &&
+        cy >= d.workArea.y && cy < d.workArea.y + d.workArea.height
+    );
+    if (onScreen) geom = { x: bootBounds.x, y: bootBounds.y, width: bootBounds.width, height: bootBounds.height };
+  }
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    x: geom.x,
+    y: geom.y,
+    width: geom.width,
+    height: geom.height,
     minWidth: MIN_WIDTH, // shared floor (windows.ts, Jason-approved 740), re-asserted after boot unlock
     minHeight: MIN_HEIGHT,
     resizable: false, // boot-window lock — boot:done (setBooting(false)) re-enables
@@ -187,15 +221,61 @@ function createWindow(): BrowserWindow {
   });
 
   win.once("ready-to-show", () => {
+    // Restore maximized BEFORE show so there is no normal-size flash on a screen he keeps full.
+    if (bootBounds?.max) win.maximize();
     win.show();
     win.focus();
   });
+
+  // Persist geometry on every settle — debounced, the normal (un-maximized) rect plus the
+  // maximized flag, into app_settings like every other persisted setting. getNormalBounds keeps
+  // the remembered rect honest while maximized. First-run (no org DB yet) writes throw and are
+  // deliberately dropped — geometry starts persisting from the first org'd session.
+  let boundsTimer: NodeJS.Timeout | null = null;
+  const saveBounds = (): void => {
+    if (boundsTimer) clearTimeout(boundsTimer);
+    boundsTimer = setTimeout(() => {
+      try {
+        setSetting("window_bounds", JSON.stringify({ ...win.getNormalBounds(), max: win.isMaximized() }));
+      } catch {
+        /* no org yet, or the window is gone — nothing to persist */
+      }
+    }, 500);
+  };
+  win.on("resized", saveBounds);
+  win.on("moved", saveBounds);
+  win.on("maximize", saveBounds);
+  win.on("unmaximize", saveBounds);
 
   hardenWebContents(win);
 
   // Ctrl+Shift+I / F12. Owned by the window rather than borrowed from Electron's default
   // menu — see devtools.ts for why that menu was never ours to rely on.
   attachDevToolsShortcut(win);
+
+  /**
+   * ZOOM, DELIBERATE AND COMPLETE (Jason 08-25-2026). He found Ctrl+Shift+= zooming by accident —
+   * a Chromium built-in — with no way back down. Ruled: keep it, because zoom is an accessibility
+   * feature, but own the full standard set instead of half an accident:
+   *   Ctrl + =/+  → larger    Ctrl + -  → smaller    Ctrl + 0  → back to normal
+   * Clamped to sane bounds (±3 levels ≈ 50%–200%) so a cat on the keyboard cannot make the app
+   * unusable. Ctrl+R stays dead on purpose — a mid-session renderer reload wrenches module state,
+   * and its absence is why the accident could not be undone with a refresh.
+   */
+  win.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || !input.control || input.alt || input.meta) return;
+    const wc = win.webContents;
+    if (input.key === "=" || input.key === "+") {
+      wc.setZoomLevel(Math.min(3, wc.getZoomLevel() + 0.5));
+      event.preventDefault();
+    } else if (input.key === "-") {
+      wc.setZoomLevel(Math.max(-3, wc.getZoomLevel() - 0.5));
+      event.preventDefault();
+    } else if (input.key === "0") {
+      wc.setZoomLevel(0);
+      event.preventDefault();
+    }
+  });
 
   // Attention flashes clear when the user comes back to the window.
   win.on("focus", () => win.flashFrame(false));
@@ -263,6 +343,59 @@ function applyLaunchAtStartup(enabled: boolean): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// THE MAIN-PROCESS CRASH NET (08-23-2026)
+//
+// None of this existed before. There was no uncaughtException handler, no unhandledRejection
+// handler, and no .catch() on the whenReady block below — a throw during start-up simply killed the
+// app with no window, no message and no record. Every crash any user has ever had is gone.
+//
+// Two rules govern what happens next, both ruled by Jason:
+//
+//  1. IF NOBODY IS AT THE KEYBOARD, THE APP CLOSES SILENTLY. No dialog, no screenshot, no report.
+//     "Nobody at the keyboard" means there is no visible window — the machine is locked, the app is
+//     minimised to tray, or the window never opened. Prompting a screen nobody is looking at, and
+//     photographing it, is the behaviour this feature must not have.
+//
+//  2. START-UP FAILURES SEND QUIETLY. There is no window to ask in yet, so the choice is between a
+//     silent record and no record at all. This is the ONLY channel in the application that transmits
+//     without being asked, and it must stay named in the privacy policy.
+// ---------------------------------------------------------------------------
+feedback.captureConsole();
+
+/** A visible window is the proxy for "somebody is here to be asked". */
+function somebodyIsHere(): boolean {
+  const win = getMainWindow();
+  return !!win && win.isVisible() && !win.isMinimized();
+}
+
+/**
+ * ONE silent report per process, ever. A crash inside an interval fires this once per tick; without
+ * the latch the silent branch became a network send per second and a fresh app.quit() per send —
+ * each quit re-firing every before-quit/will-quit listener while the first delivery was still in
+ * flight. First crash reports and quits; the rest are one console line each.
+ */
+let silentCrashHandled = false;
+
+process.on("uncaughtException", (err) => {
+  console.error("[shell] uncaught exception:", err);
+  if (!somebodyIsHere()) {
+    // Silent close, per rule 1. The failure is still recorded on the way out.
+    if (silentCrashHandled) return; // a repeating crash (interval tick) must not report per tick
+    silentCrashHandled = true;
+    void feedback.reportStartupFailure(err).finally(() => app.quit());
+    return;
+  }
+  // The renderer's own listener raises the prompt; main only makes sure the line is in the log the
+  // report will carry. Raising a native dialog here as well would put two prompts on one crash.
+  feedback.note(`main  uncaught: ${err.message}`);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[shell] unhandled rejection:", reason);
+  feedback.note(`main  unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+});
+
 app.whenReady().then(async () => {
   // Own app identity so Windows uses our icon/identity AND so we don't collide
   // (single-instance lock + userData) with other AvertXAI builds.
@@ -316,6 +449,15 @@ app.whenReady().then(async () => {
       bootSkip = getSetting("skip_fast_boot") === "1";
     } catch {
       /* setting unreadable — default to showing the terminal */
+    }
+    try {
+      const raw = getSetting("window_bounds");
+      const b = raw ? (JSON.parse(raw) as typeof bootBounds) : null;
+      if (b && Number.isFinite(b.x) && Number.isFinite(b.y) && b.width >= MIN_WIDTH && b.height >= MIN_HEIGHT) {
+        bootBounds = b;
+      }
+    } catch {
+      /* unreadable/corrupt geometry — default placement, never a blocked boot */
     }
   }
   // Boot edges from the renderer (window.shell bridge — deliberately NOT in core/ipc.ts, which
@@ -378,6 +520,12 @@ app.whenReady().then(async () => {
     if (getMainWindow() === null) setMainWindow(createWindow());
     else showMain();
   });
+}).catch((err: unknown) => {
+  // START-UP FAILED. There is no window, so there is nothing to ask in and nobody to ask — the
+  // record goes out on its own and the app stops. Before this existed, a throw here killed the
+  // application in complete silence and left nothing behind to diagnose it with.
+  console.error("[shell] start-up failed:", err);
+  void feedback.reportStartupFailure(err).finally(() => app.quit());
 });
 
 app.on("window-all-closed", () => {

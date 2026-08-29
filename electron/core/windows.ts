@@ -33,6 +33,12 @@ export function setMainWindow(win: BrowserWindow | null): void {
   win.on("resized", reassert);
   win.on("maximize", reassert);
   win.on("unmaximize", reassert);
+  // REVEAL re-asserts (SOP §10, 08-25-2026): a strip painted while hidden/minimized can surface
+  // stale. Repaint the CURRENT state at every reveal — cheap, idempotent, no feedback loop
+  // (none of these fire from setTitleBarOverlay/setBackgroundColor).
+  win.on("restore", reassert);
+  win.on("show", reassert);
+  win.on("focus", reassert);
 }
 
 export function getMainWindow(): BrowserWindow | null {

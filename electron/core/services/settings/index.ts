@@ -27,9 +27,21 @@ const RENDERER_KEYS = new Set([
   // MindMerge namespaced settings — the module persists these through this sanctioned path,
   // never a direct app_settings write ("Expose, Don't Connect"). auto_reparse stays main-only.
   "mindmerge.watch_path",
+  "mindmerge.watch_roots", // BL-58 stacked imports — JSON array of absolute folder paths
   "mindmerge.watch_enabled",
   "mindmerge.rail_collapsed", // module list-rail « collapse — UI-only, never restarts the engine
   "mindmerge.font_size", // detail-pane px size — UI-only, never restarts the engine
+  // MindMerge AUTHORED-DOCUMENTS view (Phase 3, 08-21-2026). The ported NotesView still says
+  // "notes.style" / "notes.list_collapsed" / "notes.editor_mode" internally; MindMergeModule renames
+  // them into this namespace at the seam, so ONLY these keys ever reach app_settings. UI-only —
+  // none of them restart the ingest engine.
+  "mindmerge.docs_style", // Notes · Runbooks · Ideas list style
+  "mindmerge.docs_list_collapsed", // document-list rail collapse ("1"/"0")
+  "mindmerge.docs_editor_mode", // editor | raw | split | preview
+  "mindmerge.docs_tab", // which of the two view tabs is open (documents | brain)
+  // Phase 4 (08-22-2026) — the Documents folder rail's view state, same seam, same rename rule.
+  "mindmerge.docs_folder_selected", // selected folder ("-1" Unfiled — the default, "0" every document, else a folder id)
+  "mindmerge.docs_folders_open", // which rail folders are expanded (JSON array of folder ids)
   "migrate.tabs", // Migrate scan tabs (JSON) — renderer tab state persisted so tabs survive navigation
   // Scan Notes view state — sticky across navigation, per §3.8 (never localStorage). The local notes
   // tree itself has NO key: it is a fixed Documents path like documentsExportsDir(), not the

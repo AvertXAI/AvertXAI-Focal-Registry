@@ -24,15 +24,21 @@ import type Database from "better-sqlite3-multiple-ciphers";
 
 type Db = Database.Database;
 
-export type Tier = "free" | "pro" | "business";
+/**
+ * "root" is GOD MODE — Jason's own tier, ruled 08-22-2026: "make another entitlement, for god
+ * mode, my business name it 'Root'". Everything unlimited, every feature on, outranks Business.
+ * It is not a sellable tier; it exists so the founder's production install runs the whole suite.
+ */
+export type Tier = "free" | "pro" | "business" | "root";
 
 // ⚠⚠⚠ JASON PASTES THE REAL KEYS HERE — THE ONE LICENCE CONSTANT IN THE CODEBASE. ⚠⚠⚠
 // Format: XXXX-XXXX-XXXX-XXXX (16 alphanumerics in four hyphenated groups), UPPER CASE.
 // Several keys per tier are fine (one per sale). Empty lists mean no key validates yet,
 // which resolves every install to FREE — safe to ship before the keys exist.
-export const LICENSE_KEYS: { PRO: string[]; BUSINESS: string[] } = {
+export const LICENSE_KEYS: { PRO: string[]; BUSINESS: string[]; ROOT: string[] } = {
   PRO: ["K7QM-3XVB-9TLD-2WRF"],
   BUSINESS: ["P4HN-8ZJC-6YKS-1BGM"],
+  ROOT: ["RTAV-XK4M-9QJD-7WPZ"], // god mode — Jason's business installs only, never sold
 };
 
 export const KEY_FORMAT = /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
@@ -51,10 +57,93 @@ export const CAPS: Record<
   free: { projects: 3, timers: 3, soundUploads: 3, people: 5 },
   pro: { projects: 10, timers: 10, soundUploads: 10, people: 10 },
   business: { projects: null, timers: null, soundUploads: null, people: null },
+  root: { projects: null, timers: null, soundUploads: null, people: null },
 };
 
-const TIER_RANK: Record<Tier, number> = { free: 0, pro: 1, business: 2 };
-export const TIER_LABEL: Record<Tier, string> = { free: "Free", pro: "Pro", business: "Business" };
+const TIER_RANK: Record<Tier, number> = { free: 0, pro: 1, business: 2, root: 3 };
+export const TIER_LABEL: Record<Tier, string> = { free: "Free", pro: "Pro", business: "Business", root: "Root" };
+
+/**
+ * PER-FEATURE entitlement — the second shape this file carries, added 2026-08-21 on Jason's ruling
+ * about MindMerge's secured notes: "make sure to keep some sort of entitlement on that, because when
+ * i add it to the marketplace, it would be as simple as flipping a switch for buyers."
+ *
+ * CAPS answers "how many"; FEATURES answers "at all". They are deliberately the SAME shape — a
+ * Record keyed by Tier — and read through the SAME resolveTier(db), so there is exactly one licence
+ * system in this codebase and one place a sale changes anything.
+ *
+ * THE SWITCH IS DATA, NOT CODE. The keys below already ship inside the binary; what a buyer flips is
+ * the `timetracker.licenseKey` row in app_settings, written by the existing Settings licence field.
+ * A sale therefore needs no rebuild: the buyer pastes their key, resolveTier() reads it on the very
+ * next call (it is deliberately unmemoised), and every gate below opens.
+ *
+ * A FEATURE KEY NAMES THE TAB, NOT THE CODE BEHIND IT (Jason 08-22-2026). When the two MindMerge
+ * surfaces swapped tabs that same day, these keys stayed with their TAB NAMES and the gates moved to
+ * the other body of code. His words when asked which way it should go: "yes, docs are free". Reading
+ * these as "the key for the notes stack" is how the free tier ends up inside Jarvis's corpus.
+ */
+/**
+ * TIER ASSIGNMENTS RULED BY JASON, 08-22-2026: documents are free; Jarvis (the Brain tab) behind
+ * Business; the Employees module behind Business — and the EMPLOYEES SECTION INSIDE TIMETRACKER
+ * hides with the module (his corrected wording, same day: "i said employees section in
+ * timetracker").
+ *  - mindmergeDocs   — MindMerge Documents tab: his own markdown, indexed off disk. FREE for everyone.
+ *  - mindmergeBrain  — MindMerge Brain tab: Jarvis's corpus and the editor over it. BUSINESS only.
+ *                      ONE key for the whole of Jarvis, deliberately. Jason 08-22-2026: "IDK WHAT THE
+ *                      ENTITLEMENTS will be for jarvis right now, we havent built shit for jarvis…
+ *                      just keep it locked away from free tier." Splitting it into levels is
+ *                      BL-52, and it is a data change to this table, not a code change.
+ *  - employeesModule — the Employees module, whole. BUSINESS only. TimeTracker surfaces that
+ *                      depend on it hide with it (renderer side, wired in the entitlement wave).
+ * Never-purchased is HIDDEN, not a teaser (ruled same day: "its hidden.").
+ */
+export type Feature = "mindmergeDocs" | "mindmergeBrain" | "employeesModule";
+
+export const FEATURES: Record<Tier, Record<Feature, boolean>> = {
+  free: { mindmergeDocs: true, mindmergeBrain: false, employeesModule: false },
+  pro: { mindmergeDocs: true, mindmergeBrain: false, employeesModule: false },
+  business: { mindmergeDocs: true, mindmergeBrain: true, employeesModule: true },
+  root: { mindmergeDocs: true, mindmergeBrain: true, employeesModule: true },
+};
+
+/** Plain-language names for the refusal copy — the same job TIER_LABEL does for tiers. */
+export const FEATURE_LABEL: Record<Feature, string> = {
+  mindmergeDocs: "MindMerge documents",
+  mindmergeBrain: "MindMerge Brain",
+  employeesModule: "Employees",
+};
+
+/** True when the resolved tier entitles this feature. The renderer-side hide reads this. */
+export function hasFeature(db: Db, f: Feature): boolean {
+  return FEATURES[resolveTier(db)][f];
+}
+
+/** Throws a plain, tier-naming error when the feature is not entitled — enforceCap's twin, and the
+    MAIN-SIDE half of the gate. A hidden control is not a control: the renderer hiding the surface is
+    a courtesy, this is the boundary. */
+export function enforceFeature(db: Db, f: Feature): void {
+  const tier = resolveTier(db);
+  if (FEATURES[tier][f]) return;
+  // Name the tier that actually unlocks it (finding 7: "Pro or Business" was wrong for
+  // Business-only features) and point at the real surface, Settings → Manage Billing.
+  const unlock = (["free", "pro", "business", "root"] as Tier[]).find((t) => FEATURES[t][f]);
+  throw new Error(
+    `${FEATURE_LABEL[f]} is not included in the ${TIER_LABEL[tier]} tier. ` +
+      `Enter a ${unlock ? TIER_LABEL[unlock] : "higher"} licence key in Settings → Manage Billing to turn it on — nothing already stored is touched.`
+  );
+}
+
+/** What the renderer needs to decide whether to draw a surface: the tier, its label, and the map. */
+export interface FeatureState {
+  tier: Tier;
+  tierLabel: string;
+  features: Record<Feature, boolean>;
+}
+
+export function getFeatureState(db: Db): FeatureState {
+  const tier = resolveTier(db);
+  return { tier, tierLabel: TIER_LABEL[tier], features: FEATURES[tier] };
+}
 
 /** Case-insensitive on entry, normalised to UPPER CASE; null when the shape is wrong. */
 export function normalizeKey(raw: string): string | null {
@@ -66,6 +155,7 @@ export function normalizeKey(raw: string): string | null {
 export function tierOfKey(value: string | null): Tier | null {
   if (!value) return null;
   const k = value.trim().toUpperCase();
+  if (LICENSE_KEYS.ROOT.includes(k)) return "root";
   if (LICENSE_KEYS.BUSINESS.includes(k)) return "business";
   if (LICENSE_KEYS.PRO.includes(k)) return "pro";
   return null;

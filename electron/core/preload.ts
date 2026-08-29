@@ -8,7 +8,14 @@
 // File: electron/core/preload.ts
 //------------------------------------------------------------
 import { contextBridge, ipcRenderer } from "electron";
-import type { Api, PushChannel, NoteFilter, ScoutBounds } from "../../src/shared/types";
+import type {
+  Api,
+  PushChannel,
+  NoteFilter,
+  ScoutBounds,
+  FeedbackReportInput,
+  FeedbackSuggestionInput,
+} from "../../src/shared/types";
 
 // Engine → module subscriptions strip the IpcRendererEvent and return an unsubscribe, so the React
 // module can re-mount without stacking listeners (the standalone prototype never unmounted).
@@ -80,6 +87,25 @@ const api: Api = {
     get: (key: string) => invoke("settings:get", key),
     set: (key: string, value: string) => invoke("settings:set", key, value),
   },
+  /** Platform entitlement, READ ONLY — the tier and its per-feature map. There is deliberately no
+      setter here: a licence changes through the validated timetracker:setLicenseKey channel only. */
+  licensing: {
+    features: () => invoke("licensing:features"),
+  },
+
+  /** Report a problem / Suggest something, and the screenshot the app takes for itself when it
+      breaks. Deliberately UNGATED: someone whose app just died gets to say so regardless of tier.
+      `begin` is what takes the picture — at form-open, not at send — so the shot shows what went
+      wrong rather than the report form on top of it. */
+  feedback: {
+    begin: (kind: "report" | "suggestion") => invoke("feedback:begin", kind),
+    sendReport: (input: FeedbackReportInput) => invoke("feedback:sendReport", input),
+    sendSuggestion: (input: FeedbackSuggestionInput) => invoke("feedback:sendSuggestion", input),
+    /** "Not now" — deletes the held screenshot. Declining destroys; it never parks. */
+    discard: (reference: string) => invoke("feedback:discard", reference),
+    pickImages: () => invoke("feedback:pickImages"),
+    restart: () => ipcRenderer.send("feedback:restart"),
+  },
   theme: {
     applyOverlay: (mode: string) => invoke("theme:overlay", mode),
     setModalDim: (on: boolean | "viewer") => invoke("theme:modalDim", on),
@@ -121,6 +147,59 @@ const api: Api = {
     listQuarantined: () => invoke("mindmerge:listQuarantined"),
     pickWatchFolder: () => invoke("mindmerge:pickWatchFolder"),
     rescan: () => invoke("mindmerge:rescan"),
+    // ---- BL-58: stacked imports, folder tree, on-disk editing ----
+    roots: () => invoke("mindmerge:roots"),
+    tree: () => invoke("mindmerge:tree"),
+    addRoot: () => invoke("mindmerge:addRoot"),
+    readFile: (path: string) => invoke("mindmerge:readFile", path),
+    writeFile: (path: string, body: string) => invoke("mindmerge:writeFile", path, body),
+    // ---- Authored documents (Phase 3). The METHOD names are the vault's, byte-identical, so the
+    // ported views need no edit; only the CHANNEL suffix differs (`listDocs` is the wire,
+    // `listNotes` is the method). ADDED alongside the ingest methods above, never replacing them.
+    // MindMerge's db is PLAIN — there is no lock and no gate on any of these.
+    // MindMerge Documents folder tree. Counts are INCLUSIVE of descendants.
+    listNoteFolders: () => invoke("mindmerge:listDocFolders"),
+    createNoteFolder: (name: string, parentId?: number | null) => invoke("mindmerge:createDocFolder", name, parentId ?? null),
+    renameNoteFolder: (id: number, name: string) => invoke("mindmerge:renameDocFolder", id, name),
+    moveNoteFolder: (id: number, parentId: number | null) => invoke("mindmerge:moveDocFolder", id, parentId),
+    noteFolderSubtree: (id: number) => invoke("mindmerge:docFolderSubtree", id),
+    emptyNoteFolder: (id: number) => invoke("mindmerge:emptyDocFolder", id),
+    deleteNoteFolder: (id: number) => invoke("mindmerge:deleteDocFolder", id),
+    archiveNoteFolder: (id: number) => invoke("mindmerge:archiveDocFolder", id),
+    purgeNotes: () => invoke("mindmerge:purgeDocs"),
+    setNoteFolder: (uuid: string, folderId: number | null) => invoke("mindmerge:setDocFolder", uuid, folderId),
+    previewFolderPaths: (rels: string[]) => invoke("mindmerge:previewDocFolderPaths", rels),
+    // MindMerge Documents
+    listNotes: (kind?: string, archived?: boolean, folderId?: number | null, limit?: number, offset?: number) =>
+      invoke("mindmerge:listDocs", kind ?? "", archived === true, folderId === undefined ? undefined : folderId, limit ?? 60, offset ?? 0),
+    searchNotes: (q: string, limit?: number) => invoke("mindmerge:searchDocs", q, limit ?? 40),
+    restoreNote: (uuid: string) => invoke("mindmerge:restoreDoc", uuid),
+    destroyNote: (uuid: string) => invoke("mindmerge:destroyDoc", uuid),
+    getNote: (uuid: string) => invoke("mindmerge:getDoc", uuid),
+    createNote: (input: unknown) => invoke("mindmerge:createDoc", input),
+    updateNote: (uuid: string, patch: unknown) => invoke("mindmerge:updateDoc", uuid, patch),
+    archiveNote: (uuid: string) => invoke("mindmerge:archiveDoc", uuid),
+    // Folder import (Phase 4) — choose, walk, review, import. Dialogs and walks are main-side; the
+    // page never names a path it was not given. Method names are the vault's, byte-identical.
+    chooseFolders: () => invoke("mindmerge:chooseFolders"),
+    chooseFiles: (target?: string) => invoke("mindmerge:chooseFiles", target ?? "notes"),
+    statFiles: (paths: string[]) => invoke("mindmerge:statFiles", paths),
+    readImportText: (filePath: string) => invoke("mindmerge:readImportText", filePath),
+    walkFolders: (roots: string[]) => invoke("mindmerge:walkFolders", roots),
+    // Folder import — the page passes files it was GIVEN by the main-side walk.
+    importDocs: (files: unknown, opts: unknown) => invoke("mindmerge:importDocs", files, opts),
+    // Pasted-image attachments — WIRED (Phase 5, 08-22-2026): bytes land in the module's OWN
+    // SQLCipher file (<org>.mtd), key machine-held per the "doesnt have to lock, just be encrypted"
+    // ruling. Encryption at rest proven by attachments-proof.ts.
+    saveAttachment: (input: unknown) => invoke("mindmerge:saveAttachment", input),
+    getAttachment: (uuid: string) => invoke("mindmerge:getAttachment", uuid),
+    // The clipboard funnel — every copy in the module goes through this, never navigator.clipboard.
+    copyText: (text: string) => invoke("mindmerge:copyText", text),
+    // Colour themes installed in Visual Studio Code on this machine. Reads only; never the network.
+    findCodeThemes: () => invoke("mindmerge:findCodeThemes"),
+    readCodeTheme: (file: string) => invoke("mindmerge:readCodeTheme", file),
+    // The renderer's own failures — a React crash never reaches the main-side error boundary.
+    logClient: (level: string, message: string, detail?: string) => invoke("mindmerge:logClient", level, message, detail ?? ""),
   },
   scan: {
     listDrives: () => invoke("scan:listDrives"),

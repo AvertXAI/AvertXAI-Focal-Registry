@@ -150,3 +150,833 @@ select.rbs-f{font:inherit;font-size:11px;background:var(--mc-panels);color:var(-
 .rbs-vault code{font-family:var(--mc-mono);color:var(--mc-muted)}
 .rbs-k{color:var(--mc-accent-primary)}
 .rbs-go{color:var(--mc-accent-primary);font-weight:600;font-size:12px}
+
+/* ================================================================
+   SECURED NOTES / AUTHORED DOCUMENTS — ported from src/modules/vault/vault.css (Phase 3, lane 3).
+   Mechanical copy: the `vault-` class prefix became `mm-` and the `--vault-*` scoped tokens became
+   `--mm-*` (declared once in src/globals.css, SOP §2). NOTHING ELSE was changed — the rules keep
+   their order, their media queries, their states, and their comments BYTE-FOR-BYTE, because those
+   comments carry Jason's rulings and the dates they were made. `[ported from vault.css :a-b]`
+   markers give the provenance of each block; vault.css is the point A this was copied from.
+   ================================================================ */
+/* [ported from vault.css :144-146] */
+.mm-collapse { flex: none; background: none; border: 1px solid var(--mc-border); border-radius: 6px;
+  color: var(--mc-muted); cursor: pointer; font-size: 11px; padding: 4px 7px; font-family: var(--mc-mono); }
+.mm-collapse:hover { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
+/* [ported from vault.css :154-157] */
+/* Shortcuts — user-composed, above the section groups. */
+.mm-addsc { margin-left: auto; background: none; border: none; color: var(--mc-accent-primary); cursor: pointer;
+  font-size: 11px; font-weight: 700; font-family: inherit; padding: 0 2px; }
+.mm-addsc:hover { text-decoration: underline; }
+/* [ported from vault.css :174-175] */
+.mm-railhead { font-size: 9.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--mc-muted);
+  margin: 14px 0 5px 9px; font-weight: 700; }
+/* [ported from vault.css :205-209] */
+.mm-hint { font-size: 12px; color: var(--mc-muted); line-height: 1.6; }
+/* Three states are three visibly different things — an empty list NEVER stands in for a failed read. */
+.mm-state { padding: 26px 18px; text-align: center; font-size: 12.5px; color: var(--mc-muted); }
+.mm-state.error { color: var(--mm-danger-color); }
+.mm-state button { margin-top: 10px; }
+/* [ported from vault.css :211-219] */
+/* ---------- buttons ---------- */
+.mm-btn { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 7px;
+  padding: 6px 12px; font-size: 12px; color: var(--mc-text); cursor: pointer; white-space: nowrap; }
+.mm-btn:hover { border-color: var(--mc-accent-primary); }
+.mm-btn.primary { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary);
+  color: var(--mm-on-accent-ink); font-weight: 600; }
+.mm-btn.danger { border-color: var(--mm-danger-color); color: var(--mm-danger-color); }
+.mm-btn:disabled { opacity: .5; cursor: default; }
+.mm-btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+/* [ported from vault.css :265-265] */
+@keyframes mm-spin { to { transform: rotate(360deg); } }
+/* [ported from vault.css :347-347] */
+.mm-facts { margin-left: auto; display: flex; gap: 6px; }
+/* [ported from vault.css :413-422] */
+/* ---------- confirm dialog (replaces window.confirm's bare OS box) ---------- */
+.mm-confirm { max-width: 460px; }
+.mm-confirmbody { font-size: 13px; line-height: 1.65; color: var(--mc-text); margin: 4px 0 4px; }
+.mm-confirmbody p { margin-bottom: 9px; }
+.mm-confirmbody p:last-child { margin-bottom: 0; }
+.mm-confirmbody .mm-hint { font-size: 12px; }
+/* A destructive action is solid red — the one place in the vault where a button shouts. */
+.mm-btn.danger.solid { background: var(--mm-danger-color); border-color: var(--mm-danger-color);
+  color: #fff; font-weight: 600; }
+.mm-btn.danger.solid:hover { filter: brightness(1.07); }
+/* [ported from vault.css :439-444] */
+/* ---------- modal ---------- */
+.mm-modalback { position: absolute; inset: 0; background: var(--mm-modal-scrim); display: flex;
+  align-items: flex-start; justify-content: center; padding: 28px 18px; overflow-y: auto; z-index: 40; }
+.mm-modal { width: 100%; max-width: var(--mm-modal-width); background: var(--mc-panels);
+  border: 1px solid var(--mc-border); border-radius: 12px; padding: 20px 22px; }
+.mm-modal h3 { font-size: 15.5px; font-weight: 700; margin-bottom: 3px; }
+/* [ported from vault.css :455-455] */
+.mm-modalacts { display: flex; gap: 9px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+/* [ported from vault.css :473-474] */
+/* ---------- rail: New entry, folders, drop targets ---------- */
+.mm-railhead { display: flex; align-items: center; }
+/* [ported from vault.css :515-517] */
+/* ================================================================
+   SECURED NOTES · INFRASTRUCTURE · REPOS · SIDEBAR EDITOR
+   ================================================================ */
+/* [ported from vault.css :519-524] */
+.mm-seg { display: inline-flex; border: 1px solid var(--mc-border); border-radius: 8px; overflow: hidden; }
+.mm-seg button { background: none; border: none; border-right: 1px solid var(--mc-border); color: var(--mc-muted);
+  font-size: 12px; padding: 6px 13px; cursor: pointer; font-family: inherit; white-space: nowrap; }
+.mm-seg button:last-child { border-right: 0; }
+.mm-seg button.on { background: var(--mm-selection-background); color: var(--mc-accent-primary); font-weight: 600; }
+.mm-btn.sm { padding: 4px 9px; font-size: 11.5px; }
+/* [ported from vault.css :545-662] */
+/* ---------- notes ---------- */
+/* THE HEIGHT CHAIN, and it is why the toolbars scrolled away (Jason 08-12-2026).
+   .vault-notewrap had min-height and no height, so it grew past the viewport and .vault-body — which
+   is the scrolling element — scrolled the WHOLE surface, carrying the list header and the editor
+   toolbar off the top with it. The panes inside already scroll on their own; they just never got the
+   chance because nothing above them was bounded.
+   Scoped with :has() so only the notes surface changes — every other view keeps the body scroll it
+   expects. Chromium 105+; Electron 41 is far past it. No calc(100vh - N) literal, deliberately:
+   canon already records that duplicated 58px arithmetic as a drift that has bitten this repo. */
+.mm-body:has(.mm-notewrap) { display: flex; overflow: hidden; }
+/* LEFT corners square (Jason 08-26-2026: "remove the round edges") — the folders sidebar sits
+   flush against this card's left edge, and a radius there opens a sliver gap along the seam. */
+.mm-notewrap { display: flex; flex: 1; min-height: 0; border: 1px solid var(--mc-border);
+  border-radius: 0 12px 12px 0; overflow: hidden; background: var(--mc-panels); }
+/* Width is an inline style now, driven by notes.list_width and the drag handle. `position: relative`
+   anchors that handle; the 266px here is the fallback if the setting never loads. */
+/* padding-left is Jason's 08-22-2026 nudge: "the entire left side need to more to to the right about
+   5px". Global `box-sizing: border-box` (globals.css:95) means the column stays the width the
+   setting asked for — only its contents shift. */
+.mm-notelist { position: relative; width: 266px; flex: none; border-right: 1px solid var(--mc-border); display: flex;
+  flex-direction: column; transition: width .16s ease; padding-left: 5px; }
+/* Same two changes as .vault-side: no overflow clip (the tab hangs past the right edge), and
+   collapsed is zero rather than a 44px stub. .vault-notewrap still clips, which is what keeps the
+   tab from escaping the rounded card — it sits between the list and the editor, so it never tries. */
+.mm-notelist.collapsed { width: 0; }
+.mm-notelist.collapsed > *:not(.edgetab) { display: none; }
+.mm-notelist.collapsed .mm-nlbody,
+.mm-notelist.collapsed .mm-nlsearch,
+.mm-notelist.collapsed .mm-nlimport,
+.mm-notelist.collapsed .mm-nlshelf,
+.mm-notelist.collapsed .mm-nlstyles,
+.mm-notelist.collapsed .mm-nltitle,
+/* The Import button lives in the header now, so it has to hide with everything else — it was
+   showing as a truncated "↓ Im" in a 44px rail (Jason 08-12-2026). */
+.mm-notelist.collapsed .mm-collapse.import { display: none; }
+/* …and the chevron must stay, centred, so there is something to press to get the list back. */
+.mm-notelist.collapsed .mm-nltop { padding: 0; justify-content: center; }
+/* ONE HEIGHT for the list header and the editor toolbar, so they sit on the same horizontal line
+   (Jason 08-12-2026). They were both padded 9px but hold different content — a text title against a
+   row of buttons — so the button row was taller and the two never lined up. */
+.mm-nltop { display: flex; align-items: center; gap: 7px; padding: 0 11px; min-height: 46px;
+  flex: none; border-bottom: 1px solid var(--mc-border); }
+.mm-nltitle { flex: 1; min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-nlstyles { display: flex; gap: 3px; padding: 8px 9px; border-bottom: 1px solid var(--mc-border); }
+.mm-nlstyles button { flex: 1; background: none; border: 1px solid transparent; border-radius: 6px;
+  color: var(--mc-muted); font-size: 11px; padding: 5px 4px; cursor: pointer; font-family: inherit; }
+.mm-nlstyles button.on { background: var(--mm-selection-background); color: var(--mc-accent-primary);
+  font-weight: 600; border-color: var(--mc-accent-primary); }
+/* Active ⇄ Archived. The archive is a place, not a euphemism — see NotesView. */
+.mm-nlshelf { display: flex; gap: 3px; padding: 7px 9px 0; }
+.mm-nlshelf button { flex: 1; background: none; border: 1px solid transparent; border-radius: 6px;
+  color: var(--mc-muted); font-size: 11px; padding: 5px 4px; cursor: pointer; font-family: inherit; }
+.mm-nlshelf button.on { background: var(--mc-nested); color: var(--mc-text); font-weight: 600; border-color: var(--mc-border); }
+/* Import lives in the list HEADER, left of the collapse chevron (Jason 08-11-2026). Icon plus the
+   one word — the file dialog's own filter already states the extensions. */
+.mm-collapse.import { width: auto; padding: 0 9px; gap: 5px; display: inline-flex; align-items: center;
+  font-size: 11px; white-space: nowrap; }
+.mm-collapse.import:hover { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
+.mm-nlsearch { display: flex; gap: 6px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--mc-border); }
+/* Import + delete live in the search row: both act on the LIST, not on one row. */
+.mm-iconbtn { flex: none; width: 28px; height: 28px; border: 1px solid var(--mc-border); background: var(--mc-panels);
+  border-radius: 7px; color: var(--mc-muted); cursor: pointer; font-size: 12.5px; line-height: 1; display: flex;
+  align-items: center; justify-content: center; font-family: inherit; }
+.mm-iconbtn:hover { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
+.mm-iconbtn:disabled { opacity: .4; cursor: default; }
+.mm-iconbtn.trash.armed { width: auto; padding: 0 8px; gap: 3px; border-color: var(--mm-danger-color);
+  color: var(--mm-danger-color); font-weight: 700; font-size: 11.5px; }
+.mm-iconbtn.trash:not(:disabled):hover { border-color: var(--mm-danger-color); color: var(--mm-danger-color); }
+/* The tick only appears on hover or when it is on — a column of empty boxes is noise. */
+.mm-nsel { position: absolute; top: 11px; right: 11px; opacity: 0; accent-color: var(--mc-accent-primary); }
+.mm-nrow { position: relative; }
+.mm-nrow:hover .mm-nsel, .mm-nrow.picked .mm-nsel { opacity: 1; }
+.mm-nrow.picked { background: var(--mm-selection-background); }
+.mm-nlsearch input { flex: 1; min-width: 0; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 7px; padding: 6px 9px; font-size: 12px; color: var(--mc-text); }
+.mm-nlbody { flex: 1; overflow-y: auto; min-height: 0; }
+.mm-nrow { display: block; width: 100%; text-align: left; padding: 10px 13px; border: none;
+  border-bottom: 1px solid var(--mc-border); background: none; color: var(--mc-text); cursor: pointer; font-family: inherit; }
+.mm-nrow:hover { background: var(--mc-nested); }
+.mm-nrow.on { background: var(--mm-selection-background); box-shadow: inset 3px 0 0 var(--mc-accent-primary); }
+.mm-nrow .t { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; }
+.mm-nrow .s { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 11px; color: var(--mc-dimmer); margin-top: 3px; line-height: 1.45; }
+/* Created AND edited, both labelled (Jason 08-11-2026). Wraps rather than truncating — a date you
+   cannot read is the same as no date, and this is the column that proves an old import stayed old. */
+.mm-nrow .m { display: flex; flex-wrap: wrap; gap: 3px 9px; font-size: 10px; color: var(--mc-dimmer);
+  margin-top: 5px; font-family: var(--mc-mono); }
+.mm-nrow .m .d { white-space: nowrap; }
+.mm-ticon { flex: none; width: 16px; height: 16px; border-radius: 5px; display: inline-flex; align-items: center;
+  justify-content: center; font-size: 9px; font-weight: 800; color: #fff; }
+.mm-noteedit { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mm-edbar { display: flex; align-items: center; gap: 5px; padding: 0 12px; min-height: 46px; flex: none; border-bottom: 1px solid var(--mc-border);
+  flex-wrap: wrap; }
+.mm-tbtn { min-width: 28px; height: 27px; padding: 0 7px; border: 1px solid transparent; background: none;
+  border-radius: 6px; color: var(--mc-muted); cursor: pointer; font-size: 12.5px; font-family: inherit; }
+.mm-tbtn:hover { background: var(--mc-nested); border-color: var(--mc-border); }
+.mm-tbtn.hot { color: var(--mc-accent-primary); border-color: var(--mc-accent-primary); background: var(--mm-selection-background); }
+.mm-help { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--mc-border); background: var(--mc-panels);
+  color: var(--mc-muted); cursor: pointer; font-weight: 700; font-family: inherit; margin-left: 3px; }
+.mm-help:hover { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
+.mm-modeseg { margin-left: auto; }
+.mm-notesplit { flex: 1; display: flex; min-height: 0; }
+.mm-pane { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; }
+.mm-pane.prev { border-right: 1px solid var(--mc-border); }
+.mm-panehdr { flex: none; font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--mc-dimmer);
+  margin-bottom: 11px; display: flex; align-items: center; gap: 7px; }
+.mm-editdot { width: 6px; height: 6px; border-radius: 50%; background: var(--mm-strong-color); }
+/* Both pane headers share one height so the editor's first line and the preview's first line sit
+   level in Split (Jason 08-16-2026: "the alignment is also incorrect") — the title input now rides
+   the header row instead of opening a second row only the left pane had. */
+.mm-notesplit .mm-panehdr { min-height: 34px; margin-bottom: 8px; }
+.mm-notetitle.inhdr { flex: 1; min-width: 0; margin-bottom: 0; padding: 5px 10px; font-size: 12.5px;
+  text-transform: none; letter-spacing: normal; }
+/* The preview's copy of the same row — a read-only span wearing the input's box so the two panes
+   mirror each other; a long title ellipsises instead of pushing the header apart. */
+span.mm-notetitle.inhdr.ro { display: block; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; color: var(--mc-muted); }
+.mm-notetitle { flex: none; background: var(--mc-field); border: 1px solid var(--mc-border); border-radius: 8px;
+  padding: 8px 11px; font-size: 13px; font-weight: 600; color: var(--mc-text); margin-bottom: 8px; }
+.mm-notearea { flex: 1; min-height: 260px; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 11px 13px; font-family: var(--mc-mono); font-size: 12px; line-height: 1.7;
+  color: var(--mc-text); resize: none; }
+.mm-notearea:focus, .mm-notetitle:focus { outline: none; border-color: var(--mc-accent-primary); }
+/* [ported from vault.css :663-757] */
+/* ---- Milkdown. It emits plain semantic HTML, so the theme is OUR css, not a second stylesheet —
+   one place to change a colour, and no vendor theme to drift from the tokens. ---- */
+.mm-milkdown { flex: 1; min-height: 260px; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 8px; overflow: auto; }
+.mm-milkdown .ProseMirror { padding: 13px 15px; min-height: 240px; outline: none; font-size: 13.5px;
+  line-height: 1.7; color: var(--mc-text); }
+.mm-milkdown .ProseMirror:focus { outline: none; }
+.mm-milkdown:focus-within { border-color: var(--mc-accent-primary); }
+.mm-milkdown h1 { font-size: 20px; margin: 0 0 11px; }
+.mm-milkdown h2 { font-size: 15.5px; margin: 17px 0 8px; }
+.mm-milkdown h3 { font-size: 13.5px; margin: 14px 0 7px; }
+.mm-milkdown p { margin: 0 0 10px; }
+.mm-milkdown ul, .mm-milkdown ol { margin: 0 0 11px 22px; }
+.mm-milkdown li { margin-bottom: 4px; }
+.mm-milkdown blockquote { border-left: 3px solid var(--mc-border); padding-left: 12px; color: var(--mc-muted); margin: 0 0 10px; }
+.mm-milkdown code { font-family: var(--mc-mono); font-size: 11.5px; background: var(--mc-nested);
+  border: 1px solid var(--mc-border); border-radius: 4px; padding: 1px 5px; }
+/* THE EDITOR'S FENCES WEAR THE SAME PALETTE (Jason 08-13-2026: "the editor and preview window still
+   doesnt show the code blocks color"). Half of that was an untagged `text` fence, which is plain by
+   design — but the other half was real: the editor pane never read --vault-code-* at all, so a fence
+   changed appearance the moment you switched from Edit to Preview.
+
+   SURFACE ONLY, not tokens. Colouring the WORDS inside the editor means a ProseMirror decoration
+   that re-runs on every keystroke, which is a different and much larger piece of machinery than a
+   render. The background, the ink and the font now match, so the two panes stop disagreeing about
+   what a code block looks like; per-token colour in the editor is its own build. */
+.mm-milkdown pre { background: var(--mm-highlighter-background); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 11px 13px; overflow-x: auto; margin: 0 0 11px; color: var(--mm-highlighter-plain); }
+.mm-milkdown pre code { background: none; border: none; padding: 0; font-size: 11.5px; line-height: 1.6;
+  font-family: var(--mm-highlighter-font, var(--mc-mono)); color: inherit; }
+.mm-milkdown hr { border: 0; border-top: 1px solid var(--mc-border); margin: 14px 0; }
+.mm-milkdown a { color: var(--mc-accent-primary); }
+/* PASTED IMAGES ARE CAPPED, EVERYWHERE THEY RENDER (Jason 08-15-2026: "it cant blast the entire
+   screen"). Display-only — the stored bytes are untouched, so the click-through modal always shows
+   the real thing. zoom-in cursor is the affordance that the full size is one click away. */
+.mm-milkdown img, .mm-preview img, .mm-sbody img {
+  max-width: 100%; max-height: 320px; width: auto; height: auto;
+  border-radius: var(--mc-radius); cursor: zoom-in; display: block; margin: 4px 0 10px;
+}
+/* THE RAW SOURCE PANE (Jason 08-15-2026: "i NEED to see those so i know how to edit"). A plain
+   textarea on the same draft the WYSIWYG edits — every #, -, --- and ``` visible, monospace,
+   nothing consumed. Same surface treatment as the editor so switching modes is not a scene change. */
+.mm-rawsrc {
+  flex: 1; min-height: 260px; width: 100%; background: var(--mc-field); color: var(--mc-text);
+  border: 1px solid var(--mc-border); border-radius: 8px; padding: 13px 15px; resize: none;
+  font-family: var(--mm-highlighter-font, var(--mc-mono)); font-size: 12.5px; line-height: 1.65;
+  tab-size: 2; white-space: pre-wrap; overflow-wrap: break-word;
+}
+.mm-rawsrc:focus { outline: none; border-color: var(--mc-accent-primary); }
+/* The full-size image modal — no card chrome, the image IS the dialog. Centered against the same
+   scrim every other modal uses; capped to the window so a 4K screenshot scrolls nothing. */
+.mm-imgmodal { align-self: center; display: flex; align-items: center; justify-content: center; }
+.mm-imgmodal img { max-width: 92vw; max-height: 86vh; width: auto; height: auto;
+  border-radius: var(--mc-radius); border: 1px solid var(--mc-border); cursor: zoom-out;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5); }
+/* The read-side source view — what actually gets stored. Still used by surfaces that want the raw
+   text; the NOTES preview pane no longer does, it renders (Jason 08-11-2026). */
+.mm-srcview { flex: 1; background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 8px;
+  padding: 12px 14px; font-family: var(--mc-mono); font-size: 11.5px; line-height: 1.7; color: var(--mc-muted);
+  white-space: pre-wrap; word-break: break-word; overflow: auto; margin-bottom: 8px; }
+/* The rendered preview. Scrolls on its own so a long note cannot push the pane header away. */
+.mm-preview { flex: 1; min-height: 0; overflow: auto; }
+/* Task lists — Markdoc has no native support, so markdown.tsx rewrites "- [ ] x" into a tag. The
+   box is READ-ONLY on purpose: ticking here would have to write back through the markdown to mean
+   anything, and a checkbox that forgets is worse than one that plainly does not move. */
+.mm-task { display: inline-flex; align-items: flex-start; gap: 8px; }
+.mm-task input { margin: 3px 0 0; accent-color: var(--mc-accent-primary); pointer-events: none; }
+.mm-task.done > span { color: var(--mc-muted); text-decoration: line-through; }
+/* THE CONTAINER LAW (Jason 08-16-2026: "make a container of it… anything you fix, wont be fixed
+   in every pill"). Prose styling belongs to the CONTENT container — .vault-preview and
+   .vault-sbody for the rendered document, .vault-readme for repo readmes, .vault-milkdown for
+   the editor — NEVER to the pane. These were scoped `.vault-pane.prev` and the moment the
+   EDITOR mounted in that pane (Split, 08-16) it inherited all of them; the inline-code chip on
+   an inline element fragmenting per wrapped line was the "striped code block" screenshot. The
+   pane carries layout only, and each container behaves identically in every mode it appears. */
+/* GFM tables — arrive free with Markdoc, so they need to look like they belong. */
+.mm-preview table, .mm-sbody table, .mm-readme table { border-collapse: collapse; width: 100%; margin: 0 0 13px; font-size: 12.5px; }
+.mm-preview th, .mm-preview td, .mm-sbody th, .mm-sbody td,
+.mm-readme th, .mm-readme td { border: 1px solid var(--mc-border); padding: 6px 9px; text-align: left; }
+.mm-preview th, .mm-sbody th, .mm-readme th { background: var(--mc-nested); font-weight: 600; }
+.mm-preview s, .mm-sbody s, .mm-readme s { color: var(--mc-muted); }
+.mm-preview h1, .mm-sbody h1 { font-size: 21px; margin: 0 0 12px; }
+.mm-preview h2, .mm-sbody h2 { font-size: 15.5px; margin: 18px 0 8px; }
+.mm-preview h3, .mm-sbody h3 { font-size: 13.5px; margin: 14px 0 7px; }
+.mm-preview p, .mm-sbody p { font-size: 13.5px; line-height: 1.7; margin: 0 0 11px; }
+.mm-preview ul, .mm-preview ol, .mm-sbody ul, .mm-sbody ol { margin: 0 0 12px 22px; }
+.mm-preview li, .mm-sbody li { font-size: 13.5px; line-height: 1.7; margin-bottom: 4px; }
+.mm-preview blockquote, .mm-sbody blockquote { border-left: 3px solid var(--mc-border); padding-left: 12px; color: var(--mc-muted); margin: 0 0 11px; }
+.mm-preview code, .mm-sbody code, .mm-readme code { font-family: var(--mc-mono); font-size: 11.5px; background: var(--mc-nested);
+  border: 1px solid var(--mc-border); border-radius: 4px; padding: 1px 5px; }
+.mm-cblock { background: var(--mc-nested); border: 1px solid var(--mc-border); border-radius: 9px; margin: 0 0 13px; overflow: hidden; }
+.mm-cblock .cb { display: flex; align-items: center; gap: 8px; padding: 6px 11px; border-bottom: 1px solid var(--mc-border);
+  font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--mc-dimmer); }
+.mm-cblock .cb button { margin-left: auto; background: none; border: 1px solid var(--mc-border); border-radius: 5px;
+  color: var(--mc-muted); font-size: 10px; padding: 2px 8px; cursor: pointer; font-family: inherit; }
+/* [ported from vault.css :778-796] */
+.mm-cblock pre { padding: 11px 13px; overflow-x: auto; font-family: var(--mm-highlighter-font, var(--mc-mono));
+  font-size: 11.5px; line-height: 1.6; background: var(--mm-highlighter-background); color: var(--mm-highlighter-plain); }
+/* One letter per class on purpose — a 400-line fence is thousands of spans and the class name is
+   the bulk of each one. */
+.mm-cblock .cc, .mm-csample .cc { color: var(--mm-highlighter-comment); font-style: var(--mm-highlighter-comment-style); }
+.mm-cblock .cs, .mm-csample .cs { color: var(--mm-highlighter-string); }
+.mm-cblock .ck, .mm-csample .ck { color: var(--mm-highlighter-keyword); }
+.mm-cblock .cn, .mm-csample .cn { color: var(--mm-highlighter-number); }
+.mm-cblock .cf, .mm-csample .cf { color: var(--mm-highlighter-function); }
+.mm-cblock .cv, .mm-csample .cv { color: var(--mm-highlighter-variable); }
+.mm-cblock .ct, .mm-csample .ct { color: var(--mm-highlighter-type); }
+.mm-cblock .cp, .mm-csample .cp { color: var(--mm-highlighter-punct); }
+/* The settings preview and any other sample — same painter, same variables, so a preview cannot
+   show you something the real block will not. */
+.mm-csample { margin: 0; padding: 12px 14px; overflow-x: auto; border-radius: 9px;
+  font-family: var(--mm-highlighter-font, var(--mc-mono)); font-size: 11.5px; line-height: 1.62;
+  background: var(--mm-highlighter-background); color: var(--mm-highlighter-plain); white-space: pre; }
+.mm-csample .cln { display: inline-block; width: 2.1em; text-align: right; margin-right: 1.1em;
+  color: var(--mm-highlighter-punct); opacity: .65; user-select: none; }
+/* [ported from vault.css :836-851] */
+/* runbook run mode */
+.mm-runhead { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 14px; flex-wrap: wrap; }
+.mm-runhead .mm-hint { margin-left: auto; }
+.mm-step { display: flex; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--mc-border); }
+.mm-step:last-child { border-bottom: 0; }
+.mm-step.done .mm-sbody { opacity: .5; }
+.mm-snum { flex: none; width: 25px; height: 25px; border-radius: 50%; border: 1.5px solid var(--mc-border);
+  background: none; color: var(--mc-muted); font-family: var(--mc-mono); font-size: 12px; font-weight: 700; cursor: pointer; }
+.mm-step.done .mm-snum { background: var(--mm-strong-color); border-color: var(--mm-strong-color); color: #fff; }
+.mm-sbody { flex: 1; min-width: 0; }
+.mm-stitle { font-size: 13px; font-weight: 600; margin-bottom: 7px; }
+.mm-stepprose { font-size: 12.5px; color: var(--mc-muted); }
+.mm-stepprose p { font-size: 12.5px; margin-bottom: 7px; }
+.mm-cmd { display: flex; align-items: center; gap: 9px; background: var(--mc-nested); border: 1px solid var(--mc-border);
+  border-radius: 8px; padding: 8px 11px; font-family: var(--mc-mono); font-size: 11.5px; margin-bottom: 7px; }
+.mm-cmd .c { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; }
+/* [ported from vault.css :892-893] */
+.mm-frow { display: flex; align-items: center; gap: 9px; padding: 5px 7px; font-size: 11.5px; }
+.mm-frow + .mm-frow { border-top: 1px solid var(--mc-border); }
+/* [ported from vault.css :1018-1032] */
+/* ---- The house loading panel (Jason 08-11-2026) — MindMerge's, adopted verbatim -------------
+   Ring, sentence, and an OPTIONAL monospace counter. See Loading.tsx for why the counter is
+   optional: a SQLite read has no "672 of 1,965" and faking one would be a bar that lies. ------ */
+.mm-loading { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 15px; padding: 64px 20px; min-height: 260px; text-align: center; }
+.mm-loading.compact { padding: 26px 16px; min-height: 0; gap: 11px; }
+.mm-loadring { width: 46px; height: 46px; border-radius: 50%;
+  border: 3px solid var(--mc-border); border-bottom-color: var(--mc-accent-primary);
+  animation: mm-spin .85s linear infinite; }
+.mm-loading.compact .mm-loadring { width: 30px; height: 30px; border-width: 2px; }
+.mm-loadmsg { font-size: 15px; font-weight: 600; color: var(--mc-text); }
+.mm-loading.compact .mm-loadmsg { font-size: 13px; }
+.mm-loadcount { font-family: var(--mc-mono); font-size: 11.5px; color: var(--mc-muted); }
+/* Same reduced-motion contract as .vault-spinner — the words and the counter carry the meaning. */
+@media (prefers-reduced-motion: reduce) { .mm-loadring { animation: none; } }
+/* [ported from vault.css :1117-1122] */
+/* A primary that refused, and said why. NOT `disabled` — a greyed button with no explanation is the
+   thing that made this a bug report. It stays clickable so it can answer. */
+.mm-btn.held { opacity: .62; }
+.mm-confirmnag { margin: 10px 0 0; padding: 8px 10px; border-radius: var(--mc-radius);
+  border: 1px solid var(--mm-warn-color); background: color-mix(in srgb, var(--mm-warn-color) 12%, transparent);
+  color: var(--mc-text); font-size: 12px; line-height: 1.5; }
+/* [ported from vault.css :1147-1177] */
+/* ---- Secured Notes folder tree, in the sidebar under Shortcuts (Jason 08-11-2026) ------------- */
+.mm-frow { display: flex; align-items: center; gap: 6px; padding: 4px 10px; cursor: pointer;
+  font-size: 12px; color: var(--mc-text); border-radius: 6px; }
+.mm-frow:hover { background: var(--mc-nested); }
+.mm-frow.on { background: var(--mm-selection-background); box-shadow: inset 3px 0 0 var(--mc-accent-primary); font-weight: 600; }
+/* THE ROW A DRAGGED NOTE WOULD LAND IN. The Passwords rail has had this since it shipped
+   (.vault-railrow.drop, line ~385) and this tree never got it — so dragging a note over a folder lit
+   nothing up and the whole gesture read as unsupported (Jason 08-12-2026: "i cant drag the notes
+   inside the new folder"). Same treatment, so the two trees behave alike. */
+.mm-frow.drop { background: var(--mm-selection-background); box-shadow: inset 0 0 0 1px var(--mc-accent-primary); }
+/* The list rows say they can be picked up, the way the table rows already do. */
+.mm-nrow[draggable="true"] { cursor: grab; }
+.mm-nrow[draggable="true"]:active { cursor: grabbing; }
+.mm-fcar { width: 12px; flex: none; border: 0; background: none; color: var(--mc-dimmer);
+  font-size: 8px; cursor: pointer; padding: 0; font-family: inherit; }
+.mm-fic { flex: none; font-size: 11px; }
+.mm-fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-fn { flex: none; font-family: var(--mc-mono); font-size: 9.5px; color: var(--mc-dimmer); }
+/* Row actions stay hidden until hover — three glyphs on every row is noise on a 142-folder tree. */
+.mm-facts { display: none; gap: 2px; flex: none; }
+.mm-frow:hover .mm-facts { display: flex; }
+.mm-facts button { border: 0; background: none; color: var(--mc-dimmer); cursor: pointer;
+  font-size: 10px; padding: 0 3px; font-family: inherit; }
+.mm-facts button:hover { color: var(--mc-accent-primary); }
+.mm-fnew { width: calc(100% - 20px); margin: 3px 10px; background: var(--mc-field);
+  border: 1px solid var(--mc-accent-primary); border-radius: 6px; padding: 4px 8px;
+  font-size: 12px; color: var(--mc-text); font-family: inherit; }
+.mm-fnew:focus { outline: none; }
+/* Collapsed rail: the tree is names, so it has nothing to show at 58px. */
+.mm-side.collapsed .mm-frow,
+.mm-side.collapsed .mm-fnew { display: none; }
+/* [ported from vault.css :1186-1194] */
+/* ---- The idle-save flash (Jason 08-12-2026). Brief, and ONLY after the timed save — a permanent
+   "Saved" is wallpaper nobody reads, which is how you end up unsure whether it saved. ---------- */
+.mm-savebar { display: flex; align-items: center; gap: 9px; min-height: 18px; }
+.mm-savedflash { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px;
+  font-weight: 700; letter-spacing: .4px; color: var(--mm-strong-color);
+  background: color-mix(in srgb, var(--mm-strong-color) 13%, transparent);
+  border: 1px solid var(--mm-strong-color); border-radius: 20px; padding: 1px 8px;
+  opacity: 0; transform: translateY(2px); transition: opacity .18s ease, transform .18s ease; }
+.mm-savedflash.on { opacity: 1; transform: none; }
+/* [ported from vault.css :1209-1212] */
+@media (prefers-reduced-motion: reduce) {
+  .mm-toast { animation: none; }
+  .mm-savedflash { transition: none; }
+}
+/* [ported from vault.css :1257-1263] */
+/* Belt on top of the height fix: even if a future surface reintroduces an outer scroll, these two
+   rows stay put rather than leaving the screen. */
+.mm-nltop, .mm-edbar { position: sticky; top: 0; z-index: 3; background: var(--mc-panels); }
+/* The notes list and the editor column must each be a bounded flex column, or their inner scroll
+   areas have nothing to scroll within. */
+.mm-notelist, .mm-noteedit { min-height: 0; }
+.mm-nlbody { flex: 1; min-height: 0; overflow-y: auto; }
+/* [ported from vault.css :1319-1330] */
+/* ---- The two collapse chevrons (Jason 08-12-2026) ------------------------------------------------
+   The sidebar one was truncated and mis-aligned in the 58px rail, and the notes-list one vanished
+   entirely when collapsed. Both are now a fixed square, centred, and never squeezed by a flex
+   sibling. The orange ring was a focus style bleeding into the resting state — it is scoped to
+   :focus-visible so it appears on keyboard focus and nowhere else. ------------------------------- */
+.mm-collapse { flex: none; width: 26px; height: 26px; display: inline-flex; align-items: center;
+  justify-content: center; padding: 0; border: 1px solid var(--mc-border); border-radius: 6px;
+  background: var(--mc-panels); color: var(--mc-muted); cursor: pointer; font-family: inherit;
+  font-size: 12px; line-height: 1; }
+.mm-collapse:hover { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); }
+.mm-collapse:focus { outline: none; }
+.mm-collapse:focus-visible { outline: 2px solid var(--mc-accent-primary); outline-offset: 1px; }
+/* [ported from vault.css :1363-1406] */
+/* ══ THE MOCKUP-v4 TOOLBAR (Jason, 08-16-2026) — separators, tooltips, the text-style dropdown,
+   and the four-mode segment. Mockup surfaces map to shell tokens: panel→--mc-panels,
+   panel2/field→--mc-nested/--mc-field, blue→--mc-accent-primary (fixed blue where every theme
+   must agree: --mc-toggle-on, the shell's own precedent for that). ══ */
+.mm-tsep { width: 1px; height: 20px; background: var(--mc-border); margin: 0 5px; flex: none; }
+.mm-tbtn:disabled { opacity: .38; cursor: default; }
+.mm-tbtn:disabled:hover { background: none; border-color: transparent; }
+.mm-tbtn.mono { font-family: var(--mc-mono); font-size: 11px; }
+.mm-tbtn.teal { color: var(--mm-strong-color); }
+/* The mockup's tooltip, not the operating system's — scoped to the toolbar so nothing else grows one. */
+.mm-edbar [data-tip] { position: relative; }
+.mm-edbar [data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute; top: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  background: var(--mc-base); border: 1px solid var(--mc-border); color: var(--mc-text);
+  font-size: 11px; font-weight: 400; white-space: nowrap;
+  padding: 5px 9px; border-radius: 7px; z-index: 40;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .5); pointer-events: none;
+}
+/* The text-style dropdown. z-index above the sticky edbar (z 3). */
+.mm-pselect { position: relative; }
+.mm-pselect > .mm-tbtn.wide { min-width: 104px; display: inline-flex; align-items: center;
+  justify-content: space-between; gap: 6px; padding: 0 10px; }
+.mm-pmenu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 50;
+  background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 10px;
+  min-width: 190px; padding: 6px; box-shadow: 0 14px 40px rgba(0, 0, 0, .45);
+}
+.mm-pmenu button {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: 0; border-radius: 7px; color: var(--mc-text);
+  text-align: left; padding: 8px 10px; cursor: pointer; font: inherit;
+}
+.mm-pmenu button:hover { background: var(--mc-nested); }
+.mm-pmenu button.sel { background: var(--mm-selection-background); box-shadow: inset 2px 0 0 var(--mc-accent-primary); }
+.mm-pmenu .mk { font-family: var(--mc-mono); font-size: 11px; color: var(--mc-dimmer); min-width: 30px; }
+.mm-pmenu .h1 { font-size: 17px; font-weight: 800; }
+.mm-pmenu .h2 { font-size: 15px; font-weight: 700; }
+.mm-pmenu .h3 { font-size: 13.5px; font-weight: 700; }
+.mm-pmenu .pp { font-size: 13px; }
+/* The active mode segment reads SOLID, mockup-style — on the fixed blue all three themes share. */
+.mm-modeseg button.on { background: var(--mc-toggle-on); color: #fff; }
+/* Tidy wears the damage while the open note carries any — found is half of fixed. */
+.mm-btn.tidyhot { border-color: var(--mm-danger-color); color: var(--mm-danger-color); }
+
+/* ================================================================
+   LANE-3 ADDENDUM — classes that did not exist in the tree when the scan above was taken.
+   Lanes 4 (two-tab strip in MindMergeModule.tsx) and 5 (image paste / image renderer) landed after
+   it, and the coordinator handed over the list. Same law as above: copy the vault rule, rename the
+   `vault-` prefix to `mm-`, tokens never literal colours, purely additive.
+   ================================================================ */
+
+/* [ported from vault.css :828-831,835] — .vault-chip .lk and .vault-chip button are the credential
+   chip's own furniture and are NOT emitted here (markdown.tsx:375 renders `mm-chip missing` only),
+   so per the coordinator's handover they are left in the vault. */
+/* The credential chip — a note references, never contains. */
+.mm-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--mm-selection-background);
+  border: 1px solid var(--mc-accent-primary); border-radius: 7px; padding: 2px 5px 2px 9px; font-size: 11.5px;
+  vertical-align: middle; }
+.mm-chip.missing { border-style: dashed; color: var(--mc-dimmer); }
+
+/* [ported from vault.css :22-27 + :56] — the module root. This is .vault-shell's BOX, which is what
+   .mm-module now is: MindMergeModule.tsx:443 renders it as the outer element and .rbs-shell moved
+   inside the Brain tab. `position: relative` is NOT cosmetic and must not be dropped — .mm-modalback
+   is `position:absolute;inset:0`, so this is the ancestor the confirm dialog and the image lightbox
+   anchor to. Without it both scrims escape the module and cover the whole window. The vault's own
+   comment on that line is copied below. `--mc-footer-height, 0px` is the vault's exact form. */
+.mm-module {
+  /* THIS MODULE'S OWN TOKENS, declared on this module's own root (Jason 08-22-2026: "every module
+     has to have its own --mm-btn-* relation to identify itself from other modules"). Nothing in
+     MindMerge may read a --vault-* token: those are declared on .vault-shell, which is not an
+     ancestor here, so they resolve to nothing and the property falls back to its initial value. */
+  --mm-rail-width: 270px; /* Jason 08-22-2026, measured on the dial: "i want that width to be 270px" */
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height, 0px));
+  background: var(--mc-base);
+  color: var(--mc-text);
+  overflow: hidden;
+  position: relative; /* anchors the modal scrim to the module, not the window */
+}
+/* [ported from vault.css :117-122] — THE FOLDER RAIL'S BOX, and it was missing entirely. The port
+   brought across the `.mm-side.collapsed` variants (:536) and `.mm-sidescroll` (:851) but never the
+   base rule, so `<div className="mm-side">` rendered as a bare block: no width, no column, and no
+   surface — which is Jason's report, 08-22-2026: "the section is missing the folder section, the
+   white background is missing, look at image 2, the vault has it but the notes in MM doesnt".
+   No overflow clip, for the vault's reason: the edge tab hangs past this pane's right edge by
+   design, and the collapsed rule hides every child outright, which does that job strictly better. */
+.mm-side {
+  width: var(--mm-rail-width);
+  flex: 0 0 var(--mm-rail-width);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--mc-panels);
+  border-right: 1px solid var(--mc-border);
+  position: relative;
+  transition: width .16s ease, flex-basis .16s ease;
+}
+.mm-side.collapsed { width: 0; flex-basis: 0; }
+.mm-side.collapsed > *:not(.edgetab) { display: none; }
+/* [ported from vault.css :187-195] — the house tab strip, which vault.css itself carries as
+   "SOP §10, verbatim". Byte-identical to .rn-tab / .scan-tab / .tt-tab / .emp-tab elsewhere in this
+   repo; the selected tab's `border-bottom-color: var(--mc-base)` is what joins it to the panel
+   beneath. .vault-main is not copied — .mm-module above is the flex column here. */
+/* ---------- main column + the house tab strip (SOP §10, verbatim) ---------- */
+.mm-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding: 12px 18px 0;
+  border-bottom: 1px solid var(--mc-border); flex: none; }
+.mm-tab { background: none; border: 1px solid transparent; border-radius: 7px 7px 0 0; padding: 7px 14px;
+  font-size: 12.5px; color: var(--mc-muted); cursor: pointer; white-space: nowrap; margin-bottom: -1px; }
+.mm-tab:hover { color: var(--mc-text); }
+.mm-tab.on { color: var(--mc-text); font-weight: 600; border-color: var(--mc-border);
+  border-bottom-color: var(--mc-base); background: var(--mc-base); }
+/* [ported from vault.css :59 (.vault-shellbody), + overflow:hidden] — the panel the tabs switch.
+   NotesView's root is .mm-notewrap, which is `flex:1; min-height:0` and therefore needs a bounded,
+   clipping flex parent or it has nothing to size against. In the vault that parent was .vault-body,
+   and vault.css:554 gave it `display:flex; overflow:hidden` via :has(.vault-notewrap); here the tab
+   panel IS that parent, so the two properties belong on it directly. (The copied
+   `.mm-body:has(.mm-notewrap)` rule above is consequently inert — no element carries .mm-body in
+   this module. It was kept because dropping a rule mid-block is how a port loses things.) */
+.mm-tabpanel { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+/* NO VAULT COUNTERPART — this one is local, and it is a real bug if it goes missing. .rbs-shell
+   (mindmerge.css:4) hard-sets height:calc(100vh - topbar - footer). With the tab strip now above it
+   that height overshoots the panel and the Brain tab clips its own bottom, so the modifier hands the
+   height back to the flex parent. Declarations as specified by lane 4 via the coordinator. */
+.rbs-shell.mm-tabbed { height: auto; flex: 1; min-height: 0; }
+
+/* ================================================================
+   HELP MODAL + IMPORT DOCS — ported from src/modules/vault/vault.css (Phase 4, lane D).
+   Same mechanical copy as the Phase 3 section above: the `vault-` class prefix became `mm-`
+   and the `--vault-*` scoped tokens became `--mm-*` (all four tokens these rules reference —
+   strong/warn/danger/selection — were already declared in src/globals.css by Phase 3, so
+   globals.css gains NOTHING from this lane). Rules keep their order, their states, and their
+   comments BYTE-FOR-BYTE. `[ported from vault.css :a-b]` markers give the provenance of each
+   block; vault.css is the point A this was copied from.
+   ================================================================ */
+/* [ported from vault.css :198-200] */
+/* ---------- cards, states ---------- */
+.mm-card { background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 10px;
+  padding: 15px 17px; margin-bottom: 14px; }
+/* [ported from vault.css :203-204] */
+.mm-cardtitle { font-size: 10.5px; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 700;
+  color: var(--mc-accent-primary); }
+/* [ported from vault.css :228-234] */
+/* CENTRED, and the asymmetric padding is the reason it now looks it (Jason 08-11-2026, on the
+   "0 LOCAL" / "1 WITH A REMOTE" pills). letter-spacing adds a trailing space AFTER the last
+   character that is inside the text box, so a symmetrically-padded pill always reads a pixel
+   left-heavy. The right padding is 1px short to absorb exactly that. */
+.mm-kind { display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; border: 1px solid var(--mc-border);
+  border-radius: 5px; padding: 2px 6px 2px 7px; color: var(--mc-muted); white-space: nowrap; }
+/* [ported from vault.css :238-239] */
+.mm-mono { font-family: var(--mc-mono); font-size: 11.5px; }
+.mm-who { font-size: 11px; color: var(--mc-dimmer); }
+/* [ported from vault.css :411-411] */
+.mm-reasons { margin: 3px 0 0; padding-left: 16px; color: var(--mc-muted); font-size: 11.5px; line-height: 1.6; }
+/* [ported from vault.css :445-453] */
+.mm-modalsub { font-size: 12px; color: var(--mc-muted); margin-bottom: 15px; }
+.mm-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 11px; }
+.mm-field label { font-size: 11px; color: var(--mc-muted); }
+.mm-field input, .mm-field select, .mm-field textarea { background: var(--mc-field);
+  border: 1px solid var(--mc-border); border-radius: 8px; padding: 9px 11px; font-size: 12.5px;
+  color: var(--mc-text); font-family: inherit; width: 100%; }
+.mm-field input:focus, .mm-field select:focus, .mm-field textarea:focus { outline: none;
+  border-color: var(--mc-accent-primary); }
+.mm-field textarea { resize: vertical; min-height: 58px; }
+/* [ported from vault.css :525-528] */
+.mm-kind.warn { color: var(--mm-warn-color); border-color: var(--mm-warn-color); }
+.mm-kind.danger { color: var(--mm-danger-color); border-color: var(--mm-danger-color); }
+.mm-kind.ok { color: var(--mm-strong-color); border-color: var(--mm-strong-color); }
+.mm-clip { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* [ported from vault.css :876-881] */
+.mm-drop { display: block; width: 100%; border: 2px dashed var(--mc-border); border-radius: 11px; padding: 26px 18px;
+  text-align: center; color: var(--mc-muted); font-size: 12.5px; background: var(--mc-nested); cursor: pointer;
+  font-family: inherit; }
+.mm-drop:hover { border-color: var(--mc-accent-primary); background: var(--mm-selection-background); }
+.mm-drop b { color: var(--mc-text); font-size: 13px; }
+.mm-drop:disabled { opacity: .6; cursor: default; }
+/* [ported from vault.css :888-891] */
+.mm-folderline { display: flex; align-items: center; gap: 9px; padding: 8px 11px; border: 1px solid var(--mc-border);
+  border-radius: 9px; margin-bottom: 6px; background: var(--mc-panels); font-size: 12.5px; }
+.mm-filelist { max-height: 210px; overflow-y: auto; margin-top: 12px; border: 1px solid var(--mc-border);
+  border-radius: 9px; padding: 7px; background: var(--mc-base); }
+/* [ported from vault.css :1034-1049] */
+/* ---- Import destination cards (Jason 08-11-2026) — where it goes is the FIRST question -------- */
+.mm-dests { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 9px; margin-bottom: 15px; }
+.mm-dcard { text-align: left; border: 1px solid var(--mc-border); border-radius: 10px; padding: 10px 12px;
+  background: var(--mc-panels); cursor: pointer; font-family: inherit; color: var(--mc-text); }
+.mm-dcard:hover { border-color: var(--mc-accent-primary); }
+.mm-dcard.on { border-color: var(--mm-strong-color); background: var(--mm-selection-background);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mm-strong-color) 20%, transparent); }
+.mm-dcard b { display: block; font-size: 12.5px; margin-bottom: 3px; }
+.mm-dcard span { display: block; font-size: 10.5px; color: var(--mc-muted); line-height: 1.45; }
+.mm-dcard .ex { margin-top: 6px; font-family: var(--mc-mono); font-size: 9.5px; color: var(--mc-dimmer); }
+/* Present but refusing — it states its reason on screen rather than vanishing. A missing card is a
+   question the user cannot ask; a refusing one answers it. */
+.mm-dcard.off { opacity: .62; }
+.mm-dcard.off b { color: var(--mc-muted); }
+.mm-dcard.off.on { border-color: var(--mm-warn-color); box-shadow: none;
+  background: color-mix(in srgb, var(--mm-warn-color) 9%, transparent); }
+/* [ported from vault.css :1179-1184] */
+/* The import's mirror choice. */
+.mm-mirror { display: flex; gap: 9px; align-items: flex-start; margin-top: 12px;
+  border: 1px solid var(--mc-border); border-radius: 9px; padding: 10px 12px; cursor: pointer; }
+.mm-mirror input { margin-top: 2px; accent-color: var(--mc-accent-primary); }
+.mm-mirror b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+.mm-mirror .mm-hint { display: block; }
+/* [ported from vault.css :1410-1499] */
+/* ══ THE HELP MODAL, mockup v4 — six tabs, cross-tab search, ONE pinned size (Task 3).
+   The height is set inline after the Basics measurement; .scroll engages only while searching
+   or when the 92%-of-area clamp fired because the window is too short for the whole card. ══ */
+.mm-hmodal {
+  width: 100%; max-width: 1020px; background: var(--mc-panels);
+  border: 1px solid var(--mc-border); border-radius: 14px;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, .5);
+}
+.mm-hmhead { padding: 16px 24px 0; flex: none; }
+.mm-hmtoprow { display: flex; align-items: flex-start; gap: 16px; }
+.mm-hmtoprow h3 { font-size: 19px; font-weight: 800; margin: 0; }
+.mm-hmsub { font-size: 12.5px; color: var(--mc-muted); margin-top: 4px; max-width: 720px; line-height: 1.45; }
+.mm-hmclose { margin-left: auto; background: none; border: 0; color: var(--mc-dimmer);
+  font-size: 17px; cursor: pointer; padding: 2px 6px; }
+.mm-hmclose:hover { color: var(--mc-text); }
+.mm-hmsearch {
+  margin-top: 10px; width: 100%; background: var(--mc-field); border: 1px solid var(--mc-border);
+  border-radius: 9px; padding: 7px 12px; font: inherit; font-size: 12.5px; color: var(--mc-text);
+}
+.mm-hmsearch::placeholder { color: var(--mc-dimmer); }
+.mm-hmsearch:focus { outline: none; border-color: var(--mc-accent-primary); }
+.mm-hmtabs { display: flex; gap: 22px; padding: 10px 24px 0; border-bottom: 1px solid var(--mc-border);
+  margin-top: 2px; flex: none; }
+.mm-htab { background: none; border: 0; cursor: pointer; font: inherit; font-size: 12.5px;
+  font-weight: 600; color: var(--mc-muted); padding: 6px 2px 9px; }
+.mm-htab:hover { color: var(--mc-text); }
+.mm-htab.on { color: var(--mc-text); box-shadow: inset 0 -2px 0 var(--mc-accent-primary); }
+.mm-hmbody { overflow: hidden; padding: 2px 24px 16px; flex: 1; }
+.mm-hmbody.scroll { overflow-y: auto; }
+.mm-hsecnote { font-size: 11.5px; color: var(--mc-dimmer); padding: 8px 2px 0; line-height: 1.45; }
+.mm-mrow { display: grid; grid-template-columns: minmax(150px, 225px) 1fr minmax(140px, 220px);
+  gap: 14px; padding: 9px 2px; border-bottom: 1px solid var(--mc-border); align-items: center; }
+.mm-mrow:last-child { border-bottom: 0; }
+.mm-msyn { font-family: var(--mc-mono); font-size: 11.5px; line-height: 1.55; background: var(--mc-field);
+  border: 1px solid var(--mc-border); border-radius: 8px; padding: 7px 10px; color: var(--mc-text);
+  white-space: pre-wrap; word-break: break-word; }
+.mm-mwhat .mname { font-size: 12.5px; font-weight: 700; margin-bottom: 2px; }
+.mm-mwhat .mdesc { font-size: 12px; color: var(--mc-muted); line-height: 1.5; }
+.mm-mwhat .mdesc code, .mm-mout code { font-family: var(--mc-mono); font-size: 11.5px;
+  background: var(--mc-field); border: 1px solid var(--mc-border); border-radius: 5px; padding: 0.5px 5px; }
+.mm-mout { font-size: 12px; line-height: 1.5; color: var(--mc-text); background: var(--mc-nested);
+  border: 1px solid var(--mc-border); border-radius: 8px; padding: 7px 11px; }
+.mm-mout .o-h1 { font-size: 15px; font-weight: 800; }
+.mm-mout .o-h2 { font-size: 13.5px; font-weight: 700; }
+.mm-mout .o-h3 { font-size: 12.5px; font-weight: 700; }
+.mm-mout .o-q { border-left: 3px solid var(--mc-accent-primary); padding-left: 9px; color: var(--mc-muted); }
+.mm-mout .o-hr { border: 0; border-top: 1px solid var(--mc-border); margin: 8px 0; }
+.mm-mout ul, .mm-mout ol { margin: 0 0 0 18px; padding: 0; }
+.mm-mout .o-link { color: var(--mc-accent-primary); text-decoration: underline; }
+/* No gold token exists in the shell palette; the marker-pen sample carries its own wash. */
+.mm-mout .o-hl { background: rgba(212, 168, 67, .28); border-radius: 3px; padding: 0 3px; }
+.mm-mout table { border-collapse: collapse; width: 100%; font-size: 11.5px; }
+.mm-mout th { text-align: left; border-bottom: 1px solid var(--mc-border); padding: 3px 7px;
+  font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--mc-dimmer); }
+.mm-mout td { padding: 3px 7px; border-bottom: 1px solid var(--mc-border); }
+.mm-mout .o-code { background: var(--mc-base); border: 1px solid var(--mc-border); border-radius: 7px;
+  font-family: var(--mc-mono); font-size: 11px; padding: 8px 10px; color: var(--mc-muted); white-space: pre; }
+.mm-mout .fnote { font-size: 10px; vertical-align: super; color: var(--mc-accent-primary); }
+.mm-mout .o-fnbody { border-top: 1px solid var(--mc-border); margin-top: 8px; padding-top: 6px;
+  font-size: 11px; color: var(--mc-muted); }
+.mm-mout .o-anchor { font-size: 10.5px; color: var(--mc-dimmer); font-family: var(--mc-mono); }
+.mm-mout .o-def { margin-left: 16px; color: var(--mc-muted); }
+.mm-mout .o-imgbox { background: var(--mc-field); border: 1px dashed var(--mc-border); border-radius: 7px;
+  padding: 14px 10px; text-align: center; font-size: 11px; color: var(--mc-dimmer); }
+.mm-mout .o-task { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+.mm-mout .cb { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--mc-border);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: #fff; flex: none; }
+.mm-mout .cb.done { background: var(--mc-green); border-color: var(--mc-green); }
+.mm-mout .o-vchip { display: inline-flex; align-items: center; gap: 7px; background: var(--mm-selection-background);
+  border: 1px solid var(--mc-border); border-radius: 7px; padding: 2.5px 9px; font-family: var(--mc-mono);
+  font-size: 11px; color: var(--mm-strong-color); }
+.mm-mout .o-vchip .act { color: var(--mc-dimmer); font-family: var(--mc-font, inherit); font-size: 10.5px; }
+.mm-mout .o-step { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.mm-mout .o-step .n { font-family: var(--mc-mono); color: var(--mc-dimmer); }
+.mm-mout .o-step .copy { margin-left: auto; border: 1px solid var(--mc-border); border-radius: 6px;
+  padding: 1px 7px; font-size: 10px; color: var(--mc-muted); }
+.mm-mout .o-step .tick { color: var(--mc-green); }
+.mm-mout .o-raw { font-family: var(--mc-mono); font-size: 11.5px; color: var(--mc-muted); }
+.mm-mout .o-raw i { color: var(--mc-accent-primary); font-style: normal; }
+.mm-mout .o-tidy { font-size: 11.5px; color: var(--mc-muted); }
+.mm-mout .o-tidy s { color: var(--mm-danger-color, #e0565c); }
+.mm-mout .o-tidy b { color: var(--mc-green); }
+.mm-mout .o-saved { color: var(--mc-green); font-size: 12px; }
+.mm-hmfoot { border-top: 1px solid var(--mc-border); padding: 10px 24px; display: flex;
+  align-items: center; gap: 14px; flex: none; }
+.mm-hmfoot .ref { font-size: 12px; color: var(--mc-dimmer); }
+.mm-hmfoot .ref span { color: var(--mc-muted); font-family: var(--mc-mono); font-size: 11.5px; }
+.mm-hmfoot .mm-btn { margin-left: auto; }
+.mm-nores { padding: 26px 4px; font-size: 13px; color: var(--mc-dimmer); }
+/* [ported from vault.css :147-147] — Lane C (MindMergeModule.tsx:546-551) mounts NoteFolderRail inside
+   .mm-side > .mm-sidescroll, the vault's exact shape (Sidebar.tsx:217-224). The vault's second rule for
+   this class (:1246, `.vault-editpreview .vault-sidescroll`) is NOT copied — no .mm-editpreview exists. */
+.mm-sidescroll { flex: 1; overflow-y: auto; min-height: 0; padding: 0 8px 12px; }
+
+/* ---- BL-58 v7: tab-row right cluster (ruled final form 08-25-2026) ---- */
+.mm-tabs { align-items: center; }
+.mm-tabright { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 0 4px 4px; min-width: 0; }
+.mm-watch { font: 11.5px var(--mc-mono); color: var(--mc-muted); max-width: 340px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-watch b { color: var(--mc-text); font-weight: 600; }
+.mm-trbtn { background: none; border: 1px solid var(--mc-border); border-radius: 7px;
+  color: var(--mc-muted); padding: 4px 9px; font-size: 12px; cursor: pointer; line-height: 1;
+  display: inline-flex; align-items: center; }
+.mm-trbtn:hover { color: var(--mc-text); }
+.mm-trbtn:disabled { opacity: .55; cursor: default; }
+.mm-trdiv { width: 1px; height: 16px; background: var(--mc-border); flex: none; }
+.mm-import { color: var(--mc-text); font-weight: 600; }
+
+/* ---- BL-58 v7: Recently edited rail section ---- */
+.mm-recent { padding: 4px 6px 10px; }
+.mm-recent-h { font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase;
+  color: var(--mc-dimmer); font-weight: 700; padding: 6px 6px 4px; }
+.mm-recent-row { display: flex; align-items: center; gap: 8px; width: 100%; background: none;
+  border: 0; border-radius: 7px; padding: 5px 7px; cursor: pointer; color: var(--mc-text);
+  font-size: 12.5px; text-align: left; }
+.mm-recent-row:hover { background: var(--mc-nested); }
+.mm-recent-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-recent-ago { font: 10.5px var(--mc-mono); color: var(--mc-dimmer); flex: none; }
+/* The count digit convention (ruled 08-25-2026): the NUMBER is green, never the container. */
+.mm-count { color: var(--mc-green); font-weight: 800; font-size: 11.5px; }
+
+/* ---- BL-58 v7: the Documents surface (DocsSurface.tsx) — rail | list | editor ---- */
+.mmd { flex: 1; display: flex; min-height: 0; }
+/* Scroll lives on the INNER .mmd-railscroll, never on .mmd-rail itself — overflow on the pane
+   would clip the .edgetab, which hangs past the right edge by design (vault.css:119 lesson).
+   position:relative anchors that tab; the .collapsed pair mirrors .mm-side (08-25-2026 ruling:
+   the « collapse control lives on the rail, one preference for both tabs). */
+.mmd-rail { width: 232px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  border-right: 1px solid var(--mc-border); background: var(--mc-sidebar); position: relative;
+  transition: width .16s ease; }
+.mmd-railscroll { flex: 1; overflow-y: auto; min-height: 0; padding: 8px 6px 14px; }
+.mmd-rail.collapsed { width: 0; }
+.mmd-rail.collapsed > *:not(.edgetab) { display: none; }
+.mmd-rh { font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--mc-dimmer);
+  font-weight: 700; padding: 10px 8px 4px; }
+.mmd-rrow { display: flex; align-items: center; gap: 7px; width: 100%; background: none; border: 0;
+  border-radius: 7px; padding: 5px 8px; cursor: pointer; color: var(--mc-text); font-size: 12.5px;
+  text-align: left; }
+.mmd-rrow:hover { background: var(--mc-nested); }
+.mmd-rname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mmd-rago { font: 10.5px var(--mc-mono); color: var(--mc-dimmer); flex: none; }
+.mmd-frow { display: flex; align-items: center; gap: 6px; width: 100%; background: none; border: 0;
+  border-left: 2px solid transparent; border-radius: 0 7px 7px 0; padding: 5px 8px 5px 8px;
+  cursor: pointer; color: var(--mc-text); font-size: 12.5px; text-align: left; }
+.mmd-frow:hover { background: var(--mc-nested); }
+.mmd-frow.on { background: var(--mc-nested); border-left-color: var(--mc-accent-primary); }
+.mmd-frow.root .mmd-fname { font-weight: 600; }
+.mmd-chev { width: 14px; flex: none; color: var(--mc-dimmer); font-size: 10px; text-align: center; }
+.mmd-fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mmd-fct { font: 10.5px var(--mc-mono); color: var(--mc-dimmer); flex: none; }
+.mmd-hint { color: var(--mc-dimmer); font-size: 12px; padding: 6px 10px; }
+
+.mmd-list { width: 300px; flex: none; display: flex; flex-direction: column; min-height: 0;
+  border-right: 1px solid var(--mc-border); }
+.mmd-lh { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 8px;
+  font-size: 13px; font-weight: 700; border-bottom: 1px solid var(--mc-border); flex: none; }
+.mmd-new { background: none; border: 1px solid var(--mc-border); border-radius: 7px;
+  color: var(--mc-text); padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.mmd-new:hover { border-color: var(--mc-accent-primary); }
+.mmd-lrows { flex: 1; overflow-y: auto; min-height: 0; }
+.mmd-doc { position: relative; display: block; width: 100%; background: none; border: 0;
+  border-bottom: 1px solid var(--mc-border); padding: 10px 12px 10px 14px; cursor: pointer;
+  color: var(--mc-text); text-align: left; }
+.mmd-doc:hover { background: var(--mc-nested); }
+.mmd-doc.on { background: var(--mc-nested); box-shadow: inset 2px 0 0 var(--mc-accent-primary); }
+/* the corner marker: hard into the corner where the left border meets the top border (v3 ruling) */
+.mmd-corner { position: absolute; left: 0; top: 0; }
+.mmd-dt { display: block; font-size: 13px; font-weight: 600; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.mmd-dx { display: block; font-size: 11.5px; color: var(--mc-muted); margin-top: 2px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.mmd-dd { display: block; font: 10.5px var(--mc-mono); color: var(--mc-dimmer); margin-top: 4px; }
+
+.mmd-ed { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  background: var(--mc-panels); }
+.mmd-eh { display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+  border-bottom: 1px solid var(--mc-border); flex: none; }
+.mmd-modes { display: flex; gap: 2px; background: var(--mc-nested); border-radius: 8px; padding: 2px; }
+.mmd-mode { background: none; border: 0; border-radius: 6px; padding: 4px 11px; font-size: 12px;
+  color: var(--mc-muted); cursor: pointer; }
+.mmd-mode.on { background: var(--mc-base); color: var(--mc-text); font-weight: 600; }
+.mmd-path { margin-left: auto; font: 10.5px var(--mc-mono); color: var(--mc-dimmer); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.mmd-ebody { flex: 1; display: flex; min-height: 0; }
+.mmd-milk { flex: 1; overflow-y: auto; min-height: 0; }
+.mmd-raw { flex: 1; min-height: 0; min-width: 0; resize: none; border: 0; outline: none;
+  background: var(--mc-panels); color: var(--mc-text); font: 12.5px/1.6 var(--mc-mono);
+  padding: 14px 16px; }
+.mmd-split { flex: 1; display: flex; min-height: 0; }
+.mmd-split .mmd-raw { border-right: 1px solid var(--mc-border); }
+.mmd-view { flex: 1; overflow-y: auto; min-height: 0; padding: 14px 18px; --rbs-fontsize: 13px; }
+.mmd-blank { flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--mc-dimmer); font-size: 13px; }
+.mmd-err { padding: 8px 12px; color: var(--mc-orange); font-size: 12px; flex: none; }

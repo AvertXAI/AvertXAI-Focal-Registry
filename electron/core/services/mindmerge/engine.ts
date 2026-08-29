@@ -21,10 +21,10 @@ import type { MindMergeSettings } from "../../../../src/modules/mindmerge/config
 const COLS = [
   "note_id", "title", "type", "status", "severity", "owner", "client", "description",
   "service", "trigger", "version", "updated", "body_md", "tags_flat", "file_path",
-  "parse_status", "parse_error",
+  "parse_status", "parse_error", "mtime_ms",
 ] as const;
 
-type RowValues = Record<(typeof COLS)[number], string | null>;
+type RowValues = Record<(typeof COLS)[number], string | number | null>;
 
 // Coerce a frontmatter scalar to TEXT. js-yaml parses `updated: 2026-07-01` as a Date — keep it ISO.
 function str(v: unknown): string | null {
@@ -92,8 +92,12 @@ function syncSecretRefs(db: Db, rowId: number, refs: Record<string, unknown>): v
 // Parse + upsert one .md file. Malformed frontmatter is QUARANTINED (row kept, parse_status='error'),
 // never dropped, so the UI can surface it as needing a fix.
 export function ingestFile(db: Db, filePath: string): void {
+  // Stat BEFORE the read: if the file changes between the two, the stored mtime is the older one
+  // and the next pass simply re-ingests — stale-marker-safe, never stale-content-safe-marker.
+  const mtime = Math.round(fs.statSync(filePath).mtimeMs);
   const raw = fs.readFileSync(filePath, "utf8");
   let values = blankValues(filePath);
+  values.mtime_ms = mtime;
   let tags: string[] = [];
   let secretRefs: Record<string, unknown> = {};
 
@@ -121,6 +125,7 @@ export function ingestFile(db: Db, filePath: string): void {
         : {};
   } catch (e) {
     values = blankValues(filePath);
+    values.mtime_ms = mtime; // the reassignment above dropped it — quarantined rows guard too
     values.body_md = raw; // keep the raw text so the user can see/fix it in the UI
     values.parse_status = "error";
     values.parse_error = e instanceof Error ? e.message : String(e);
@@ -180,10 +185,19 @@ export async function ingestAll(
 ): Promise<{ ingested: number; quarantined: number }> {
   const files = [...walkMd(dir)];
   const total = files.length;
+  // CHANGE-GUARD (Jason 08-26-2026 — the Secured Notes direction: the DB is the truth, files are
+  // only read when they changed). A file whose stored mtime matches its stat is SKIPPED, so a
+  // re-open of the module is a stat-walk in milliseconds, not a re-parse of the whole tree. Rows
+  // from before the mtime_ms column read NULL and re-ingest once, which backfills the guard.
+  const known = new Map(
+    (db.prepare("SELECT file_path, mtime_ms FROM mindmerge_notes").all() as
+      { file_path: string; mtime_ms: number | null }[]).map((r) => [r.file_path, r.mtime_ms])
+  );
   onProgress?.({ done: 0, total });
   for (let i = 0; i < total; i++) {
     try {
-      ingestFile(db, files[i]);
+      const have = known.get(files[i]);
+      if (have == null || have !== Math.round(fs.statSync(files[i]).mtimeMs)) ingestFile(db, files[i]);
     } catch {
       // A file that vanished mid-scan (or is unreadable) is skipped; the watcher will catch it next.
     }
@@ -243,21 +257,32 @@ export function startMindMerge(opts: {
   orgId: string;
   baseDir: string;
   settings: MindMergeSettings;
+  /** BL-58: the STACKED import roots. Every root is ingested and watched; a new import never
+   *  replaces an earlier one ("i wont want the first import to close to open the new imported
+   *  folder"). Omitted = the legacy single watch_path, so old callers keep working unchanged. */
+  roots?: string[];
   onProgress?: (p: IngestProgress) => void;
   skipIngest?: boolean; // watch_enabled toggle only re-wires the watcher — files already in DB
 }): MindMergeHandle {
   const { orgId, baseDir, settings, onProgress, skipIngest } = opts;
   const db = openMindMergeDb(orgId, baseDir);
-  const watchPath = settings["mindmerge.watch_path"];
-  let watcher: fs.FSWatcher | null = null;
+  const roots = (opts.roots ?? [settings["mindmerge.watch_path"]]).filter(
+    (r): r is string => !!r && fs.existsSync(r)
+  );
+  const watchers: fs.FSWatcher[] = [];
 
-  if (watchPath && fs.existsSync(watchPath)) {
-    // Fire-and-forget: the initial ingest runs async so boot is never blocked by a large folder.
-    if (!skipIngest) void ingestAll(db, watchPath, onProgress);
+  if (roots.length) {
+    // Fire-and-forget, SEQUENTIAL across roots: boot is never blocked, and two ingests never
+    // interleave their progress streams into one meaningless percentage.
+    if (!skipIngest) {
+      void (async () => {
+        for (const r of roots) await ingestAll(db, r, onProgress);
+      })();
+    }
     if (settings["mindmerge.watch_enabled"]) {
-      watcher = watch(db, watchPath, settings["mindmerge.auto_reparse"]);
+      for (const r of roots) watchers.push(watch(db, r, settings["mindmerge.auto_reparse"]));
     }
   }
 
-  return { db, stop: () => watcher?.close() };
+  return { db, stop: () => watchers.forEach((w) => w.close()) };
 }

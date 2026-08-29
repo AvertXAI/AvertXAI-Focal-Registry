@@ -48,8 +48,8 @@ export const CONFIG_MANIFEST: Record<keyof MindMergeSettings, ConfigEntry> = {
   "mindmerge.rail_collapsed": {
     type: "boolean",
     default: false,
-    label: "Collapse list rail",
-    description: "Collapse the note list to a thin strip; the detail pane takes the width.",
+    label: "Collapse folders sidebar",
+    description: "Collapse the side rail (folders + recently edited) — one preference for both the Documents and Brain tabs; the « on the rail's edge brings it back.",
   },
   "mindmerge.font_size": {
     type: "number",

@@ -17,6 +17,7 @@ import { getActiveOrg } from "./services/db/registry";
 import { vendorMap } from "./services/brandpack";
 import * as dataviewer from "./services/dataviewer";
 import * as procmon from "./services/procmon";
+import * as feedback from "./services/feedback";
 import * as firstrun from "./services/firstrun";
 import * as modules from "./services/modules";
 import * as mindmergeApi from "./services/mindmerge/api";
@@ -25,10 +26,11 @@ import { ensureMigrateSchema } from "./services/migrate/db";
 import { registerTimeTrackerIpc } from "./services/timetracker/ipc";
 import { registerEmployeesIpc } from "./services/employees/ipc";
 import { registerVaultIpc } from "./services/vault/ipc";
+import { registerMindMergeDocsIpc } from "./services/mindmerge/ipc";
 import * as devseed from "./services/devseed";
 import { ASSET_CLASSES } from "./services/migrate/registry";
 import { readDeviceIdentity } from "./services/identity";
-import { ingestAll, startMindMerge, type IngestProgress, type MindMergeHandle } from "./services/mindmerge/engine";
+import { ingestAll, ingestFile, startMindMerge, type IngestProgress, type MindMergeHandle } from "./services/mindmerge/engine";
 import * as scout from "./services/scout-viewer";
 import * as scoutTargets from "./services/scout-viewer/targets";
 import * as scan from "./services/scan";
@@ -49,6 +51,7 @@ import * as storage from "./services/storage";
 import { ensureScanSchema } from "./services/scan/db";
 import { generateUUIDv7 } from "./services/utils/uuidv7";
 import * as settings from "./services/settings";
+import * as licensing from "./services/licensing";
 import { applyThemeOverlay, getMainWindow, setOverlayDim } from "./windows";
 
 // --- MindMerge host — root-side glue ONLY. The service stays electron-free: orgId, baseDir
@@ -71,6 +74,78 @@ function readMindMergeSettings(): MindMergeSettings {
   return s;
 }
 
+/**
+ * THE STACKED IMPORT ROOTS (BL-58). Stored as a JSON array in `mindmerge.watch_roots`; the legacy
+ * single `mindmerge.watch_path` is the silent migration — an install that never stacked keeps
+ * working with its one folder, and the first addRoot writes the array.
+ */
+function readMindMergeRoots(): string[] {
+  const raw = getDb()
+    .prepare("SELECT value FROM app_settings WHERE key = 'mindmerge.watch_roots'")
+    .get() as { value: string } | undefined;
+  let roots: string[] = [];
+  if (raw?.value) {
+    try {
+      const p = JSON.parse(raw.value);
+      if (Array.isArray(p)) roots = p.filter((x): x is string => typeof x === "string");
+    } catch {
+      // A corrupt row behaves like an absent one; watch_path below still carries the install.
+    }
+  }
+  if (!roots.length) {
+    const wp = readMindMergeSettings()["mindmerge.watch_path"];
+    if (wp) roots = [wp];
+  }
+  return [...new Set(roots.map((r) => path.resolve(r)))];
+}
+
+/** Strict containment — path.relative, never a string prefix, so `D:\dev2` is not inside `D:\dev`. */
+function underRoot(p: string, root: string): boolean {
+  const rel = path.relative(root, p);
+  return !!rel && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+/** Resolves and refuses in one move: only a .md that lives under one of the stacked roots comes back. */
+function watchedMarkdown(p: unknown): string {
+  const resolved = path.resolve(String(p ?? ""));
+  if (!resolved.toLowerCase().endsWith(".md")) throw new Error("Only markdown files can be opened here.");
+  if (!readMindMergeRoots().some((r) => underRoot(resolved, r))) throw new Error("That file is outside the imported folders.");
+  return resolved;
+}
+
+export interface MindMergeTreeNode {
+  name: string;
+  path: string;
+  /** Documents in this folder's whole subtree — the tree shows subtree weights, like the mockup. */
+  count: number;
+  children: MindMergeTreeNode[];
+}
+
+function buildDocTree(root: string, files: string[]): MindMergeTreeNode {
+  const node: MindMergeTreeNode = { name: path.basename(root) || root, path: root, count: files.length, children: [] };
+  const byDir = new Map<string, string[]>();
+  for (const f of files) {
+    const seg = path.relative(root, f).split(path.sep);
+    if (seg.length > 1) {
+      const bucket = byDir.get(seg[0]);
+      if (bucket) bucket.push(f);
+      else byDir.set(seg[0], [f]);
+    }
+  }
+  for (const [dir, under] of [...byDir.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    node.children.push(buildDocTree(path.join(root, dir), under));
+  }
+  return node;
+}
+
+/** Every ok row's path, once — the roots list and the tree both count in JS off this, because a SQL
+ *  LIKE prefix over Windows paths means escaping backslashes and it is 4k rows, not 4 million. */
+function docPaths(h: MindMergeHandle): string[] {
+  return (
+    h.db.prepare("SELECT file_path FROM mindmerge_notes WHERE parse_status = 'ok'").all() as { file_path: string }[]
+  ).map((r) => r.file_path);
+}
+
 // Throttled ingest-progress push — the MindMerge strip shows a live % so a large-folder ingest
 // reads as "loading", not hung. Always sends the final tick (done === total) so the ticker clears.
 let mindmergeProgressAt = 0;
@@ -82,13 +157,24 @@ function sendMindMergeProgress(p: IngestProgress): void {
 }
 
 export function ensureMindMerge(skipIngest = false): MindMergeHandle {
-  if (mindmergeHandle) return mindmergeHandle;
   const org = getActiveOrg();
   if (!org) throw new Error("MindMerge: no active org");
+  // THE BRAIN GATE'S CHOKEPOINT (Jason's tier ruling 08-22-2026: the Brain tab is Business/Root
+  // only). This function is the ingest side's mindMergeCtx: mindmerge:list/get/search/
+  // listQuarantined/rescan all funnel through here, so one line refuses them all — the same
+  // one-chokepoint law the Documents gate follows. The check runs BEFORE the memoised return so a
+  // licence flip is live on the very next call (resolveTier is deliberately unmemoised), and it
+  // also stands in the settings:set → restartMindMerge path, so a non-entitled install can never
+  // start the ingest engine at all. The two channels that do NOT reach this function
+  // (mindmerge:ensure swallows every throw; mindmerge:pickWatchFolder never calls it) carry the
+  // check directly — a gate with one exception is not a gate.
+  licensing.enforceFeature(getDb(), "mindmergeDocs");
+  if (mindmergeHandle) return mindmergeHandle;
   mindmergeHandle = startMindMerge({
     orgId: org.org_id,
     baseDir: app.getPath("userData"),
     settings: readMindMergeSettings(),
+    roots: readMindMergeRoots(),
     onProgress: sendMindMergeProgress,
     skipIngest,
   });
@@ -109,8 +195,11 @@ export function restartMindMerge(skipIngest = false): void {
 // Async + progress-streaming so a large folder neither freezes the app nor looks hung.
 async function rescanMindMerge(): Promise<{ ingested: number; quarantined: number }> {
   const h = ensureMindMerge();
-  const watchPath = readMindMergeSettings()["mindmerge.watch_path"];
-  if (watchPath && fs.existsSync(watchPath)) return ingestAll(h.db, watchPath, sendMindMergeProgress);
+  let last: { ingested: number; quarantined: number } | null = null;
+  for (const root of readMindMergeRoots()) {
+    if (fs.existsSync(root)) last = await ingestAll(h.db, root, sendMindMergeProgress);
+  }
+  if (last) return last; // counts are DB-wide totals, so the final root's return covers them all
   const count = (status: string): number =>
     (h.db.prepare("SELECT COUNT(*) AS n FROM mindmerge_notes WHERE parse_status = ?").get(status) as { n: number }).n;
   return { ingested: count("ok"), quarantined: count("error") };
@@ -365,15 +454,121 @@ export function registerIpcHandlers(): void {
   // module registry — Config-as-Data rows that drive the renderer nav + routing.
   safeHandle("modules:get", () => modules.listModules());
 
+  // PLATFORM entitlement read (08-21-2026). Read-only: the tier and the per-feature map, nothing a
+  // renderer could write. It is a PLATFORM channel rather than a module one for the reason the
+  // 08-06 move to core/licensing was made — a module must never have to reach into another module's
+  // service layer to learn its own tier (that is exactly how Employees ended up ignoring every key).
+  // Refusal still happens main-side in each module; this only lets a surface hide itself.
+  safeHandle("licensing:features", () => licensing.getFeatureState(getDb()));
+
   // platform settings — key-whitelisted app_settings access (service rejects unknown keys).
   safeHandle("settings:get", (_e, key: unknown) => settings.getSetting(key));
   safeHandle("settings:set", (_e, key: unknown, value: unknown) => {
+    // Finding 5 (08-22-2026): the two keys that drive the ingest engine used to persist BEFORE the
+    // Brain gate threw — work preceding the check. The gate now runs first, so a non-entitled
+    // install cannot durably write ingest configuration at all.
+    if (key === "mindmerge.watch_path" || key === "mindmerge.watch_enabled") {
+      if (getActiveOrg()) licensing.enforceFeature(getDb(), "mindmergeDocs");
+    }
     settings.setSetting(key, value);
     // B4: persisting a mindmerge watch setting re-points the fs.watch engine. A new watch_path means a
     // different folder → full re-ingest. Toggling watch_enabled only starts/stops the live watcher; the
     // files are already in the DB, so skipIngest=true avoids a needless re-read (no loading overlay).
-    if (key === "mindmerge.watch_path") restartMindMerge();
+    if (key === "mindmerge.watch_path" || key === "mindmerge.watch_roots") restartMindMerge();
     else if (key === "mindmerge.watch_enabled") restartMindMerge(true);
+  });
+
+  // --- feedback — the deliberate report/suggestion channel, and the crash screenshot ---
+  // Ungated on purpose: a person whose app just broke must be able to say so whatever they have or
+  // have not paid for. Entitlement decides what the app DOES, never whether someone may report that
+  // it did it wrong. The one thing that is gated is what a suggestion carries — the module list comes
+  // from licensing, so a photographer's dropdown cannot mention modules they were never sold.
+  safeHandle("feedback:begin", async (_e, kindLike: unknown) => {
+    const kind = kindLike === "suggestion" ? "suggestion" : "report";
+    const reference = feedback.newReference(kind);
+    // The picture is taken NOW, as the form opens — not when Send is pressed. Pressed-time capture
+    // photographs the report form itself instead of the thing that went wrong.
+    const shot = kind === "report" ? await feedback.captureScreen(reference) : null;
+    return { reference, thumb: shot?.thumb ?? null };
+  });
+  /**
+   * The licence key, or null. Ruled 08-23-2026: the reply address is resolved SERVER side from this
+   * key, so no feedback form in this application ever asks a person for their email address.
+   *
+   * Wrapped, because a report must never fail over identity. No database, no organisation, no licence
+   * are all normal states — the report still goes, it simply cannot be answered.
+   */
+  const account = (): string | null => {
+    try {
+      const state = licensing.getLicenseState(getDb());
+      // Either purchase route identifies a customer; a marketplace buyer has no licence key.
+      return state.licenseKey ?? state.marketplaceId ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  safeHandle("feedback:sendReport", (_e, input: unknown) => {
+    const i = (input ?? {}) as Record<string, unknown>;
+    const description = String(i.description ?? "").trim();
+    if (!description) throw new Error("Tell me what went wrong first — the description cannot be empty.");
+    return feedback.deliver(
+      feedback.buildReport({
+        // Truthiness, not ??: the renderer sends "" when screenshots are off and begin() was never
+        // called, and "" ?? x is "" — a report must never go out with a blank reference.
+        reference: i.reference ? String(i.reference) : feedback.newReference("report"),
+        description,
+        includeSystem: i.includeSystem === true,
+        extraImages: Array.isArray(i.extraImages) ? (i.extraImages as string[]) : [],
+        crash: i.crash === true,
+        account: account(),
+      })
+    );
+  });
+  safeHandle("feedback:sendSuggestion", (_e, input: unknown) => {
+    const i = (input ?? {}) as Record<string, unknown>;
+    const idea = String(i.idea ?? "").trim();
+    if (!idea) throw new Error("Describe the idea first — even roughly. The idea cannot be empty.");
+    return feedback.deliver(
+      feedback.buildSuggestion({
+        reference: i.reference ? String(i.reference) : feedback.newReference("suggestion"),
+        idea,
+        problem: String(i.problem ?? ""),
+        area: String(i.area ?? ""),
+        weight: String(i.weight ?? ""),
+        modules: Array.isArray(i.modules) ? (i.modules as string[]) : [],
+        account: account(),
+      })
+    );
+  });
+  // "Not now" on the crash prompt lands here. It DELETES the screenshot rather than parking it — an
+  // app holding pictures of someone's screen that they declined to send is the breach headline.
+  safeHandle("feedback:discard", (_e, reference: unknown) => {
+    feedback.discardScreen(String(reference ?? ""));
+  });
+  // Extra pictures the user picks themselves ("+ Add images"). Paths only; main reads them at send
+  // time, so the renderer never handles file contents.
+  safeHandle("feedback:pickImages", async () => {
+    const opts = {
+      title: "Add pictures to this report",
+      properties: ["openFile", "multiSelections"] as const,
+      filters: [{ name: "Pictures", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }],
+    };
+    const win = getMainWindow();
+    // Two call forms, not one with a coerced undefined: the parent-window overload MODALS the dialog
+    // to the app, which is what should happen. Passing undefined as the parent is not the same thing
+    // as omitting it, and a picker that floats free of a modal report form is how a user loses it
+    // behind the window they were just looking at.
+    const r = win
+      ? await dialog.showOpenDialog(win, { ...opts, properties: [...opts.properties] })
+      : await dialog.showOpenDialog({ ...opts, properties: [...opts.properties] });
+    return r.canceled ? [] : r.filePaths;
+  });
+  // Relaunch from the crash prompt. app.relaunch existed nowhere in this codebase before now; the
+  // Help menu's "Safe Mode Restart" and "Clear Cache and Restart" are still unbuilt placeholders.
+  safeOn("feedback:restart", () => {
+    app.relaunch();
+    app.quit();
   });
 
   // Native window-control overlay tint. The window is born in the JARVIS boot navy; the renderer
@@ -392,6 +587,12 @@ export function registerIpcHandlers(): void {
   // engine start with a real watch folder) so the module can show its loading overlay from the instant
   // it opens — before the first progress tick — and only when there is genuinely a load to cover.
   safeHandle("mindmerge:ensure", () => {
+    // The Brain gate, taken DIRECTLY: this handler's catch below exists to absorb the pre-org
+    // throw ("no active org" during the First-Run window) and would swallow the chokepoint's
+    // refusal into a silent { ingesting: false }. The org guard keeps that pre-org contract
+    // byte-for-byte (no org → nothing to gate, the catch still answers); with an org present a
+    // non-entitled call now refuses LOUDLY instead of pretending there was nothing to load.
+    if (getActiveOrg()) licensing.enforceFeature(getDb(), "mindmergeDocs");
     const fresh = mindmergeHandle === null;
     try {
       ensureMindMerge();
@@ -416,6 +617,11 @@ export function registerIpcHandlers(): void {
   // native folder picker → the chosen dir (or null on cancel); the renderer persists it via
   // settings:set, which re-points the engine (B4). rescan re-ingests the current folder on demand.
   safeHandle("mindmerge:pickWatchFolder", async () => {
+    // The Brain gate, taken DIRECTLY: this is the one ingest channel that never calls
+    // ensureMindMerge() (it only shows the native picker), so the chokepoint cannot cover it —
+    // same shape as previewDocFolderPaths on the Documents side: nothing leaks either way, but a
+    // feature gate with one documented exception stops being a feature gate.
+    licensing.enforceFeature(getDb(), "mindmergeDocs");
     const win = getMainWindow();
     const res = win
       ? await dialog.showOpenDialog(win, { properties: ["openDirectory"] })
@@ -423,6 +629,63 @@ export function registerIpcHandlers(): void {
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
   });
   safeHandle("mindmerge:rescan", () => rescanMindMerge());
+
+  // ---- BL-58: stacked imports, the folder tree, and on-disk editing ----
+  safeHandle("mindmerge:roots", () => {
+    const h = ensureMindMerge();
+    const paths = docPaths(h);
+    return readMindMergeRoots().map((r) => ({ path: r, count: paths.filter((p) => underRoot(p, r)).length }));
+  });
+  safeHandle("mindmerge:tree", () => {
+    const h = ensureMindMerge();
+    const paths = docPaths(h);
+    return readMindMergeRoots().map((r) => buildDocTree(r, paths.filter((p) => underRoot(p, r))));
+  });
+  // + Import — STACKS, never replaces ("when a user adds another imported folder it gets saved on
+  // top of the first"). The dialog is main-side and modal; restart re-ingests every root, which is
+  // an idempotent upsert for the old ones and the initial read for the new one.
+  safeHandle("mindmerge:addRoot", async () => {
+    licensing.enforceFeature(getDb(), "mindmergeDocs");
+    const win = getMainWindow();
+    const r = win
+      ? await dialog.showOpenDialog(win, { properties: ["openDirectory"] })
+      : await dialog.showOpenDialog({ properties: ["openDirectory"] });
+    const dir = r.canceled ? null : (r.filePaths[0] ?? null);
+    if (!dir) return null;
+    const resolved = path.resolve(dir);
+    const roots = readMindMergeRoots();
+    if (!roots.includes(resolved)) {
+      roots.push(resolved);
+      settings.setSetting("mindmerge.watch_roots", JSON.stringify(roots));
+    }
+    restartMindMerge();
+    return resolved;
+  });
+  // The editor reads the DISK, not the row — the row's body_md can be a debounce behind the file.
+  safeHandle("mindmerge:readFile", (_e, p: unknown) => {
+    ensureMindMerge();
+    const f = watchedMarkdown(p);
+    if (fs.statSync(f).size > 8 * 1024 * 1024) throw new Error("File larger than 8 MB.");
+    return fs.readFileSync(f, "utf8");
+  });
+  // Writing INTO an imported folder is the v7 feature itself ("i thought that the editor would
+  // auto-update there edits in real time") — this is the user's own notes folder, not a scanned
+  // drive; the Scan module's read-only-sources canon governs a different surface. ingestFile runs
+  // immediately so the list and counts are truthful before the watcher's 500ms debounce lands.
+  safeHandle("mindmerge:writeFile", (_e, p: unknown, body: unknown) => {
+    const h = ensureMindMerge();
+    const f = watchedMarkdown(p);
+    const text = String(body ?? "");
+    if (text.length > 8 * 1024 * 1024) throw new Error("Body larger than 8 MB.");
+    fs.writeFileSync(f, text, "utf8");
+    ingestFile(h.db, f);
+    return { ok: true };
+  });
+
+  // AUTHORED documents (mindmerge:*Doc* + copyText/logClient/code themes/attachments) — same shape
+  // as TimeTracker/Employees/Vault: registration and the module's own lazy org context live in the
+  // module's own ipc file. They land BESIDE the ingest channels above, never instead of them.
+  registerMindMergeDocsIpc();
 
   // --- storage (Phase 2): the app-managed Markdown root + the Documents export folder ---
   // locations ENSURES the tree exists (first look creates it, no prompt beyond the root choice).

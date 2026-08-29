@@ -58,18 +58,21 @@ export function getNote(db: Db, noteId: string): NoteRow | undefined {
   return db.prepare("SELECT * FROM mindmerge_notes WHERE note_id = ?").get(noteId) as NoteRow | undefined;
 }
 
-// Turn a free-text query into a safe FTS5 PREFIX match: quote/operator chars (" * ( ) : ^ -) act
-// as whitespace — mirroring how the tokenizer splits them, so "mindmerge" still finds both
-// tokens — then each remaining term becomes a quoted prefix ("term"*), AND-combined by space.
-// "happy" therefore matches "happysmiles"; a lone quote/operator sanitizes to no terms (no MATCH ran).
+// Turn a free-text query into a safe FTS5 PREFIX match. ALL punctuation acts as whitespace —
+// the unicode61 tokenizer splits on every non-letter/non-digit, so mirroring it exactly keeps
+// renderer input from ever reaching FTS operators. Each term becomes a quoted prefix ("term"*),
+// AND-combined by space. "happy" therefore matches "happysmiles"; a punctuation-only query
+// sanitizes to no terms (no MATCH ran).
+//
+// THE JOINED FORM RIDES ALONG (Jason 08-26-2026: "builders-audit" must find BUILDERSAUDIT).
+// A concatenated name is ONE token to the tokenizer, so the AND of its parts ("builders"* AND
+// "audit"*) can never reach it — the parts' concatenation is OR'd in as its own prefix. FTS5
+// binds AND tighter than OR, so the query reads (every part) OR (the joined name).
 function ftsQuery(query: string): string {
-  return query
-    .replace(/["*():^-]/g, " ")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((term) => `"${term}"*`)
-    .join(" ");
+  const terms = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (terms.length === 0) return "";
+  const anded = terms.map((term) => `"${term}"*`).join(" ");
+  return terms.length > 1 ? `${anded} OR "${terms.join("")}"*` : anded;
 }
 
 export function search(db: Db, query: string): NoteRow[] {

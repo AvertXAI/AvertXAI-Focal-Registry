@@ -19,6 +19,43 @@ export interface DbTable {
 /** Process monitor. `rank` is IMPORTANCE, not usage — MAIN holds the single-instance lock, so it
     leads even when a renderer is using ten times the memory. */
 export type ProcRole = "MAIN" | "renderer" | "gpu-process" | "utility" | "node";
+/** What `feedback.begin` hands back: the only handle on the report, and the picture already taken.
+ *  `thumb` is a small data URL for showing that a shot exists — the full-resolution PNG stays on the
+ *  machine. It is null for suggestions, which never carry a screenshot unless one is attached. */
+export interface FeedbackBegin {
+  reference: string;
+  thumb: string | null;
+}
+
+export interface FeedbackReportInput {
+  reference: string;
+  description: string;
+  /** "Include the files, folders, system & hardware drivers used." Defaults off, always. */
+  includeSystem: boolean;
+  /** Absolute paths from the picker. The renderer never reads the files themselves. */
+  extraImages?: string[];
+  /** True when this came from the crash prompt rather than the Help menu. */
+  crash?: boolean;
+}
+
+export interface FeedbackSuggestionInput {
+  reference: string;
+  idea: string;
+  problem: string;
+  area: string;
+  /** nice | weekly | blocking | pay — how much it matters, which is a pricing signal. */
+  weight: string;
+  /** Module slugs this person actually owns. */
+  modules: string[];
+}
+
+/** `sent: false` is NOT a lost report — it means the payload is spooled in userData awaiting a
+ *  delivery path. The user is told the difference; silence would spend their goodwill for nothing. */
+export interface FeedbackResult {
+  sent: boolean;
+  reference: string;
+}
+
 export interface ProcRow {
   pid: number;
   parentPid: number;
@@ -72,6 +109,20 @@ export interface ModuleRow {
 
 // ---- MindMerge module (renderer-safe copies of the service shapes at
 // electron/core/services/mindmerge/api.ts — the renderer imports from HERE, never from services/) ----
+/** BL-58 — one stacked import root and how many ok documents live under it. */
+export interface MindMergeRootInfo {
+  path: string;
+  count: number;
+}
+
+/** BL-58 — a folder in an import's tree; count is the whole subtree's, like the v7 mockup shows. */
+export interface MindMergeTreeNode {
+  name: string;
+  path: string;
+  count: number;
+  children: MindMergeTreeNode[];
+}
+
 export interface NoteRow {
   id: number;
   uuid: string;
@@ -99,6 +150,67 @@ export interface NoteRow {
 export type NoteFilter = Partial<
   Record<"status" | "type" | "severity" | "parse_status" | "client" | "owner" | "service", string>
 >;
+
+// ---- MindMerge AUTHORED documents (renderer-safe copies of the service shapes at
+// electron/core/services/mindmerge/notes.ts + noteFolders.ts). Distinct from NoteRow above, which
+// is the INGEST side: NoteRow is a parsed file on disk, a MindMergeDoc is a document the user
+// wrote. Bodies are CONTENT, not credentials — lists still carry an excerpt, never the body,
+// because 67 bodies on every list render is how a notes list gets slow. ----
+export interface MindMergeDocMeta {
+  id: number;
+  uuid: string;
+  kind: string;
+  title: string;
+  excerpt: string;
+  folder: string | null;
+  /** The real tree. The `folder` text column above is the legacy source it was lifted from. */
+  folder_id: number | null;
+  pinned: number;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+export interface MindMergeDoc extends Omit<MindMergeDocMeta, "excerpt"> {
+  body: string;
+}
+export interface MindMergeDocFolder {
+  id: number;
+  uuid: string;
+  name: string;
+  parent_id: number | null;
+  sort_order: number;
+}
+/** One file a folder import offers. The file's own dates ride along so an imported archive keeps
+    its chronology. */
+export interface MindMergeWalkedFile {
+  path: string;
+  name: string;
+  rel: string;
+  ext: string;
+  size: number;
+  mtimeMs: number;
+  birthtimeMs: number;
+}
+/** What a folder walk (or a stat of hand-picked files) found. Names and stats only — no file
+    contents cross here. Mirrors WalkResult in electron/core/services/vault/sources.ts, MindMerge-
+    named the way MindMergeWalkedFile above already is. */
+export interface MindMergeWalkResult {
+  files: MindMergeWalkedFile[];
+  skipped: number;
+  skippedDirs: string[];
+  truncated: boolean;
+}
+/** One colour theme this machine has installed (VS Code). Reads only; never the network. */
+export interface MindMergeFoundTheme {
+  label: string;
+  uiTheme: "dark" | "light" | null;
+  file: string;
+  extension: string;
+  /** The one named in the user's own workbench.colorTheme — listed first. */
+  active: boolean;
+}
+/** Four levels, mirroring the module log. */
+export type MindMergeLogLevel = "debug" | "info" | "warn" | "error";
 
 // ---- Scout Viewer (Fortified Browser) — renderer-safe shapes for the engine bridge ----
 export interface ScoutBounds {
@@ -613,7 +725,19 @@ export interface TimeTrackerSettings {
   idleThresholdMin: number;
 }
 
-export type TimeTrackerTier = "free" | "pro" | "business";
+/** PER-FEATURE entitlement (08-21-2026) — "at all", where caps answer "how many". Mirrors
+    electron/core/services/licensing/index.ts's FEATURES table; both read the SAME resolveTier().
+    Widened 08-22-2026 to the full main-side Feature union when Jason's tier rulings landed
+    (docs free+; Brain and the Employees module Business/Root only). */
+export type LicenseFeature = "mindmergeDocs" | "mindmergeBrain" | "employeesModule";
+
+export interface LicenseFeatureState {
+  tier: "free" | "pro" | "business" | "root";
+  tierLabel: string;
+  features: Record<LicenseFeature, boolean>;
+}
+
+export type TimeTrackerTier = "free" | "pro" | "business" | "root";
 
 /** Licence state — hardcoded offline validation; the HIGHEST entitlement of the two stored values wins. */
 export interface TimeTrackerLicenseState {
@@ -1377,6 +1501,20 @@ export interface Api {
     get: (key: string) => Promise<string | null>;
     set: (key: string, value: string) => Promise<void>;
   };
+  /** Platform entitlement, READ ONLY. Lets a surface HIDE itself; the refusal is still main-side. */
+  licensing: {
+    features: () => Promise<LicenseFeatureState>;
+  };
+
+  /** Report a problem / Suggest something. UNGATED by design — see preload for why. */
+  feedback: {
+    begin: (kind: "report" | "suggestion") => Promise<FeedbackBegin>;
+    sendReport: (input: FeedbackReportInput) => Promise<FeedbackResult>;
+    sendSuggestion: (input: FeedbackSuggestionInput) => Promise<FeedbackResult>;
+    discard: (reference: string) => Promise<void>;
+    pickImages: () => Promise<string[]>;
+    restart: () => void;
+  };
   /** Native min/max/close overlay tint — boot-navy at launch; App drives shell-mount + theme flips. */
   theme: {
     applyOverlay: (mode: string) => Promise<void>;
@@ -1432,6 +1570,98 @@ export interface Api {
     pickWatchFolder: () => Promise<string | null>;
     /** Re-ingest the current watch folder now → live ok/error counts. */
     rescan: () => Promise<{ ingested: number; quarantined: number }>;
+    /** BL-58 — the stacked import roots with their document counts. */
+    roots: () => Promise<MindMergeRootInfo[]>;
+    /** BL-58 — one folder tree per root; counts are subtree-inclusive. */
+    tree: () => Promise<MindMergeTreeNode[]>;
+    /** BL-58 — dialog-pick a folder and STACK it as a new import root (never replaces). */
+    addRoot: () => Promise<string | null>;
+    /** BL-58 — the file's current bytes from DISK (the row can be a debounce behind). */
+    readFile: (path: string) => Promise<string>;
+    /** BL-58 — write into an imported folder and ingest immediately. */
+    writeFile: (path: string, body: string) => Promise<{ ok: boolean }>;
+    // ---- Authored documents (Phase 3). METHOD names are the vault's, unchanged, so the ported
+    // views need no edit; only the CHANNEL suffix differs (see electron/core/preload.ts). Added
+    // ALONGSIDE the ingest methods above. MindMerge's db is PLAIN — no lock, no gate. ----
+    /** The document folder tree. One folder per document; counts are INCLUSIVE of descendants. */
+    listNoteFolders: () => Promise<{ folders: MindMergeDocFolder[]; counts: Record<number, number>; unfiled: number }>;
+    createNoteFolder: (name: string, parentId?: number | null) => Promise<MindMergeDocFolder>;
+    renameNoteFolder: (id: number, name: string) => Promise<MindMergeDocFolder>;
+    moveNoteFolder: (id: number, parentId: number | null) => Promise<MindMergeDocFolder>;
+    /** What a delete would take, without taking it — the confirm is built from this. `archived` is
+     *  how many of `notes` are already on the Archived shelf, which is why this total can exceed the
+     *  number the tree shows (the tree excludes archived documents). */
+    noteFolderSubtree: (id: number) => Promise<{ folders: number; notes: number; directNotes: number; archived: number }>;
+    /** Keeps every document and unfiles the WHOLE subtree; the folders stay. The deliberate
+     *  opposite of deleteNoteFolder, and a separate action on purpose. */
+    emptyNoteFolder: (id: number) => Promise<{ movedNotes: number }>;
+    /** Deletes the folder, its subfolders, and every document in any of them. Permanent. */
+    deleteNoteFolder: (id: number) => Promise<{ deletedNotes: number; deletedFolders: number }>;
+    /** The recoverable delete: every document in the subtree to the Archived shelf, folders removed. */
+    archiveNoteFolder: (id: number) => Promise<{ archivedNotes: number; deletedFolders: number }>;
+    /** Clears EVERY document and folder. Destructive and confirm-gated. */
+    purgeNotes: () => Promise<{ notes: number; folders: number }>;
+    setNoteFolder: (uuid: string, folderId: number | null) => Promise<{ ok: boolean }>;
+    /** Pure preview — what folders an import would create. Writes nothing. */
+    previewFolderPaths: (rels: string[]) => Promise<string[]>;
+    /** Filtered and capped MAIN-side. folderId: undefined = all · null = Unfiled · number = that folder. */
+    listNotes: (kind?: string, archived?: boolean, folderId?: number | null, limit?: number, offset?: number)
+      => Promise<{ rows: MindMergeDocMeta[]; total: number; truncated: boolean }>;
+    /** Search titles and bodies main-side, capped — the global search never holds the corpus. */
+    searchNotes: (q: string, limit?: number) => Promise<MindMergeDocMeta[]>;
+    restoreNote: (uuid: string) => Promise<MindMergeDoc>;
+    /** Hard delete — refused unless the document is archived first. */
+    destroyNote: (uuid: string) => Promise<{ ok: boolean }>;
+    getNote: (uuid: string) => Promise<MindMergeDoc>;
+    createNote: (input: { kind?: string; title: string; body?: string; folder?: string | null; folderId?: number | null }) => Promise<MindMergeDoc>;
+    updateNote: (uuid: string, patch: Partial<{ kind: string; title: string; body: string; folder: string | null; pinned: boolean }>) => Promise<MindMergeDoc>;
+    archiveNote: (uuid: string) => Promise<{ ok: boolean }>;
+    /** Folder import (Phase 4) — choose, walk, review, import. Dialogs are main-side and modal;
+     *  the renderer never names a path it was not given. */
+    chooseFolders: () => Promise<string[]>;
+    /** Single files. Filters follow the target; "notes" is the default and the only MindMerge one. */
+    chooseFiles: (target?: string) => Promise<string[]>;
+    statFiles: (paths: string[]) => Promise<MindMergeWalkResult>;
+    /** The chosen file's text, so a parser can run and a review table can be shown BEFORE any
+     *  write. Capped at 8 MB main-side. */
+    readImportText: (filePath: string) => Promise<string>;
+    walkFolders: (roots: string[]) => Promise<MindMergeWalkResult>;
+    /** THE COUNTS RECONCILE: scanned === created + skipped + failed + repaired, always. `skipped`
+     *  is "already imported by source path" — a WIDER set than any one folder's tree count, because
+     *  it spans archived documents and documents filed elsewhere. Report both or neither. */
+    importDocs: (
+      files: MindMergeWalkedFile[],
+      opts: { kind?: string; folder?: string | null; mirror?: boolean }
+    ) => Promise<{
+      scanned: number;
+      created: number;
+      warned: number;
+      skipped: number;
+      /** The three sum to `skipped`. `skippedFiled` is the one comparable to a folder's tree count. */
+      skippedFiled: number;
+      skippedUnfiled: number;
+      skippedArchived: number;
+      failed: number;
+      /** Blank rows from an earlier silently-failed read, filled in place by this re-import. */
+      repaired: number;
+      problems: { file: string; reason: string }[];
+    }>;
+    /** Pasted-image attachments. REGISTERED BUT NOT WIRED this phase — the main-side handler THROWS
+     *  by ruling (08-21-2026): attachments get their own encrypted database file and its key source
+     *  is still an open question. The editor's existing catch path removes a refused paste and says
+     *  so, so a throw is the correct, honest behaviour — never a silent no-op. */
+    saveAttachment: (input: { name?: string; mime: string; dataBase64: string }) => Promise<{ uuid: string; name: string; mime: string; byteCount: number }>;
+    getAttachment: (uuid: string) => Promise<{ name: string; mime: string; dataBase64: string }>;
+    /** THE copy funnel. Every copy in the module goes through this, never navigator.clipboard. */
+    copyText: (text: string) => Promise<boolean>;
+    /** Colour themes installed in Visual Studio Code on this machine. Reads only; never the network. */
+    findCodeThemes: () => Promise<{ active: string | null; themes: MindMergeFoundTheme[] }>;
+    /** The RAW text of one — JSONC and all. Parsing lives in codeTheme.ts, one implementation. */
+    readCodeTheme: (file: string) => Promise<{ name: string; raw: string }>;
+    /** The renderer's own failures. A React crash never reaches the main-side error boundary, so
+     *  without this the log would quietly imply the renderer never breaks. Returns the reference id
+     *  so a surface can show the user the same six characters that are now in the log. */
+    logClient: (level: MindMergeLogLevel, message: string, detail?: string) => Promise<string>;
   };
   /** Scan module — READ-ONLY against sources. start/resume return immediately; progress arrives
    *  over the scan:progress push. The double-scan guard's decision is data; the UI owns the choice. */

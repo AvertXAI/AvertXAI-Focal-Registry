@@ -64,7 +64,87 @@ export function generateUUIDv7(): string {
   return [...bytes].map((b, i) => b.toString(16).padStart(2, "0") + ([3, 5, 7, 9].includes(i) ? "-" : "")).join("");
 }
 
+/**
+ * ISO-8601 UTC WITH MILLISECONDS. Byte-identical to the vault's `nowIso()`, and that is not a
+ * stylistic choice — it is a correctness one.
+ *
+ * The first version of this function stripped the milliseconds. That silently broke ordering: these
+ * timestamps live in TEXT columns and every list sorts them LEXICOGRAPHICALLY, while `isoOrNow()`
+ * in notes.ts still emits full precision for an imported file's mtime. One table would then hold two
+ * formats, and "." (0x2E) sorts before "Z" (0x5A) — so `2026-08-21T21:40:06.900Z` would rank BELOW
+ * `2026-08-21T21:40:06Z` despite being 900 milliseconds LATER. An imported document would sink under
+ * a note written in the same second, in a list whose whole job is "most recent first".
+ *
+ * Caught by adversarial review before it ever ran. Do not "tidy" the milliseconds away.
+ */
+export function nowIso(): string {
+  return new Date().toISOString();
+}
+
+/**
+ * AUTHORED DOCUMENTS — the Secured Notes shape, landing BESIDE the ingest tables, never instead of
+ * them (RULED by Jason 08-21-2026).
+ *
+ * WHY TWO SHAPES AND NOT ONE. `mindmerge_notes` below is the INGEST shape: a markdown file found on
+ * disk, parsed, and indexed, keyed by `file_path UNIQUE NOT NULL`. That column alone makes it unable
+ * to hold a document a user is writing, because an authored note has no file until it is exported.
+ * One answers "what did I find", the other "what am I writing". They are not variants.
+ *
+ * The ingest side stays because it is the surface JARVIS will use — creating and organising files on
+ * disk while the engine indexes them — and because it is how Jason reads and edits his own `_source`
+ * markdown. Neither purpose survives a merge.
+ *
+ * `org_id` IS PRESENT even though this database file is already per-org (`mindmerge_<org>.db`) and
+ * the ingest tables omit it. It is not decoration: every query in the note services being copied
+ * filters `WHERE org_id = ?`, so dropping the column would mean rewriting all of them. Canon asks for
+ * it on every module table regardless.
+ *
+ * PLAIN, NOT ENCRYPTED. The vault's copy of this shape lives in a SQLCipher file; this one does not,
+ * because MindMerge is Tier-1 agent-READABLE by design. The encryption was never in the note code —
+ * it was in the connection — so the same services work unchanged against this handle. Attachments are
+ * the exception and are ruled into their own encrypted file, not this one.
+ */
+function createDocsSchema(db: Db): void {
+  createTable(db, "mindmerge_doc_folders", [
+    "org_id TEXT NOT NULL",
+    "name TEXT NOT NULL",
+    "parent_id INTEGER", // NULL = top level
+    "sort_order INTEGER NOT NULL DEFAULT 0",
+  ]);
+
+  createTable(db, "mindmerge_docs", [
+    "org_id TEXT NOT NULL",
+    "kind TEXT NOT NULL", // note | runbook | snippet — open set, matching the vault's doctrine
+    "title TEXT NOT NULL",
+    "body TEXT NOT NULL DEFAULT ''",
+    "folder TEXT", // free-text group name; NULL = All notes. Legacy sibling of folder_id, kept.
+    "folder_id INTEGER",
+    "pinned INTEGER NOT NULL DEFAULT 0",
+    "archived_at TEXT",
+    "source_path TEXT", // where an imported document came from; NULL for anything authored here
+  ]);
+
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mindmerge_docs_kind ON mindmerge_docs (kind);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mindmerge_docs_folder ON mindmerge_docs (folder_id);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mindmerge_doc_folders_parent ON mindmerge_doc_folders (parent_id);");
+
+  /**
+   * THE GUARD THAT STOPS AN IMPORT ARRIVING TWICE. Jason imported ~2,000 files into the vault and the
+   * folder read 4,178 — the same documents pulled in four or five times over repeated runs, because
+   * nothing recorded what had already been taken (08-12-2026).
+   *
+   * PARTIAL index: `WHERE source_path IS NOT NULL` exempts every authored note, so they share the
+   * absence freely, while two imports of one file cannot both exist. A guarantee from the database
+   * rather than a check the importer has to remember — and importers are exactly the code that forgets.
+   */
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS mindmerge_docs_source_uniq ON mindmerge_docs (org_id, source_path) WHERE source_path IS NOT NULL;"
+  );
+}
+
 export function createSchema(db: Db): void {
+  createDocsSchema(db);
+
   createTable(db, "mindmerge_notes", [
     "note_id TEXT UNIQUE", // from frontmatter `id`; NULL allowed (quarantined rows have none)
     "title TEXT",
@@ -84,6 +164,12 @@ export function createSchema(db: Db): void {
     "parse_status TEXT NOT NULL DEFAULT 'ok'", // 'ok' | 'error'
     "parse_error TEXT",
   ]);
+  // ADDITIVE, GUARDED (SOP §6): mtime_ms is the ingest change-guard (Jason 08-26-2026, the vault
+  // direction — "the DB is the truth"). A file whose stored mtime matches is never re-read, so
+  // re-opening the module stats the tree instead of re-parsing 2,000+ files behind a spinner.
+  if (!(db.pragma("table_info(mindmerge_notes)") as { name: string }[]).some((c) => c.name === "mtime_ms")) {
+    db.exec("ALTER TABLE mindmerge_notes ADD COLUMN mtime_ms INTEGER");
+  }
 
   createTable(db, "tags", ["name TEXT UNIQUE NOT NULL"]);
   createTable(db, "mindmerge_note_tags", [

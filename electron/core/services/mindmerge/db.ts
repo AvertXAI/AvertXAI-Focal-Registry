@@ -163,13 +163,31 @@ export function createSchema(db: Db): void {
     "file_path TEXT UNIQUE NOT NULL", // the upsert key
     "parse_status TEXT NOT NULL DEFAULT 'ok'", // 'ok' | 'error'
     "parse_error TEXT",
+    // VAULT FIELDS (Jason 08-28-2026): MindMerge is the vault — the memory an agent reads and
+    // writes across every AvertXAI product — so notes organise by what they SERVE, not by how
+    // badly something is on fire. severity/service/trigger above are RETIRED runbook fields:
+    // no longer read or written, columns kept — existing rows may hold values and a dropped
+    // column destroys them silently.
+    "domain TEXT", // the product/operation area a note serves (focal-registry, business, meta, …)
+    "project TEXT", // the specific effort inside a domain — free text, lowercase-hyphenated
+    "area TEXT", // what it is ABOUT, not its document type (schema, pricing, legal, ops, …)
+    "source TEXT", // where the knowledge came from — lets an agent tell a ruling from a guess
+    "confidence TEXT", // verified | inferred | unknown — the labels every claim already carries
   ]);
   // ADDITIVE, GUARDED (SOP §6): mtime_ms is the ingest change-guard (Jason 08-26-2026, the vault
   // direction — "the DB is the truth"). A file whose stored mtime matches is never re-read, so
   // re-opening the module stats the tree instead of re-parsing 2,000+ files behind a spinner.
-  if (!(db.pragma("table_info(mindmerge_notes)") as { name: string }[]).some((c) => c.name === "mtime_ms")) {
-    db.exec("ALTER TABLE mindmerge_notes ADD COLUMN mtime_ms INTEGER");
+  {
+    const have = new Set((db.pragma("table_info(mindmerge_notes)") as { name: string }[]).map((c) => c.name));
+    if (!have.has("mtime_ms")) db.exec("ALTER TABLE mindmerge_notes ADD COLUMN mtime_ms INTEGER");
+    // Vault fields on an EXISTING database — same guarded-additive shape; existing rows get NULL.
+    for (const col of ["domain", "project", "area", "source", "confidence"]) {
+      if (!have.has(col)) db.exec(`ALTER TABLE mindmerge_notes ADD COLUMN ${col} TEXT`);
+    }
   }
+  // The two filters that will run constantly (Jason 08-28-2026).
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mindmerge_notes_domain ON mindmerge_notes (domain);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_mindmerge_notes_domain_project ON mindmerge_notes (domain, project);");
 
   createTable(db, "tags", ["name TEXT UNIQUE NOT NULL"]);
   createTable(db, "mindmerge_note_tags", [

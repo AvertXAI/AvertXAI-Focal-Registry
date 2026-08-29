@@ -32,6 +32,12 @@ interface Props {
   onOpenDataViewer: () => void;
   /** Settings is a pure overlay: it never changes the active module, so it is not a `select`. */
   onOpenSettings: () => void;
+  /** Global search — the top-rail magnifier next to the panel toggle (BL-58 v4). Pure overlay. */
+  onOpenSearch: () => void;
+  /** Help → Report a problem / Suggest something / About…. Pure overlays, same as Settings. */
+  onReportProblem: () => void;
+  onSuggest: () => void;
+  onAbout: () => void;
   /** Nav dock — click pins/unpins, hover peeks. */
   navDocked: boolean;
   onToggleNavDock: () => void;
@@ -49,6 +55,10 @@ export default function TopBar({
   onSelect,
   onOpenDataViewer,
   onOpenSettings,
+  onOpenSearch,
+  onReportProblem,
+  onSuggest,
+  onAbout,
   navDocked,
   onToggleNavDock,
   onPeekChange,
@@ -119,6 +129,16 @@ export default function TopBar({
         >
           <PanelIcon />
         </button>
+        {/* GLOBAL SEARCH — restored 08-25-2026 (BL-58 v4 put it next to the panel toggle; it had
+            been stripped 08-19 as "never wired to an engine"; now it is wired to one). */}
+        <button
+          className="iconbtn"
+          onClick={onOpenSearch}
+          title="Search everything (Ctrl K)"
+          aria-label="Search everything"
+        >
+          <SearchIcon />
+        </button>
         <span className="topbar-div" aria-hidden="true" />
 
         <button
@@ -172,6 +192,9 @@ export default function TopBar({
           onClose={() => setMenuOpen(false)}
           onOpenSettings={onOpenSettings}
           onOpenDataViewer={onOpenDataViewer}
+          onReportProblem={onReportProblem}
+          onSuggest={onSuggest}
+          onAbout={onAbout}
           themeMode={themeMode}
           onThemeChange={onThemeChange}
         />
@@ -185,6 +208,14 @@ function MenuIcon() {
   return (
     <svg width={16} height={16} viewBox="0 0 16 16" fill="currentColor">
       <path d="M1 2.75h14v1.5H1zm0 4.5h14v1.5H1zm0 4.5h14v1.5H1z" />
+    </svg>
+  );
+}
+function SearchIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="7" cy="7" r="4.3" />
+      <path d="M10.3 10.3 13.6 13.6" />
     </svg>
   );
 }

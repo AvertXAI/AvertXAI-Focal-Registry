@@ -431,3 +431,154 @@ body.nav-docked .app-footer {
   left: var(--mc-flyout-width);
 }
 .app-footer-txt { font-size: 11.5px; }
+
+/* ---------- feedback: report a problem · suggest something · about · the crash prompt ----------
+   All four sit on the shell's `.overlay`, so App's body MutationObserver dims the native caption
+   buttons with no per-modal wiring — the same contract SettingsModal documents. Tokens only:
+   these surfaces must read correctly in hybrid, dark and light with no per-theme rule.
+
+   There is no --mc-danger token in this codebase (danger is a literal in shell CSS or a module
+   token), so the crash dot carries the same #e0574f the shell already uses elsewhere rather than
+   inventing a platform token for one 10px circle. */
+.fb-modal {
+  width: 560px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
+  background: var(--mc-panels); border: 1px solid var(--mc-border); border-radius: 14px;
+  padding: 24px 26px; box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+}
+.fb-modal.crash { width: 430px; padding: 20px 22px; }
+.fb-modal.about { width: 420px; }
+
+.fb-title { font-size: 19px; font-weight: 700; text-align: center; color: var(--mc-text); }
+.fb-sub { font-size: 13.5px; color: var(--mc-muted); line-height: 1.55; margin-top: 6px; }
+.fb-modal .fb-title + .fb-sub { text-align: center; }
+
+/* Left-aligned, and it reads only "Reference FR-XXXX" — the explanatory tail was cut 08-23-2026.
+   With no reply field this id is the only handle on the report, so it is shown, never hidden. */
+.fb-ref {
+  display: inline-flex; align-items: center; gap: 7px; margin-top: 14px;
+  background: var(--mc-nested); border-radius: 8px; padding: 6px 11px;
+  font-size: 12px; color: var(--mc-muted);
+}
+.fb-refid { font-family: var(--mc-mono); color: var(--mc-text); font-weight: 700; }
+
+.fb-label { display: block; font-size: 13px; color: var(--mc-muted); margin: 18px 0 6px; }
+.fb-req { color: #e0574f; }
+.fb-input, .fb-select {
+  width: 100%; background: var(--mc-field); color: var(--mc-text);
+  border: 1px solid var(--mc-border); border-radius: 10px; padding: 11px 13px;
+  font: 14px var(--mc-font); line-height: 1.55;
+}
+.fb-input { min-height: 100px; resize: vertical; }
+.fb-input.short { min-height: 66px; }
+.fb-input:focus, .fb-select:focus { outline: none; border-color: var(--mc-accent-primary); }
+
+/* THE SCREENSHOT IS INERT. pointer-events:none and user-select:none are the rule, not styling:
+   "no options for users" — it cannot be clicked, expanded, dragged or opened. It exists to show a
+   picture was taken. */
+.fb-shots { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; flex-wrap: wrap; }
+.fb-shot {
+  width: 198px; border-radius: 9px; border: 1px solid var(--mc-border);
+  pointer-events: none; user-select: none; display: block;
+}
+.fb-extra {
+  font: 11px var(--mc-mono); color: var(--mc-muted); background: var(--mc-nested);
+  border-radius: 6px; padding: 4px 8px; align-self: center;
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* One checkbox, one sentence, no explanation under it (ruled 08-23-2026). */
+.fb-check {
+  display: flex; gap: 11px; align-items: center; margin-top: 18px; padding: 13px;
+  border: 1px solid var(--mc-border); border-radius: 11px; cursor: pointer;
+  font-size: 13.5px; color: var(--mc-text); line-height: 1.45;
+}
+.fb-check.on { border-color: var(--mc-accent-primary); }
+.fb-check input { accent-color: var(--mc-accent-primary); width: 15px; height: 15px; flex: none; }
+
+.fb-seg { display: flex; border: 1px solid var(--mc-border); border-radius: 10px; overflow: hidden; }
+.fb-seg button {
+  flex: 1; background: var(--mc-panels); border: 0; border-right: 1px solid var(--mc-border);
+  padding: 10px 6px; font: 12.5px var(--mc-font); color: var(--mc-muted);
+  cursor: pointer; line-height: 1.35;
+}
+.fb-seg button:last-child { border-right: 0; }
+.fb-seg button.on { background: var(--mc-accent-primary); color: #fff; font-weight: 600; }
+.fb-seg button small { display: block; font-size: 10.5px; opacity: .82; margin-top: 2px; }
+
+.fb-error { margin-top: 14px; font-size: 12.5px; color: #e0574f; line-height: 1.5; }
+
+.fb-acts { display: flex; gap: 9px; align-items: center; margin-top: 24px; flex-wrap: wrap; }
+.fb-spacer { margin-left: auto; }
+.fb-btn {
+  background: var(--mc-panels); color: var(--mc-text);
+  border: 1px solid var(--mc-border); border-radius: 10px; padding: 9px 17px;
+  font: 13.5px var(--mc-font); cursor: pointer;
+}
+.fb-btn:hover:not(:disabled) { border-color: var(--mc-accent-primary); }
+.fb-btn:disabled { opacity: .55; cursor: default; }
+.fb-btn.primary {
+  background: var(--mc-accent-primary); border-color: var(--mc-accent-primary);
+  color: #fff; font-weight: 600;
+}
+
+.fb-crashhead { display: flex; align-items: center; gap: 10px; }
+.fb-crashhead h3 { font-size: 15px; font-weight: 700; color: var(--mc-text); }
+.fb-crashdot { width: 10px; height: 10px; border-radius: 50%; background: #e0574f; flex: none; }
+
+.fb-about { text-align: center; padding: 10px 0 4px; }
+.fb-aboutapp { font-size: 21px; font-weight: 700; color: var(--mc-text); }
+.fb-aboutver { font-family: var(--mc-mono); font-weight: 400; font-size: 16px; color: var(--mc-muted); margin-left: 7px; }
+.fb-aboutblk { margin-top: 24px; font-size: 13.5px; line-height: 1.95; color: var(--mc-muted); }
+.fb-aboutblk .strong { color: var(--mc-text); }
+.fb-aboutblk a { color: var(--mc-accent-primary); text-decoration: none; }
+.fb-aboutblk a:hover { text-decoration: underline; }
+.fb-aboutmail { margin-top: 4px; user-select: text; }
+
+/* ---- Global search (BL-58 v4) - the Vault search skin on shell tokens ---- */
+/* .gs-back rides the standard .overlay backdrop UNCHANGED — the native caption-button dim blends
+   against that exact backdrop color (windows.ts), so overriding background or z-index here breaks
+   the blend and exposes the min/max/close glyphs (Jason 08-25). Only the sheet placement differs. */
+.gs-back { align-items: flex-start; }
+.gs-sheet { margin-top: 64px; width: min(760px, 92vw); max-height: 72vh; display: flex;
+  flex-direction: column; background: var(--mc-panels); border: 1px solid var(--mc-modal-border);
+  border-radius: 12px; box-shadow: 0 18px 48px rgba(0, 0, 0, .4); overflow: hidden; }
+.gs-in { display: flex; align-items: center; gap: 8px; background: var(--mc-field);
+  border-bottom: 1px solid var(--mc-border); padding: 11px 13px; }
+.gs-in input { flex: 1; min-width: 0; border: 0; outline: 0; background: none;
+  font: 13.5px var(--mc-font); color: var(--mc-text); }
+.gs-mag { color: var(--mc-dimmer); flex: none; display: inline-flex; }
+.gs-clear { flex: none; border: 0; background: none; color: var(--mc-dimmer); cursor: pointer;
+  font-size: 12px; padding: 0 2px; font-family: inherit; }
+.gs-clear:hover { color: var(--mc-text); }
+.gs-kbd { flex: none; font-family: var(--mc-mono); font-size: 9.5px; color: var(--mc-dimmer);
+  border: 1px solid var(--mc-border); border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px;
+  background: var(--mc-nested); }
+.gs-filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px;
+  border-bottom: 1px solid var(--mc-border); background: var(--mc-nested); flex: none; }
+.gs-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--mc-border);
+  background: var(--mc-panels); border-radius: 20px; padding: 4px 11px; font-size: 11.5px;
+  cursor: pointer; color: var(--mc-muted); font-family: inherit; }
+.gs-chip:hover { border-color: var(--mc-accent-primary); }
+.gs-chip.on { border-color: var(--mc-accent-primary); color: var(--mc-accent-primary); font-weight: 600;
+  background: color-mix(in srgb, var(--mc-accent-primary) 12%, transparent); }
+.gs-sep { width: 1px; background: var(--mc-border); margin: 2px 4px; }
+.gs-results { flex: 1; min-height: 120px; overflow-y: auto; }
+.gs-state { padding: 26px 16px; text-align: center; color: var(--mc-dimmer); font-size: 12.5px; }
+.gs-group { padding: 5px 0; }
+.gs-hd { position: sticky; top: 0; z-index: 1; background: var(--mc-panels); font-size: 9.5px;
+  letter-spacing: 1.1px; text-transform: uppercase; color: var(--mc-dimmer); padding: 8px 13px 4px; }
+.gs-row { display: flex; align-items: center; gap: 10px; padding: 7px 13px; width: 100%;
+  text-align: left; border: 0; background: none; cursor: pointer; font-family: inherit;
+  color: var(--mc-text); }
+.gs-row:hover { background: color-mix(in srgb, var(--mc-accent-primary) 10%, transparent); }
+.gs-ico { width: 22px; height: 22px; border-radius: 5px; display: grid; place-items: center;
+  font-size: 10px; font-weight: 700; color: var(--mc-base); flex: none;
+  background: var(--mc-accent-primary); }
+.gs-ico.brain { background: var(--mc-green); }
+.gs-main { flex: 1; min-width: 0; }
+.gs-main b { display: block; font-size: 12.5px; font-weight: 600; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.gs-main .s { display: block; font-size: 11px; color: var(--mc-muted); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.gs-where { flex: none; font-family: var(--mc-mono); font-size: 10px; color: var(--mc-dimmer);
+  white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }

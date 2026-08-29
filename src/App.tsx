@@ -3,6 +3,7 @@
 // Live surfaces: Home / Settings / Data Viewer, plus the generated module slots below.
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import TopBar from "./components/TopBar";
+import GlobalSearch from "./components/GlobalSearch";
 import Flyout from "./components/Flyout";
 import FirstRunWizard from "./components/FirstRunWizard";
 import VaultSetupWizard from "./components/VaultSetupWizard";
@@ -10,22 +11,30 @@ import BootTerminal from "./components/BootTerminal";
 import NotBuilt from "./components/NotBuilt";
 import AppFooter from "./components/AppFooter";
 import SettingsModal from "./components/SettingsModal";
+import ReportProblem from "./components/ReportProblem";
+import SuggestSomething from "./components/SuggestSomething";
+import AboutDialog from "./components/AboutDialog";
+import CrashDialog from "./components/CrashDialog";
+
+/** See the crash-net effect below. False = errors log to the console and no prompt ever shows. */
+export const CRASH_DIALOG_VISIBLE = false;
 import ScanModule from "./modules/scan/ScanModule";
 import RenameModule from "./modules/rename/RenameModule";
 import MigrateModule from "./modules/migrate/MigrateModule";
 import TimeTrackerModule from "./modules/timetracker/TimeTrackerModule";
 import AttentionToast from "./modules/timetracker/AttentionToast";
-import type { ModuleRow } from "./shared/types";
+import type { FeedbackBegin, ModuleRow } from "./shared/types";
 import Home from "./views/Home";
 import { warmToggleCache } from "./views/Settings";
 import { Spark } from "./icons";
 import DataViewerModule from "./modules/data-viewer/DataViewerModule";
 import VaultModule from "./modules/vault/VaultModule";
-import MindMergeModule from "./modules/mindmerge/MindMergeModule";
+import MindMergeModule, { requestMindMergeOpen } from "./modules/mindmerge/MindMergeModule";
 import ScoutViewerModule from "./modules/scout-viewer/ScoutViewerModule";
 import MarketplaceModule from "./modules/marketplace/MarketplaceModule";
 import EmployeesModule from "./modules/employees/EmployeesModule";
 import { NAVIGATE_EVENT } from "./shared/navigate";
+import { entitlementsReady, moduleHidden, useEntitlements } from "./entitlements";
 import { defaultSettings, type MindMergeSettings } from "./modules/mindmerge/config.manifest";
 import { startDiagReporter, bumpRender } from "./diag";
 import AppLoading from "./components/AppLoading";
@@ -167,6 +176,25 @@ export async function withAppLoading<T>(caption: string, work: () => Promise<T>)
 
 /** Show a plain app message in the shell toast. Long refusal sentences belong here, not squeezed
     into a header strip where they truncate (the device-gate finding that created this). */
+/**
+ * Turns a bundle URL into something a person can read.
+ *
+ * The crash prompt says "The app hit an error in <where>". `<where>` has to be a place the user
+ * recognises — "Scan", "the Secured Vault" — never a chunk filename. When the path carries no module
+ * name the honest answer is "this screen"; guessing a module wrong is worse than not naming one.
+ */
+function shortWhere(url: string): string {
+  const m = /\/modules\/([a-z-]+)\//.exec(url) ?? /([A-Za-z-]+)Module/.exec(url);
+  if (!m) return "this screen";
+  const slug = m[1].toLowerCase();
+  const NAMES: Record<string, string> = {
+    scan: "Scan", rename: "Rename", migrate: "Migrate", employees: "Employees",
+    timetracker: "TimeTracker", mindmerge: "MindMerge", "scout-viewer": "Scout Viewer",
+    vault: "the Secured Vault", "data-viewer": "the Data Viewer",
+  };
+  return NAMES[slug] ?? "this screen";
+}
+
 export function signalAppToast(text: string, tone: "ok" | "err", ms?: number): void {
   window.dispatchEvent(
     new CustomEvent<UpdateToastSignal | null>(UPDATE_TOAST_EVENT, { detail: { stage: "notice", text, tone, ms } })
@@ -288,6 +316,18 @@ export default function App() {
   // Settings is a PURE OVERLAY: it is not a View, so `view` never becomes "settings" and the
   // arrows and last_active_module never see it.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Feedback surfaces — all PURE OVERLAYS, same contract as Settings: `view` is untouched, so
+  // closing any of them returns the user exactly where they were.
+  // `reportOpen` carries the reference and screenshot when the crash prompt handed off, and is
+  // `true` when the Help menu opened it cold (that path begins its own capture).
+  const [reportOpen, setReportOpen] = useState<true | FeedbackBegin | null>(null);
+  // Global search - the top-rail magnifier (BL-58 v4). Pure overlay, Ctrl+K opens it.
+  const [gsOpen, setGsOpen] = useState(false);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  // The crash prompt. Null until something actually breaks — this is the only feedback surface a
+  // user ever sees without going looking for it.
+  const [crash, setCrash] = useState<{ where: string; begun: FeedbackBegin } | null>(null);
   // Narrow-window auto-release (see NAV_DOCK_MIN_WIDTH).
   const [tooNarrowToDock, setTooNarrowToDock] = useState(false);
   // Nav section expand/collapse — persisted app_settings 'nav_section_state' (JSON). Absent group = expanded.
@@ -337,6 +377,10 @@ export default function App() {
         // Config-as-Data read down with it and drop the shell into Safe Mode. Unanswerable reads
         // as "no setup needed", which is exactly how the app behaved before this existed.
         window.api.vault.setupRequired().catch(() => false),
+        // Entitlements ride the SAME boot read (never rejects; fail = every grant false), so the
+        // boot-routing guard below and the first shell paint both see the resolved grant set —
+        // a hidden module can neither be booted into nor flicker in the nav (SOP §2 three-state).
+        entitlementsReady(),
       ]);
       setModules(rows);
       // Gated on the ROW as well as the check — a slug the boot script never prints could never be
@@ -353,7 +397,10 @@ export default function App() {
         }
       }
       // Boot routing: reopen the last screen if it's still a valid core view or an enabled module.
-      if (lastMod && (LEAF[lastMod] || rows.some((m) => m.slug === lastMod && m.is_enabled === 1))) {
+      // An entitlement-HIDDEN slug is rejected exactly like a disabled row (entitlementsReady()
+      // resolved in the Promise.all above), so a stored last_active_module of "employees" on a
+      // Free/Pro install falls through to the default view instead of booting into a hidden module.
+      if (lastMod && (LEAF[lastMod] || (rows.some((m) => m.slug === lastMod && m.is_enabled === 1) && !moduleHidden(lastMod)))) {
         setView(lastMod);
       }
       // Skip Fast Boot: bypass the terminal, straight to shell. TWO sources on purpose — the URL
@@ -409,8 +456,58 @@ export default function App() {
    * a conditional here would need this component to track which module owns a native view.
    */
   useEffect(() => {
-    window.api.scout.setShellOverlay(settingsOpen || (navPeek && !navDocked));
-  }, [settingsOpen, navPeek, navDocked]);
+    // The feedback overlays join this list for the same reason Settings is on it: they float over
+    // the module and reflow nothing, so without this the Scout guest view paints straight over the
+    // top of them. A crash dialog hidden behind a native browser view is the worst possible one.
+    const anyFeedback = reportOpen !== null || suggestOpen || aboutOpen || crash !== null || gsOpen;
+    window.api.scout.setShellOverlay(settingsOpen || anyFeedback || (navPeek && !navDocked));
+  }, [settingsOpen, reportOpen, suggestOpen, aboutOpen, crash, navPeek, navDocked]);
+
+  // Ctrl+K opens the global search anywhere in the shell (the sheet's own Escape closes it).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setGsOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /**
+   * THE CRASH NET. Before this the application had none: no window.onerror, no unhandledrejection
+   * listener, and exactly one React error boundary — inside the Vault. Every crash any user has ever
+   * had went to a console nobody reads and vanished.
+   *
+   * One prompt at a time. A failure cascade fires these listeners repeatedly, and stacking dialogs on
+   * a person whose app just broke is its own insult; the first one wins and the rest are swallowed.
+   */
+  useEffect(() => {
+    // HIDDEN, NOT REMOVED (Jason 08-24-2026): "the crash dialog, hide it, and wait till we need it."
+    // With the net disarmed a renderer error goes back to the console, exactly as before the
+    // feature existed. The dialog, the handoff into ReportProblem and the one-prompt-per-session
+    // guard are all still here — flip CRASH_DIALOG_VISIBLE to arm them again.
+    if (!CRASH_DIALOG_VISIBLE) return;
+    let raising = false;
+    const raise = (where: string): void => {
+      // Already showing, or already asked and dismissed — say nothing further this session.
+      if (raising) return;
+      raising = true;
+      void window.api.feedback
+        .begin("report")
+        .then((begun) => setCrash({ where, begun }))
+        .catch(() => { raising = false; });
+    };
+    const onError = (e: ErrorEvent): void => raise(e.filename ? shortWhere(e.filename) : "this screen");
+    const onRejection = (): void => raise("this screen");
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
+  }, []);
 
   // DIAG-1: start the dev-gated render reporter once (no-op unless DIAG=1).
   useEffect(() => { startDiagReporter(); }, []);
@@ -479,15 +576,41 @@ export default function App() {
       attributeFilter: ["data-modal-backdrop"],
     });
     sync();
-    return () => { obs.disconnect(); if (dimmed) void window.api.theme.setModalDim(false); };
+    // EDGE-LOSS RECONCILIATION (Jason 08-25-2026, the boot-dark-strip session — SOP §10): every
+    // write in this funnel is edge-triggered and fire-and-forget (void'd invoke, swallowed
+    // rejection), so ONE lost edge poisons the native strip for the whole session with nothing to
+    // heal it. On window focus, re-send the CURRENT truth unconditionally — idempotent in main, no
+    // feedback loop, and any divergence heals at the next click into the window.
+    const resync = (): void => {
+      const el = document.querySelector(SELECTOR);
+      dimmed = el === null ? false : el.getAttribute("data-modal-backdrop") === "viewer" ? "viewer" : true;
+      void window.api.theme.setModalDim(dimmed);
+    };
+    window.addEventListener("focus", resync);
+    return () => {
+      window.removeEventListener("focus", resync);
+      obs.disconnect();
+      if (dimmed) void window.api.theme.setModalDim(false);
+    };
   }, []);
 
   // Boot edges → main (boot-dark frame + resize lock). ONE effect covers every flip: skip-fast-boot,
   // terminal complete/fail, AND Safe-Mode Retry re-entering boot. Optional-chained: harmless if the
   // bridge is absent (e.g. web preview).
   useEffect(() => {
-    if (isBooting) window.shell?.bootStart?.();
-    else window.shell?.bootDone?.();
+    if (isBooting) {
+      window.shell?.bootStart?.();
+      return;
+    }
+    window.shell?.bootDone?.();
+    // EDGE-LOSS RECONCILIATION (SOP §10): boot:done is a single fire-and-forget edge behind an
+    // optional chain — lose it once and the strip/frame stay boot-dark with resize locked for the
+    // whole session. Re-send on focus: setBooting(false) is idempotent and notifyUpdaterBootDone
+    // self-guards its first-only behavior (updater.ts:130). Gated by [isBooting] so a focus during
+    // a real boot (or Safe-Mode Retry re-entry) can never clear the boot frame early.
+    const heal = (): void => window.shell?.bootDone?.();
+    window.addEventListener("focus", heal);
+    return () => window.removeEventListener("focus", heal);
   }, [isBooting]);
 
   // Theme toggle — set + persist through the settings IPC bridge (DB app_settings, never localStorage).
@@ -559,6 +682,19 @@ export default function App() {
     });
   };
 
+  // ENTITLEMENTS — the app-level three-state snapshot (null until the one licensing:features read
+  // lands; primed during fetchModules, so the shell's first paint already has it).
+  const ents = useEntitlements();
+
+  // STRAND GUARD (Entitlements SOP §2; MindMergeModule.tsx:290-292's shape at app level): if the
+  // ACTIVE view is a module the resolved grant hides — a navigate event from a stale surface, or
+  // any path the boot-routing guard didn't cover — route Home through select(), which also
+  // rewrites last_active_module so the strand cannot recur on the next launch. Hidden means
+  // GONE, never a blank screen with no way out.
+  useEffect(() => {
+    if (moduleHidden(view, ents)) select("home");
+  }, [ents, view]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Boot intercept — before any shell chrome. Blank while the flag loads (body bg matches --mc-base,
   // so no flash), then wizard until setup completes, then the terminal mask over the shell mount.
   if (isFirstRun === null) return null;
@@ -571,7 +707,10 @@ export default function App() {
     return (
       <>
         <BootTerminal
-          modules={modules}
+          // Filtered HERE too, not just in the shell: a UI-hidden module (Scout, 08-24-2026) must
+          // not print a boot line on the Jarvis screen either. ents may still be null this early —
+          // UI_HIDDEN_MODULES drops rows regardless, entitlement rows only on an explicit false.
+          modules={modules && modules.filter((m) => !moduleHidden(m.slug, ents))}
           orgName={orgName}
           error={bootError}
           // A failed Config-as-Data read prints the FATAL script and must not be held: Safe Mode has
@@ -603,8 +742,16 @@ export default function App() {
 
   // Safe Mode never dereferences a failed/absent module list.
   const activeModules = bootError ? [] : (modules ?? []);
-  const activeRow = activeModules.find((m) => m.slug === view);
-  const ActiveModule = MODULE_COMPONENTS[view];
+  // ENTITLEMENT-HIDDEN rows drop out HERE, at the one source that feeds every nav surface —
+  // TopBar's switcher, the Flyout, Home's card grid — the chokepoint pattern applied renderer-side,
+  // so no surface can forget the filter (Jason 08-22-2026: never-purchased is HIDDEN, "its hidden."
+  // — no teaser, no locked placeholder). Three-state: a row drops only on an EXPLICIT false; while
+  // the grant is still resolving (ents === null) nothing is hidden and nothing flickers.
+  const visibleModules = activeModules.filter((m) => !moduleHidden(m.slug, ents));
+  const activeRow = visibleModules.find((m) => m.slug === view);
+  // The render-side half of the strand guard (the VIEW_TABS-filter twin): a hidden module never
+  // mounts, not even for the one frame before the effect above routes Home.
+  const ActiveModule = moduleHidden(view, ents) ? undefined : MODULE_COMPONENTS[view];
   const leaf = LEAF[view] ?? activeRow?.name ?? view;
 
   return (
@@ -613,10 +760,14 @@ export default function App() {
         leaf={leaf}
         orgName={orgName ?? "AvertXAI"}
         view={view}
-        modules={activeModules.filter((m) => m.is_enabled === 1)}
+        modules={visibleModules.filter((m) => m.is_enabled === 1)}
         onSelect={select}
         onOpenDataViewer={() => select("data-viewer")}
         onOpenSettings={() => { setNavPeek(false); setSettingsOpen(true); }}
+        onOpenSearch={() => { setNavPeek(false); setGsOpen(true); }}
+        onReportProblem={() => { setNavPeek(false); setReportOpen(true); }}
+        onSuggest={() => { setNavPeek(false); setSuggestOpen(true); }}
+        onAbout={() => { setNavPeek(false); setAboutOpen(true); }}
         navDocked={navDocked && !tooNarrowToDock}
         onToggleNavDock={toggleNavDock}
         onPeekChange={setPeek}
@@ -639,7 +790,7 @@ export default function App() {
       )}
       <Flyout
         view={view}
-        modules={activeModules}
+        modules={visibleModules}
         onSelect={select}
         docked={navDocked && !tooNarrowToDock}
         peek={navPeek}
@@ -654,7 +805,7 @@ export default function App() {
       {/* Break/idle prompts must outlive the TimeTracker module's mount — App-level, like UpdateToast. */}
       <AttentionToast />
 
-      {view === "home" && <Home onNavigate={select} modules={activeModules} />}
+      {view === "home" && <Home onNavigate={select} modules={visibleModules} />}
       {view === "data-viewer" && <DataViewerModule />}
       {ActiveModule && <ActiveModule />}
       {!ActiveModule && activeRow && <NotBuilt name={activeRow.name} />}
@@ -671,6 +822,48 @@ export default function App() {
           onThemeChange={onThemeChange}
         />
       )}
+
+      {/* FEEDBACK OVERLAYS — same contract as Settings above: pure overlays, `view` untouched, and
+          mounted outside the bootError guard so a person can still report the thing that stopped the
+          app from booting. That is the case where a report matters most. */}
+      {crash && (
+        <CrashDialog
+          where={crash.where}
+          begun={crash.begun}
+          onReport={() => { setReportOpen(crash.begun); setCrash(null); }}
+          onDismiss={() => {
+            // Declining DESTROYS the screenshot. It is never parked "in case they change their mind".
+            void window.api.feedback.discard(crash.begun.reference).catch(() => undefined);
+            setCrash(null);
+          }}
+        />
+      )}
+      {gsOpen && (
+        <GlobalSearch
+          // The SAME entitlement-filtered enabled rows TopBar's switcher gets — config-as-data,
+          // and a module hidden from nav is equally hidden from search (Jason 08-25).
+          modules={visibleModules.filter((m) => m.is_enabled === 1)}
+          onClose={() => setGsOpen(false)}
+          onGo={(req) => {
+            setGsOpen(false);
+            select("mindmerge");
+            requestMindMergeOpen(req);
+          }}
+        />
+      )}
+      {reportOpen !== null && (
+        <ReportProblem
+          onClose={() => setReportOpen(null)}
+          crash={reportOpen !== true}
+          begun={reportOpen === true ? undefined : reportOpen}
+        />
+      )}
+      {suggestOpen && (
+        // visibleModules, not `modules` — the entitlement-filtered list every nav surface reads, so
+        // the dropdown can never name a module this person was not sold.
+        <SuggestSomething onClose={() => setSuggestOpen(false)} modules={visibleModules} />
+      )}
+      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
 
       {/* AI spark — present in v7 chrome; not-built stub (wiring is a later phase). */}
       <button className="spark nb" aria-label="AI assistant">

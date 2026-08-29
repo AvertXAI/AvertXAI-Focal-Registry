@@ -16,6 +16,16 @@ import { vaultApi, type VaultFolder, type VaultNoteMeta, type VaultRepo, type Va
     "errors" replaced it as a reachable surface, but deliberately NOT as a tab: see ErrorsView. */
 export type Section = "passwords" | "notes" | "infra" | "repos" | "errors" | "settings";
 
+/** Shortcuts is HIDDEN, not removed (Jason 08-23-2026: "i dont want shortcuts anywhere, makes no
+ *  sense to have it" … "dont delete it, just hide it from the ui").
+ *
+ *  Three surfaces read this flag and nothing else does: the sidebar section below, the "+ Add
+ *  shortcut" pick list in VaultModule, and the arrange pane in VaultSettingsView. Everything behind
+ *  them is untouched — the type, parseShortcuts, the props, the `sidebar.shortcuts` settings row and
+ *  whatever anyone already pinned. Flip this to true and all three come back with their data intact.
+ *  A deleted feature cannot be un-deleted for the price of one boolean; this can. */
+export const SHORTCUTS_VISIBLE = false;
+
 export interface Shortcut {
   type: "section" | "tool" | "folder" | "entry" | "note" | "server" | "repo";
   id: string;
@@ -143,6 +153,29 @@ export default function Sidebar(p: SidebarProps) {
     ["kind:ssh_key", "SSH keys", "var(--vault-note-color)"],
   ];
 
+  /**
+   * RECENTLY EDITED — what replaced Shortcuts (Jason 08-23-2026: "thats what i wanted originally").
+   *
+   * Derived from `p.secrets`, which this component is already given. That is the whole design: no new
+   * IPC channel, no new query, no new state to keep in sync. When the module reloads its secrets this
+   * list is already correct.
+   *
+   * `updated_at` is null until a row is first edited, so it falls back to `created_at`. Without that
+   * fallback a fresh vault shows an empty section, which reads as broken rather than as new.
+   *
+   * Archived rows are excluded on purpose: a recency list that surfaces things you deliberately filed
+   * away is noise, not history.
+   */
+  const recent = useMemo(
+    () =>
+      p.secrets
+        .filter((s) => !s.archived_at)
+        .slice()
+        .sort((a, b) => (b.updated_at ?? b.created_at).localeCompare(a.updated_at ?? a.created_at))
+        .slice(0, 5),
+    [p.secrets]
+  );
+
   const go = (s: Shortcut): void => {
     if (s.type === "section") p.onSection(s.id as Section);
     else if (s.type === "tool") { p.onSection("passwords"); p.onTool(s.id); }
@@ -173,21 +206,44 @@ export default function Sidebar(p: SidebarProps) {
             (Jason 08-11-2026). Two boxes each covering a third of the vault meant you had to know
             where a thing was before you could look for it. */}
 
-        <div className="vault-railhead">
-          <span className="sbtxt">Shortcuts</span>
-          <button className="vault-addsc sbtxt" onClick={p.onAddShortcut}>+ Add shortcut</button>
-        </div>
-        {p.shortcuts.length === 0 ? (
-          <div className="vault-hint sbtxt" style={{ padding: "2px 9px 6px" }}>Nothing pinned yet.</div>
-        ) : (
-          p.shortcuts.map((s) => (
-            <div key={`${s.type}:${s.id}`} className="vault-railrow shortcut" onClick={() => go(s)}>
-              <span className="vault-sbadge">{s.label.slice(0, 1).toUpperCase()}</span>
-              <span className="vault-railname">{s.label}</span>
-              <button className="vault-scx" title="Remove this shortcut"
-                onClick={(e) => { e.stopPropagation(); p.onShortcuts(p.shortcuts.filter((x) => !(x.type === s.type && x.id === s.id))); }}>✕</button>
+        {SHORTCUTS_VISIBLE && (
+          <>
+            <div className="vault-railhead">
+              <span className="sbtxt">Shortcuts</span>
+              <button className="vault-addsc sbtxt" onClick={p.onAddShortcut}>+ Add shortcut</button>
             </div>
-          ))
+            {p.shortcuts.length === 0 ? (
+              <div className="vault-hint sbtxt" style={{ padding: "2px 9px 6px" }}>Nothing pinned yet.</div>
+            ) : (
+              p.shortcuts.map((s) => (
+                <div key={`${s.type}:${s.id}`} className="vault-railrow shortcut" onClick={() => go(s)}>
+                  <span className="vault-sbadge">{s.label.slice(0, 1).toUpperCase()}</span>
+                  <span className="vault-railname">{s.label}</span>
+                  <button className="vault-scx" title="Remove this shortcut"
+                    onClick={(e) => { e.stopPropagation(); p.onShortcuts(p.shortcuts.filter((x) => !(x.type === s.type && x.id === s.id))); }}>✕</button>
+                </div>
+              ))
+            )}
+          </>
+        )}
+
+        {/* RECENTLY EDITED — sits where Shortcuts used to. Reuses that row markup and go(), minus
+            the remove button, because there is nothing to unpin: the list maintains itself. */}
+        {recent.length > 0 && (
+          <>
+            <div className="vault-railhead"><span className="sbtxt">Recently edited</span></div>
+            {recent.map((s) => (
+              <div
+                key={s.id}
+                className="vault-railrow shortcut"
+                title={s.label}
+                onClick={() => go({ type: "entry", id: String(s.id), label: s.label })}
+              >
+                <span className="vault-sbadge">{s.label.slice(0, 1).toUpperCase()}</span>
+                <span className="vault-railname">{s.label}</span>
+              </div>
+            ))}
+          </>
         )}
 
         {/* context groups — the sidebar is always about the section you are in */}

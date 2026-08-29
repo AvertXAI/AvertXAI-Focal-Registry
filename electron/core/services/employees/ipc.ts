@@ -15,6 +15,7 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { getDb } from "../db";
 import { getActiveOrg } from "../db/registry";
+import { enforceFeature } from "../licensing";
 import { ensureEmployeesSchema, type Db } from "./db";
 import * as people from "./people";
 import * as entries from "./entries";
@@ -77,6 +78,17 @@ function empCtx(): { db: Db; orgId: string } {
   const org = getActiveOrg();
   if (!org) throw new Error("Employees: no active org");
   const db = getDb();
+  // THE ENTITLEMENT GATE LIVES HERE, and here only (Jason's tier ruling 08-22-2026: the Employees
+  // module is Business/Root only, and the Employees section inside TimeTracker hides with it).
+  // Every employees:* handler in this file funnels through this one context — verified handler by
+  // handler — so one line refuses all thirty-seven of them; per-handler copies would be
+  // thirty-seven chances to forget one (the mindMergeCtx precedent). It is the MAIN-SIDE half of
+  // the two-layer gate; the renderer hiding the module and TimeTracker's Employees section is the
+  // other half, and a hidden control is not a control. Runs on every call, before the memoised
+  // schema flag, so a licence flip is live on the next invoke (resolveTier is unmemoised).
+  // NOTE: TimeTracker's own main-side reads (its LIST_SQL joins Employees' tables in-service) do
+  // not pass through this IPC surface and are untouched — this refuses the renderer, not the spine.
+  enforceFeature(db, "employeesModule");
   if (!schemaReady) {
     ensureEmployeesSchema(db);
     schemaReady = true;

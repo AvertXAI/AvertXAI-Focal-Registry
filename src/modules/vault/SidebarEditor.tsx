@@ -10,7 +10,7 @@ import { useState } from "react";
 // The width constants come from the components that OWN them — quoting 216 or 320 as a literal here
 // is how the topbar's 58px ended up duplicated in three stylesheets and drifting.
 import { LIST_WIDTH } from "./NotesView";
-import { SIDE_MAX, SIDE_MIN, sideDefault, type Shortcut } from "./Sidebar";
+import { SHORTCUTS_VISIBLE, SIDE_MAX, SIDE_MIN, sideDefault, type Shortcut } from "./Sidebar";
 import type { VaultFolder, VaultSecretMeta } from "./vaultApi";
 
 const SECTIONS: Shortcut[] = [
@@ -65,14 +65,20 @@ export default function SidebarEditor({
   return (
     <div className="vault-card">
       <div className="vault-cardhead">
-        <span className="vault-cardtitle">Sidebar editor</span>
-        <span className="vault-hint">What you pin here appears at the top of the sidebar, in this order</span>
+        <span className="vault-cardtitle">Sidebar</span>
+        {SHORTCUTS_VISIBLE && (
+          <span className="vault-hint">What you pin here appears at the top of the sidebar, in this order</span>
+        )}
       </div>
+      {/* Only the pinning half is hidden (Jason 08-23-2026). The divider lock at the foot of this card
+          governs the sidebar handle, has nothing to do with shortcuts, and stays — which is why this
+          guard wraps the edit pane rather than the whole card. */}
       {/* PREVIEW LEFT, EDITOR RIGHT (Jason 08-12-2026) — and the preview is drawn as the SIDEBAR
           rather than as a second list panel. It sat on the right looking like a form field, so what
           you were arranging and what you would get looked nothing like each other. Now the left
           column IS the rail: same width, same background, same row treatment, same "Shortcuts"
           heading, so pinning something shows you exactly the thing that will appear. */}
+      {SHORTCUTS_VISIBLE && (
       <div className="vault-editwrap">
         <div className="vault-editpreview">
           <div className="vault-editpvh">Preview — this is your sidebar</div>
@@ -134,6 +140,7 @@ export default function SidebarEditor({
           </div>
         </div>
       </div>
+      )}
 
       {/* THE DIVIDER LOCK, at the foot of the sidebar card because that is the thing it governs
           (Jason 08-12-2026: "add a toggle on/off in settings, anywhere around or near the sidebar

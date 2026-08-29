@@ -17,6 +17,12 @@ Thumbs.db
 # local-only credential placeholder; conflicts on any other machine, helps nobody
 .claude/
 .qwen/
+# same class — per-machine agent skill caches (Stripe plugin et al.), 08-28-2026
+.agents/
+.continue/
+.hermes/
+.pi/
+skills-lock.json
 
 # Brand pack: built from the LogoScrape workspace (node pack.js), copied in at package time.
 # Deliberately NOT tracked - a 20MB binary that changes weekly is ~1GB of git history a year.

@@ -98,7 +98,7 @@ export default function FirstRunWizard({ onComplete }: { onComplete: () => void 
           <p className="vsw-sub">Two quick things and you&rsquo;re in. Everything stays on this computer.</p>
 
           <label className="vsw-f" htmlFor="frw-workspace">
-            Workspace name · <span className="vsw-req">required</span>
+            Name your archive · <span className="vsw-req">required</span>
           </label>
           <input
             id="frw-workspace"
@@ -108,9 +108,14 @@ export default function FirstRunWizard({ onComplete }: { onComplete: () => void 
             value={workspace}
             onChange={(e) => { setWorkspace(e.target.value); setNotice(""); }}
           />
-          {/* Not "Organization Name" any more — a photographer working alone was being asked to
-              name a company they do not have. */}
-          <p className="vsw-hint">Your own name works fine if it&rsquo;s just you.</p>
+          {/* "Archive voice", ruled 08-25-2026 — chosen to read right for BOTH audiences, the
+              photographer and the cataloguer. (Previous iteration: "Workspace name", which had
+              already replaced "Organization Name" because a photographer working alone was being
+              asked to name a company they do not have.) */}
+          <p className="vsw-hint">
+            Your name, your business, your collection &mdash; whatever this archive answers to.
+            It appears at the top of the app and on every report Focal Registry prints.
+          </p>
           <div className="vsw-err">{notice || " "}</div>
 
           <div className="vsw-actions">

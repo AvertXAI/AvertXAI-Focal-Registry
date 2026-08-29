@@ -7,22 +7,17 @@
 // source of truth — nothing here seeds anything. Sounds: all 17 bundled at every tier; custom
 // uploads are the capped thing and cap refusal shows INLINE — no modal, no upsell styling.
 import { useEffect, useRef, useState } from "react";
-import type { TimeTrackerLicenseState, TimeTrackerSettings as TTSettings, TimeTrackerAlertSound } from "../../shared/types";
+import type { TimeTrackerSettings as TTSettings, TimeTrackerAlertSound } from "../../shared/types";
 import Tip from "../../components/Tip";
 
-// Session caches — repeat visits paint correct values on frame one (the Settings toggleCache pattern).
-let licenseCache: TimeTrackerLicenseState | null = null;
+// Session cache — repeat visits paint correct values on frame one (the Settings toggleCache pattern).
 let settingsCache: TTSettings | null = null;
 
-const capText = (n: number | null): string => (n === null ? "Unlimited" : String(n));
 const INTERVAL_PRESETS = [25, 50, 90];
 
 export default function TimeTrackerSettings() {
   const api = window.api;
-  const [lic, setLic] = useState<TimeTrackerLicenseState | null>(() => licenseCache);
   const [s, setS] = useState<TTSettings | null>(() => settingsCache);
-  const [keyDraft, setKeyDraft] = useState("");
-  const [keyMsg, setKeyMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [sounds, setSounds] = useState<TimeTrackerAlertSound[]>([]);
   const [soundMsg, setSoundMsg] = useState<string | null>(null);
   const [selectedSound, setSelectedSound] = useState<string>("");
@@ -36,23 +31,13 @@ export default function TimeTrackerSettings() {
   // decodes bytes already in JS: no URL, no resource load, no CSP loosening needed.
   const audioCtxRef = useRef<AudioContext | null>(null);
   const playingRef = useRef<AudioBufferSourceNode | null>(null);
-  const seeded = useRef(false);
 
-  const refreshLicense = (st: TimeTrackerLicenseState): void => {
-    licenseCache = st;
-    setLic(st);
-    if (!seeded.current) {
-      setKeyDraft(st.licenseKey ?? "");
-      seeded.current = true;
-    }
-  };
   const reloadSounds = (): void => {
     void api.timetracker.sounds.list().then(setSounds).catch(() => {});
     void api.timetracker.sounds.getSelected().then(setSelectedSound).catch(() => {});
   };
 
   useEffect(() => {
-    void api.timetracker.license.get().then(refreshLicense).catch(() => {});
     void api.timetracker.settings.get().then((v) => { settingsCache = v; setS(v); }).catch(() => {});
     void api.timetracker.mini.state().then((st) => setMiniOpen(st.open)).catch(() => {});
     reloadSounds();
@@ -68,21 +53,6 @@ export default function TimeTrackerSettings() {
     void api.timetracker.settings.save(next).then((clean) => { settingsCache = clean; setS(clean); }).catch(() => {});
   };
 
-  const applyKey = (): void => {
-    void api.timetracker.license.setKey(keyDraft)
-      .then((st) => {
-        refreshLicense(st);
-        const t = st.keyTiers.licenseKey;
-        setKeyMsg(
-          keyDraft.trim() === ""
-            ? { ok: true, text: "Key cleared." }
-            : t
-              ? { ok: true, text: `${t === "business" ? "Business" : "Pro"} key recognised ✓` }
-              : { ok: false, text: "Saved, but not recognised as a Pro or Business key — tier unchanged." }
-        );
-      })
-      .catch((e: unknown) => setKeyMsg({ ok: false, text: e instanceof Error ? e.message : String(e) }));
-  };
   // FIX 3: bytes over IPC → WebAudio decode → one-shot buffer source. A second click stops the
   // previous clip and plays the new one. CSP-immune by construction (no URL is ever loaded).
   const play = (id: string): void => {
@@ -111,36 +81,18 @@ export default function TimeTrackerSettings() {
     void api.timetracker.sounds.select(id).then(() => setSelectedSound(id)).catch(() => {});
   };
 
-  const tierLabel = lic ? (lic.tier === "business" ? "Business" : lic.tier === "pro" ? "Pro" : "Free") : "…";
 
   return (
     <div className="ttset-wrap">
       <h2>TimeTracker</h2>
 
-      {/* ---- Licence ---- */}
-      <div className="field">
-        <label>Licence</label>
-        <p className="hint">
-          Current tier: <b>{tierLabel}</b>
-          {lic && (
-            <> — caps: {capText(lic.caps.projects)} projects · {capText(lic.caps.timers)} concurrent timers ·{" "}
-              {capText(lic.caps.soundUploads)} custom sound uploads. All 17 bundled alert sounds and unlimited
-              adjustments at every tier.</>
-          )}
-        </p>
-        <div className="ttset-keyrow">
-          <input className="ttset-input" placeholder="XXXX-XXXX-XXXX-XXXX" value={keyDraft} aria-label="Licence key"
-            onChange={(e) => { setKeyDraft(e.target.value); setKeyMsg(null); }}
-            onKeyDown={(e) => { if (e.key === "Enter") applyKey(); }} />
-          <button className="btn" onClick={applyKey}>Apply</button>
-        </div>
-        {keyMsg && <p className="hint" style={{ color: keyMsg.ok ? "var(--mc-green)" : "#e0574f" }}>{keyMsg.text}</p>}
-      </div>
-      {/* FIX 8: the Marketplace ID input is deliberately GONE — a marketplace ID is TimeTracker's
-          per-module CATALOGUE identifier (its SKU), not per-install user input; it belongs beside
-          the licence constants in code. The timetracker.marketplaceId settings key and its service
-          path remain untouched, and no purchase-ID or other field replaces this. */}
-      <Tip id="TIP-TT-005" />
+      {/* The licence key row LIVED here until 08-22-2026 and moved to Settings → Manage Billing
+          (Access) — the key was never TimeTracker's alone; it resolves the tier for the whole app.
+          The caps this module enforces are shown there. Main-side cap refusals still show inline
+          in this section (sounds below), unchanged. */}
+      <p className="hint">
+        Licence and tier moved to <b>Settings → Manage Billing</b>. Caps for this module are shown there.
+      </p>
 
       {/* ---- Mini timer window (6B) ---- */}
       <h2 className="mt">Mini timer</h2>

@@ -33,7 +33,7 @@ import NotesView from "./NotesView";
 import { NotesHelpModal } from "./NotesHelp";
 import ReposView from "./ReposView";
 import { clampWidth } from "./Resizer";
-import Sidebar, { SIDE_MAX, SIDE_MIN, ShortcutModal, parseShortcuts, sideDefault, type Section, type Shortcut } from "./Sidebar";
+import Sidebar, { SHORTCUTS_VISIBLE, SIDE_MAX, SIDE_MIN, ShortcutModal, parseShortcuts, sideDefault, type Section, type Shortcut } from "./Sidebar";
 import { AccessLogView, GeneratorView, HealthView } from "./ToolsViews";
 import VaultSettingsView from "./VaultSettingsView";
 import { vaultApi, type VaultFolder, type VaultLockState, type VaultRepo, type VaultSecretMeta, type VaultServer } from "./vaultApi";
@@ -555,7 +555,7 @@ export default function VaultModule() {
           onSaved={() => { setEditing(null); setNewKind(undefined); loadData(); }} />
       )}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
-      {shortcutModal && (
+      {SHORTCUTS_VISIBLE && shortcutModal && (
         <ShortcutModal secrets={secrets} folders={folders} shortcuts={shortcuts}
           onClose={() => setShortcutModal(false)} onChange={setShortcuts} />
       )}

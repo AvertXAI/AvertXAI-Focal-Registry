@@ -27,6 +27,33 @@
   /* Scout Viewer module tokens — spelled-out roles, ONE source of truth here (RULES token law). */
   --scout-danger:#e0565c; /* destructive row actions (remove target) + inline CRUD errors */
   --scout-bookmark-saved:#d4a843; /* filled quick-save star when the current page is a target */
+  /* MindMerge authored-documents tokens (SOP §2). ONE declaration each, ported from the values the
+     vault gives the same roles — src/modules/vault/vault.css :10-20 (.vault-shell) and :518. The
+     Secured Notes rules were copied into mindmerge.css with `--vault-*` renamed to `--mm-*`; these
+     are those names. No rule hardcodes a colour. */
+  --mm-selection-background:color-mix(in srgb, var(--mc-accent-primary) 12%, var(--mc-panels));
+  --mm-strong-color:var(--mc-green);
+  --mm-warn-color:#e0a53a; /* attention — NOT --mc-orange, which is the not-built glow */
+  --mm-danger-color:#e0574f;
+  --mm-modal-width:640px;
+  --mm-modal-scrim:color-mix(in srgb, var(--mc-base) 62%, transparent);
+  --mm-on-accent-ink:#07101f; /* overridden to #ffffff under dark/light, same as the vault */
+  --mm-note-color:#6355d8;    /* the "N" document badge (vault.css :518) */
+  /* Code-block appearance, ported from vault.css :758-777. The vault writes these per stored theme
+     from VaultModule; MindMerge has no such writer yet, so these DEFAULTS (Focal Dark) are what
+     paints — which is the point of the vault's own comment: an unstyled boot is never invisible. */
+  --mm-highlighter-background:var(--mc-nested);
+  --mm-highlighter-plain:var(--mc-text);
+  --mm-highlighter-comment:var(--mc-dimmer);
+  --mm-highlighter-string:#9ecb8a;
+  --mm-highlighter-keyword:#d98a70;
+  --mm-highlighter-number:#d9b970;
+  --mm-highlighter-function:#7fb8e6;
+  --mm-highlighter-variable:var(--mc-text);
+  --mm-highlighter-type:#c39ae0;
+  --mm-highlighter-punct:var(--mc-muted);
+  --mm-highlighter-comment-style:italic;
+  --mm-highlighter-font:var(--mc-mono);
   --mc-underline:var(--mc-accent-primary); --mc-green:#16a34a; --mc-radius:6px;
   --mc-scrollbar-thumb:#2c3a58; /* hybrid default; dark/light override per-theme */
   --mc-font:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
@@ -61,6 +88,10 @@
   --mc-modal-border:var(--mc-border); /* light separates on its own — no gold */
   color-scheme:light;
 }
+/* MindMerge: the ink ON the accent-filled primary button. Ported from vault.css :33, which flips it
+   to white under dark and light for exactly the same reason — the hybrid navy ink is unreadable on
+   the rose accent those two themes use. */
+[data-theme="dark"],[data-theme="light"]{ --mm-on-accent-ink:#ffffff; }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body,#root{height:100%}
 /* EVERY layer of the paint chain (html -> body -> #root) carries the ACTIVE theme base: during

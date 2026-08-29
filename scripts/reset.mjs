@@ -76,8 +76,11 @@ if (!process.env.APPDATA) {
 // exists; package.json always carries productName (GUARD 1 proved the file parsed), so this only
 // ever mattered if that key were removed — but a wrong path here is a wrong deletion target.
 const productName = pkg.productName || "Focal Registry";
+// THE SANDBOX, NEVER THE REAL FOLDER (08-24-2026). main.ts routes every unpackaged run to
+// "<productName> (dev)"; the plain "<productName>" folder now belongs exclusively to the installed
+// app and this script must never point at it again — that is the production vault.
 const targets = [
-  { label: "userData     ", dir: path.join(process.env.APPDATA, productName) }, // Roaming — registry + all org DBs
+  { label: "userData     ", dir: path.join(process.env.APPDATA, `${productName} (dev)`) }, // Roaming — dev registry + dev org DBs
   { label: "markdown root", dir: path.join(os.homedir(), "AvertXAI") },         // home\AvertXAI — the app-managed tree
 ];
 

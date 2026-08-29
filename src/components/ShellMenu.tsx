@@ -30,6 +30,11 @@ interface Props {
   onClose: () => void;
   onOpenSettings: () => void;
   onOpenDataViewer: () => void;
+  /** Help → the three feedback surfaces. Help rather than Settings on purpose: Settings is where you
+      go to CHANGE something, Help is where you go to SAY something. */
+  onReportProblem: () => void;
+  onSuggest: () => void;
+  onAbout: () => void;
   /** Nav dock state — View carries the same toggle the ◫ button and the edge tab drive. */
   themeMode: ThemeMode;
   onThemeChange: (mode: ThemeMode) => void;
@@ -42,6 +47,9 @@ export default function ShellMenu({
   onClose,
   onOpenSettings,
   onOpenDataViewer,
+  onReportProblem,
+  onSuggest,
+  onAbout,
   themeMode,
   onThemeChange,
 }: Props) {
@@ -206,8 +214,14 @@ export default function ShellMenu({
               )}
             </div>
             <hr />
-            <button className="nb">Get Support</button>
-            <button className="nb">About…</button>
+            {/* "Get Support" is GONE (Jason 08-23-2026). It was an unbuilt placeholder meaning
+                exactly these two things, and one vague door is worse than two clear ones.
+                NOTE THE MISSING `nb`: App.tsx swallows every .nb click in the capture phase, so a
+                live handler on a button that kept the class would never fire. */}
+            <button onClick={() => { onReportProblem(); onClose(); }}>Report a problem</button>
+            <button onClick={() => { onSuggest(); onClose(); }}>Suggest something</button>
+            <hr />
+            <button onClick={() => { onAbout(); onClose(); }}>About…</button>
           </div>
         )}
       </div>

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { TimeTrackerAdjustmentListItem, TimeTrackerProjectListItem } from "../../shared/types";
 import Tip from "../../components/Tip";
 import EmployeesCard from "../employees/EmployeesCard";
+import { useFeature } from "../../entitlements";
 
 interface Props {
   projects: TimeTrackerProjectListItem[];
@@ -37,6 +38,10 @@ interface EditorState {
 
 export default function AdjustmentsView({ projects, onDataChanged }: Props) {
   const api = window.api;
+  // THE EMPLOYEES SECTION hides with the Employees module (Jason 08-22-2026: "i said employees
+  // section in timetracker"; never-purchased is HIDDEN). Same app-level three-state cache as the
+  // Tracker-tab placement — one fetch per session, hidden only on an EXPLICIT false.
+  const employeesEntitled = useFeature("employeesModule");
   const [rows, setRows] = useState<TimeTrackerAdjustmentListItem[] | null>(null);
   const [filter, setFilter] = useState<number | "all">("all");
   const [historyFor, setHistoryFor] = useState<string | null>(null);
@@ -101,8 +106,9 @@ export default function AdjustmentsView({ projects, onDataChanged }: Props) {
     <div className="tt-panel">
       {/* EMPLOYEES leads the tab (approved placement). Its Adjust button navigates to Employees'
           OWN Adjustments tab — never this form, which writes timetracker_adjustments, a different
-          table with no employee column. */}
-      <EmployeesCard />
+          table with no employee column. Business/Root only since 08-22-2026 — hides with the
+          Employees module (the MindMerge panel-guard shape, hidden only on explicit false). */}
+      {employeesEntitled !== false && <EmployeesCard />}
       <div className="tt-toolrow" style={{ marginBottom: 8 }}>
         <select className="tt-input tt-select" value={filter === "all" ? "all" : String(filter)} aria-label="Filter by project"
           onChange={(e) => setFilter(e.target.value === "all" ? "all" : Number(e.target.value))}>

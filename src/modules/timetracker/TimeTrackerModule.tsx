@@ -27,6 +27,7 @@ import ArchiveView from "./ArchiveView";
 import CompletedView from "./CompletedView";
 import AnalyticsView from "./AnalyticsView";
 import { appendQuickNote, parseSessionNotes } from "../../shared/ttNotes";
+import { useFeature } from "../../entitlements";
 import "./timetracker.css";
 import { bumpRender } from "../../diag";
 
@@ -64,6 +65,12 @@ export default function TimeTrackerModule() {
   const [selectedId, setSelectedId] = useState<number | null>(() => selectedCache);
   const [modal, setModal] = useState<ModalState>(null);
   const [tab, setTab] = useState<Tab>("tracker");
+  // THE EMPLOYEES SECTION hides with the Employees module (Jason's tier ruling 08-22-2026,
+  // corrected wording: "i said employees section in timetracker"; never-purchased is HIDDEN —
+  // "its hidden."). Three-state via the app-level cache (src/entitlements.ts): hidden only on an
+  // EXPLICIT false, so an entitled install never watches the card flicker. The main side already
+  // refuses every employees:* channel (enforceFeature in empCtx) — this is the renderer half.
+  const employeesEntitled = useFeature("employeesModule");
   const [grand, setGrand] = useState<TimeTrackerGrandTotals | null>(null);
   // Transient "N quick notes filed" banner (mockup v3, state 2). Cleared on a timeout by the detail
   // panel's own effect — it is presentation, so nothing about it is persisted.
@@ -357,8 +364,10 @@ export default function TimeTrackerModule() {
               />
               {/* EMPLOYEES — inserted BETWEEN the timer card and the project card (approved
                   placement, 08-03 mockup). Nothing in TimerBar above or ProjectDetail below is
-                  touched; the Mini timer button lives in the TAB STRIP, not in this card. */}
-              <EmployeesCard />
+                  touched; the Mini timer button lives in the TAB STRIP, not in this card.
+                  Business/Root only since 08-22-2026 — hides with the Employees module, the
+                  MindMerge panel-guard shape (`docsEntitled !== false`). */}
+              {employeesEntitled !== false && <EmployeesCard />}
               <ProjectDetail
                 project={selected}
                 refreshKey={refreshKey}

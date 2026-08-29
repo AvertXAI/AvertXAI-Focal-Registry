@@ -12,7 +12,7 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/timetracker/attention.ts
 //------------------------------------------------------------
-import { powerMonitor } from "electron";
+import { app, powerMonitor } from "electron";
 import type { Db } from "./db";
 import * as timer from "./timer";
 import { getSettings } from "./settings";
@@ -35,6 +35,13 @@ export function startAttentionEngine(db: Db, orgId: string, notify: AttentionNot
   if (handle) return;
   lastBeatAt = Date.now();
   handle = setInterval(() => beat(db, orgId, notify), BEAT_MS);
+  // TEARDOWN (08-24-2026): each beat reads settings and timer status from the shared db, so a beat
+  // after will-quit's closeAllDbs() throws against a closed handle — same lane as the 1s ticker,
+  // at a 15s cadence. Cleared on before-quit so the last beat lands before the DBs close.
+  app.on("before-quit", () => {
+    if (handle) clearInterval(handle);
+    handle = null;
+  });
 }
 
 function beat(db: Db, orgId: string, notify: AttentionNotify): void {

@@ -9,7 +9,9 @@ import { DoorTheme, Gear, Mail, Vault, Webhook } from "../icons";
 import { bumpRender } from "../diag";
 import { signalAppToast, signalUpdateToast, type ThemeMode } from "../App";
 import { setTipsEnabled } from "../components/Tip";
+import MindMergeSettings from "../modules/mindmerge/MindMergeSettings";
 import TimeTrackerSettings from "../modules/timetracker/TimeTrackerSettings";
+import ManageBilling from "../components/ManageBilling";
 import VaultSettings from "../modules/vault/VaultSettings";
 import type { DeviceIdentityInfo, StorageLocations } from "../shared/types";
 
@@ -33,7 +35,7 @@ let deviceCache: DeviceIdentityInfo | null = null;
 // same-session remounts; app_settings "settings_active_section" (bare snake_case — shell-level
 // key, in RENDERER_KEYS) survives a restart. Unknown/stale values fall back to General.
 let sectionCache: string | null = null;
-const LIVE_SECTIONS = new Set(["General", "Appearance", "Storage", "My Profile", "Business Profile", "Scan", "TimeTracker", "Vault"]);
+const LIVE_SECTIONS = new Set(["General", "Appearance", "Storage", "My Profile", "Business Profile", "Manage Billing", "Scan", "TimeTracker", "MindMerge", "Vault"]);
 
 /** Business Profile keys (08-06) — the invoice's bill-from block, terms and default tax rate.
     Config-as-Data rows in app_settings; every key is in RENDERER_KEYS. */
@@ -276,6 +278,12 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
               Business Profile
             </button>
             <div className="setsec">Access</div>
+            {/* Manage Billing under Access by ruling (Jason 08-22-2026): the ONE licence surface.
+                The key row that lived in the TimeTracker section moved here — see ManageBilling.tsx. */}
+            <button className={nav("Manage Billing")} onClick={() => openSection("Manage Billing")}>
+              <BillingIcon />
+              Manage Billing
+            </button>
             <div className="setsec">Applications</div>
             <button className={nav("Scan")} onClick={() => openSection("Scan")}>
               <ScanIcon />
@@ -284,6 +292,12 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
             <button className={nav("TimeTracker")} onClick={() => openSection("TimeTracker")}>
               <TTClockIcon />
               TimeTracker
+            </button>
+            {/* MindMerge sits between TimeTracker and Vault so this list reads in the same order as
+                the nav rail's modules rows (TimeTracker 5 · MindMerge 7 · Vault 9). */}
+            <button className={nav("MindMerge")} onClick={() => openSection("MindMerge")}>
+              <MindMergeIcon />
+              MindMerge
             </button>
             <button className={nav("Vault")} onClick={() => openSection("Vault")}>
               <Vault />
@@ -554,7 +568,10 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
               </>
             )}
 
+            {activeSection === "Manage Billing" && <ManageBilling />}
             {activeSection === "TimeTracker" && <TimeTrackerSettings />}
+
+            {activeSection === "MindMerge" && <MindMergeSettings />}
 
             {activeSection === "Vault" && <VaultSettings />}
 
@@ -683,6 +700,24 @@ function TTClockIcon() {
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
       <circle cx="8" cy="8" r="6.2" />
       <path d="M8 4.6V8l2.4 1.6" />
+    </svg>
+  );
+}
+// mindmerge — the SAME document outline the nav rail draws for this module (Flyout's DocIcon),
+// copied rather than shared because every glyph in this file is local to it.
+function BillingIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1.5" y="3.5" width="13" height="9" rx="1.4" />
+      <path d="M1.5 6.4h13M4 10h3" />
+    </svg>
+  );
+}
+function MindMergeIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 1.8h4.5L12 5.3V14a.7.7 0 0 1-.7.7H4a.7.7 0 0 1-.7-.7V2.5A.7.7 0 0 1 4 1.8Z" />
+      <path d="M8.3 1.8v3.2h3.2M5.6 8.3h4.8M5.6 10.8h4.8" />
     </svg>
   );
 }

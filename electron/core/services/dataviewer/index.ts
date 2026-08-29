@@ -12,6 +12,7 @@
 // File: electron/core/services/dataviewer/index.ts
 //------------------------------------------------------------
 import { getDb } from "../db";
+import { resolveTier } from "../licensing";
 import type { DbColumn, DbForeignKey, DbRowsPage, DbTable } from "../../../../src/shared/types";
 
 // ponytail: read-only is enforced by what this file does (only SELECT/PRAGMA + whitelisted names),
@@ -88,7 +89,22 @@ export function setRunningVersion(v: string): void {
   runningVersion = v;
 }
 
+/**
+ * ROOT IS ALWAYS IN DEVELOPER MODE (Jason 08-22-2026: "i entered the root password, and im not seeing
+ * the package tab in the secured vault… for root, i should have access to everything in the app").
+ *
+ * He was right that it was broken, and the reason is that these were two unrelated switches: the
+ * Package ledger, the raw row writes and the process monitor all gate on THIS function, which knew
+ * nothing about tiers, so a Root licence could not reach any of them. Entitlements SOP §8 already
+ * rules that "a feature Root cannot reach is a defect", so the fix belongs here rather than in each
+ * of the eight call sites — one chokepoint, every dev surface, no per-surface exceptions to forget.
+ *
+ * The easter-egg path below is untouched and still governs every other tier: ten clicks on the leaf
+ * glyph in Settings, re-locked by an app update. Root skips it because Root is never sold — it is the
+ * founder's own install, and it grants raw database row edits along with everything else.
+ */
 export function getDevMode(): boolean {
+  if (resolveTier(getDb()) === "root") return true;
   const row = getDb().prepare(`SELECT value FROM app_settings WHERE key = 'dataviewer_dev_mode'`).get() as
     | { value: string }
     | undefined;

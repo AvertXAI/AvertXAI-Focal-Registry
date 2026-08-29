@@ -13,6 +13,7 @@
 // File: electron/core/services/timetracker/ipc.ts
 //------------------------------------------------------------
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { enforceFeature, hasFeature } from "../licensing";
 import fs from "node:fs";
 import path from "node:path";
 import { getDb } from "../db";
@@ -125,6 +126,16 @@ function ttCtx(): { db: Db; orgId: string } {
 // heartbeats every 5th beat (the crash-recovery source). Quiet when no session is live.
 function startTicker(db: Db): void {
   if (tickerHandle) return;
+  // TEARDOWN (08-24-2026, the 0.2.7-rollback class of bug). will-quit's closeAllDbs() closes the
+  // better-sqlite3 handle this interval touches EVERY tick (tickPayload each second, heartbeatAll
+  // each fifth), so any tick landing after it threw against a closed db — under the old default
+  // handler that was a native error dialog per second until force-kill; under the new crash net it
+  // was a silent crash report per second. Clearing on before-quit ends the ticks before the DBs
+  // close. Mirrors the pattern thumbWorker.ts:102 already proved.
+  app.on("before-quit", () => {
+    if (tickerHandle) clearInterval(tickerHandle);
+    tickerHandle = null;
+  });
   tickerHandle = setInterval(() => {
     const payload = timer.tickPayload(db);
     if (payload.sessions.length === 0) return;
@@ -427,19 +438,43 @@ export function registerTimeTrackerIpc(): void {
   safeHandle("timetracker:removeProjectItem", (_e, id: unknown) => {
     financials.removeProjectItem(ttCtx().db, id as number);
   });
-  safeHandle("timetracker:listProjectEmployees", (_e, projectId: unknown) =>
-    financials.listProjectEmployees(ttCtx().db, projectId as number)
-  );
+  /**
+   * EMPLOYEES-IDENTIFIED DATA BEHIND THE EMPLOYEES GATE (adversarial review 08-22-2026, finding 1:
+   * these three channels were the ungated flank around empCtx — names, roles and PAY RATES were
+   * reachable from any tier while the Employees surfaces merely hid. A hidden control is not a
+   * control). The roster read and both roster writes now refuse exactly like every employees:*
+   * channel. projectSpend below draws a different line, documented there.
+   */
+  safeHandle("timetracker:listProjectEmployees", (_e, projectId: unknown) => {
+    enforceFeature(getDb(), "employeesModule");
+    return financials.listProjectEmployees(ttCtx().db, projectId as number);
+  });
   safeHandle("timetracker:addProjectEmployee", (_e, projectId: unknown, personId: unknown) => {
+    enforceFeature(getDb(), "employeesModule");
     const { db, orgId } = ttCtx();
     return financials.addProjectEmployee(db, orgId, projectId as number, personId as number);
   });
   safeHandle("timetracker:removeProjectEmployee", (_e, projectId: unknown, personId: unknown) => {
+    enforceFeature(getDb(), "employeesModule");
     financials.removeProjectEmployee(ttCtx().db, projectId as number, personId as number);
   });
+  /**
+   * THE LINE projectSpend DRAWS (ruled in triage 08-22-2026, adversarial finding 2): this channel
+   * powers PROJECT financials — a surface every tier owns — so it cannot throw without breaking a
+   * Free install's item-spend display. Instead the EMPLOYEES CONTRIBUTION hides with the module:
+   * unentitled → employee_cost/employee_hours are zero and the item numbers stand. That is not a
+   * silent lie, it is the ruling itself — "the feature/module gets shutoff" — applied to a blended
+   * total. Names and rates never cross here regardless (finding 1's channels carry those, and they
+   * refuse). Aggregate hour/pay blends inside getReport/listProjects follow the same spine-read
+   * doctrine empCtx documents.
+   */
   safeHandle("timetracker:projectSpend", (_e, projectId: unknown) => {
     const { db, orgId } = ttCtx();
-    return financials.projectSpend(db, orgId, projectId as number);
+    const spend = financials.projectSpend(db, orgId, projectId as number);
+    if (!hasFeature(getDb(), "employeesModule")) {
+      return { ...spend, employee_cost: 0, employee_hours: 0 };
+    }
+    return spend;
   });
 
   // adjustments — own table only; never touches time_entries; never capped

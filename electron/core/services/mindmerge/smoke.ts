@@ -14,8 +14,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
+import Database from "better-sqlite3-multiple-ciphers";
 import { startMindMerge, ingestFile, removeFile } from "./engine";
 import { listNotes, getNote, search, listQuarantined } from "./api";
+import { openMindMergeDb } from "./db";
 import { defaultSettings } from "../../../../src/modules/mindmerge/config.manifest";
 
 const tmp = (prefix: string): string => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -25,6 +27,10 @@ const orgId = "smoke-org";
 const p = (name: string): string => path.join(watchDir, name);
 
 // --- fixtures: 3 valid + 1 malformed ---------------------------------------------------------
+// RB-001 is THE WORKED EXAMPLE for the vault frontmatter (Jason 08-28-2026): domain / project /
+// area / source / confidence are the fields MindMerge reads now. severity / service / trigger are
+// kept in the fixture ON PURPOSE — they are retired runbook fields, and the asserts below prove
+// the engine ignores them without quarantining the note.
 fs.writeFileSync(
   p("RB-001.md"),
   `---
@@ -39,6 +45,11 @@ service: core-api
 trigger: 5xx spike
 version: "1.0"
 updated: 2026-07-01
+domain: infrastructure
+project: core-api
+area: ops
+source: decision
+confidence: verified
 tags: [ssh, restart, core]
 secret_refs:
   ssh_key: hetzner/avert-core-01/ssh
@@ -113,6 +124,26 @@ assert.equal(refs[0].ref_key, "ssh_key");
 assert.equal(refs[0].vault_pointer, "hetzner/avert-core-01/ssh", "pointer stored verbatim");
 console.log(`OK secret_ref: ${refs[0].ref_key} -> ${refs[0].vault_pointer} (pointer, not a value)`);
 
+// 3b. vault fields (08-28-2026) — all five land from frontmatter; retired fields are IGNORED
+const rb1 = getNote(db, "RB-001")!;
+assert.equal(rb1.domain, "infrastructure", "domain ingested");
+assert.equal(rb1.project, "core-api", "project ingested");
+assert.equal(rb1.area, "ops", "area ingested");
+assert.equal(rb1.source, "decision", "source ingested");
+assert.equal(rb1.confidence, "verified", "confidence ingested");
+assert.equal(rb1.severity, null, "retired severity frontmatter no longer written");
+assert.equal(rb1.service, null, "retired service frontmatter no longer written");
+assert.equal(rb1.trigger, null, "retired trigger frontmatter no longer written");
+assert.equal(rb1.parse_status, "ok", "retired fields never quarantine a note");
+console.log("OK vault fields: five ingested, three retired fields ignored, no quarantine");
+
+// 3c. retirement preserves stored data — a legacy value survives a re-ingest upsert, because the
+// retired columns are absent from the engine's SET list (absence IS the preservation).
+db.prepare("UPDATE mindmerge_notes SET severity = 'high' WHERE note_id = 'RB-001'").run();
+ingestFile(db, p("RB-001.md"));
+assert.equal(getNote(db, "RB-001")!.severity, "high", "stored severity survives re-ingest");
+console.log("OK retirement: stored severity survives a re-ingest upsert");
+
 // 4. edit a file -> row updates (+ FTS reflects new body)
 fs.writeFileSync(
   p("RB-002.md"),
@@ -147,6 +178,34 @@ assert.ok(
   `only mindmerge_* files written, got: ${files.join(", ")}`
 );
 console.log(`OK isolation: dataDir has only [${files.join(", ")}]`);
+
+// 7. migration (08-28-2026) — an EXISTING pre-vault-fields database opens without error, gains the
+// five columns via the guarded ALTERs, and keeps its legacy data. Synthetic old-shape DB in a temp
+// dir — Jason's real .db files are never touched by any proof.
+const migDir = tmp("rbs-mig-");
+const migOrg = "mig-org";
+{
+  const legacy = new Database(path.join(migDir, `mindmerge_${migOrg}.db`));
+  legacy.exec(`CREATE TABLE mindmerge_notes (
+    id INTEGER PRIMARY KEY, uuid TEXT UNIQUE NOT NULL, note_id TEXT UNIQUE, title TEXT, type TEXT,
+    status TEXT, severity TEXT, owner TEXT, client TEXT, description TEXT, service TEXT,
+    "trigger" TEXT, version TEXT, updated TEXT, body_md TEXT, tags_flat TEXT,
+    file_path TEXT UNIQUE NOT NULL, parse_status TEXT NOT NULL DEFAULT 'ok', parse_error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME
+  );`);
+  legacy
+    .prepare("INSERT INTO mindmerge_notes (uuid, note_id, title, severity, file_path) VALUES (?, ?, ?, ?, ?)")
+    .run("uuid-legacy", "RB-OLD", "Legacy note", "critical", path.join(migDir, "RB-OLD.md"));
+  legacy.close();
+}
+const mig = openMindMergeDb(migOrg, migDir);
+const migRow = mig
+  .prepare("SELECT severity, domain, confidence FROM mindmerge_notes WHERE note_id = 'RB-OLD'")
+  .get() as { severity: string; domain: string | null; confidence: string | null };
+assert.equal(migRow.severity, "critical", "legacy severity intact after migration");
+assert.equal(migRow.domain, null, "existing rows get NULL in the new columns");
+assert.equal(migRow.confidence, null, "existing rows get NULL in the new columns");
+console.log("OK migration: old-shape DB opened, five columns added, legacy data intact");
 
 h.stop();
 console.log("\nSMOKE PASSED");

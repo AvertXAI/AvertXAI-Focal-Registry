@@ -17,12 +17,12 @@ export interface NoteRow {
   title: string | null;
   type: string | null;
   status: string | null;
-  severity: string | null;
+  severity: string | null; // retired 08-28-2026 (runbook field) — column kept, no longer written
   owner: string | null;
   client: string | null;
   description: string | null;
-  service: string | null;
-  trigger: string | null;
+  service: string | null; // retired 08-28-2026 (runbook field) — column kept, no longer written
+  trigger: string | null; // retired 08-28-2026 (runbook field) — column kept, no longer written
   version: string | null;
   updated: string | null;
   body_md: string | null;
@@ -30,12 +30,22 @@ export interface NoteRow {
   file_path: string;
   parse_status: "ok" | "error";
   parse_error: string | null;
+  // Vault fields (Jason 08-28-2026) — what a note serves and where it belongs.
+  domain: string | null;
+  project: string | null;
+  area: string | null;
+  source: string | null;
+  confidence: string | null;
   created_at: string;
   updated_at: string | null;
 }
 
 // Equality filters the UI can pass; anything outside this set is ignored (no arbitrary columns).
-const FILTERABLE = ["status", "type", "severity", "parse_status", "client", "owner", "service"] as const;
+// severity and service left 08-28-2026 with the runbook retirement — columns remain, not filter keys.
+const FILTERABLE = [
+  "status", "type", "parse_status", "client", "owner",
+  "domain", "project", "area", "source", "confidence",
+] as const;
 export type NoteFilter = Partial<Record<(typeof FILTERABLE)[number], string>>;
 
 export function listNotes(db: Db, filter: NoteFilter = {}): NoteRow[] {

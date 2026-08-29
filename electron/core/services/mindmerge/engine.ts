@@ -18,10 +18,14 @@ import type { MindMergeSettings } from "../../../../src/modules/mindmerge/config
 
 // Columns written on ingest (std id/uuid/created_at/updated_at are handled separately). note_id
 // maps from frontmatter `id`; the rest map by same name. Order-independent — used for named params.
+// severity / service / trigger are DELIBERATELY ABSENT (retired 08-28-2026: runbook fields,
+// columns kept for existing rows). COLS drives the upsert's SET list, so listing a retired
+// column here would NULL a stored value on the next re-ingest — absence is the preservation.
 const COLS = [
-  "note_id", "title", "type", "status", "severity", "owner", "client", "description",
-  "service", "trigger", "version", "updated", "body_md", "tags_flat", "file_path",
+  "note_id", "title", "type", "status", "owner", "client", "description",
+  "version", "updated", "body_md", "tags_flat", "file_path",
   "parse_status", "parse_error", "mtime_ms",
+  "domain", "project", "area", "source", "confidence", // vault fields (Jason 08-28-2026)
 ] as const;
 
 type RowValues = Record<(typeof COLS)[number], string | number | null>;
@@ -108,14 +112,21 @@ export function ingestFile(db: Db, filePath: string): void {
     values.title = str(fm.title);
     values.type = str(fm.type);
     values.status = str(fm.status);
-    values.severity = str(fm.severity);
+    // values.severity = str(fm.severity); // 08-28-2026 retired: runbook field, kept for existing rows
     values.owner = str(fm.owner);
     values.client = str(fm.client);
     values.description = str(fm.description);
-    values.service = str(fm.service);
-    values.trigger = str(fm.trigger);
+    // values.service = str(fm.service); // 08-28-2026 retired: runbook field, kept for existing rows
+    // values.trigger = str(fm.trigger); // 08-28-2026 retired: runbook field, kept for existing rows
     values.version = str(fm.version);
     values.updated = str(fm.updated);
+    // Vault fields (Jason 08-28-2026). SOFT validation by design: an unknown domain or confidence
+    // is written as-is — quarantine stays reserved for malformed YAML only.
+    values.domain = str(fm.domain);
+    values.project = str(fm.project);
+    values.area = str(fm.area);
+    values.source = str(fm.source);
+    values.confidence = str(fm.confidence);
     values.body_md = parsed.content;
     tags = Array.isArray(fm.tags) ? fm.tags.map((t) => String(t)) : [];
     values.tags_flat = tags.join(" ");

@@ -4,6 +4,20 @@ Newest first. The **Summary** block (400 characters max) is what the in-app Soft
 shows; the **Details** sections are for the website changelog. `scripts/release.mjs` parses this file,
 injects the current version's Summary into the update feed, and publishes this file to the feed root.
 
+## 0.2.12 — September 9, 2026
+
+**Summary:** Notes get a copy button: open a note, click the copy icon above the list, pick any folder or subfolder, and a copy is filed there exactly as written — the original stays put. Also fixed: the notes list now updates the moment a note autosaves, showing the new preview and edited date without pressing Ctrl+S.
+
+### Details
+
+#### Added
+
+- Copy a note to another folder: a copy icon sits beside the bin above the notes list. It asks where you want the copy to go, shows your folders and subfolders to open and pick from, and files a copy of the open note — title and text exactly as they read on screen — into the folder you choose. Picking the folder the note is already in is refused, so you never get an accidental duplicate beside the original.
+
+#### Fixed
+
+- The notes list now refreshes as soon as a note autosaves, and when you switch to another note with unsaved text. Previously the preview, edited date and position in the list only caught up after Ctrl+S.
+
 ## 0.2.11 — September 2, 2026
 
 **Summary:** Everything you've imported now loads while the app starts: the loading screen pauses on each module that has saved data, loads it, then moves on — so nothing has to load later while you work. Also fixed: the window's size and position now stick between sessions, deleted imported notes stay deleted after a refresh, and setup screens no longer leave the window buttons bright.

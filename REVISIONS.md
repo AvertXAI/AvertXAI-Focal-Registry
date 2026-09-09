@@ -4,6 +4,33 @@ Newest first. The **Summary** block (400 characters max) is what the in-app Soft
 shows; the **Details** sections are for the website changelog. `scripts/release.mjs` parses this file,
 injects the current version's Summary into the update feed, and publishes this file to the feed root.
 
+## 0.2.11 — September 2, 2026
+
+**Summary:** Everything you've imported now loads while the app starts: the loading screen pauses on each module that has saved data, loads it, then moves on — so nothing has to load later while you work. Also fixed: the window's size and position now stick between sessions, deleted imported notes stay deleted after a refresh, and setup screens no longer leave the window buttons bright.
+
+### Details
+
+#### Added
+
+- Startup loading: any module holding imported or saved data is loaded during the boot screen. Its line pauses in orange with animated dots while its data loads, then reads "loaded." and the next module takes its turn. When the app opens, your content is already there.
+- While any startup load is owed, Skip Fast Boot in Settings is greyed out, so the loading pass can never be skipped when it matters.
+- MindMerge documents are also brought up to date during startup — a second, independent path that catches anything the folder watchers missed while the app was closed.
+
+#### Fixed
+
+- The window's size and position were never actually being saved between sessions. They are now.
+- Deleting an imported note now sticks: a later folder refresh no longer brings it back. Re-importing the folder on purpose still works, for exactly the files you chose.
+- Purging all MindMerge notes now also clears the record of imported folders, so a fresh start is genuinely fresh.
+- Files removed from an imported folder while the app was closed no longer linger in the Brain. The cleanup only trusts a true "this file is gone" answer from Windows — an unreadable folder is left alone, never treated as deleted.
+- Folder refresh honors the note type you originally chose for an imported folder.
+- Importing large folders no longer freezes the interface while files are read.
+- Setup screens dim the window's minimize and close buttons along with the rest of the screen, instead of leaving them bright.
+- A leftover internal development note was visible on TimeTracker project pages. Removed.
+
+#### Changed
+
+- MindMerge's folder refresh no longer depends on its own bookkeeping being intact: when records are missing, it works out your imported folders from the notes themselves, tells you in a banner what it found and kept, and carries on.
+
 ## 0.2.10 — August 21, 2026
 
 **Summary:** A developer tool was reachable on the vault's Infrastructure tab, its been resolved. None of your own data was ever involved.

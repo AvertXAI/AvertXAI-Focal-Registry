@@ -160,7 +160,9 @@ export default function ImportDocsModal({ target, onClose, onDone }: { target: I
     if (!walk || walk.files.length === 0) { setBusy(false); return; }
     // `auto` and the three note kinds map straight onto importDocs' existing `kind` argument.
     const kind = dest === "docs" ? "auto" : dest;
-    void api.importDocs(walk.files, { kind, folder: folder || null, mirror })
+    // `roots` travels so main can record the picked folders — that record is what the refresh
+    // button and the imported-folder watcher re-walk later (08-30-2026).
+    void api.importDocs(walk.files, { kind, folder: folder || null, mirror, roots })
       .then((r) => done({
         kind: "docs", scanned: r.scanned ?? walk.files.length, created: r.created,
         warned: r.warned, skipped: r.skipped ?? 0,

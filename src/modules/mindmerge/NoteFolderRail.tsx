@@ -59,6 +59,34 @@ export default function NoteFolderRail({ selected, onSelect, reloadKey, onChange
   const [askEmpty, setAskEmpty] = useState<MindMergeDocFolder | null>(null);
   const [askEmptyCount, setAskEmptyCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The imported-folder refresh (08-30-2026). Busy flag keeps the button single-fire; the result
+      lands in `outcome` — the same out-loud voice a delete reports in, because a refresh that
+      says nothing is indistinguishable from a refresh that did nothing. */
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshImported = (): void => {
+    setRefreshing(true);
+    setError(null);
+    void api.refreshDocs()
+      .then((r) => {
+        // Every non-zero count is SAID — a refresh that hides its failures or its kept-back
+        // conflicts reads as "all clean" when it was not.
+        const extras = [
+          r.missing > 0 ? `${r.missing} missing on disk` : "",
+          r.kept > 0 ? `${r.kept} kept (edited here, file differs)` : "",
+          r.failed > 0 ? `${r.failed} unreadable` : "",
+          r.capped > 0 ? `${r.capped} folder walk${r.capped === 1 ? "" : "s"} hit the file ceiling` : "",
+        ].filter(Boolean).join(", ");
+        const tail = extras ? `, ${extras}` : "";
+        setOutcome(
+          r.updated + r.added > 0
+            ? `Refreshed — ${r.updated} note${r.updated === 1 ? "" : "s"} updated, ${r.added} new file${r.added === 1 ? "" : "s"} imported${tail}.`
+            : `Everything is current — ${r.checked} imported note${r.checked === 1 ? "" : "s"} checked${tail}.`
+        );
+        onChanged();
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setRefreshing(false));
+  };
 
   const load = useCallback((): void => {
     void api.listNoteFolders()
@@ -260,6 +288,20 @@ export default function NoteFolderRail({ selected, onSelect, reloadKey, onChange
       <div className="mm-railhead">
         <span className="sbtxt">Folders</span>
         <button className="mm-addsc sbtxt" title="New top-level folder" onClick={() => { setName(""); setAdding("root"); }}>+ New folder</button>
+        {/* REFRESH THE IMPORTED FOLDERS (Jason 08-30-2026: the SOP file changed on disk and its
+            note stayed stale). Re-reads changed files and imports new ones under every imported
+            root — subfolders included, since the walk is recursive. The outcome is said out loud
+            below, the same way a delete's is. */}
+        <button
+          className="mm-addsc sbtxt"
+          style={{ marginLeft: 6, flex: "none" }}
+          title="Refresh imported folders — re-read changed files, pick up new ones"
+          aria-label="Refresh imported folders"
+          disabled={refreshing}
+          onClick={refreshImported}
+        >
+          {refreshing ? "…" : "⟳"}
+        </button>
       </div>
 
       {error && <div className="mm-hint sbtxt" style={{ padding: "2px 9px 6px", color: "var(--mm-danger-color)" }}>{error}</div>}

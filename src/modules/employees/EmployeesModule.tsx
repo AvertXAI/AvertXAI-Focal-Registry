@@ -136,8 +136,7 @@ export default function EmployeesModule() {
       load();
       refreshLedger();
     };
-    api.on<void>("timetracker:changed", onChanged);
-    return () => api.off<void>("timetracker:changed", onChanged);
+    return api.on<void>("timetracker:changed", onChanged);
   }, [api, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A sibling module asked for a specific tab and person (TimeTracker's Adjust button). Read ONCE,

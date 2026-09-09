@@ -86,6 +86,13 @@ export function closeAllDbs(): void {
   registry.clear();
 }
 
+/** Is a named connection already registered? Lets a caller reuse an open handle (openDb registry
+    hit) WITHOUT risking the miss path — opening an encrypted file keylessly would poison the
+    registry entry for every later caller. */
+export function hasOpenDb(name: string): boolean {
+  return registry.has(name);
+}
+
 export function openDb(dbPath: string, name = dbPath, cipherKey?: string): Database.Database {
   const existing = registry.get(name);
   if (existing) return existing;

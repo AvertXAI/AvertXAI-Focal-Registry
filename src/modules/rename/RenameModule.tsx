@@ -134,8 +134,7 @@ export default function RenameModule() {
         }
       }
     };
-    window.api.on<RenameProgress>("rename:progress", onP);
-    return () => window.api.off<RenameProgress>("rename:progress", onP);
+    return window.api.on<RenameProgress>("rename:progress", onP);
   }, [refreshBatches]);
 
   // Gather the source folders' files whenever the source set changes (one FS walk; the preview is pure).

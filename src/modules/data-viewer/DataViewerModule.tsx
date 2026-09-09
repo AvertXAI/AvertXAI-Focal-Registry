@@ -156,8 +156,7 @@ export default function DataViewerModule() {
       void window.api.devseed.status().then(setDemo).catch(() => {});
       fetchPage();
     };
-    window.api.on<void>("timetracker:changed", onChanged);
-    return () => window.api.off<void>("timetracker:changed", onChanged);
+    return window.api.on<void>("timetracker:changed", onChanged);
   }, [fetchPage]);
 
 

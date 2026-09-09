@@ -255,6 +255,9 @@ export type PushChannel =
   // is pushed rather than left in a tab the user may never open.
   | "scan:notes:synced"
   | "mindmerge:progress"
+  // The imported-folder watcher (or a manual refresh) re-read changed files / imported new ones —
+  // no payload; the renderer re-reads what it shows, the scan:notes:changed shape (08-30-2026).
+  | "mindmerge:docsChanged"
   | "rename:progress"
   | "migrate:progress"
   | "timetracker:tick"
@@ -1496,6 +1499,16 @@ export interface Api {
   setupQuit: () => void;
   /** Config-as-Data module registry rows (ordered by display_order) — drive nav + routing. */
   getModules: () => Promise<ModuleRow[]>;
+  /** Boot preloads (08-30/31-2026): preloadPlan() names the enabled modules with saved data, in
+      the terminal's own line order; the terminal STOPS on each planned module's line and awaits
+      preloadModule(slug) before advancing — load, THEN move on, per ruling. preloadRequired() is
+      the one predicate that greys Skip Fast Boot in Settings while imported data exists — main
+      refuses the stored skip with the same predicate at launch. */
+  boot: {
+    preloadPlan: () => Promise<{ slugs: string[] }>;
+    preloadModule: (slug: string) => Promise<{ ok: boolean }>;
+    preloadRequired: () => Promise<boolean>;
+  };
   /** Key-whitelisted app_settings access (currently: 'skip_fast_boot'). */
   settings: {
     get: (key: string) => Promise<string | null>;
@@ -1631,7 +1644,9 @@ export interface Api {
      *  it spans archived documents and documents filed elsewhere. Report both or neither. */
     importDocs: (
       files: MindMergeWalkedFile[],
-      opts: { kind?: string; folder?: string | null; mirror?: boolean }
+      /** `roots`: the picked folders this walk came from — recorded main-side so refresh and the
+       *  fs watcher can re-run the SAME import later. Omit for hand-picked single files. */
+      opts: { kind?: string; folder?: string | null; mirror?: boolean; roots?: string[] }
     ) => Promise<{
       scanned: number;
       created: number;
@@ -1646,6 +1661,12 @@ export interface Api {
       repaired: number;
       problems: { file: string; reason: string }[];
     }>;
+    /** Refresh the imported folders (08-30-2026): re-read every imported document whose file
+     *  changed on disk, and import new files found in the imported directories (derived from the
+     *  docs themselves — imports predating the roots ledger are covered). Optional folder id
+     *  scopes both passes to that folder's subtree (the click-a-folder auto-refresh). Never
+     *  deletes — a source file missing on disk is counted and its note left alone. */
+    refreshDocs: (folderId?: number) => Promise<{ checked: number; updated: number; added: number; missing: number; failed: number; kept: number; capped: number }>;
     /** Pasted-image attachments. REGISTERED BUT NOT WIRED this phase — the main-side handler THROWS
      *  by ruling (08-21-2026): attachments get their own encrypted database file and its key source
      *  is still an open question. The editor's existing catch path removes a refused paste and says
@@ -2081,9 +2102,11 @@ export interface Api {
    *  channel refuses while the vault is locked. */
   vault: VaultApi;
   /** Main → renderer push events — whitelisted channels only (PushChannel). Payload follows the
-   *  channel (progress tickers for scan / mindmerge / rename, live drive lists for scan). */
-  on: <T>(channel: PushChannel, cb: (payload: T) => void) => void;
-  off: <T>(channel: PushChannel, cb: (payload: T) => void) => void;
+   *  channel (progress tickers for scan / mindmerge / rename, live drive lists for scan).
+   *  RETURNS THE UNSUBSCRIBE — call it from the effect cleanup. There is deliberately no off():
+   *  contextBridge does not preserve callback identity, so an identity-matched off() can never
+   *  find its listener (see preload.ts). */
+  on: <T>(channel: PushChannel, cb: (payload: T) => void) => () => void;
   /** DIAG-1 dev-gated diagnostics channel (meaningful only when env DIAG=1). */
   diag?: {
     enabled: () => Promise<boolean>;

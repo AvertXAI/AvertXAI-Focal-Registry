@@ -72,8 +72,7 @@ export default function EmployeesCard() {
   // at mount — which is why a person created on one tab did not appear in the picker on another.
   useEffect(() => {
     const onChanged = (): void => load();
-    api.on<void>("timetracker:changed", onChanged);
-    return () => api.off<void>("timetracker:changed", onChanged);
+    return api.on<void>("timetracker:changed", onChanged);
   }, [api, load]);
 
   useEffect(() => {

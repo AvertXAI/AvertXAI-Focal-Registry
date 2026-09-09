@@ -492,6 +492,14 @@ tbody tr:hover{background:var(--mc-nested)}
 /* Held line — the boot script stopped here waiting on the vault setup wizard. Amber, not the
    --mc-orange warn tone: nothing has gone wrong, and orange means not-built in this shell (§3.6). */
 .bootterm .bt-hold{color:#d4a843}
+/* Loading line (08-30-2026) — a module whose boot preload is still running. WHOLE line straight
+   orange (ruled: "not the lightmode orange, but straight orange" — a literal, not a theme token;
+   the terminal is the same navy in every theme). The dots span animates 0→5 dots so a long load
+   reads as alive, never hung; width steps in whole ch on the monospace face, no partial glyphs. */
+.bootterm .bt-load{color:#ffa500}
+.bootterm .bt-dots::after{content:".....";display:inline-block;overflow:hidden;white-space:nowrap;
+  vertical-align:bottom;width:0;animation:bt-dots 1.25s steps(6,end) infinite}
+@keyframes bt-dots{to{width:6ch}}
 
 /* --- Setup wizards (src/components/FirstRunWizard.tsx and VaultSetupWizard.tsx) --- */
 /* ONE block serves BOTH wizards. FirstRunWizard renders the same `vsw-*` class names rather than
@@ -515,7 +523,7 @@ tbody tr:hover{background:var(--mc-nested)}
      toast (70), which must never be buried by a modal it cannot be dismissed from. */
   position:fixed;inset:0;z-index:65;display:flex;align-items:center;justify-content:center;
   color:var(--vaultsetup-ink);font-family:var(--mc-font)}
-.vsw-dimmer{position:absolute;inset:0;background:rgba(8,10,16,.72);backdrop-filter:blur(2px)}
+.vsw-dimmer{position:absolute;inset:0;background:rgba(4,8,16,.66);backdrop-filter:blur(2px)}
 
 /* 560 wide fits the 740 floor with 90px of slack; the tallest card (step 2, Business) computes to
    535 against a 640 floor, so nothing scrolls at minimum size. Re-run that math before adding a
@@ -601,6 +609,9 @@ tbody tr:hover{background:var(--mc-nested)}
    Settings animates the toggle from its default to the real value. Removed once loaded, so a USER click
    still animates. */
 .switch.no-anim::after{transition:none}
+/* Unavailable toggle (08-30-2026: Skip Fast Boot while imported data needs loading) — the .btn:disabled
+   fade, no explanation by ruling ("it will just be faded grey"). */
+.switch:disabled{opacity:.45;cursor:not-allowed}
 
 /* <Tip> — the registered hint surface (src/components/Tip.tsx). Orange-accent aside; the tint is
    --mc-orange at 6% (the callout convention), correct in all three themes via tokens. */

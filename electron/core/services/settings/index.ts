@@ -84,19 +84,42 @@ function safeKey(key: unknown): string {
   return key;
 }
 
-export function getSetting(key: unknown): string | null {
-  const row = getDb().prepare("SELECT value FROM app_settings WHERE key = ?").get(safeKey(key)) as
+function readKey(key: string): string | null {
+  const row = getDb().prepare("SELECT value FROM app_settings WHERE key = ?").get(key) as
     | { value: string }
     | undefined;
   return row?.value ?? null;
 }
 
-export function setSetting(key: unknown, value: unknown): void {
-  if (typeof value !== "string") throw new Error("Setting value must be a string");
+function writeKey(key: string, value: string): void {
   getDb()
     .prepare(
       `INSERT INTO app_settings (key, value) VALUES (?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`
     )
-    .run(safeKey(key), value);
+    .run(key, value);
+}
+
+export function getSetting(key: unknown): string | null {
+  return readKey(safeKey(key));
+}
+
+export function setSetting(key: unknown, value: unknown): void {
+  if (typeof value !== "string") throw new Error("Setting value must be a string");
+  writeKey(safeKey(key), value);
+}
+
+// MAIN-PROCESS-ONLY accessors — deliberately NOT whitelisted and NEVER reachable from the
+// settings:get/set IPC channel (safeKey still guards that path). For rows main owns outright,
+// where the renderer must not be able to write: window geometry was the found case — main.ts
+// persisted "window_bounds" through setSetting, safeKey threw "Unknown setting key", and the
+// call site's try/catch (there for the no-org first run) swallowed it, so geometry silently
+// never persisted. Adding the key to RENDERER_KEYS would have FIXED the symptom by handing the
+// renderer write access to geometry — the wrong direction; main gets its own door instead.
+export function getMainSetting(key: string): string | null {
+  return readKey(key);
+}
+
+export function setMainSetting(key: string, value: string): void {
+  writeKey(key, value);
 }

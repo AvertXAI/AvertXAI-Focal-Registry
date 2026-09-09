@@ -307,6 +307,23 @@ export default function App() {
       way down to the vault line and stopped there. The terminal says when that happened; rendering
       off the answer instead of off the event buries the whole boot behind a modal. */
   const [vaultWizardOpen, setVaultWizardOpen] = useState(false);
+  /** Boot preload (08-30/31-2026, "stop here, load, THEN move on"): `bootPlan` names the modules
+      with saved data (terminal line order, from main); the terminal STOPS on each planned line —
+      whole line straight orange, dots animating — calls `loadBootModule`, and advances only when
+      that module's entry here flips "done". The ref guards the invoke against the effect re-firing
+      while a hold is painted. */
+  const [bootPlan, setBootPlan] = useState<string[]>([]);
+  const [modLoad, setModLoad] = useState<Record<string, "loading" | "done">>({});
+  const bootLoadsStarted = useRef(new Set<string>());
+  const loadBootModule = (slug: string): void => {
+    if (bootLoadsStarted.current.has(slug)) return;
+    bootLoadsStarted.current.add(slug);
+    setModLoad((m) => ({ ...m, [slug]: "loading" }));
+    void window.api.boot
+      .preloadModule(slug)
+      .catch(() => {}) // a failed load never strands the terminal — mark done and move on
+      .finally(() => setModLoad((m) => ({ ...m, [slug]: "done" })));
+  };
   // Nav dock — persisted app_settings 'rail_collapsed', RE-MEANT: "1" = docked, "0" = hidden.
   // Reused rather than replaced so an existing install reads straight across (Jason 08-19).
   const [navDocked, setNavDocked] = useState(false);
@@ -365,7 +382,8 @@ export default function App() {
     // reload painted default knobs before flipping. Warm here = correct on frame one by nav time.
     void warmToggleCache().catch(() => {});
     try {
-      const [rows, skip, themeM, org, railC, lastMod, nss, vaultNeedsSetup] = await Promise.all([
+      // The elided slot is entitlementsReady() — it rides the barrier for ordering only, no value.
+      const [rows, skip, themeM, org, railC, lastMod, nss, vaultNeedsSetup, , plan] = await Promise.all([
         window.api.getModules(),
         window.api.settings.get("skip_fast_boot"),
         window.api.settings.get("theme_mode"),
@@ -381,8 +399,12 @@ export default function App() {
         // boot-routing guard below and the first shell paint both see the resolved grant set —
         // a hidden module can neither be booted into nor flicker in the nav (SOP §2 three-state).
         entitlementsReady(),
+        // Boot-preload PLAN (08-31-2026) — same isolation shape as the vault read: an
+        // unanswerable probe means "nothing to load", never Safe Mode.
+        window.api.boot.preloadPlan().catch(() => ({ slugs: [] as string[] })),
       ]);
       setModules(rows);
+      setBootPlan(Array.isArray(plan?.slugs) ? plan.slugs : []);
       // Gated on the ROW as well as the check — a slug the boot script never prints could never be
       // held on, and the wizard would flash over a boot that had already finished.
       setVaultSetupNeeded(vaultNeedsSetup === true && rows.some((m) => m.slug === VAULT_SLUG && m.is_enabled === 1));
@@ -410,7 +432,11 @@ export default function App() {
       // been flipped off — otherwise a Ctrl+Shift+R after flipping the toggle blanks forever
       // (found on-device at the 08-14 mount gate).
       const skippedThisLoad = new URLSearchParams(window.location.search).get("skipBoot") === "1";
-      if (skip === "1" || skippedThisLoad) setIsBooting(false);
+      // The stored skip is HONOURED only while nothing needs loading (08-30-2026) — main applies
+      // the same refusal at launch (hasImportedData = plan non-empty), so param and setting
+      // normally agree; this covers a stale stored "1" from before data was imported. The param
+      // path stays absolute: when it skipped, no terminal exists and nothing else can end boot.
+      if ((skip === "1" && plan.slugs.length === 0) || skippedThisLoad) setIsBooting(false);
     } catch (err) {
       setBootError(err instanceof Error ? err.message : String(err));
     }
@@ -420,6 +446,10 @@ export default function App() {
   useEffect(() => {
     if (isFirstRun === false) void fetchModules();
   }, [isFirstRun]);
+
+  // No kickoff effect for the boot preloads (08-31-2026): the BootTerminal itself drives them —
+  // its typing STOPS on each planned module's line and calls loadBootModule there, so the loads
+  // run strictly one at a time, in line order, exactly where the user is looking.
 
   // Not-built (.nb) controls: clicks are swallowed and nothing else happens — no orange glow in
   // this product (§3.6). Capture-phase so it runs before React's routed handlers; non-.nb clicks
@@ -595,9 +625,20 @@ export default function App() {
   }, []);
 
   // Boot edges → main (boot-dark frame + resize lock). ONE effect covers every flip: skip-fast-boot,
-  // terminal complete/fail, AND Safe-Mode Retry re-entering boot. Optional-chained: harmless if the
-  // bridge is absent (e.g. web preview).
+  // terminal complete/fail, Safe-Mode Retry re-entering boot, AND first-run. Optional-chained:
+  // harmless if the bridge is absent (e.g. web preview).
   useEffect(() => {
+    if (isFirstRun) {
+      // The standalone wizard is a lit surface, not a boot phase: without boot:done the frame
+      // stays boot-dark (near-black strip, light glyphs) over the wizard's dimmed light backdrop
+      // and the native buttons read as exposed (§3.4.3 — paid for 09-01-2026). Theme + modal dim
+      // paint the strip correctly only once boot mode clears. The isBooting branch below re-enters
+      // boot when the wizard completes and the terminal mounts.
+      window.shell?.bootDone?.();
+      const heal = (): void => window.shell?.bootDone?.();
+      window.addEventListener("focus", heal);
+      return () => window.removeEventListener("focus", heal);
+    }
     if (isBooting) {
       window.shell?.bootStart?.();
       return;
@@ -611,7 +652,7 @@ export default function App() {
     const heal = (): void => window.shell?.bootDone?.();
     window.addEventListener("focus", heal);
     return () => window.removeEventListener("focus", heal);
-  }, [isBooting]);
+  }, [isBooting, isFirstRun]);
 
   // Theme toggle — set + persist through the settings IPC bridge (DB app_settings, never localStorage).
   const onThemeChange = (mode: ThemeMode) => {
@@ -713,6 +754,9 @@ export default function App() {
           modules={modules && modules.filter((m) => !moduleHidden(m.slug, ents))}
           orgName={orgName}
           error={bootError}
+          loadPlan={bootPlan}
+          loadStatus={modLoad}
+          onLoadModule={loadBootModule}
           // A failed Config-as-Data read prints the FATAL script and must not be held: Safe Mode has
           // no vault row to set up, and holding there would strand the user with no Retry banner.
           holdSlug={vaultSetupNeeded && !bootError ? VAULT_SLUG : null}

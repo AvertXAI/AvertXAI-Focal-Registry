@@ -309,7 +309,6 @@ export default function ProjectDetail({
         <div className="tt-info"><span className="tt-infolabel">Rate</span><b>{rateLine}</b></div>
         <div className="tt-info"><span className="tt-infolabel">Status</span><b className="tt-cap">{project.status}</b></div>
       </div>
-      <div className="tt-crmseed">↳ This block is the seed of the CRM — same fields runbooks.systems will read later.</div>
 
       <div className="tt-colorrow" role="radiogroup" aria-label="Project color">
         <span className="tt-infolabel">Color</span>

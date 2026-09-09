@@ -27,11 +27,11 @@ export default function AttentionToast() {
       void api.timetracker.sounds.readSelected().then((d) => { if (d) void playSoundData(d); }).catch(() => {});
     };
     const onIdle = (p: TimeTrackerIdlePayload): void => setToast({ kind: "idle", thresholdMin: p.thresholdMin });
-    api.on<TimeTrackerBreakPayload>("timetracker:break", onBreak);
-    api.on<TimeTrackerIdlePayload>("timetracker:idle", onIdle);
+    const releaseBreak = api.on<TimeTrackerBreakPayload>("timetracker:break", onBreak);
+    const releaseIdle = api.on<TimeTrackerIdlePayload>("timetracker:idle", onIdle);
     return () => {
-      api.off<TimeTrackerBreakPayload>("timetracker:break", onBreak);
-      api.off<TimeTrackerIdlePayload>("timetracker:idle", onIdle);
+      releaseBreak();
+      releaseIdle();
     };
   }, [api]);
 

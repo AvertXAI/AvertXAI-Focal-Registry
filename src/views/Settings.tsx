@@ -23,7 +23,7 @@ interface Props {
 // Module-level cache of the toggle values — survives Settings unmount/remount within a session. On a
 // repeat visit the toggles initialize from here, so they render in the CORRECT position on the very
 // first paint (no async default→loaded jump, which was what "moved" when switching to Settings).
-const toggleCache: { skipBoot?: boolean; trayOn?: boolean; launchStartup?: boolean; tipsOn?: boolean } = {};
+const toggleCache: { skipBoot?: boolean; trayOn?: boolean; launchStartup?: boolean; tipsOn?: boolean; preloadReq?: boolean } = {};
 // "This device" is IMMUTABLE for the session — cache it at module scope so re-entering Settings
 // paints it on the first frame instead of flashing empty while identity.get() round-trips (the same
 // class of bug as the toggle warm-cache). A renderer reload (Ctrl+R) wipes this; the first mount
@@ -71,11 +71,15 @@ export function warmToggleCache(): Promise<void> {
     window.api.settings.get("tray_enabled"),
     window.api.settings.get("launch_at_startup"),
     window.api.settings.get("tips.enabled"),
-  ]).then(([sb, tr, ls, tp]) => {
+    // Not a setting — the boot-preload predicate that greys Skip Fast Boot (08-30-2026). Warmed
+    // here for the same frame-one reason as the toggles; an unanswerable probe reads "available".
+    window.api.boot.preloadRequired().catch(() => false),
+  ]).then(([sb, tr, ls, tp, pr]) => {
     toggleCache.skipBoot = sb === "1";
     toggleCache.trayOn = tr !== "0";
     toggleCache.launchStartup = ls === "1";
     toggleCache.tipsOn = tp !== "0"; // default ON — absent key means tips show
+    toggleCache.preloadReq = pr === true;
     setTipsEnabled(toggleCache.tipsOn); // warm the live <Tip> store in the same pass
   });
 }
@@ -86,6 +90,9 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const [trayOn, setTrayOn] = useState(() => toggleCache.trayOn ?? true); // tray-on-close — default ON (§3.11)
   const [launchStartup, setLaunchStartup] = useState(() => toggleCache.launchStartup ?? false); // open at Windows login — default OFF
   const [tipsOn, setTipsOn] = useState(() => toggleCache.tipsOn ?? true); // helpful tips — ONE global switch, default ON
+  // Imported data needs loading at boot → Skip Fast Boot is unavailable, faded grey, no explanation
+  // (ruled 08-30-2026). Same predicate main uses to refuse the stored skip at launch.
+  const [preloadReq, setPreloadReq] = useState(() => toggleCache.preloadReq ?? false);
   const [device, setDevice] = useState<DeviceIdentityInfo | null>(() => deviceCache); // "This device" — read-only, cached (immutable for the session)
   const [animReady, setAnimReady] = useState(() => toggleCache.skipBoot !== undefined); // cache warm → correct from first paint, no gate
   const [activeSection, setActiveSection] = useState(() => sectionCache ?? "General");
@@ -131,6 +138,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
       setSkipBoot(toggleCache.skipBoot === true);
       setTrayOn(toggleCache.trayOn !== false);
       setLaunchStartup(toggleCache.launchStartup === true);
+      setPreloadReq(toggleCache.preloadReq === true); // re-asked on every mount — imports made THIS session grey the toggle live
       requestAnimationFrame(() => setAnimReady(true));
     });
     void window.api.updater.version().then(setAppVersion).catch(() => {}); // never hardcoded
@@ -329,6 +337,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                       id="skipboot"
                       role="switch"
                       aria-checked={skipBoot}
+                      disabled={preloadReq}
                       className={`switch${skipBoot ? " on" : ""}${animReady ? "" : " no-anim"}`}
                       onClick={toggleSkipBoot}
                     />

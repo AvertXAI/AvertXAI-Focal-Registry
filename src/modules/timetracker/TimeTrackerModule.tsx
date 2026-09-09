@@ -177,11 +177,11 @@ export default function TimeTrackerModule() {
   useEffect(() => {
     const onTick = (p: TimeTrackerTickPayload): void => setTick(p);
     const onChanged = (): void => reload();
-    api.on<TimeTrackerTickPayload>("timetracker:tick", onTick);
-    api.on<void>("timetracker:changed", onChanged);
+    const releaseTick = api.on<TimeTrackerTickPayload>("timetracker:tick", onTick);
+    const releaseChanged = api.on<void>("timetracker:changed", onChanged);
     return () => {
-      api.off<TimeTrackerTickPayload>("timetracker:tick", onTick);
-      api.off<void>("timetracker:changed", onChanged);
+      releaseTick();
+      releaseChanged();
     };
   }, [api, reload]);
 

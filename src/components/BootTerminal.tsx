@@ -12,7 +12,7 @@ const FAIL_MS = 1500; // pause after the last failure line so the user can read 
 
 interface Line {
   text: string;
-  tone?: "dim" | "err" | "warn" | "hold"; // default (no tone) = terminal green, per the mockup
+  tone?: "dim" | "err" | "warn" | "hold" | "load"; // default (no tone) = terminal green; "load" = whole-line straight orange (ruled 08-30-2026)
   slug?: string; // module rows only — how holdSlug finds its line WITHOUT counting the preamble
 }
 
@@ -22,6 +22,16 @@ interface Props {
       lands (same Promise as modules), so the lead line always shows the real name, never a flash. */
   orgName: string | null;
   error: string | null; // non-null switches to the failure script
+  /** THE STOP-AND-LOAD PLAN (ruled 08-31-2026: "it should stop here, and load mindmerges
+      contents, THEN move on to the next module"). Slugs of modules with saved data, in this
+      script's own line order. The typing STOPS on each planned module's line — whole line
+      straight orange, dots animating — fires onLoadModule for it, and advances only when
+      loadStatus marks that slug "done". The line then flips to "loaded." in place. */
+  loadPlan: string[];
+  loadStatus: Record<string, "loading" | "done">;
+  /** Fired (idempotently — the parent ref-guards re-fires) when the script stops on a planned
+      module's line: run that ONE module's load and flip its loadStatus to "done". */
+  onLoadModule: (slug: string) => void;
   /** Slug of a module whose line the script STOPS on — it prints as "... setup required" and the
       typing loop holds there indefinitely, with no timeout and no fallback, until the parent sets
       this back to null. Matched by SLUG, never by position: the script's order is `display_order`
@@ -36,7 +46,7 @@ interface Props {
   onFail: () => void;
 }
 
-export default function BootTerminal({ modules, orgName, error, holdSlug, onHold, onComplete, onFail }: Props) {
+export default function BootTerminal({ modules, orgName, error, loadPlan, loadStatus, onLoadModule, holdSlug, onHold, onComplete, onFail }: Props) {
   const failed = error !== null;
   // Latched, never cleared: this boot stopped for setup at some point. It survives holdSlug going
   // back to null, which is what lets the resumed script end on "> Opening Secured Vault..." — the
@@ -58,15 +68,20 @@ export default function BootTerminal({ modules, orgName, error, holdSlug, onHold
             { text: "> Loading platform configurations..." },
             { text: "Connecting to local sqlite... OK", tone: "dim" },
             { text: "> Parsing 'modules' table..." },
-            ...(modules ?? []).map((m): Line =>
-              m.slug === holdSlug
-                ? { text: `   - Mod: ${m.name} ... setup required`, tone: "hold", slug: m.slug }
-                : { text: `   - Mod: ${m.name} loaded.`, tone: "dim", slug: m.slug }
-            ),
+            ...(modules ?? []).map((m): Line => {
+              if (m.slug === holdSlug) return { text: `   - Mod: ${m.name} ... setup required`, tone: "hold", slug: m.slug };
+              // A planned module not yet done is LOADING from the moment its line appears — whole
+              // line straight orange, dots animated (the .bt-dots span below). "in the plan and
+              // not done" rather than "status says loading" so the very first paint of the line
+              // is already orange, before the parent's state write lands. It flips to "loaded."
+              // IN PLACE when done — same index, so the hold arithmetic never shifts.
+              if (loadPlan.includes(m.slug) && loadStatus[m.slug] !== "done") return { text: `   - Mod: ${m.name} loading`, tone: "load", slug: m.slug };
+              return { text: `   - Mod: ${m.name} loaded.`, tone: "dim", slug: m.slug };
+            }),
             { text: "> Rendering Interface..." },
             ...(held ? [{ text: "> Opening Secured Vault...", tone: "dim" } as Line] : []),
           ],
-    [modules, orgName, error, failed, holdSlug, held]
+    [modules, orgName, error, failed, holdSlug, held, loadPlan, loadStatus]
   );
   const [shown, setShown] = useState(0);
   // -1 when there is nothing to hold for, and ALSO when holdSlug names a module that is not in the
@@ -92,13 +107,24 @@ export default function BootTerminal({ modules, orgName, error, holdSlug, onHold
       }
       return;
     }
+    // Third gate, same primitive (ruled 08-31-2026: "stop here, and load … THEN move on"): REAL
+    // WORK, one module at a time. The first planned module line that is visible but not yet done
+    // stops the script ON that line — orange, dots breathing, cursor blinking beneath — while its
+    // load runs. No timer is set; the parent flipping that slug to "done" re-runs this effect,
+    // the line flips to "loaded." in place, and typing advances to the next line (which may be
+    // the next planned module — each stop repeats this gate). Matched by SLUG, never position.
+    const loadingIndex = lines.findIndex((l) => l.slug && loadPlan.includes(l.slug) && loadStatus[l.slug] !== "done" && l.slug !== holdSlug);
+    if (!failed && loadingIndex >= 0 && shown > loadingIndex) {
+      onLoadModule(lines[loadingIndex].slug as string);
+      return;
+    }
     const done = shown >= lines.length;
     const t = window.setTimeout(
       () => (done ? (failed ? onFail() : onComplete()) : setShown(shown + 1)),
       done ? (failed ? FAIL_MS : DONE_MS) : LINE_MS
     );
     return () => window.clearTimeout(t);
-  }, [shown, lines.length, failed, orgName, holdIndex, held, onHold, onComplete, onFail]);
+  }, [shown, lines, failed, orgName, holdIndex, held, loadPlan, loadStatus, holdSlug, onLoadModule, onHold, onComplete, onFail]);
 
   return (
     <div className="bootterm">
@@ -108,6 +134,7 @@ export default function BootTerminal({ modules, orgName, error, holdSlug, onHold
         {lines.slice(0, shown).map((l, i) => (
           <div key={i} className={l.tone ? `bt-${l.tone}` : undefined}>
             {l.text}
+            {l.tone === "load" && <span className="bt-dots" />}
           </div>
         ))}
         <span className="bt-cursor" />

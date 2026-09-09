@@ -165,12 +165,13 @@ export const FILE_FILTERS: Record<string, { name: string; extensions: string[] }
  * A file the user picked BY HAND always imports whatever its extension — they chose it, and
  * second-guessing that would be the tool arguing with them. This list governs the WALK only.
  */
-const DOC_EXTS = new Set([
+export const DOC_EXTS = new Set([
   ".md", ".markdown", ".txt", ".json", ".jsonl", ".csv", ".zone",
   ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".xlsm",
 ]);
 // Folders that are never worth walking — they are machine output, not documents.
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "dist-electron", "release", "out", "build", ".next", "coverage", ".cache"]);
+// (Exported alongside DOC_EXTS so the import-folder WATCHER filters events by the same lists.)
+export const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "dist-electron", "release", "out", "build", ".next", "coverage", ".cache"]);
 
 export interface WalkedFile {
   path: string;

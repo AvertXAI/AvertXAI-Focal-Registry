@@ -124,6 +124,37 @@ function createDocsSchema(db: Db): void {
     "source_path TEXT", // where an imported document came from; NULL for anything authored here
   ]);
 
+  // THE IMPORT ROOTS (Jason 08-30-2026: "what i want is a file watcher on imported folders").
+  // Import used to be a one-way copy: importDocs received a FILE LIST and nothing recorded the
+  // folder it was walked from, so there was nothing to re-walk or watch — a file edited after
+  // import stayed stale forever. Each folder import now records its root here, with the options
+  // it was imported under, so refresh and the fs watcher can re-run the SAME import later.
+  createTable(db, "mindmerge_import_roots", [
+    "org_id TEXT NOT NULL",
+    "path TEXT NOT NULL",
+    "kind TEXT", // the import's kind choice ('auto' or a forced kind) — reused on refresh
+    "folder TEXT", // the flat-mode destination folder name, when one was named
+    "mirror INTEGER NOT NULL DEFAULT 1", // 1 = mirror the on-disk tree (the folder-import default)
+  ]);
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS mindmerge_import_roots_uniq ON mindmerge_import_roots (org_id, path);"
+  );
+
+  // THE IMPORT TOMBSTONES (adversarial review 08-31-2026). A hard-DELETED imported note left no
+  // trace, so the very machinery built to keep imports fresh RESURRECTED it: its file still sat
+  // on disk, its path was no longer in mindmerge_docs, and the next refresh re-imported it. A
+  // tombstone says "this path was deliberately erased — the refresh may not bring it back".
+  // An EXPLICIT re-import of the file clears its tombstone: pressing Import is the user changing
+  // their mind, and that intent always wins. path_key is normPathKey(source_path) — the same
+  // normalized form the refresh compares with.
+  createTable(db, "mindmerge_import_tombstones", [
+    "org_id TEXT NOT NULL",
+    "path_key TEXT NOT NULL",
+  ]);
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS mindmerge_import_tombstones_uniq ON mindmerge_import_tombstones (org_id, path_key);"
+  );
+
   db.exec("CREATE INDEX IF NOT EXISTS idx_mindmerge_docs_kind ON mindmerge_docs (kind);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_mindmerge_docs_folder ON mindmerge_docs (folder_id);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_mindmerge_doc_folders_parent ON mindmerge_doc_folders (parent_id);");
@@ -140,6 +171,20 @@ function createDocsSchema(db: Db): void {
   db.exec(
     "CREATE UNIQUE INDEX IF NOT EXISTS mindmerge_docs_source_uniq ON mindmerge_docs (org_id, source_path) WHERE source_path IS NOT NULL;"
   );
+
+  // THE SYNC BASELINE (08-30-2026, adversarial review of the refresh). updated_at conflates "the
+  // note was edited" with "the file changed", so the refresh's mtime guard could overwrite an
+  // in-app edit whenever the FILE's mtime moved innocently (a sync client rewrite, a touch).
+  // These two columns decouple it: source_mtime_ms is the file's mtime at the last import/refresh
+  // (the change guard compares against THIS, never updated_at), and source_hash fingerprints the
+  // body as last synced from disk — a note whose current body no longer matches it was edited in
+  // the app, and the refresh KEEPS it. Guarded additive ALTERs; legacy rows read NULL and are
+  // stamped by their first refresh pass.
+  {
+    const have = new Set((db.pragma("table_info(mindmerge_docs)") as { name: string }[]).map((c) => c.name));
+    if (!have.has("source_mtime_ms")) db.exec("ALTER TABLE mindmerge_docs ADD COLUMN source_mtime_ms INTEGER");
+    if (!have.has("source_hash")) db.exec("ALTER TABLE mindmerge_docs ADD COLUMN source_hash TEXT");
+  }
 }
 
 export function createSchema(db: Db): void {
@@ -203,6 +248,10 @@ export function createSchema(db: Db): void {
     "ref_key TEXT NOT NULL",
     "vault_pointer TEXT NOT NULL",
   ]);
+  // The ON DELETE CASCADE above walks this table for EVERY parent delete — without an index that
+  // is a full scan per deleted note, which is what made a bulk prune's deletes O(n²) (adversarial
+  // review 08-31-2026). mindmerge_note_tags is already covered by its (note_id, tag_id) unique.
+  db.exec("CREATE INDEX IF NOT EXISTS mindmerge_secret_refs_note ON mindmerge_secret_refs(note_id);");
 
   // FTS5 external-content over mindmerge_notes(title, body_md, tags_flat) keyed to notes.id.
   // Virtual table — exempt from the std-columns wrapper by design.

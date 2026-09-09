@@ -109,8 +109,7 @@ export default function MigrateModule() {
   // Live drive presence — the same push Scan uses; a plugged/unplugged drive refreshes the list.
   useEffect(() => {
     const onDrives = (list: MigrateDrive[]): void => setDrives(list);
-    api.on<MigrateDrive[]>("scan:drives", onDrives);
-    return () => api.off<MigrateDrive[]>("scan:drives", onDrives);
+    return api.on<MigrateDrive[]>("scan:drives", onDrives);
   }, [api]);
 
   // Engine progress → route to the tab that owns the jobId (tabs demultiplex on jobId).
@@ -125,8 +124,7 @@ export default function MigrateModule() {
         }));
       }
     };
-    api.on<MigrateProgress>("migrate:progress", onProgress);
-    return () => api.off<MigrateProgress>("migrate:progress", onProgress);
+    return api.on<MigrateProgress>("migrate:progress", onProgress);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

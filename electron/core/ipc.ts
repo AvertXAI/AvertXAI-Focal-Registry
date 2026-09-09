@@ -12,7 +12,8 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { defaultSettings, type MindMergeSettings } from "../../src/modules/mindmerge/config.manifest";
-import { getDb } from "./services/db";
+import Database from "better-sqlite3-multiple-ciphers";
+import { getDb, hasOpenDb, openDb } from "./services/db";
 import { getActiveOrg } from "./services/db/registry";
 import { vendorMap } from "./services/brandpack";
 import * as dataviewer from "./services/dataviewer";
@@ -26,7 +27,7 @@ import { ensureMigrateSchema } from "./services/migrate/db";
 import { registerTimeTrackerIpc } from "./services/timetracker/ipc";
 import { registerEmployeesIpc } from "./services/employees/ipc";
 import { registerVaultIpc } from "./services/vault/ipc";
-import { registerMindMergeDocsIpc } from "./services/mindmerge/ipc";
+import { bootPreloadMindMergeDocs, registerMindMergeDocsIpc } from "./services/mindmerge/ipc";
 import * as devseed from "./services/devseed";
 import { ASSET_CLASSES } from "./services/migrate/registry";
 import { readDeviceIdentity } from "./services/identity";
@@ -203,6 +204,96 @@ async function rescanMindMerge(): Promise<{ ingested: number; quarantined: numbe
   const count = (status: string): number =>
     (h.db.prepare("SELECT COUNT(*) AS n FROM mindmerge_notes WHERE parse_status = ?").get(status) as { n: number }).n;
   return { ingested: count("ok"), quarantined: count("error") };
+}
+
+// ---- Boot preload (Jason 08-30/31-2026: "whatever is saved to the db loaded on restart"; "it
+// should stop here, and load mindmerges contents, THEN move on to the next module"). The JARVIS
+// terminal DRIVES this: it asks for the PLAN (which enabled modules have data, in display order),
+// then — as its typing reaches each planned module's line — it STOPS there, invokes that one
+// module's load, and only advances when the load resolves. Main refuses Skip Fast Boot whenever
+// the plan is non-empty, so a boot that owes loads always shows the terminal that runs them.
+
+/** Per-module "does it have saved data worth loading?" probes. Every probe is a LIMIT-1 read
+    wrapped so an unreadable store answers false: an unprovable claim must not lock the user out
+    of fast boot. Slugs absent here have no boot load and never appear in the plan. */
+const BOOT_DATA_PROBES: Record<string, () => unknown> = {
+  // Scans ran — completed and not soft-cleared (a Nuked history holds nothing hostage).
+  scan: () => getDb().prepare("SELECT 1 FROM scan_runs WHERE status = 'completed' AND cleared_at IS NULL LIMIT 1").get(),
+  // Passwords present — ONLY through the boot-opened SQLCipher handle (hasOpenDb guard): a fresh
+  // keyless open here would register a broken 'vault' entry every later caller inherits.
+  vault: () => hasOpenDb("vault") && openDb("", "vault").prepare("SELECT 1 FROM vault_secrets LIMIT 1").get(),
+  // Notes — Brain rows or imported Documents. READ-ONLY file probe: asking through the module's
+  // own openMindMergeDb would CREATE an empty database as a side effect of the question.
+  mindmerge: () => {
+    const org = getActiveOrg();
+    if (!org) return false;
+    const mm = path.join(app.getPath("userData"), `mindmerge_${org.org_id}.db`);
+    if (!fs.existsSync(mm)) return false;
+    const d = new Database(mm, { readonly: true, fileMustExist: true });
+    try {
+      return (
+        d.prepare("SELECT 1 FROM mindmerge_notes LIMIT 1").get() ??
+        d.prepare("SELECT 1 FROM mindmerge_docs WHERE source_path IS NOT NULL LIMIT 1").get()
+      );
+    } finally {
+      d.close();
+    }
+  },
+};
+
+/** The plan: enabled modules with data to load, in the modules table's own display order — the
+    same order the terminal types its lines, so the stops land top to bottom. */
+function bootPreloadPlan(): { slugs: string[] } {
+  const org = getActiveOrg();
+  if (!org) return { slugs: [] };
+  const probe = (fn: (() => unknown) | undefined): boolean => {
+    try { return !!fn?.(); } catch { return false; }
+  };
+  const rows = getDb().prepare("SELECT slug FROM modules WHERE is_enabled = 1 ORDER BY display_order").all() as { slug: string }[];
+  return { slugs: rows.map((r) => r.slug).filter((s) => probe(BOOT_DATA_PROBES[s])) };
+}
+
+/** ONE predicate for the Settings grey-out and main's Skip-Fast-Boot refusal: fast boot is
+    unavailable exactly when the plan would stop at least once. They can never disagree. */
+export function hasImportedData(): boolean {
+  return bootPreloadPlan().slugs.length > 0;
+}
+
+/**
+ * Load ONE module's saved data — invoked by the renderer while the terminal is stopped on that
+ * module's line, so these run strictly one at a time, in line order. Memoized per process: a
+ * renderer reload re-asks and gets an instant yes. Only MindMerge does real work — the catch-up
+ * ingest of every Brain root (the work the lazy-start rule kept out of boot, legal here because
+ * it runs DURING the terminal, mtime-guarded and yielding) PLUS the Documents imported-files
+ * refresh, awaited: Jason's ruled redundancy — the watchers' backup path runs proven on every
+ * start. Scan and Vault warm their first-paint reads. A failure never blocks boot: the terminal
+ * moves on and the module loads itself on open, as it always has.
+ */
+const bootLoadsDone = new Set<string>();
+async function bootPreloadModule(slug: string): Promise<{ ok: boolean }> {
+  const org = getActiveOrg();
+  if (!org || bootLoadsDone.has(slug)) return { ok: true };
+  bootLoadsDone.add(slug);
+  try {
+    if (slug === "scan") {
+      getDb().prepare("SELECT id FROM scan_runs WHERE cleared_at IS NULL ORDER BY id DESC LIMIT 50").all();
+    } else if (slug === "vault") {
+      if (hasOpenDb("vault")) openDb("", "vault").prepare("SELECT id FROM vault_secrets ORDER BY id DESC").all();
+    } else if (slug === "mindmerge") {
+      // skipIngest arms watchers WITHOUT the engine's own fire-and-forget walk, so this awaited
+      // sequential walk is the only one running; ghost rows prune at the end of each root's walk.
+      const h = ensureMindMerge(true);
+      for (const root of readMindMergeRoots()) {
+        if (fs.existsSync(root)) await ingestAll(h.db, root, sendMindMergeProgress);
+      }
+      // THE REDUNDANCY (ruled 08-31-2026): the Documents-side imported-files catch-up, awaited —
+      // watchers remain the live path; this proves the backup path on every start.
+      await bootPreloadMindMergeDocs(h.db, org.org_id);
+    }
+  } catch {
+    /* a failed load never blocks boot — the module loads itself on open */
+  }
+  return { ok: true };
 }
 
 // --- Scan module host — root-side glue. Schema + crash-marking run once per process, lazily on
@@ -453,6 +544,13 @@ export function registerIpcHandlers(): void {
 
   // module registry — Config-as-Data rows that drive the renderer nav + routing.
   safeHandle("modules:get", () => modules.listModules());
+
+  // Boot preload (08-30/31-2026): the terminal asks for the plan, then loads one module per stop
+  // as its typing reaches each planned line; Settings asks 'boot:preloadRequired' to grey the
+  // Skip Fast Boot toggle. All org-guarded inside.
+  safeHandle("boot:preloadPlan", () => bootPreloadPlan());
+  safeHandle("boot:preloadModule", (_e, slug: unknown) => bootPreloadModule(typeof slug === "string" ? slug : ""));
+  safeHandle("boot:preloadRequired", () => hasImportedData());
 
   // PLATFORM entitlement read (08-21-2026). Read-only: the tier and the per-feature map, nothing a
   // renderer could write. It is a PLATFORM channel rather than a module one for the reason the

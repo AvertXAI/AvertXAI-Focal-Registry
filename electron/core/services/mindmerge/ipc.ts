@@ -23,9 +23,11 @@
 import { BrowserWindow, app, clipboard, dialog, ipcMain } from "electron";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 import { getDb } from "../db";
 import { getActiveOrg } from "../db/registry";
 import { enforceFeature } from "../licensing";
+import { getMainWindow } from "../../windows";
 import { openMindMergeDb, type Db } from "./db";
 import * as notes from "./notes";
 import * as noteFolders from "./noteFolders";
@@ -42,7 +44,7 @@ import { findVsCodeThemes, readVsCodeTheme } from "../vault/codeThemes";
 // two walk functions read directory NAMES and stats, never contents. Copying the file here would
 // have produced a second implementation of the same disk walk, so the import-machinery handlers
 // below call the existing one.
-import { FILE_FILTERS, statPickedFiles, walkForDocs } from "../vault/sources";
+import { DOC_EXTS, FILE_FILTERS, SKIP_DIRS, statPickedFiles, walkForDocs } from "../vault/sources";
 
 /**
  * Module-local copy of core/ipc.ts's resilient registrar (it is module-local there; a cross-import
@@ -168,7 +170,378 @@ function mindMergeCtx(): { db: Db; orgId: string } {
   const org = getActiveOrg();
   if (!org) throw new Error("MindMerge: no active org");
   enforceFeature(getDb(), "mindmergeBrain");
-  return { db: openMindMergeDb(org.org_id, app.getPath("userData")), orgId: org.org_id };
+  const db = openMindMergeDb(org.org_id, app.getPath("userData"));
+  // THE IMPORTED-FOLDER WATCH RIDES THIS CHOKEPOINT (08-30-2026): every docs call passes here,
+  // the arm is an idempotent per-root map check, and the entitlement gate above has already
+  // answered — so the watcher can never start on a non-entitled install, the same property the
+  // ingest engine gets from ensureMindMerge.
+  armImportWatchers(db, org.org_id);
+  return { db, orgId: org.org_id };
+}
+
+/**
+ * THE ONE FILE READER for document imports — extracted from the importDocs handler 08-30-2026 so
+ * the imported-folder refresh reads a changed file EXACTLY the way its import did: same fences,
+ * same placeholders, same caps. Two readers would drift, and a drifted refresh rewrites notes.
+ *
+ * NO MORE SILENT BLANKS, NO MORE SILENT CUTS (Jason 08-16-2026: blank notes from his _source
+ * import, a rare truncated one, and "no error logs for that side"). The old catches stored
+ * `""` — a note row that exists, opens empty, and left no trace anywhere. Now:
+ *   · a file that cannot be read imports as a PLACEHOLDER naming the actual error — visible
+ *     in the note, retryable by re-importing (the duplicate guard fills placeholder rows);
+ *   · a file a cap genuinely cuts carries a TRUNCATION NOTICE at the top, above the fence;
+ *   · both are counted here and logged after the run, files named.
+ */
+async function readDocFiles(list: unknown[]): Promise<{
+  loaded: { name: unknown; rel: unknown; path: string; text: string; birthtimeMs: unknown; mtimeMs: unknown }[];
+  readFailures: string[];
+  truncated: string[];
+}> {
+  const readFailures: string[] = [];
+  const truncated: string[] = [];
+  const FENCE_CAP = 200_000;
+  const failText = (p: string, rel: string, err: unknown): string => {
+    const reason = err instanceof Error ? err.message : String(err);
+    readFailures.push(`${rel}: ${reason}`);
+    return `> [import failure] This file could not be read when it was imported — this note is a placeholder, not the file's contents. Re-import the folder to retry it.\n>\n> File: ${p}\n> Reason: ${reason}\n`;
+  };
+  const capNote = (rel: string, total: number, kept: number): string => {
+    truncated.push(`${rel}: ${total.toLocaleString()} characters, ${kept.toLocaleString()} kept`);
+    return `> [truncated at import] This file is ${total.toLocaleString()} characters; only the first ${kept.toLocaleString()} were stored.\n\n`;
+  };
+  // A for-loop with a yield, not a .map (adversarial review 08-31-2026): this runs on the main
+  // thread and the batch is unbounded — a sync client rewriting 2,000 imported files hands them
+  // all here in one call, and back-to-back readFileSync froze every IPC in the app for the
+  // duration. Every 32 files the event loop breathes — the Brain engine's own ingest cadence.
+  const loaded: { name: unknown; rel: unknown; path: string; text: string; birthtimeMs: unknown; mtimeMs: unknown }[] = [];
+  for (let i = 0; i < list.length; i++) {
+    if ((i & 31) === 31) await new Promise((resolve) => setImmediate(resolve));
+    const f = list[i];
+    const rec = f as { path?: unknown; name?: unknown; rel?: unknown; ext?: unknown; birthtimeMs?: unknown; mtimeMs?: unknown };
+    const p = typeof rec?.path === "string" ? rec.path : "";
+    const ext = typeof rec?.ext === "string" ? rec.ext : "";
+    const rel = typeof rec?.rel === "string" ? rec.rel : (typeof rec?.name === "string" ? rec.name : p);
+    let text = "";
+    if (ext === ".pdf") {
+      text = `> This PDF was imported as a placeholder — MindMerge has no PDF text extractor yet.\n>\n> File: ${p}\n`;
+    } else if (ext === ".xlsx" || ext === ".xls" || ext === ".xlsm") {
+      // A spreadsheet needs a parser this product does not carry, and adding one is a dependency
+      // decision (§2.10), not a quiet import. Say so in the note rather than storing binary noise.
+      text = `> This spreadsheet was imported as a placeholder — MindMerge has no spreadsheet reader.\n>\n> Export it as CSV and import that for the real contents.\n>\n> File: ${p}\n`;
+    } else if (ext === ".doc" || ext === ".docx") {
+      // .doc is a binary OLE container and .docx is zipped XML — neither is readable without a
+      // parser. Same rule as the spreadsheets: say so, keep the row, never store binary noise.
+      text = `> This Word document was imported as a placeholder — MindMerge has no Word reader.\n>\n> Save it as Markdown or plain text and import that for the real contents.\n>\n> File: ${p}\n`;
+    } else if (ext === ".jsonl") {
+      // LINE-delimited JSON: each line is its own document. Pretty-printing would destroy the one
+      // property that defines the format, so it is kept verbatim in a fence.
+      try {
+        const raw = fs.readFileSync(p, "utf8");
+        const head = raw.length > FENCE_CAP ? capNote(rel, raw.length, FENCE_CAP) : "";
+        text = head + "```jsonl\n" + raw.slice(0, FENCE_CAP) + "\n```\n";
+      } catch (err) { text = failText(p, rel, err); }
+    } else if (ext === ".json") {
+      // Pretty-print so a dumped config is readable as a note instead of one enormous line.
+      try {
+        const rawText = fs.readFileSync(p, "utf8");
+        const pretty = JSON.stringify(JSON.parse(rawText), null, 2);
+        const head = pretty.length > FENCE_CAP ? capNote(rel, pretty.length, FENCE_CAP) : "";
+        text = head + "```json\n" + pretty.slice(0, FENCE_CAP) + "\n```\n";
+      } catch {
+        // Not valid JSON (or unreadable): keep it verbatim if it can be read at all.
+        try {
+          const raw = fs.readFileSync(p, "utf8");
+          const head = raw.length > FENCE_CAP ? capNote(rel, raw.length, FENCE_CAP) : "";
+          text = head + "```\n" + raw.slice(0, FENCE_CAP) + "\n```\n";
+        } catch (err2) { text = failText(p, rel, err2); }
+      }
+    } else if (ext === ".csv" || ext === ".zone") {
+      // Kept verbatim in a fence — a zone file or CSV is exact text, and reflowing it as prose
+      // would destroy the alignment that makes it readable.
+      try {
+        const raw = fs.readFileSync(p, "utf8");
+        const head = raw.length > FENCE_CAP ? capNote(rel, raw.length, FENCE_CAP) : "";
+        text = head + "```\n" + raw.slice(0, FENCE_CAP) + "\n```\n";
+      } catch (err) { text = failText(p, rel, err); }
+    } else {
+      try {
+        const raw = fs.readFileSync(p, "utf8");
+        // createNote hard-caps at one megabyte — when that will genuinely cut, say so AT THE
+        // TOP, where the notice survives the cut.
+        const head = raw.length > 1_000_000 ? capNote(rel, raw.length, 1_000_000) : "";
+        text = head + raw;
+      } catch (err) { text = failText(p, rel, err); }
+    }
+    // `path` now travels too — it is what the duplicate guard matches on. It never reaches the
+    // renderer; this object is built main-side and consumed main-side.
+    loaded.push({ name: rec?.name, rel: rec?.rel, path: p, text, birthtimeMs: rec?.birthtimeMs, mtimeMs: rec?.mtimeMs });
+  }
+  return { loaded, readFailures, truncated };
+}
+
+// ---- Imported-folder refresh + watch (Jason 08-30-2026: "what i want is a file watcher on
+// imported folders" — the SOP file was rewritten on disk and its imported note stayed stale).
+// The roots ledger and the changed-body DB pass live in notes.ts; THIS side owns the file IO:
+// the stat pass, the re-read through readDocFiles above, the re-walk of recorded roots for new
+// files, and the fs.watch plumbing that drives it live.
+
+/** One watcher per recorded root, one shared debounce across them all — a save burst spanning
+    three roots is still one refresh — and `refreshBusy` keeps refreshes from overlapping. */
+const importWatchers = new Map<string, fs.FSWatcher>();
+let importWatchTimer: ReturnType<typeof setTimeout> | null = null;
+let refreshBusy = false;
+let startupCatchupDone = false;
+
+function pushDocsChanged(): void {
+  getMainWindow()?.webContents.send("mindmerge:docsChanged");
+}
+
+/**
+ * Is a raw fs.watch event worth a refresh AT ALL? A recursive watch on a big imported tree also
+ * sees node_modules churn, .git packfiles, and build output — none of which the walk would ever
+ * import — and without this filter every `npm install` inside a watched tree fires a full
+ * refresh storm. Same lists the walk itself uses (DOC_EXTS / SKIP_DIRS), so the two can't drift.
+ * A platform event with NO filename can't be judged — it refreshes (rare, and missing a real
+ * change is the worse failure). An extensionless name might be a directory — the walk decides.
+ */
+function watchEventRelevant(filename: string | Buffer | null): boolean {
+  if (typeof filename !== "string" || filename === "") return true;
+  const segs = filename.split(/[\\/]+/);
+  if (segs.some((s) => SKIP_DIRS.has(s) || s.startsWith("."))) return false;
+  const ext = path.extname(filename).toLowerCase();
+  return ext === "" || DOC_EXTS.has(ext);
+}
+
+/**
+ * The whole refresh, both passes, returning the counts the rail says out loud. `folderId` scopes
+ * it (Jason 08-30-2026: "once i click on any folder is auto refreshed that subfolder or folder"):
+ * a folder id limits both passes to that folder's subtree; null is the whole org (the ⟳ button
+ * and the watcher).
+ *
+ * PASS A (changed): stat every unarchived imported document in scope; only files whose mtime
+ * outran the stored source_mtime_ms baseline are re-read (strict — the baseline IS the file's
+ * own mtime from the last sync). Legacy rows from before the baseline columns fall back to
+ * updated_at with 1.5 seconds of slack, follow the file once, and are stamped into the new
+ * scheme. In-app edits are protected DOWNSTREAM by source_hash (refreshImportedBodies keeps a
+ * note whose body diverged from its last-synced fingerprint).
+ * PASS B (new): walk the DERIVED directories (deriveImportDirs — the docs already in the tree
+ * name their own disk folders, so imports that predate the roots ledger are covered) plus, on a
+ * global run, any recorded import roots not already covered. Only paths not yet imported are
+ * READ at all. New docs import UNFILED, then fileNewImports lands each in the folder its disk
+ * directory maps to — never a from-scratch mirror, which would rebuild top-level folders that
+ * really live nested (the v1-SOP failure).
+ *
+ * NOTHING IS EVER DELETED: a source file now missing on disk is counted and its note left alone.
+ * Removing notes is the user's call, never the refresh's.
+ */
+async function runDocsRefresh(db: Db, orgId: string, folderId: number | null): Promise<{ checked: number; updated: number; added: number; missing: number; failed: number; kept: number; capped: number }> {
+  const out = { checked: 0, updated: 0, added: 0, missing: 0, failed: 0, kept: 0, capped: 0 };
+  // This function runs on the MAIN process's only thread — yielding to the event loop between
+  // batches is what keeps a 2,000-doc stat pass from freezing paint and IPC (the Brain engine's
+  // ingestAll yields the same way, every 32 files).
+  const yieldNow = (): Promise<void> => new Promise((r) => setImmediate(r));
+  const scopeIds = folderId != null ? noteFolders.subtreeIds(db, orgId, folderId) : null;
+  const scopeSql = scopeIds ? ` AND folder_id IN (${scopeIds.map(() => "?").join(",")})` : "";
+  const rows = db
+    .prepare(`SELECT source_path, updated_at, source_mtime_ms FROM mindmerge_docs WHERE org_id = ? AND source_path IS NOT NULL AND archived_at IS NULL${scopeSql}`)
+    .all(orgId, ...(scopeIds ?? [])) as { source_path: string; updated_at: string | null; source_mtime_ms: number | null }[];
+  const changed: { path: string; name: string; rel: string; ext: string; birthtimeMs: number; mtimeMs: number }[] = [];
+  for (const r of rows) {
+    out.checked++;
+    if (out.checked % 250 === 0) await yieldNow();
+    let st: fs.Stats;
+    try { st = fs.statSync(r.source_path); } catch { out.missing++; continue; }
+    // Strict compare against the stored baseline — it IS this file's mtime from the last sync
+    // (ceiled, so an untouched file is never "newer"). Rows from before the baseline columns
+    // have NULL there and fall back to updated_at with 1.5 seconds of slack for filesystem
+    // timestamp granularity; the refresh stamps them and they graduate to the strict path.
+    const known = r.source_mtime_ms;
+    const isChanged = known != null
+      ? st.mtimeMs > known
+      : st.mtimeMs > (r.updated_at ? Date.parse(r.updated_at) : 0) + 1500;
+    if (!isChanged) continue;
+    const name = path.basename(r.source_path);
+    changed.push({ path: r.source_path, name, rel: name, ext: path.extname(name).toLowerCase(), birthtimeMs: st.birthtimeMs || st.mtimeMs, mtimeMs: st.mtimeMs });
+  }
+  if (changed.length > 0) {
+    const readA = await readDocFiles(changed);
+    const upd = notes.refreshImportedBodies(db, orgId, readA.loaded);
+    out.updated = upd.updated;
+    out.kept = upd.kept;
+    // Read failures arrive as placeholder bodies and are counted INSIDE refreshImportedBodies
+    // (skipped, failed++) — adding readA.readFailures.length here would double-count them.
+    out.failed += upd.failed;
+    if (readA.readFailures.length > 0 || readA.truncated.length > 0) {
+      logDocEvent(db, orgId, {
+        level: "warn", area: "import", channel: "mindmerge:refreshDocs", actor: "refresh",
+        message: `Refresh re-read problems — unreadable: ${readA.readFailures.join("; ") || "none"} · truncated: ${readA.truncated.join("; ") || "none"}`,
+      });
+    }
+  }
+
+  // PASS B. Already-imported set is ORG-WIDE and includes archived rows — the unique guard spans
+  // them, and reading a file just to have importDocs refuse it would be waste. Keys normalized:
+  // Windows paths compare case-blind.
+  const have = new Set(
+    (db.prepare("SELECT source_path FROM mindmerge_docs WHERE org_id = ? AND source_path IS NOT NULL").all(orgId) as { source_path: string }[])
+      .map((r) => notes.normPathKey(r.source_path))
+  );
+  // Paths the user DELIBERATELY erased (archive → destroy) stay erased: without this filter the
+  // refresh re-imported them — the file was still on disk and its row was gone, which read as
+  // "new" (adversarial review 08-31-2026). An explicit re-import lifts the stone (see the
+  // importDocs handler); the refresh never does.
+  const tombstones = notes.listImportTombstones(db, orgId);
+  const derived = notes.deriveImportDirs(db, orgId, folderId);
+  const walkSet = new Map<string, string>(); // normalized key → original dir
+  // A RECORDED root's kind choice is honored on refresh imports (the ledger records it for
+  // exactly that — its comment promised "the SAME import", and pass B was guessing instead).
+  // Derived dirs have no recorded options and stay "auto". folder/mirror are deliberately NOT
+  // re-applied: v2 filing lands new files via the existing-tree map (fileNewImports), which is
+  // what stops a re-run mirror rebuilding nested folders at top level.
+  const rootKind = new Map<string, string>();
+  for (const d of derived.walkDirs) walkSet.set(notes.normPathKey(d), d);
+  if (folderId == null) {
+    for (const root of notes.listImportRoots(db, orgId)) {
+      const k = notes.normPathKey(root.path);
+      if (root.kind && root.kind !== "auto") rootKind.set(k, root.kind);
+      // Skip a recorded root already covered by (or covering) a derived dir — one walk per tree.
+      let covered = walkSet.has(k);
+      for (const existing of walkSet.keys()) {
+        if (covered) break;
+        if (k.startsWith(existing + path.sep)) covered = true;
+        else if (existing.startsWith(k + path.sep)) { walkSet.delete(existing); }
+      }
+      if (!covered) walkSet.set(k, root.path);
+    }
+  }
+  for (const [dirKey, dir] of walkSet) {
+    if (!fs.existsSync(dir)) continue; // an unplugged drive is not an error — next time
+    // Depth 10, not the import picker's 6: the refresh follows trees the user ALREADY imported,
+    // and a tree that imported at depth N must keep refreshing at depth N. The file ceiling
+    // stays, but no longer silently — a truncated walk is counted and logged.
+    const walk = walkForDocs([dir], 25_000, 10);
+    if (walk.truncated) {
+      out.capped++;
+      logDocEvent(db, orgId, {
+        level: "warn", area: "import", channel: "mindmerge:refreshDocs", actor: "refresh",
+        message: `Refresh walk of ${dir} hit the 25,000-file ceiling — files beyond it were not checked this run`,
+      });
+    }
+    const fresh = walk.files.filter((f) => {
+      const k = notes.normPathKey(f.path);
+      return !have.has(k) && !tombstones.has(k);
+    });
+    if (fresh.length === 0) { await yieldNow(); continue; }
+    const readB = await readDocFiles(fresh);
+    // autoClientFolder OFF: a stray `client:` line in a doc's frontmatter must not spawn a
+    // top-level folder here — on the refresh path, FILING IS THE MAP'S JOB (fileNewImports).
+    const res = notes.importDocs(db, orgId, readB.loaded, { kind: rootKind.get(dirKey) ?? "auto", folder: null, mirror: false, autoClientFolder: false } as never);
+    out.added += res.created;
+    // A file that could not be read still imports (as a visible, retryable placeholder note), so
+    // it is IN `added` — and counted here as failed, because its contents did not come across.
+    out.failed += res.failed + readB.readFailures.length;
+    if (readB.readFailures.length > 0) {
+      logDocEvent(db, orgId, {
+        level: "warn", area: "import", channel: "mindmerge:refreshDocs", actor: "refresh",
+        message: `Refresh imported placeholder(s) for unreadable file(s): ${readB.readFailures.join("; ")}`,
+      });
+    }
+    notes.fileNewImports(db, orgId, derived.byDir, fresh.map((f) => f.path));
+    for (const f of fresh) have.add(notes.normPathKey(f.path));
+    await yieldNow();
+  }
+  if (out.updated + out.added + out.kept + out.failed > 0) {
+    logDocEvent(db, orgId, {
+      level: "info", area: "import", channel: "mindmerge:refreshDocs", actor: "refresh",
+      message: `Refreshed imported folders — ${out.updated} note(s) re-read from changed files, ${out.added} new file(s) imported, ${out.kept} kept (edited in the app), ${out.failed} unreadable, ${out.missing} source file(s) missing on disk (left alone)`,
+    });
+  }
+  return out;
+}
+
+/** Debounced watcher callback → one refresh → one push if anything moved. Failures are swallowed
+    deliberately: a transient read race or a licence flip must never take the watcher down — the
+    next event or the manual refresh button re-drives it. */
+function scheduleWatchRefresh(db: Db, orgId: string): void {
+  if (importWatchTimer) clearTimeout(importWatchTimer);
+  importWatchTimer = setTimeout(() => {
+    importWatchTimer = null;
+    if (refreshBusy) { scheduleWatchRefresh(db, orgId); return; } // still running — come back later
+    refreshBusy = true;
+    void runDocsRefresh(db, orgId, null)
+      .then((r) => { if (r.updated + r.added > 0) pushDocsChanged(); })
+      .catch(() => { /* see above */ })
+      .finally(() => { refreshBusy = false; });
+  }, 800);
+}
+
+/**
+ * fs.watch (recursive — stdlib, the Brain engine's own pattern, no chokidar) on every recorded
+ * import root AND every derived mirror directory — so folders imported before the roots ledger
+ * existed are watched too, not just refreshed on demand. Idempotent per directory; memoized per
+ * session (the derive queries every doc row, and this rides the per-call chokepoint), re-armed
+ * with force after an import records new roots. The FIRST arm also schedules one catch-up
+ * refresh, because a watcher cannot see the past: a file edited while the app was closed raises
+ * no event, ever.
+ */
+let watchersArmed = false;
+function armImportWatchers(db: Db, orgId: string, force = false): void {
+  if (watchersArmed && !force) return;
+  watchersArmed = true;
+  const dirs = new Map<string, string>();
+  for (const r of notes.listImportRoots(db, orgId)) dirs.set(notes.normPathKey(r.path), r.path);
+  for (const d of notes.deriveImportDirs(db, orgId, null).walkDirs) {
+    const k = notes.normPathKey(d);
+    // Skip a derived dir already inside a watched tree — recursive watch covers it.
+    if (![...dirs.keys()].some((anc) => k === anc || k.startsWith(anc + path.sep))) dirs.set(k, d);
+  }
+  for (const [k, dir] of dirs) {
+    if (importWatchers.has(k) || !fs.existsSync(dir)) continue;
+    try {
+      const w = fs.watch(dir, { recursive: true }, (_ev, filename) => {
+        if (!watchEventRelevant(filename)) return;
+        scheduleWatchRefresh(db, orgId);
+      });
+      // An errored FSWatcher is dead weight — close it and drop it from the map so a later
+      // force re-arm (any import) can re-create it instead of being blocked by the stale entry.
+      w.on("error", () => {
+        try { w.close(); } catch { /* already gone */ }
+        importWatchers.delete(k);
+      });
+      importWatchers.set(k, w);
+    } catch {
+      // A network or removable root can refuse a recursive watch — never fatal; the catch-up
+      // refresh, the folder-click refresh, and the manual button all still cover it.
+    }
+  }
+  if (!startupCatchupDone && dirs.size > 0) {
+    startupCatchupDone = true;
+    setImmediate(() => scheduleWatchRefresh(db, orgId));
+  }
+}
+
+/**
+ * BOOT PRELOAD hook (Jason 08-31-2026: "everything loads for them and doesnt have to load on the
+ * spot"; "i want that redundancy... my backup plan for loading files works"). Called from the
+ * boot chokepoint while the JARVIS terminal is STOPPED on the MindMerge line: arms the import
+ * watchers, then runs ONE awaited whole-org Documents refresh — the same catch-up a first module
+ * open would only have scheduled, done and WAITED ON now so imported documents are current before
+ * the user can click anything. Deliberately redundant with the watchers: a save the watcher
+ * missed (app closed, filtered event, dead watcher) is reconciled by this pass on every start.
+ */
+export async function bootPreloadMindMergeDocs(db: Db, orgId: string): Promise<void> {
+  startupCatchupDone = true; // this awaited refresh IS the catch-up — suppress the debounced twin
+  armImportWatchers(db, orgId);
+  if (refreshBusy) return; // a watcher-driven refresh beat us to it — same ground, already covered
+  refreshBusy = true;
+  try {
+    const r = await runDocsRefresh(db, orgId, null);
+    if (r.updated + r.added > 0) pushDocsChanged();
+  } catch {
+    /* the module's own open re-drives this — boot never blocks on a failed refresh */
+  } finally {
+    refreshBusy = false;
+  }
 }
 
 export function registerMindMergeDocsIpc(): void {
@@ -311,7 +684,15 @@ export function registerMindMergeDocsIpc(): void {
   /** Clear every note and folder. Confirm-gated in the UI; the count is said out loud first. */
   safeHandle("mindmerge:purgeDocs", async () => {
     const { db, orgId } = mindMergeCtx();
-    const r = notes.purgeAllNotes(db, orgId);
+    const r = notes.purgeAllNotes(db, orgId); // also clears the import-roots ledger (see notes.ts)
+    // The armed watchers watched the now-forgotten roots — close them, or the next file save
+    // there fires a refresh of a ledger that no longer exists. Re-arming happens the way it
+    // always did: the next import (force) or the next mindMergeCtx call re-derives and re-arms.
+    for (const [k, w] of importWatchers) {
+      try { w.close(); } catch { /* already dead */ }
+      importWatchers.delete(k);
+    }
+    watchersArmed = false;
     // The vault also writes a secrets.logAccess row here. There is no secret store and no access log
     // in MindMerge — the module holds documents, not credentials — so that call has no counterpart.
     logDocEvent(db, orgId, {
@@ -405,88 +786,21 @@ export function registerMindMergeDocsIpc(): void {
   safeHandle("mindmerge:importDocs", async (_e, files: unknown, opts: unknown) => {
     const { db, orgId } = mindMergeCtx();
     const list = Array.isArray(files) ? files : [];
-    /**
-     * NO MORE SILENT BLANKS, NO MORE SILENT CUTS (Jason 08-16-2026: blank notes from his _source
-     * import, a rare truncated one, and "no error logs for that side"). The old catches stored
-     * `""` — a note row that exists, opens empty, and left no trace anywhere. Now:
-     *   · a file that cannot be read imports as a PLACEHOLDER naming the actual error — visible
-     *     in the note, retryable by re-importing (the duplicate guard fills placeholder rows);
-     *   · a file a cap genuinely cuts carries a TRUNCATION NOTICE at the top, above the fence;
-     *   · both are counted here and logged after the run, files named.
-     */
-    const readFailures: string[] = [];
-    const truncated: string[] = [];
-    const FENCE_CAP = 200_000;
-    const failText = (p: string, rel: string, err: unknown): string => {
-      const reason = err instanceof Error ? err.message : String(err);
-      readFailures.push(`${rel}: ${reason}`);
-      return `> [import failure] This file could not be read when it was imported — this note is a placeholder, not the file's contents. Re-import the folder to retry it.\n>\n> File: ${p}\n> Reason: ${reason}\n`;
-    };
-    const capNote = (rel: string, total: number, kept: number): string => {
-      truncated.push(`${rel}: ${total.toLocaleString()} characters, ${kept.toLocaleString()} kept`);
-      return `> [truncated at import] This file is ${total.toLocaleString()} characters; only the first ${kept.toLocaleString()} were stored.\n\n`;
-    };
-    const loaded = list.map((f) => {
-      const rec = f as { path?: unknown; name?: unknown; rel?: unknown; ext?: unknown; birthtimeMs?: unknown; mtimeMs?: unknown };
-      const p = typeof rec?.path === "string" ? rec.path : "";
-      const ext = typeof rec?.ext === "string" ? rec.ext : "";
-      const rel = typeof rec?.rel === "string" ? rec.rel : (typeof rec?.name === "string" ? rec.name : p);
-      let text = "";
-      if (ext === ".pdf") {
-        text = `> This PDF was imported as a placeholder — MindMerge has no PDF text extractor yet.\n>\n> File: ${p}\n`;
-      } else if (ext === ".xlsx" || ext === ".xls" || ext === ".xlsm") {
-        // A spreadsheet needs a parser this product does not carry, and adding one is a dependency
-        // decision (§2.10), not a quiet import. Say so in the note rather than storing binary noise.
-        text = `> This spreadsheet was imported as a placeholder — MindMerge has no spreadsheet reader.\n>\n> Export it as CSV and import that for the real contents.\n>\n> File: ${p}\n`;
-      } else if (ext === ".doc" || ext === ".docx") {
-        // .doc is a binary OLE container and .docx is zipped XML — neither is readable without a
-        // parser. Same rule as the spreadsheets: say so, keep the row, never store binary noise.
-        text = `> This Word document was imported as a placeholder — MindMerge has no Word reader.\n>\n> Save it as Markdown or plain text and import that for the real contents.\n>\n> File: ${p}\n`;
-      } else if (ext === ".jsonl") {
-        // LINE-delimited JSON: each line is its own document. Pretty-printing would destroy the one
-        // property that defines the format, so it is kept verbatim in a fence.
-        try {
-          const raw = fs.readFileSync(p, "utf8");
-          const head = raw.length > FENCE_CAP ? capNote(rel, raw.length, FENCE_CAP) : "";
-          text = head + "```jsonl\n" + raw.slice(0, FENCE_CAP) + "\n```\n";
-        } catch (err) { text = failText(p, rel, err); }
-      } else if (ext === ".json") {
-        // Pretty-print so a dumped config is readable as a note instead of one enormous line.
-        try {
-          const rawText = fs.readFileSync(p, "utf8");
-          const pretty = JSON.stringify(JSON.parse(rawText), null, 2);
-          const head = pretty.length > FENCE_CAP ? capNote(rel, pretty.length, FENCE_CAP) : "";
-          text = head + "```json\n" + pretty.slice(0, FENCE_CAP) + "\n```\n";
-        } catch {
-          // Not valid JSON (or unreadable): keep it verbatim if it can be read at all.
-          try {
-            const raw = fs.readFileSync(p, "utf8");
-            const head = raw.length > FENCE_CAP ? capNote(rel, raw.length, FENCE_CAP) : "";
-            text = head + "```\n" + raw.slice(0, FENCE_CAP) + "\n```\n";
-          } catch (err2) { text = failText(p, rel, err2); }
-        }
-      } else if (ext === ".csv" || ext === ".zone") {
-        // Kept verbatim in a fence — a zone file or CSV is exact text, and reflowing it as prose
-        // would destroy the alignment that makes it readable.
-        try {
-          const raw = fs.readFileSync(p, "utf8");
-          const head = raw.length > FENCE_CAP ? capNote(rel, raw.length, FENCE_CAP) : "";
-          text = head + "```\n" + raw.slice(0, FENCE_CAP) + "\n```\n";
-        } catch (err) { text = failText(p, rel, err); }
-      } else {
-        try {
-          const raw = fs.readFileSync(p, "utf8");
-          // createNote hard-caps at one megabyte — when that will genuinely cut, say so AT THE
-          // TOP, where the notice survives the cut.
-          const head = raw.length > 1_000_000 ? capNote(rel, raw.length, 1_000_000) : "";
-          text = head + raw;
-        } catch (err) { text = failText(p, rel, err); }
-      }
-      // `path` now travels too — it is what the duplicate guard matches on. It never reaches the
-      // renderer; this object is built main-side and consumed main-side.
-      return { name: rec?.name, rel: rec?.rel, path: p, text, birthtimeMs: rec?.birthtimeMs, mtimeMs: rec?.mtimeMs };
-    });
+    const { loaded, readFailures, truncated } = await readDocFiles(list);
+    // An explicit import LIFTS tombstones for exactly these files: pressing Import on a
+    // previously-erased path is the user changing their mind, and that intent wins.
+    notes.clearImportTombstones(db, orgId, loaded.map((f) => f.path));
     const r = notes.importDocs(db, orgId, loaded, (opts ?? {}) as never);
+    // FOLDER IMPORTS LEAVE A RE-WALKABLE TRAIL NOW (Jason 08-30-2026): the picked roots are
+    // recorded with the options this import ran under, and the watcher is armed on them — so a
+    // file edited after import gets re-read (watch or the refresh button) instead of staying
+    // stale forever. `roots` is absent for hand-picked single files, deliberately: recording a
+    // picked file's parent folder would import its siblings the user never chose.
+    const rootOpts = (opts ?? {}) as { roots?: unknown; kind?: unknown; folder?: unknown; mirror?: unknown };
+    if (Array.isArray(rootOpts.roots) && rootOpts.roots.length > 0) {
+      notes.recordImportRoots(db, orgId, rootOpts.roots, rootOpts);
+      armImportWatchers(db, orgId, true); // force — a new root may sit outside every watched tree
+    }
     // (The vault's secrets.logAccess("import", …) row has no counterpart here — see purgeDocs.)
     // THE FULL ARITHMETIC, in the log, where it can be checked after the modal is gone. This is the
     // line that answers "the import said 2,083 and the folder says 2,078" without anyone having to
@@ -516,6 +830,15 @@ export function registerMindMergeDocsIpc(): void {
       });
     }
     return r;
+  });
+
+  // THE REFRESH (Jason 08-30-2026) — the same routine the watcher runs, on demand, with the
+  // counts handed back so the rail can say what actually happened. An optional folder id scopes
+  // it to that folder's subtree (the click-a-folder auto-refresh); absent/invalid = whole org.
+  safeHandle("mindmerge:refreshDocs", async (_e, folderId: unknown) => {
+    const { db, orgId } = mindMergeCtx();
+    const fid = typeof folderId === "number" && Number.isFinite(folderId) && folderId > 0 ? folderId : null;
+    return runDocsRefresh(db, orgId, fid);
   });
 
   /**

@@ -186,6 +186,73 @@ export interface IngestProgress {
   total: number;
 }
 
+/**
+ * GHOST-ROW PRUNE (Jason 08-30-2026): a file deleted while the app was closed raises no watch
+ * event, ever — and ingestAll only upserted, so the row outlived its file forever (the stale-SOP
+ * symptom on the Brain side). After a FULL walk of a root, any row under that root whose file was
+ * not seen AND provably no longer exists is dropped through removeFile — the same cascade + FTS
+ * path a live delete takes.
+ *
+ * THE GUARDS ARE THE FEATURE — a prune that can mass-delete is worse than the ghosts it removes:
+ *  · the root is re-checked with readdirSync at prune time: walkMd swallows a mid-walk vanish
+ *    (an unplugged drive) into an empty yield, which would otherwise read as "everything deleted";
+ *  · a row whose path crosses an EXCLUDED_DIRS segment under this root is untouchable — the walk
+ *    never descends there (another stacked root can nest inside one), so it cannot judge it;
+ *  · ONLY ENOENT/ENOTDIR is proof of absence (adversarial review 08-31-2026): existsSync returns
+ *    false on ANY stat error, so a deny-ACL'd or dead-share subtree — which walkMd also silently
+ *    skips, taking its files out of `seen` — would have read as "everything deleted". Here an
+ *    access failure (EPERM/EACCES/EIO/…) on the file OR its directory means CANNOT JUDGE → keep;
+ *  · each candidate's own directory is judged first (one cached readdir per directory): a
+ *    directory that is provably gone condemns its rows in one read; a readable one defers to the
+ *    per-file stat — which also spares files created after the walk snapshot, and rows whose
+ *    stored casing drifted from the walk's.
+ * Rows under OTHER roots are out of scope by path containment (the underRoot shape from ipc.ts).
+ * Every mindmerge_notes row claims a backing file by schema (file_path UNIQUE NOT NULL; authored
+ * notes live in mindmerge_docs), so a row that fails every out is by definition a ghost —
+ * quarantined rows (parse_status = 'error') included: their file is just as gone.
+ *
+ * ASYNC + ONE TRANSACTION (same review): the checks yield every 64 rows so a huge prune cannot
+ * freeze the main thread, and the deletes land as one commit — one fsync, not one per ghost.
+ */
+export async function pruneGhosts(db: Db, dir: string, seenFiles: string[]): Promise<number> {
+  try { fs.readdirSync(dir); } catch { return 0; } // root unreadable or vanished — judge nothing
+  const seen = new Set(seenFiles);
+  const rows = db.prepare("SELECT file_path FROM mindmerge_notes").all() as { file_path: string }[];
+  const gone = (e: unknown): boolean => {
+    const code = (e as NodeJS.ErrnoException)?.code;
+    return code === "ENOENT" || code === "ENOTDIR";
+  };
+  // Per-directory verdict, cached: "ok" = readable (per-file stat decides), "gone" = provably
+  // deleted (its rows are ghosts), "blind" = unreadable for any other reason (judge nothing).
+  const dirState = new Map<string, "ok" | "gone" | "blind">();
+  const judgeDir = (parent: string): "ok" | "gone" | "blind" => {
+    let v = dirState.get(parent);
+    if (v === undefined) {
+      try { fs.readdirSync(parent); v = "ok"; } catch (e) { v = gone(e) ? "gone" : "blind"; }
+      dirState.set(parent, v);
+    }
+    return v;
+  };
+  const doomed: string[] = [];
+  let checked = 0;
+  for (const { file_path } of rows) {
+    if ((++checked & 63) === 0) await new Promise((resolve) => setImmediate(resolve));
+    if (seen.has(file_path)) continue;
+    const rel = path.relative(dir, file_path);
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) continue; // not under this root
+    if (rel.split(path.sep).some((s) => EXCLUDED_DIRS.has(s.toLowerCase()))) continue; // walk blind spot
+    const parent = judgeDir(path.dirname(file_path));
+    if (parent === "blind") continue;
+    if (parent === "ok") {
+      try { fs.statSync(file_path); continue; } // still there — created after the snapshot, or casing drift
+      catch (e) { if (!gone(e)) continue; } // access failure is not proof of anything
+    }
+    doomed.push(file_path); // directory provably gone, or ENOENT under a readable directory
+  }
+  if (doomed.length > 0) db.transaction(() => { for (const p of doomed) removeFile(db, p); })();
+  return doomed.length;
+}
+
 // Initial/full scan of the folder — ASYNC and YIELDING so the main event loop stays responsive (a
 // large tree no longer freezes the app) and progress streams to the UI. Files are collected first so
 // there is a real total for the percentage; ingestion yields every 32 files. Returns final counts.
@@ -193,7 +260,7 @@ export async function ingestAll(
   db: Db,
   dir: string,
   onProgress?: (p: IngestProgress) => void
-): Promise<{ ingested: number; quarantined: number }> {
+): Promise<{ ingested: number; quarantined: number; pruned: number }> {
   const files = [...walkMd(dir)];
   const total = files.length;
   // CHANGE-GUARD (Jason 08-26-2026 — the Secured Notes direction: the DB is the truth, files are
@@ -217,9 +284,11 @@ export async function ingestAll(
       await new Promise((resolve) => setImmediate(resolve)); // yield: flush IPC/paint, keep UI alive
     }
   }
+  // The walk is complete — reconcile the other direction (DB rows whose files are gone).
+  const pruned = await pruneGhosts(db, dir, files);
   const count = (status: string): number =>
     (db.prepare("SELECT COUNT(*) AS n FROM mindmerge_notes WHERE parse_status = ?").get(status) as { n: number }).n;
-  return { ingested: count("ok"), quarantined: count("error") };
+  return { ingested: count("ok"), quarantined: count("error"), pruned };
 }
 
 // Watch the folder: fs.watch recursive + a single 500ms debounce window that coalesces bursts, then

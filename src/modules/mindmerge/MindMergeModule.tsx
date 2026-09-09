@@ -406,9 +406,44 @@ export default function MindMergeModule({ settings, onChange }: Props) {
         setReloadKey((k) => k + 1);
       }
     };
-    api.on<MindMergeProgress>("mindmerge:progress", onIngest);
-    return () => api.off<MindMergeProgress>("mindmerge:progress", onIngest);
+    return api.on<MindMergeProgress>("mindmerge:progress", onIngest);
   }, []);
+
+  // The imported-folder watcher re-read a changed file or imported a new one (08-30-2026). No
+  // payload — bump the one counter both the list and the folder rail already reload on, the
+  // scan:notes:changed shape: re-read what you show, trust no payload.
+  useEffect(() => {
+    const onDocsChanged = (): void => setDocReloadKey((k) => k + 1);
+    return api.on("mindmerge:docsChanged", onDocsChanged);
+  }, []);
+
+  // CLICK A FOLDER, IT REFRESHES (Jason 08-30-2026: "once i click on any folder is auto refreshed
+  // that subfolder or folder"). Selection is instant; the scoped refresh runs behind it and only
+  // bumps the reload counter when something actually moved — a quiet folder costs one stat-walk
+  // and repaints nothing. One in flight at a time — but a click that lands DURING a refresh is
+  // queued, not dropped: when the running one finishes, the LATEST queued folder refreshes too.
+  // Silently eating that second click was how "I clicked it and nothing happened" happens.
+  // Failures stay silent (the ⟳ button reports).
+  const folderRefreshBusy = useRef(false);
+  const folderRefreshPending = useRef<number | null>(null);
+  const runFolderRefresh = (id: number): void => {
+    folderRefreshBusy.current = true;
+    void api.mindmerge.refreshDocs(id)
+      .then((r) => { if (r.updated + r.added > 0) setDocReloadKey((k) => k + 1); })
+      .catch(() => {})
+      .finally(() => {
+        folderRefreshBusy.current = false;
+        const next = folderRefreshPending.current;
+        folderRefreshPending.current = null;
+        if (next != null) runFolderRefresh(next);
+      });
+  };
+  const selectFolderAndRefresh = (id: number): void => {
+    setNoteFolder(id);
+    if (id <= 0) return; // Unfiled (-1) has no disk directory to walk
+    if (folderRefreshBusy.current) { folderRefreshPending.current = id; return; }
+    runFolderRefresh(id);
+  };
 
   // Lazy engine start on module open. If this open actually kicks off an ingest, raise the overlay
   // IMMEDIATELY (before the first progress tick) so the whole load — walk + parse — is covered, and no
@@ -635,7 +670,7 @@ export default function MindMergeModule({ settings, onChange }: Props) {
                 <RecentlyEdited reloadKey={docReloadKey} onOpen={setOpenDoc} />
                 <NoteFolderRail
                   selected={noteFolder}
-                  onSelect={setNoteFolder}
+                  onSelect={selectFolderAndRefresh}
                   reloadKey={docReloadKey}
                   onChanged={() => setDocReloadKey((k) => k + 1)}
                   open={openFolders}

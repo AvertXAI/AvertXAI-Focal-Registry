@@ -338,24 +338,21 @@ export default function ScanModule() {
         if (p.reportError) setError(`Report could not be written: ${p.reportError}. The scan is complete and its data is saved.`);
       }
     };
-    window.api.on<ScanProgress>("scan:progress", onProgress);
-    return () => window.api.off<ScanProgress>("scan:progress", onProgress);
+    return window.api.on<ScanProgress>("scan:progress", onProgress);
   }, [refreshRuns]);
 
   // Live drive detection — the main process pushes a fresh attached-drive list the instant a drive is
   // connected or removed (WMI volume event), so a newly plugged drive appears without Ctrl+R.
   useEffect(() => {
     const onDrives = (vols: ScanVolume[]): void => setDrives(vols);
-    window.api.on<ScanVolume[]>("scan:drives", onDrives);
-    return () => window.api.off<ScanVolume[]>("scan:drives", onDrives);
+    return window.api.on<ScanVolume[]>("scan:drives", onDrives);
   }, []);
 
   // ---- Scan Notes: one push, everything re-reads. The payload is deliberately empty — a surface
   // that trusts a pushed payload is a surface that drifts from the database it claims to show. ----
   useEffect(() => {
     const onChanged = (): void => setNotesRefresh((n) => n + 1);
-    window.api.on("scan:notes:changed", onChanged);
-    return () => window.api.off("scan:notes:changed", onChanged);
+    return window.api.on("scan:notes:changed", onChanged);
   }, []);
 
   // A drive came back and its queued work ran. TWELVE SECONDS, not the standard six: this arrives
@@ -371,8 +368,7 @@ export default function ScanModule() {
         );
       }
     };
-    window.api.on<{ drives: ScanNotesDriveSync[] }>("scan:notes:synced", onSynced);
-    return () => window.api.off<{ drives: ScanNotesDriveSync[] }>("scan:notes:synced", onSynced);
+    return window.api.on<{ drives: ScanNotesDriveSync[] }>("scan:notes:synced", onSynced);
   }, []);
 
   // Restore the two sticky preferences. A missing row is the default, never an error.

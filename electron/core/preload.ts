@@ -27,10 +27,15 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
   };
 }
 
-// Main → renderer push events (api.on/off). A whitelist keeps arbitrary ipcRenderer access out of
-// the page (contextIsolation); the wrapper map lets off() unhook the exact listener on() registered.
-const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "scan:notes:changed", "scan:notes:synced", "mindmerge:progress", "rename:progress", "migrate:progress", "timetracker:tick", "timetracker:changed", "timetracker:break", "timetracker:idle"];
-const wrapped = new Map<(payload: never) => void, (e: Electron.IpcRendererEvent, payload: unknown) => void>();
+// Main → renderer push events (api.on). A whitelist keeps arbitrary ipcRenderer access out of the
+// page (contextIsolation).
+//
+// on() RETURNS ITS UNSUBSCRIBE — there is no off(), and adding one back would leak (proved on-device
+// 09-05-2026, 11 stacked timetracker:changed listeners): contextBridge does not preserve function
+// identity across the boundary, so a callback handed to off() is a DIFFERENT object than the one
+// on() received and can never be matched to its listener. Every subscribe leaked one listener per
+// mount. The unsubscribe closure holds the handler directly, so nothing is ever looked up by identity.
+const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "scan:notes:changed", "scan:notes:synced", "mindmerge:progress", "mindmerge:docsChanged", "rename:progress", "migrate:progress", "timetracker:tick", "timetracker:changed", "timetracker:break", "timetracker:idle"];
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);
   return channel;
@@ -83,6 +88,14 @@ const api: Api = {
   /** The master password crosses ONCE, here, and is never sent back. */
   completeFirstRun: (orgName: string, masterPassword: string) => invoke("firstRun:complete", orgName, masterPassword),
   getModules: () => invoke("modules:get"),
+  /** Boot preloads (08-30/31-2026): the terminal fetches the PLAN (which modules have data, in
+      line order), stops on each planned line and loads that one module before advancing; plus the
+      one predicate that greys Skip Fast Boot while imported data exists. */
+  boot: {
+    preloadPlan: () => invoke("boot:preloadPlan"),
+    preloadModule: (slug: string) => invoke("boot:preloadModule", slug),
+    preloadRequired: () => invoke("boot:preloadRequired"),
+  },
   settings: {
     get: (key: string) => invoke("settings:get", key),
     set: (key: string, value: string) => invoke("settings:set", key, value),
@@ -188,6 +201,9 @@ const api: Api = {
     walkFolders: (roots: string[]) => invoke("mindmerge:walkFolders", roots),
     // Folder import — the page passes files it was GIVEN by the main-side walk.
     importDocs: (files: unknown, opts: unknown) => invoke("mindmerge:importDocs", files, opts),
+    // Re-read changed files + pick up new ones under the imported directories (08-30-2026).
+    // Optional folder id scopes it to that folder's subtree (click-a-folder auto-refresh).
+    refreshDocs: (folderId?: number) => invoke("mindmerge:refreshDocs", folderId),
     // Pasted-image attachments — WIRED (Phase 5, 08-22-2026): bytes land in the module's OWN
     // SQLCipher file (<org>.mtd), key machine-held per the "doesnt have to lock, just be encrypted"
     // ruling. Encryption at rest proven by attachments-proof.ts.
@@ -637,18 +653,8 @@ const api: Api = {
     // Persist the open-at-login choice AND write/clear the OS login item (handled in main.ts).
     setEnabled: (enabled: boolean) => invoke("startup:setEnabled", enabled),
   },
-  on: (channel: PushChannel, cb: (payload: never) => void) => {
-    const w = (_e: Electron.IpcRendererEvent, payload: unknown) => (cb as (p: unknown) => void)(payload);
-    wrapped.set(cb, w);
-    ipcRenderer.on(safeChannel(channel), w);
-  },
-  off: (channel: PushChannel, cb: (payload: never) => void) => {
-    const w = wrapped.get(cb);
-    if (w) {
-      ipcRenderer.removeListener(safeChannel(channel), w);
-      wrapped.delete(cb);
-    }
-  },
+  on: (channel: PushChannel, cb: (payload: never) => void): (() => void) =>
+    subscribe(safeChannel(channel), cb),
   diag: {
     enabled: () => invoke("diag:enabled"),
     perModule: (m: Record<string, { renders: number; stateSets: number; subs: number }>) =>

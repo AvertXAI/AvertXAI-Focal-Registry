@@ -88,7 +88,7 @@ export default function FirstRunWizard({ onComplete }: { onComplete: () => void 
 
   return (
     <div className="vsw">
-      <div className="vsw-dimmer" />
+      <div className="vsw-dimmer" data-modal-backdrop="" />
 
       {step === 1 && (
         <div className="vsw-card">

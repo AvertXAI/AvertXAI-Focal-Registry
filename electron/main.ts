@@ -6,10 +6,10 @@ import path from "node:path";
 import { closeAllDbs, getDb, initDb, openDb } from "./core/services/db";
 import { ensureAllModuleSchemas } from "./core/services/db/allSchemas";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
-import { getSetting, setSetting } from "./core/services/settings";
+import { getMainSetting, getSetting, setMainSetting, setSetting } from "./core/services/settings";
 import { deriveVaultKey, getOrCreateVaultSecret } from "./core/services/vault/crypto";
 import { ensureVaultSchema } from "./core/services/vault/db";
-import { registerIpcHandlers } from "./core/ipc";
+import { hasImportedData, registerIpcHandlers } from "./core/ipc";
 import { registerMediaScheme } from "./core/services/scan/mediaBrowse";
 import { installBrandProtocol, loadLocalPack, registerBrandScheme, seedBundledPack, syncBrandPack } from "./core/services/brandpack";
 import { applyThemeOverlay, baseFor, getMainWindow, MIN_HEIGHT, MIN_WIDTH, overlayFor, setBooting, setMainWindow, showMain } from "./core/windows";
@@ -236,7 +236,10 @@ function createWindow(): BrowserWindow {
     if (boundsTimer) clearTimeout(boundsTimer);
     boundsTimer = setTimeout(() => {
       try {
-        setSetting("window_bounds", JSON.stringify({ ...win.getNormalBounds(), max: win.isMaximized() }));
+        // setMainSetting, not setSetting: "window_bounds" is main-owned and OFF the renderer
+        // whitelist on purpose — the whitelisted call threw "Unknown setting key" into this
+        // catch, and geometry silently never persisted (found 08-31-2026).
+        setMainSetting("window_bounds", JSON.stringify({ ...win.getNormalBounds(), max: win.isMaximized() }));
       } catch {
         /* no org yet, or the window is gone — nothing to persist */
       }
@@ -446,12 +449,16 @@ app.whenReady().then(async () => {
   if (org) {
     bootThemeMode = readBootTheme();
     try {
-      bootSkip = getSetting("skip_fast_boot") === "1";
+      // Skip Fast Boot is REFUSED while imported data exists (Jason 08-30-2026): the terminal is
+      // where the boot preloads run, so a boot that owes loads must show it — the stored setting
+      // is left untouched (Settings greys the toggle; when the data is gone the choice comes back).
+      // Both DBs this predicate probes are open by this line (initDb above, vault right after it).
+      bootSkip = getSetting("skip_fast_boot") === "1" && !hasImportedData();
     } catch {
       /* setting unreadable — default to showing the terminal */
     }
     try {
-      const raw = getSetting("window_bounds");
+      const raw = getMainSetting("window_bounds"); // main-owned key — see saveBounds
       const b = raw ? (JSON.parse(raw) as typeof bootBounds) : null;
       if (b && Number.isFinite(b.x) && Number.isFinite(b.y) && b.width >= MIN_WIDTH && b.height >= MIN_HEIGHT) {
         bootBounds = b;

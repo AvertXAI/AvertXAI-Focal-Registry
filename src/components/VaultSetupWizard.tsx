@@ -104,7 +104,7 @@ export default function VaultSetupWizard({ onComplete }: { onComplete: () => voi
 
   return (
     <div className="vsw">
-      <div className="vsw-dimmer" />
+      <div className="vsw-dimmer" data-modal-backdrop="" />
 
       {step === 1 && (
         <div className="vsw-card">

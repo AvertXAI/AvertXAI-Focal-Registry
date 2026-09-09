@@ -131,7 +131,9 @@ export interface MindMergeDocsApi {
   walkFolders: (roots: string[]) => Promise<VaultWalkResult>;
   importDocs: (
     files: VaultWalkedFile[],
-    opts: { kind?: string; folder?: string | null; mirror?: boolean }
+    /** `roots`: the picked folders this walk came from — recorded main-side so refresh and the
+     *  fs watcher can re-run the SAME import later. Omit for hand-picked single files. */
+    opts: { kind?: string; folder?: string | null; mirror?: boolean; roots?: string[] }
     /** THE COUNTS RECONCILE: scanned === created + skipped + failed + repaired, always. `skipped`
      *  is "already imported by source path" — a WIDER set than any one folder's tree count, because
      *  it spans archived documents and documents filed elsewhere. Report both or neither. */
@@ -149,6 +151,11 @@ export interface MindMergeDocsApi {
     repaired: number;
     problems: { file: string; reason: string }[];
   }>;
+  /** Refresh the imported folders (08-30-2026): re-read every imported document whose file changed
+   *  on disk, and import new files found in the imported directories (derived from the docs
+   *  themselves). Optional folder id scopes it to that folder's subtree (click-a-folder refresh).
+   *  Never deletes — a source file missing on disk is counted and its note left alone. */
+  refreshDocs: (folderId?: number) => Promise<{ checked: number; updated: number; added: number; missing: number; failed: number; kept: number; capped: number }>;
   /** Pasted-image attachments — WIRED (Phase 5, 08-22-2026). Bytes live in MindMerge's OWN
    *  SQLCipher-encrypted file, key machine-held (safeStorage + Argon2id — the "doesnt have to
    *  lock, just be encrypted" ruling answered the key question). A refused save (oversize,

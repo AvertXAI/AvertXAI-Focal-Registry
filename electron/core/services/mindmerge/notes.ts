@@ -12,8 +12,16 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/mindmerge/notes.ts
 //------------------------------------------------------------
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { nowIso, generateUUIDv7, type Db } from "./db";
-import { ensureFolderPath } from "./noteFolders";
+import { ensureFolderPath, subtreeIds } from "./noteFolders";
+
+/** Fingerprint of a stored body — the refresh's "was this note edited in the app?" baseline. */
+export function bodyHash(s: string): string {
+  return crypto.createHash("sha1").update(s, "utf8").digest("hex");
+}
 
 export interface MindMergeDocMeta {
   id: number;
@@ -221,6 +229,15 @@ export function restoreNote(db: Db, orgId: string, uuid: unknown): MindMergeDoc 
 export function destroyNote(db: Db, orgId: string, uuid: unknown): void {
   const cur = getNote(db, orgId, uuid);
   if (!cur.archived_at) throw new Error("Archive it first — a note is only erasable from the archive.");
+  // TOMBSTONE an imported note's path BEFORE the row goes (adversarial review 08-31-2026): its
+  // file still exists on disk, and without this the refresh/watcher machinery re-imported the
+  // erased note — two deliberate steps to destroy it, one automatic step to bring it back. An
+  // explicit re-import of the file clears the tombstone (see importDocs' handler).
+  const src = db.prepare("SELECT source_path FROM mindmerge_docs WHERE id = ?").get(cur.id) as { source_path: string | null } | undefined;
+  if (src?.source_path) {
+    db.prepare("INSERT OR IGNORE INTO mindmerge_import_tombstones (uuid, org_id, path_key) VALUES (?, ?, ?)")
+      .run(generateUUIDv7(), orgId, normPathKey(src.source_path));
+  }
   db.prepare("DELETE FROM mindmerge_docs WHERE id = ?").run(cur.id);
   // Free the pages back as we go. On an incremental-auto-vacuum file this measured 0 ms; on a legacy
   // file it is a no-op until one Compact converts it. Either way it is never the 2-second full
@@ -239,7 +256,7 @@ export function getNote(db: Db, orgId: string, uuid: unknown): MindMergeDoc {
 export function createNote(
   db: Db,
   orgId: string,
-  input: { kind?: unknown; title?: unknown; body?: unknown; folder?: unknown; folderId?: unknown; sourcePath?: unknown; createdAt?: unknown; updatedAt?: unknown }
+  input: { kind?: unknown; title?: unknown; body?: unknown; folder?: unknown; folderId?: unknown; sourcePath?: unknown; createdAt?: unknown; updatedAt?: unknown; sourceMtimeMs?: unknown }
 ): MindMergeDoc {
   const kind = vText(input?.kind ?? "note", "kind", 40);
   const title = vText(input?.title, "title", 300);
@@ -250,12 +267,19 @@ export function createNote(
   // history, so it falls back to now.
   const at = isoOrNow(input?.createdAt);
   const edited = input?.updatedAt === undefined ? null : isoOrNow(input.updatedAt);
+  const sourcePath = typeof input?.sourcePath === "string" && input.sourcePath ? input.sourcePath : null;
+  // THE SYNC BASELINE travels with an imported note from birth: the file's real mtime (NOT the
+  // frontmatter date updated_at may carry) and the hash of the body as stored. The refresh's
+  // change guard compares against these, never updated_at — see db.ts.
+  // Ceil, not round: the stored baseline must be >= the file's actual mtime, or the strict
+  // refresh compare would see "newer" on an untouched file and re-read it every run forever.
+  const mtime = typeof input?.sourceMtimeMs === "number" && Number.isFinite(input.sourceMtimeMs) ? Math.ceil(input.sourceMtimeMs) : null;
   const uuid = generateUUIDv7();
   const res = db
     // folder_id is written HERE now. It was omitted, so every note ever created started life
     // unfiled and had to be moved by a second call the caller might not make (08-12-2026).
-    .prepare("INSERT INTO mindmerge_docs (uuid, org_id, kind, title, body, folder, folder_id, source_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(uuid, orgId, kind, title, body, folder, typeof input?.folderId === "number" && input.folderId > 0 ? input.folderId : null, typeof input?.sourcePath === "string" && input.sourcePath ? input.sourcePath : null, at, edited);
+    .prepare("INSERT INTO mindmerge_docs (uuid, org_id, kind, title, body, folder, folder_id, source_path, created_at, updated_at, source_mtime_ms, source_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(uuid, orgId, kind, title, body, folder, typeof input?.folderId === "number" && input.folderId > 0 ? input.folderId : null, sourcePath, at, edited, sourcePath ? mtime : null, sourcePath ? bodyHash(body) : null);
   return getNote(db, orgId, uuid) ?? ({ id: Number(res.lastInsertRowid) } as never);
 }
 
@@ -345,7 +369,11 @@ export function importDocs(
   db: Db,
   orgId: string,
   files: unknown,
-  opts: { kind?: unknown; folder?: unknown; mirror?: unknown }
+  /** autoClientFolder (default true): let a file's `client:` frontmatter name its flat folder.
+   *  The REFRESH passes false — its files must land UNFILED so the dir→folder map can place them
+   *  in the existing tree; a frontmatter `client: Acme` spawning a top-level "Acme" folder was a
+   *  confirmed review finding (08-30-2026). */
+  opts: { kind?: unknown; folder?: unknown; mirror?: unknown; autoClientFolder?: unknown }
 ): {
   scanned: number;
   created: number;
@@ -365,6 +393,7 @@ export function importDocs(
   const folder = typeof opts?.folder === "string" && opts.folder.trim() !== "" ? opts.folder.slice(0, 120) : null;
   const forced = typeof opts?.kind === "string" && opts.kind !== "auto" ? opts.kind : null;
   const mirror = opts?.mirror === true;
+  const autoClient = opts?.autoClientFolder !== false;
   // ONE cache for the whole import — 2,000 files sharing 142 folders would otherwise run thousands
   // of redundant lookups.
   const folderCache = new Map<string, number>();
@@ -459,9 +488,11 @@ export function importDocs(
       // DATES, in order of trust: the frontmatter's own `created`/`updated` (the author wrote them
       // deliberately), then the file's timestamps, and only then the clock.
       const made = createNote(db, orgId, {
-        kind, title, body: prefix + body, folder: front.client || folder, sourcePath,
+        kind, title, body: prefix + body, folder: (autoClient ? front.client : null) || folder, sourcePath,
         createdAt: front.created || front.date || rec.birthtimeMs,
         updatedAt: front.updated || front.last_updated || rec.mtimeMs,
+        // The file's REAL mtime for the sync baseline — updatedAt above may be a frontmatter date.
+        sourceMtimeMs: typeof rec?.mtimeMs === "number" ? rec.mtimeMs : undefined,
       });
       // MIRROR THE FOLDERS ON DISK (Jason 08-11-2026). The file's own relative path becomes a real
       // folder chain, so a tree you already arranged survives the import instead of collapsing into
@@ -472,7 +503,7 @@ export function importDocs(
       // pile in Unfiled, which is most of why Unfiled kept filling up (08-12-2026).
       const fid = mirror
         ? ensureFolderPath(db, orgId, rec.rel, folderCache)
-        : flatFolderId(db, orgId, front.client || folder, folderCache);
+        : flatFolderId(db, orgId, (autoClient ? front.client : null) || folder, folderCache);
       if (fid != null) db.prepare("UPDATE mindmerge_docs SET folder_id = ? WHERE id = ?").run(fid, made.id);
       // Recorded AFTER the filing, with where it actually went — so a duplicate later in the same run
       // is classified the same way a duplicate from a previous run is.
@@ -527,6 +558,311 @@ function guessKind(front: Record<string, string>, body: string): string {
   return "note";
 }
 
+// ---- Imported-folder refresh (Jason 08-30-2026). The trigger case: the BASEPLATE SOP file was
+// rewritten on disk and its imported note stayed stale, because import was a one-way copy — the
+// file was read once and nothing ever looked at it again. These three pieces close that:
+// the roots ledger (what to re-walk and watch), and the changed-body pass (files whose mtime
+// outran their note). The disk walk, the ext-aware file reading, and the new-file import reuse
+// the EXISTING import machinery from ipc.ts, which owns file IO — nothing is parsed two ways.
+
+export interface ImportRootRow {
+  path: string;
+  kind: string | null;
+  folder: string | null;
+  mirror: number;
+}
+
+/** Record the folders an import was walked from, WITH the options it ran under. The refresh
+    honors the recorded KIND (a forced 'runbook' root's new files arrive as runbooks, not a
+    guess); folder/mirror are recorded but deliberately NOT re-applied — v2 refresh filing lands
+    new files via the existing-tree map (fileNewImports), which is what keeps a nested tree from
+    being mirror-rebuilt at top level. Re-importing a root updates its options in place — the
+    user's latest choice is the operative one. */
+export function recordImportRoots(
+  db: Db,
+  orgId: string,
+  roots: unknown,
+  opts: { kind?: unknown; folder?: unknown; mirror?: unknown }
+): void {
+  const list = Array.isArray(roots) ? roots.filter((r): r is string => typeof r === "string" && r.trim() !== "") : [];
+  if (list.length === 0) return;
+  const kind = typeof opts?.kind === "string" && opts.kind !== "" ? opts.kind.slice(0, 40) : null;
+  const folder = typeof opts?.folder === "string" && opts.folder.trim() !== "" ? opts.folder.slice(0, 120) : null;
+  const put = db.prepare(
+    `INSERT INTO mindmerge_import_roots (uuid, org_id, path, kind, folder, mirror, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (org_id, path) DO UPDATE SET kind = excluded.kind, folder = excluded.folder,
+       mirror = excluded.mirror, updated_at = excluded.updated_at`
+  );
+  for (const p of list) put.run(generateUUIDv7(), orgId, p, kind, folder, opts?.mirror === false ? 0 : 1, nowIso());
+}
+
+export function listImportRoots(db: Db, orgId: string): ImportRootRow[] {
+  return db
+    .prepare("SELECT path, kind, folder, mirror FROM mindmerge_import_roots WHERE org_id = ? ORDER BY path")
+    .all(orgId) as ImportRootRow[];
+}
+
+/** Every deliberately-erased import path (normalized keys) — the refresh skips these. */
+export function listImportTombstones(db: Db, orgId: string): Set<string> {
+  return new Set(
+    (db.prepare("SELECT path_key FROM mindmerge_import_tombstones WHERE org_id = ?").all(orgId) as { path_key: string }[])
+      .map((r) => r.path_key)
+  );
+}
+
+/** An EXPLICIT import of a tombstoned file is the user changing their mind — the stone lifts. */
+export function clearImportTombstones(db: Db, orgId: string, paths: string[]): void {
+  const del = db.prepare("DELETE FROM mindmerge_import_tombstones WHERE org_id = ? AND path_key = ?");
+  for (const p of paths) if (typeof p === "string" && p) del.run(orgId, normPathKey(p));
+}
+
+/**
+ * Re-read CHANGED source files into their notes. The caller (ipc.ts) hands only files whose disk
+ * mtime outran the stored source_mtime_ms baseline, already read through the same ext-aware
+ * reader import uses — this side is pure DB. The body is rebuilt exactly the way importDocs
+ * builds it (frontmatter split off, warning prefix on a bad block) and patched through
+ * updateNote, so tidy/cap/FTS all apply once, in the one place they already live.
+ *
+ * IN-APP EDITS WIN, BY CONSTRUCTION (adversarial review 08-30-2026): source_hash fingerprints the
+ * body as last synced from disk. A note whose CURRENT body no longer matches that fingerprint was
+ * edited in the app — the refresh KEEPS it (counted `kept`), no matter what the file did. Only a
+ * note still carrying its synced body follows the file. Legacy rows (hash NULL, from before the
+ * baseline columns) can't be told apart, so they follow the file once and are stamped.
+ *
+ * ALSO NOT TOUCHED: the title (a rename made in the app must survive a file edit — adoptTitle
+ * inside updateNote still fixes an untouched "Untitled"), the kind, and the filing. A file whose
+ * read FAILED this round is SKIPPED, never written: overwriting a good body with a
+ * "[import failure]" placeholder would be the refresh destroying the thing it exists to protect.
+ */
+export function refreshImportedBodies(
+  db: Db,
+  orgId: string,
+  files: { path?: unknown; rel?: unknown; text?: unknown; mtimeMs?: unknown }[]
+): { updated: number; unchanged: number; kept: number; failed: number } {
+  const out = { updated: 0, unchanged: 0, kept: 0, failed: 0 };
+  const stamp = db.prepare("UPDATE mindmerge_docs SET source_mtime_ms = ?, source_hash = ? WHERE id = ?");
+  for (const f of files) {
+    const sourcePath = typeof f?.path === "string" ? f.path : "";
+    const raw = typeof f?.text === "string" ? f.text : "";
+    const mtime = typeof f?.mtimeMs === "number" && Number.isFinite(f.mtimeMs) ? Math.ceil(f.mtimeMs) : null; // ceil: baseline >= mtime, see createNote
+    if (!sourcePath) continue;
+    if (raw.startsWith("> [import failure]") || raw.trim() === "") { out.failed++; continue; }
+    const row = db
+      .prepare("SELECT id, uuid, body, source_hash FROM mindmerge_docs WHERE org_id = ? AND source_path = ? AND archived_at IS NULL")
+      .get(orgId, sourcePath) as { id: number; uuid: string; body: string; source_hash: string | null } | undefined;
+    if (!row) continue; // archived or gone between the stat pass and now — nothing to refresh
+    try {
+      const { body, bad } = splitFrontmatter(raw);
+      const rel = typeof f?.rel === "string" ? f.rel : sourcePath;
+      const prefix = bad ? `> [import warning] the YAML block in ${rel} could not be read — it was kept below as text.\n\n` : "";
+      const next = tidyMarkdown(prefix + body).slice(0, MAX_BODY);
+      if (next === row.body) {
+        // Content identical — an mtime that moved without the content moving (a touch, a sync
+        // rewrite) must not churn the note. Stamp the baseline so this file stops re-reading.
+        stamp.run(mtime, bodyHash(row.body), row.id);
+        out.unchanged++;
+        continue;
+      }
+      if (row.source_hash != null && bodyHash(row.body) !== row.source_hash) {
+        // The note diverged from its last-synced body — EDITED IN THE APP. Keep it. The baseline
+        // is deliberately NOT stamped: the divergence stays visible to every future refresh
+        // (counted `kept` each time) instead of being silently forgotten.
+        out.kept++;
+        continue;
+      }
+      updateNote(db, orgId, row.uuid, { body: prefix + body });
+      // updateNote re-tidies identically, so `next` IS the stored body — fingerprint it.
+      stamp.run(mtime, bodyHash(next), row.id);
+      out.updated++;
+    } catch {
+      out.failed++;
+    }
+  }
+  return out;
+}
+
+/** ONE normalization for comparing Windows paths as keys — separators unified, case folded.
+    Values stored in maps keep their original casing; only the KEYS go through this. */
+export function normPathKey(p: string): string {
+  return path.normalize(p).replace(/[\\/]+$/, "").toLowerCase();
+}
+
+export interface DerivedImportDirs {
+  /** normalized directory key → the folder_id most of its existing docs are filed under. */
+  byDir: Map<string, number>;
+  /** Minimal covering set of MIRROR-EVIDENCED directories (original casing) to walk for new files. */
+  walkDirs: string[];
+}
+
+/**
+ * THE ROOTLESS REFRESH (Jason 08-30-2026: "that new file you created isnt in the folder you saved
+ * it to"). Folders imported before the roots ledger existed recorded nothing — so the disk
+ * directories are DERIVED from the documents themselves: every imported doc knows its
+ * source_path, and its folder_id says where its directory's files belong.
+ *
+ * MAJORITY WINS per directory (adversarial review: first-wins let ONE hand-moved doc poison the
+ * whole directory's filing). Ties break toward the folder named like the directory, then the
+ * older folder (smaller id) — deterministic either way.
+ *
+ * THE MIRROR-EVIDENCE GUARD, TWO-FACTOR: a directory becomes a WALK candidate only when
+ *   (1) its winning folder carries the directory's own basename — the fingerprint a mirror
+ *       import leaves — AND
+ *   (2) the TREE corroborates: the folder's parent is named like the directory's parent, OR the
+ *       directory's on-disk subdirectories intersect the folder's child-folder names.
+ * The name alone was defeatable by coincidence (hand-pick one file from Downloads\Recipes into a
+ * folder Jason happened to call "Recipes" → the old guard vacuumed all of Downloads\Recipes in).
+ * A lone name can lie; a name AND a matching tree shape is a mirror. The byDir MAP still carries
+ * every directory regardless — filing an explicitly-walked recorded root must target the right
+ * folder even when that folder is not itself walk-evidence.
+ *
+ * KNOWN CEILING (deliberate): a legacy mirror import of ONE flat top-level folder with no
+ * subdirectories has no parent and no children to corroborate with, so it is not auto-walked —
+ * one fresh import records its root and the ledger covers it from then on.
+ *
+ * Scoped by folderId (null = whole org): pass the clicked folder and only its subtree's
+ * directories derive — which is what makes click-to-refresh cheap and contained.
+ */
+export function deriveImportDirs(db: Db, orgId: string, folderId: number | null): DerivedImportDirs {
+  const folders = db
+    .prepare("SELECT id, name, parent_id FROM mindmerge_doc_folders WHERE org_id = ?")
+    .all(orgId) as { id: number; name: string; parent_id: number | null }[];
+  const folderName = new Map<number, string>(folders.map((f) => [f.id, f.name]));
+  const folderParent = new Map<number, number | null>(folders.map((f) => [f.id, f.parent_id]));
+  const childNames = new Map<number, Set<string>>();
+  for (const f of folders) {
+    if (f.parent_id == null) continue;
+    let set = childNames.get(f.parent_id);
+    if (!set) childNames.set(f.parent_id, (set = new Set()));
+    set.add(f.name.trim().toLowerCase());
+  }
+  const scope = folderId != null ? new Set(subtreeIds(db, orgId, folderId)) : null;
+  const rows = db
+    .prepare("SELECT source_path, folder_id FROM mindmerge_docs WHERE org_id = ? AND source_path IS NOT NULL AND archived_at IS NULL AND folder_id IS NOT NULL")
+    .all(orgId) as { source_path: string; folder_id: number }[];
+
+  const tally = new Map<string, { dir: string; votes: Map<number, number> }>();
+  for (const r of rows) {
+    if (scope && !scope.has(r.folder_id)) continue;
+    const dir = path.dirname(r.source_path);
+    if (!dir || dir === "." || /^[a-zA-Z]:[\\/]?$/.test(dir)) continue; // never walk a drive root
+    const key = normPathKey(dir);
+    let t = tally.get(key);
+    if (!t) tally.set(key, (t = { dir, votes: new Map() }));
+    t.votes.set(r.folder_id, (t.votes.get(r.folder_id) ?? 0) + 1);
+  }
+
+  const byDir = new Map<string, number>();
+  const candidates = new Map<string, string>(); // key → original-casing dir
+  for (const [key, t] of tally) {
+    const base = path.basename(t.dir).trim().toLowerCase();
+    let winner = -1;
+    let best = -1;
+    for (const [fid, n] of t.votes) {
+      if (n > best) { winner = fid; best = n; continue; }
+      if (n === best) {
+        const wMatch = (folderName.get(winner) ?? "").trim().toLowerCase() === base;
+        const cMatch = (folderName.get(fid) ?? "").trim().toLowerCase() === base;
+        if ((cMatch && !wMatch) || (cMatch === wMatch && fid < winner)) winner = fid;
+      }
+    }
+    byDir.set(key, winner);
+
+    if ((folderName.get(winner) ?? "").trim().toLowerCase() !== base) continue; // factor 1 failed
+    const parentId = folderParent.get(winner);
+    const parentName = parentId != null ? folderName.get(parentId) : undefined;
+    const diskParent = path.basename(path.dirname(t.dir)).trim().toLowerCase();
+    let corroborated = parentName != null && parentName.trim().toLowerCase() === diskParent;
+    if (!corroborated) {
+      const kids = childNames.get(winner);
+      if (kids?.size) {
+        try {
+          corroborated = fs
+            .readdirSync(t.dir, { withFileTypes: true })
+            .some((e) => e.isDirectory() && kids.has(e.name.trim().toLowerCase()));
+        } catch { /* unreadable or gone — stays uncorroborated */ }
+      }
+    }
+    if (corroborated) candidates.set(key, t.dir);
+  }
+  // Minimal covering set: a candidate under another candidate is dropped — walking the ancestor
+  // already covers it, and walking both would stat the same tree twice.
+  const keys = [...candidates.keys()].sort((a, b) => a.length - b.length);
+  const kept: string[] = [];
+  const walkDirs: string[] = [];
+  for (const k of keys) {
+    if (kept.some((anc) => k.startsWith(anc + path.sep))) continue;
+    kept.push(k);
+    walkDirs.push(candidates.get(k) as string);
+  }
+  return { byDir, walkDirs };
+}
+
+/**
+ * File freshly-imported documents into the EXISTING tree by their disk directory. importDocs
+ * created them unfiled (mirror off, no flat folder) so that the byDir map — not a from-scratch
+ * path mirror — decides where they land; mirroring from a derived root would have rebuilt
+ * "AvertXAI-ElectronBASE" at top level when the real folder lives under "_source".
+ *
+ * A file in a directory the map knows goes straight to that folder. A file in a NEW subdirectory
+ * climbs to its nearest known ancestor and creates the missing folder chain beneath that
+ * ancestor's folder. A file with no known ancestor stays unfiled — visible, never guessed at.
+ */
+export function fileNewImports(
+  db: Db,
+  orgId: string,
+  byDir: Map<string, number>,
+  sourcePaths: string[]
+): { filed: number; unfiled: number } {
+  const out = { filed: 0, unfiled: 0 };
+  const put = db.prepare(
+    "UPDATE mindmerge_docs SET folder_id = ? WHERE org_id = ? AND source_path = ? AND folder_id IS NULL AND archived_at IS NULL"
+  );
+  for (const p of sourcePaths) {
+    const dir = path.dirname(p);
+    let key = normPathKey(dir);
+    let target = byDir.get(key);
+    if (target == null) {
+      // Climb to the nearest known ancestor, remembering the segments in between (nearest first).
+      const missing: string[] = [];
+      let cur = dir;
+      for (let i = 0; i < 32 && target == null; i++) {
+        const parent = path.dirname(cur);
+        if (!parent || parent === cur) break; // hit the filesystem root — no known ancestor
+        missing.unshift(path.basename(cur));
+        cur = parent;
+        target = byDir.get(normPathKey(cur));
+      }
+      if (target != null) {
+        // Create (or reuse) the chain from the known ancestor down to the file's directory,
+        // registering each level so the next file in this directory is a straight map hit.
+        for (const seg of missing) {
+          cur = path.join(cur, seg);
+          key = normPathKey(cur);
+          const hit = byDir.get(key);
+          if (hit != null) { target = hit; continue; }
+          const name = seg.trim().slice(0, 120) || seg;
+          const existing = db
+            .prepare("SELECT id FROM mindmerge_doc_folders WHERE org_id = ? AND name = ? AND parent_id = ?")
+            .get(orgId, name, target) as { id: number } | undefined;
+          if (existing) target = existing.id;
+          else {
+            target = Number(
+              db.prepare(
+                "INSERT INTO mindmerge_doc_folders (uuid, org_id, name, parent_id, sort_order, created_at) VALUES (?, ?, ?, ?, 0, ?)"
+              ).run(generateUUIDv7(), orgId, name, target, nowIso()).lastInsertRowid
+            );
+          }
+          byDir.set(key, target);
+        }
+      }
+    }
+    if (target == null) { out.unfiled++; continue; }
+    if (put.run(target, orgId, p).changes > 0) out.filed++;
+  }
+  return out;
+}
+
 /** Soft archive, mirroring the shape this was copied from — a note is hidden, never hard-deleted by
     any UI path. */
 export function archiveNote(db: Db, orgId: string, uuid: unknown): void {
@@ -550,6 +886,11 @@ export function purgeAllNotes(db: Db, orgId: string): { notes: number; folders: 
   db.transaction(() => {
     notes = db.prepare("DELETE FROM mindmerge_docs WHERE org_id = ?").run(orgId).changes;
     folders = db.prepare("DELETE FROM mindmerge_doc_folders WHERE org_id = ?").run(orgId).changes;
+    // THE ROOTS LEDGER GOES TOO (adversarial review 08-31-2026): leaving it meant the very next
+    // refresh — a watcher event, or the boot preload on the next launch — re-walked the recorded
+    // roots, found every purged file "new", and silently undid the purge as an unfiled pile of
+    // 2,000 notes. A purge is "start again": re-importing records fresh roots when the user asks.
+    db.prepare("DELETE FROM mindmerge_import_roots WHERE org_id = ?").run(orgId);
   })();
   // Hand the pages back as we go — a purge is precisely when the file is at its most bloated.
   try { db.pragma("incremental_vacuum"); } catch { /* housekeeping never fails the purge */ }

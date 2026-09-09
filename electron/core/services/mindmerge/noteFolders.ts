@@ -251,8 +251,9 @@ export function emptyNoteFolder(db: Db, orgId: string, id: unknown): { movedNote
 }
 
 /** Every folder id at or beneath `root`. Shared by the delete and the count it is confirmed with,
-    so the number shown and the set removed can never disagree. */
-function subtreeIds(db: Db, orgId: string, root: number): number[] {
+    so the number shown and the set removed can never disagree. Exported 08-30-2026 for the
+    imported-folder refresh, which scopes its changed/new-file passes to a clicked folder. */
+export function subtreeIds(db: Db, orgId: string, root: number): number[] {
   const all = listNoteFolders(db, orgId);
   const out = [root];
   for (let i = 0; i < out.length && i < 5000; i++) {

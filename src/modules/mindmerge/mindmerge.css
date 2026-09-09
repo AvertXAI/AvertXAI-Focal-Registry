@@ -198,6 +198,10 @@ select.rbs-f{font:inherit;font-size:11px;background:var(--mc-panels);color:var(-
 .mm-confirmbody p { margin-bottom: 9px; }
 .mm-confirmbody p:last-child { margin-bottom: 0; }
 .mm-confirmbody .mm-hint { font-size: 12px; }
+/* The copy-to-folder picker (Jason 09-09-2026): the rail's rows, boxed and bounded, so a 142-folder
+   tree scrolls inside the dialog instead of growing it past the window. Tokens only. */
+.mm-pickertree { max-height: 46vh; overflow-y: auto; border: 1px solid var(--mc-border); border-radius: 8px;
+  background: var(--mc-field); padding: 4px; margin-top: 10px; }
 /* A destructive action is solid red — the one place in the vault where a button shouts. */
 .mm-btn.danger.solid { background: var(--mm-danger-color); border-color: var(--mm-danger-color);
   color: #fff; font-weight: 600; }

@@ -22,13 +22,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // confirm dialog stretched to the full window and its scrim never painted. The mm- copies beside
 // this file are the same components reading MindMerge's own tokens.
 import ConfirmModal from "./ConfirmModal";
+import CopyToFolderModal from "./CopyToFolderModal";
 import Loading from "./Loading";
 // The READ-ONLY renderer, now on Markdoc. Milkdown is the editor; this draws the preview, Run mode
 // and the repo READMEs.
 import { Markdown, RunMode } from "./markdown";
 import MilkdownEditor, { type EditorAction, type MilkdownHandle } from "./MilkdownEditor";
 import { rawEdit } from "./rawFormat";
-import { mindmergeApi, type MindMergeDoc, type MindMergeDocMeta } from "./mindmergeApi";
+import { mindmergeApi, type MindMergeDoc, type MindMergeDocFolder, type MindMergeDocMeta } from "./mindmergeApi";
 import { tidyMarkdown } from "./tidyMarkdown";
 
 /** The list's date stamp. It came from the vault's EntriesView, which is NOT part of this port, so
@@ -206,6 +207,8 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
     run: () => void;
     secondary?: { label: string; onPick: () => void; danger?: boolean };
   } | null>(null);
+  /** The copy-to-folder dialog (Jason 09-09-2026). Acts on the OPEN note, so it opens only with one. */
+  const [copyOpen, setCopyOpen] = useState(false);
   /** The live editor. THE toolbar seam — see the block comment on the toolbar below. */
   const editor = useRef<MilkdownHandle | null>(null);
   /** Set while a global-search open is in flight, so the list's own selection stands down. */
@@ -276,7 +279,10 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
       // FLUSH BEFORE SWITCHING. This used to drop whatever you had typed, silently.
       const l = live.current;
       const pending = l && l.dirty
-        ? api.updateNote(l.uuid, { title: l.title, body: l.body }).catch((e: unknown) => {
+        ? api.updateNote(l.uuid, { title: l.title, body: l.body })
+          // The row you just left must show what you typed — the same rule flush() follows.
+          .then(() => loadList(style, false))
+          .catch((e: unknown) => {
             // The switch still proceeds — but a draft that failed to save is DATA AT RISK and
             // must be in the log (Jason 08-16-2026: "how are we suppose to know whats working
             // or breaking if we cant see what breaks").
@@ -290,7 +296,7 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
         void api.logClient("error", "Notes: a note could not be opened from the list", String(e));
       });
     },
-    [api]
+    [api, loadList, style]
   );
 
   useEffect(() => {
@@ -389,9 +395,12 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
     if (!l || !l.dirty) return Promise.resolve();
     return api.updateNote(l.uuid, { title: l.title, body: l.body })
       .then((n) => {
-        // The list row is only re-read when the name actually changed — an autosave every few
-        // seconds must not drag the whole list across the bridge with it.
-        if (adopted(l.title, n)) loadList(style, false);
+        // EVERY save re-reads the list (Jason 09-09-2026: the idle save said "Saved." while the row
+        // beside it kept its old excerpt, Edited date and position until Ctrl+S). The excerpt is
+        // substr(body) cut in the store and the order is updated_at DESC, so only a re-read can move
+        // the row — and the read is ~8 ms for 60 rows (notes.ts), at most once per idle second.
+        adopted(l.title, n);
+        loadList(style, false);
         if (live.current?.uuid !== l.uuid) return; // the user moved on; do not touch their new note
         setDirty(false);
         if (announce) setJustSaved((n2) => n2 + 1);
@@ -427,7 +436,7 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
   // Ctrl+S still saves immediately, and the window closing or the tab unmounting flushes first.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); void flush().then(() => loadList(style, false)); }
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); void flush(); }
     };
     // beforeunload cannot await, but the IPC call is already dispatched by the time it returns —
     // which is the difference between "usually saved" and "never sent".
@@ -439,7 +448,7 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
       window.removeEventListener("beforeunload", onBye);
       void flush(); // leaving the Notes tab entirely
     };
-  }, [flush, loadList, style]);
+  }, [flush]);
 
   /** THE FOLDER CUT. 0 = everything, -1 = only notes with no folder, otherwise that folder exactly.
       Descendants are NOT rolled up here on purpose: clicking "AvertXAI" and getting 1,204 notes from
@@ -532,6 +541,23 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
 
   const togglePick = (uuid: string): void =>
     setPicked((p) => { const n = new Set(p); if (n.has(uuid)) n.delete(uuid); else n.add(uuid); return n; });
+
+  /**
+   * COPY TO A FOLDER (Jason 09-09-2026: "saves a copy of the selected note to the new folder as it
+   * is in its current written phase"). The copy is what is ON SCREEN — the title box and the draft —
+   * not the last saved row, so text typed a moment ago travels with it. A new row with its own uuid,
+   * filed by folder_id through the same createNote every note is born through; the original is not
+   * touched. The list's folder chip resolves from folder_id (notes.ts META_COLS), so no folder text
+   * is passed.
+   */
+  const copyTo = (folder: MindMergeDocFolder, path: string): void => {
+    const l = live.current;
+    if (!l || !current) return;
+    const title = l.title.trim() || "Untitled";
+    void api.createNote({ kind: current.kind, title, body: l.body, folderId: folder.id })
+      .then(() => { setOutcome(`Copied "${title}" to ${path}.`); loadList(style, false); onNotesChanged(); })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  };
 
   const newNote = useCallback((): void => {
     // FLUSH BEFORE CREATING (Tier-1 fix 5). + New changes the current record exactly the way
@@ -785,6 +811,16 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
           {/* Search moved to the ONE global bar at the top of the module (Jason 08-11-2026). */}
           {shelf === "active" ? (
             <>
+              {/* Copy the OPEN note into another folder (Jason 09-09-2026). Same glyph the vault and
+                  the help card use for "copy"; the dialog does the asking. */}
+              <button
+                className="mm-iconbtn"
+                title={current ? "Copy this note to another folder" : "Open a note first"}
+                disabled={!current}
+                onClick={() => setCopyOpen(true)}
+              >
+                ⧉
+              </button>
               <button
                 className={`mm-iconbtn trash${picked.size > 0 ? " armed" : ""}`}
                 title={picked.size === 0 ? "Tick one or more first" : `Archive ${picked.size} selected`}
@@ -1113,6 +1149,15 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
           </div>
         )}
       </div>
+
+      {copyOpen && current && (
+        <CopyToFolderModal
+          noteTitle={title}
+          currentFolderId={current.folder_id}
+          onCopy={copyTo}
+          onClose={() => setCopyOpen(false)}
+        />
+      )}
 
       {ask && (
         <ConfirmModal

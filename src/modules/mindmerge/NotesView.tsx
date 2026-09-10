@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 // ancestor MindMerge does not have. An unresolvable var makes max-width compute to `none`, so the
 // confirm dialog stretched to the full window and its scrim never painted. The mm- copies beside
 // this file are the same components reading MindMerge's own tokens.
+import { cachedAttachmentSrc, isMindMergeSrc, resolveAttachmentSrc } from "./attachmentSrc";
 import ConfirmModal from "./ConfirmModal";
 import CopyToFolderModal from "./CopyToFolderModal";
 import Loading from "./Loading";
@@ -161,6 +162,42 @@ export interface NotesViewProps {
   onOpened: () => void;
 }
 
+/**
+ * THE LIGHTBOX BODY (Jason 09-10-2026: "i pasted an image in the production app, and click on it to
+ * see the expanded view, and this is what showed" — the broken-image glyph). The editor hands over
+ * the image node's stored src, which for a pasted image is `mindmerge://<uuid>` — the reference the
+ * markdown carries, which no browser can load. The vault's lightbox resolved its `vault://` through
+ * the attachment store on the way in (vault/NotesView.tsx LightboxImg); that step was dropped when
+ * the view was ported here, back when MindMerge had no store. It has one now (Phase 5, 08-22-2026),
+ * and this is the vault's component with the scheme renamed: a mindmerge:// reference resolves
+ * through the one shared resolver (session-cached, so a picture already on screen opens instantly);
+ * a data URL or a path shows as-is. Its own component so the modal opens at once and fills when the
+ * bytes land.
+ */
+function LightboxImg({ src, onClose }: { src: string; onClose: () => void }) {
+  const [url, setUrl] = useState<string | null>(() => (isMindMergeSrc(src) ? cachedAttachmentSrc(src) : src));
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setGone(false);
+    if (!isMindMergeSrc(src)) { setUrl(src); return; }
+    const hit = cachedAttachmentSrc(src);
+    if (hit) { setUrl(hit); return; }
+    setUrl(null);
+    void resolveAttachmentSrc(src)
+      .then((u) => { if (live) setUrl(u); })
+      .catch(() => { if (live) setGone(true); });
+    return () => { live = false; };
+  }, [src]);
+  if (gone) return <div className="mm-state">That image is no longer in MindMerge.</div>;
+  // A paste whose save never landed (editor torn down mid-save) keeps its placeholder nonce in the
+  // document; the editor hands the bytes over while it still has them, so reaching here with the
+  // nonce means they are gone. Say so — an <img> on that scheme is the broken glyph this fixes.
+  if (src.startsWith("mindmerge-pending:")) return <div className="mm-state">That image never finished saving — paste it again.</div>;
+  if (!url) return <div className="mm-state">Opening…</div>;
+  return <img src={url} alt="Pasted image, full size" onClick={onClose} />;
+}
+
 export default function NotesView({ settings, onSetting, onHelp, onImport, folderId, onNotesChanged, reloadKey, openUuid, onOpened }: NotesViewProps) {
   const api = mindmergeApi();
   const style = (settings["notes.style"] as Style) ?? "note";
@@ -213,6 +250,18 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
   const editor = useRef<MilkdownHandle | null>(null);
   /** Set while a global-search open is in flight, so the list's own selection stands down. */
   const pendingOpen = useRef<string | null>(null);
+  /**
+   * A NOTE OPENED BY UUID THAT THE LIST MUST NOW SHOW (Jason 09-09-2026: "on the sidebars, its not
+   * showing me where that file is located at"). Set with the note's own folder and kind the moment
+   * the fetch lands; the reveal effect below pages the list until the row exists, scrolls to it and
+   * clears this. While it is set for the list on screen, loadList must not pick a row of its own.
+   */
+  const reveal = useRef<{ uuid: string; folder: number; kind: string } | null>(null);
+  /** The row carrying `.on` — the reveal effect scrolls it into view once it is mounted. */
+  const selRow = useRef<HTMLDivElement | null>(null);
+  /** What the list is showing RIGHT NOW, readable from inside a fetch callback without re-arming it. */
+  const view = useRef({ style, folderId });
+  view.current = { style, folderId };
 
   /**
    * THE DATA-LOSS FIX (Jason 08-12-2026: "sometimes when i save to db, and restart the app, the db
@@ -248,11 +297,14 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
           // Reopen what was open if it is still in the list — coming back to the tab should land
           // where you left, not on row one.
           // A SEARCH OPEN OUTRANKS EVERY OTHER SELECTION. Both this and the openUuid effect run
-          // async, and the module changes style and folder on the way in — so without this guard the
+          // async, and that effect switches style and folder on the way in — so without this guard the
           // list's own "select the first row" can land after the searched note and quietly replace
-          // it. The note you asked for is never the one the tool should overrule.
+          // it. The note you asked for is never the one the tool should overrule. `reveal` keeps the
+          // guard up PAST the fetch: the note's own folder may hold it pages below the first screenful,
+          // and this read is the one that used to hand the selection to row one in the meantime.
+          const rv = reveal.current;
           const keep = lastOpenUuid && r.some((n) => n.uuid === lastOpenUuid) ? lastOpenUuid : null;
-          if (pendingOpen.current) { /* leave the selection alone */ }
+          if (pendingOpen.current || (rv && rv.kind === s && rv.folder === folderId)) { /* leave the selection alone */ }
           else if (selectFirst && keep) openNote(keep);
           else if (selectFirst && r.length > 0) openNote(r[0].uuid);
           else if (r.length === 0) { setCurrent(null); setDraft(""); setTitle(""); }
@@ -328,14 +380,23 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
 
   /**
    * A NOTE PICKED OUT OF THE GLOBAL SEARCH. Opened by uuid rather than by finding it in the list,
-   * because it may legitimately not be in the list yet — the style and folder the module just set
-   * take a render to land, and the note may sit past the first page of a windowed list anyway.
+   * because it may legitimately not be in the list yet — the style and folder switched below take a
+   * render to land, and the note may sit past the first page of a windowed list anyway.
    *
    * It also sets `lastOpenUuid`, so the effect above and the next mount reopen THIS note rather than
    * snapping back to whichever one was open before the search.
    *
    * The shelf is switched here rather than by the module: `shelf` is local state, and an archived
    * note opened while the list shows Active would sit in the editor above a list that excludes it.
+   *
+   * THE FOLDER AND THE STYLE ARE SWITCHED HERE TOO (Jason 09-09-2026: the search "brings me to that
+   * file in the editor panel as it should, but on the sidebars, its not showing me where that file
+   * is located at"). The module only ever set the tab and the uuid, so the rail kept the OLD folder
+   * lit and the list kept showing the old folder's rows — the opened note was in neither. Both are
+   * written through the same setting rows the rail and the chips write, so the rail's own reveal
+   * effect expands the ancestors and scrolls, and the list re-reads for the note's folder. The
+   * `reveal` ref then carries the row the list still has to find. Recently-edited opens ride the
+   * same prop and get the same treatment.
    */
   useEffect(() => {
     if (!openUuid) return;
@@ -352,12 +413,59 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
         setTitle(n.title);
         setDirty(false);
         editorMd.current = n.body;
+        // Where it lives: its folder (Unfiled is -1, the rail's number) and its shelf kind.
+        const v = view.current;
+        const want = { uuid: n.uuid, folder: n.folder_id ?? -1, kind: n.kind in TITLES ? n.kind : v.style };
+        reveal.current = want;
+        if (want.kind !== v.style) onSetting("notes.style", want.kind);
+        if (want.folder !== v.folderId) onSetting("notes.folder_selected", String(want.folder));
       })
       .catch(() => setError("That note could not be opened."))
       // Cleared either way — a failed open must not leave the guard up, or the list would never
       // select anything again.
       .finally(() => { pendingOpen.current = null; onOpened(); });
-  }, [openUuid, api, onOpened]);
+  }, [openUuid, api, onOpened, onSetting]);
+
+  /** The next page of the list, appended. Shared by the scroll handler and the reveal effect. */
+  const loadMore = useCallback((): void => {
+    if (loadingMore || !truncated || rows === null) return;
+    setLoadingMore(true);
+    const folderArg = folderId === 0 ? undefined : folderId === -1 ? null : folderId;
+    void api.listNotes(style, shelf === "archived", folderArg, PAGE, rows.length)
+      .then((res) => {
+        setRows((prev) => {
+          const merged = [...(prev ?? []), ...res.rows];
+          listCache.set(cacheKey(style, shelf, folderId), merged);
+          setTruncated(res.total > merged.length);
+          return merged;
+        });
+      })
+      .catch(() => undefined)
+      .finally(() => setLoadingMore(false));
+  }, [api, style, shelf, folderId, rows, loadingMore, truncated]);
+
+  /**
+   * BRING THE OPENED NOTE'S ROW ONTO THE SCREEN. Runs on every list change while `reveal` is set.
+   * The list is windowed (8, then 60, then 60 a page), and sorted by pin and edit date, so a note
+   * found by search can sit anywhere in its folder: page until its row is in `rows`, then scroll.
+   * Stops when it is found, when every row is loaded and it is still not there, or when the list on
+   * screen is no longer its folder — the user clicked elsewhere, and their click wins.
+   */
+  useEffect(() => {
+    const r = reveal.current;
+    if (!r || rows === null) return;
+    if (r.kind !== style || r.folder !== folderId) { reveal.current = null; return; }
+    if (rows.some((n) => n.uuid === r.uuid)) {
+      reveal.current = null;
+      selRow.current?.scrollIntoView({ block: "center" });
+      return;
+    }
+    if (!truncated) { reveal.current = null; return; } // fully loaded and absent (archived elsewhere, deleted) — stand down
+    if (rows.length < BACKFILL) return; // the backfill is on its way; it replaces rows, so let it land first
+    // ponytail: pages 60 at a time until the row shows up. A folder of thousands could take a while —
+    // a rank query (COUNT of rows that sort before this one) would make it one read if that ever bites.
+    loadMore();
+  }, [current?.uuid, rows, style, folderId, truncated, loadMore]);
 
   /**
    * TAKE THE TITLE MINDMERGE ACTUALLY STORED (Jason 08-12-2026: "this md file auto saved, but the
@@ -856,21 +964,8 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
           className="mm-nlbody"
           onScroll={(e) => {
             const el = e.currentTarget;
-            if (loadingMore || !truncated) return;
             if (el.scrollHeight - el.scrollTop - el.clientHeight > 200) return;
-            setLoadingMore(true);
-            const folderArg = folderId === 0 ? undefined : folderId === -1 ? null : folderId;
-            void api.listNotes(style, shelf === "archived", folderArg, PAGE, (rows ?? []).length)
-              .then((res) => {
-                setRows((prev) => {
-                  const merged = [...(prev ?? []), ...res.rows];
-                  listCache.set(cacheKey(style, shelf, folderId), merged);
-                  setTruncated(res.total > merged.length);
-                  return merged;
-                });
-              })
-              .catch(() => undefined)
-              .finally(() => setLoadingMore(false));
+            loadMore();
           }}
         >
           {rows === null ? (
@@ -890,6 +985,7 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
             shown.map((n) => (
               <div
                 key={n.uuid}
+                ref={current?.uuid === n.uuid ? selRow : undefined}
                 className={`mm-nrow${current?.uuid === n.uuid ? " on" : ""}${picked.has(n.uuid) ? " picked" : ""}`}
                 onClick={() => openNote(n.uuid)}
                 // Drag onto a folder in the sidebar tree to file it. One folder per note, so this
@@ -1173,14 +1269,13 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
 
       {/* THE FULL-SIZE IMAGE (Jason 08-15-2026): pasted screenshots render capped in both panes so
           they cannot blast the layout; one click lands here, actual size up to the window, and
-          Escape / backdrop / the image itself all close it. The vault resolved a vault:// reference
-          through its attachment store on the way in; MindMerge has no attachment store yet (ruled
-          into its own encrypted database, a later phase), so the src is shown exactly as the pane
-          handed it over — a data URL or a path. */}
+          Escape / backdrop / the image itself all close it. A mindmerge:// reference is resolved
+          through the attachment store on the way in (LightboxImg above, 09-10-2026); a data URL or
+          a path shows exactly as the pane handed it over. */}
       {lightbox && (
         <div className="mm-modalback" onClick={() => setLightbox(null)}>
           <div className="mm-imgmodal">
-            <img src={lightbox} alt="Pasted image, full size" onClick={() => setLightbox(null)} />
+            <LightboxImg src={lightbox} onClose={() => setLightbox(null)} />
           </div>
         </div>
       )}

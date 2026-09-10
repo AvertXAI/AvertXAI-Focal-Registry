@@ -258,7 +258,12 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
            */
           handleClickOn: (_view, _pos, node, _nodePos, _event, direct) => {
             if (direct && node.type.name === "image" && typeof node.attrs.src === "string" && node.attrs.src && imgClick.current) {
-              imgClick.current(node.attrs.src);
+              // The STORED src goes over — mindmerge://<uuid> for a pasted image, which the parent's
+              // lightbox resolves through the attachment store (NotesView LightboxImg, 09-10-2026).
+              // A paste still saving carries its placeholder nonce; hand its bytes over instead, or
+              // the modal would open on a scheme nothing can load.
+              const src = node.attrs.src as string;
+              imgClick.current(pendingPreview.get(src) ?? src);
               return true;
             }
             return false;

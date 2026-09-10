@@ -21,6 +21,9 @@ export interface UpdateWindowState {
   incoming: string;
   notes: string;
   mode: UpdateMode;
+  /** The feed's releaseDate (ISO) — the window heads its notes "Revisions Update <date>" (Jason's
+      mockup, 09-10-2026). Optional: an older manifest without one still renders. */
+  date?: string;
 }
 
 const parseVersion = (v: string): number[] => v.split(".").map((n) => parseInt(n, 10) || 0);
@@ -187,7 +190,7 @@ export function registerUpdateWindowIpc(): void {
     }
     closeUpdateWindow();
   });
-  ipcMain.on("updwin:later", () => closeUpdateWindow()); // next scheduled check re-offers
+  ipcMain.on("updwin:later", () => closeUpdateWindow()); // re-offered by the automatic cycle after REOFFER_MS (updater.ts), or by a manual check at once
   ipcMain.on("updwin:quit", () => {
     // DESTROY, never close(): required mode is closable:false, and a swallowed close would abort the
     // quit sweep leaving the app alive. main.ts's listener on this channel already set isQuitting.
@@ -211,6 +214,7 @@ export function maybeOpenDevUpdateWindow(): void {
       notes:
         "Dev preview of the Software Update window. At real runtime this summary comes from the update feed's releaseNotes field, which release.mjs fills from REVISIONS.md.",
       mode,
+      date: new Date().toISOString(),
     });
   }, 1500);
 }

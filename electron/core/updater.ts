@@ -25,10 +25,22 @@ import {
 } from "./update-window";
 
 const POST_BOOT_DELAY_MS = 30_000; // grace period after boot:done before the first automatic check
-const RECHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // then every 6 hours
+// EVERY 10 MINUTES, NOT SIX HOURS (Jason 09-10-2026: his app had been open all day, 0.2.13 went live,
+// and nine minutes later there was no offer — "make sure its always on, and not only when it boots";
+// then "change the timer to 10mins"). The six-hour tick meant a release could sit unseen for most of
+// a working day. A check is one sub-kilobyte GET of a never-cached manifest with a 10-second cap and
+// an offline guard, so the cost of being prompt is nothing. §3.12's "every six hours" is superseded
+// by this ruling — CANON-UPDATES.
+const RECHECK_INTERVAL_MS = 10 * 60 * 1000;
+// A version an AUTOMATIC check has already offered is not re-offered for this long. At a 10-minute
+// cadence, re-opening (or re-focusing) the Software Update window every tick after the user closed
+// it would be a nag; six hours is the old cadence, kept for the re-offer. A manual Settings check
+// always shows; a new version always shows.
+const REOFFER_MS = 6 * 60 * 60 * 1000;
 const CHECK_TIMEOUT_MS = 10_000; // hard cap on any check — on timeout: log, give up, next interval
 
 let scheduled = false;
+let offered: { version: string; at: number } | null = null; // last version an automatic check offered
 // True while a Settings-button check is in flight — the persistent update-available handler uses it
 // to override "Skip this version" (a manual check is an explicit ask; automatic checks honor skips).
 let manualInFlight = false;
@@ -104,12 +116,21 @@ export function initUpdater(): void {
   autoUpdater.on("update-available", (info) => {
     const current = app.getVersion();
     const mode = resolveUpdateMode(current, info.version);
-    if (mode === "normal" && !manualInFlight && skippedVersion() === info.version) return;
+    if (!manualInFlight) {
+      if (mode === "normal" && skippedVersion() === info.version) return;
+      // Offered once per REOFFER_MS per version by the automatic cycle (see the constant). Required
+      // mode's window cannot be closed, so once is once there too; a manual check bypasses this.
+      if (offered && offered.version === info.version && Date.now() - offered.at < REOFFER_MS) return;
+    }
+    // Recorded for MANUAL offers too: "Remind me later" after a Settings check must hold for the
+    // same six hours, or the next 10-minute tick would re-open what was just closed.
+    offered = { version: info.version, at: Date.now() };
     openUpdateWindow({
       current,
       incoming: info.version,
       notes: typeof info.releaseNotes === "string" ? info.releaseNotes : "",
       mode,
+      date: typeof info.releaseDate === "string" ? info.releaseDate : undefined,
     });
   });
   autoUpdater.on("download-progress", (p) =>

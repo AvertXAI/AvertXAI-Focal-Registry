@@ -1,9 +1,11 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
 // Software Update window (mockup R2). Consent-first: nothing downloads until the user clicks.
-// The Summary (from the feed's releaseNotes) sits in a FIXED-HEIGHT box that never scrolls; the
-// "Show full details" panel fetches REVISIONS.md from the feed root and DOES scroll. Required
-// mode (major bump) offers only Install now / Quit; unmaintained mode nags with Update now / Later.
-import { useEffect, useState } from "react";
+// The Summary (from the feed's releaseNotes) fills the box between the header and the disclosure,
+// headed "Revisions Update <date>" with one bullet per sentence (Jason's mockup, 09-10-2026);
+// "Show full details" fetches REVISIONS.md from the feed root and shows it IN THE SAME BOX in place
+// of the summary — one box, two views, never a second panel. Required mode (major bump) offers only
+// Install now / Quit; unmaintained mode nags with Update now / Later.
+import { useEffect, useRef, useState } from "react";
 
 type Mode = "normal" | "required" | "unmaintained";
 interface InitState {
@@ -11,6 +13,26 @@ interface InitState {
   incoming: string;
   notes: string;
   mode: Mode;
+  date?: string; // the feed's releaseDate, ISO; absent on an older manifest
+}
+
+/** "September 10, 2026" from the feed's ISO releaseDate; null when absent or unparseable. */
+function releaseDay(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+}
+
+/** The Summary is written as sentences (release.mjs caps it at 400 characters); each becomes a
+    bullet. Split where a sentence ends — a period, question or exclamation mark, optionally followed
+    by a closing quote — and a capital letter starts the next. "Ctrl+S" mid-sentence is safe (no
+    space after the period); an "e.g." followed by a capitalised word would split, so the Summary
+    should not use it. A one-sentence Summary is one bullet. */
+function bullets(notes: string): string[] {
+  return notes
+    .split(/(?<=[.!?]["”]?)\s+(?=[A-Z])/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 interface Progress {
   percent: number;
@@ -51,12 +73,27 @@ export default function UpdateWindow() {
   const [prog, setProg] = useState<Progress | null>(null);
   const [open, setOpen] = useState(false);
   const [details, setDetails] = useState<DetailGroup[] | "loading" | "failed" | null>(null);
+  /** The incoming version the window is currently showing — so a re-offer can tell "same version,
+      refreshed" from "a newer version landed". */
+  const shown = useRef<string | null>(null);
 
   useEffect(() => {
     void window.updateApi.init().then((s) => {
-      if (s) setSt(s);
+      if (s) {
+        shown.current = s.incoming;
+        setSt(s);
+      }
     });
-    const offState = window.updateApi.onState((s) => setSt(s)); // re-offer into an already-open window
+    // Re-offer into an already-open window. A DIFFERENT version arriving must drop the fetched
+    // details and fall back to the summary view — they were parsed for the old version.
+    const offState = window.updateApi.onState((s) => {
+      if (shown.current !== null && shown.current !== s.incoming) {
+        setDetails(null);
+        setOpen(false);
+      }
+      shown.current = s.incoming;
+      setSt(s);
+    });
     const offProgress = window.updateApi.onProgress((p) => {
       setStage("downloading");
       setProg(p);
@@ -120,29 +157,42 @@ export default function UpdateWindow() {
         </div>
       </div>
 
-      <div className="upd-notes">{st.notes || "No release notes were provided for this version."}</div>
+      {/* ONE BOX, TWO VIEWS (Jason 09-10-2026: "we need the windows to switch, not add a new
+          window"). The summary and the full details take turns in the same box; the disclosure
+          below swaps them. The heading stays in both. */}
+      <div className="upd-notes">
+        <h2>Revisions Update{releaseDay(st.date) ? ` ${releaseDay(st.date)}` : ""}</h2>
+        {open ? (
+          <div className="upd-details">
+            {details === "loading" && <div className="upd-dim">Loading details…</div>}
+            {details === "failed" && <div className="upd-dim">Details unavailable — see the full changelog below.</div>}
+            {Array.isArray(details) &&
+              details.map((g) => (
+                <div key={g.head}>
+                  <h3>{g.head}</h3>
+                  <ul>
+                    {g.items.map((it, i) => (
+                      <li key={i}>{it}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+          </div>
+        ) : st.notes ? (
+          <ul>
+            {bullets(st.notes).map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+        ) : (
+          <div className="upd-dim">No release notes were provided for this version.</div>
+        )}
+      </div>
 
       <button className="upd-disclose" onClick={toggleDetails} aria-expanded={open}>
         <span className={"upd-chev" + (open ? " open" : "")} aria-hidden="true">›</span>
-        {open ? "Hide full details" : "Show full details"}
+        {open ? "Back to summary" : "Show full details"}
       </button>
-      {open && (
-        <div className="upd-details">
-          {details === "loading" && <div className="upd-dim">Loading details…</div>}
-          {details === "failed" && <div className="upd-dim">Details unavailable — see the full changelog below.</div>}
-          {Array.isArray(details) &&
-            details.map((g) => (
-              <div key={g.head}>
-                <h2>{g.head}</h2>
-                <ul>
-                  {g.items.map((it, i) => (
-                    <li key={i}>{it}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-        </div>
-      )}
 
       {stage !== "idle" && (
         <div className="upd-progress">

@@ -22,18 +22,26 @@ body { padding: 0 !important; overflow: hidden; }
 .upd-pill.new { color: var(--mc-text); border-color: var(--mc-accent-primary); }
 .upd-arrow { color: var(--mc-dimmer); }
 
-/* Summary box — FIXED height, never scrolls (the 400-char release.mjs gate keeps it fitting). */
-.upd-notes { flex: none; height: 84px; overflow: hidden; padding: 10px 12px; border-radius: var(--mc-radius); background: var(--mc-panels); border: 1px solid var(--mc-border); font-size: 13px; line-height: 1.5; color: var(--mc-text); box-sizing: border-box; }
+/* Summary box — FILLS the column between the header and the disclosure (Jason's mockup, 09-10-2026:
+   the 84px box cut the 0.2.13 notes mid-sentence). "Revisions Update <date>" heads it, one bullet
+   per sentence beneath. Budget at 560×540: about 296px for the box in normal mode, 218px inside it
+   under the heading — a 400-character Summary of up to four sentences fits; more sentences than
+   that wrap past it and the box scrolls (overflow-y). The full details show in THIS box, in place
+   of the summary, and scroll the same way — there is no second panel. */
+.upd-notes { flex: 1; min-height: 120px; overflow-y: auto; padding: 22px 24px; border-radius: var(--mc-radius); background: var(--mc-panels); border: 1px solid var(--mc-border); color: var(--mc-text); box-sizing: border-box; }
+.upd-notes h2 { margin: 0 0 10px; font-size: 17px; font-weight: 500; line-height: 1.3; color: var(--mc-text); }
+.upd-notes ul { margin: 0; padding-left: 20px; }
+.upd-notes li { font-size: 15px; line-height: 1.5; margin: 3px 0; color: var(--mc-text); }
 
 .upd-disclose { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; background: none; border: none; padding: 0; cursor: pointer; font-size: 12.5px; color: var(--mc-accent-primary); }
 .upd-chev { display: inline-block; transition: transform 0.15s; }
 .upd-chev.open { transform: rotate(90deg); }
 
-/* Full-details panel — the ONLY scrolling region. */
-.upd-details { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 12px; border-radius: var(--mc-radius); background: var(--mc-nested); border: 1px solid var(--mc-border); }
-.upd-details h2 { margin: 8px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--mc-muted); }
-.upd-details ul { margin: 0 0 6px; padding-left: 18px; }
-.upd-details li { font-size: 12.5px; line-height: 1.5; color: var(--mc-text); margin: 2px 0; }
+/* Full details — the same box's OTHER view (not a second panel): group heads and bullets under
+   the "Revisions Update" heading, in the box's own scroll. */
+.upd-details h3 { margin: 10px 0 4px; font-size: 12.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--mc-muted); }
+.upd-details ul { margin: 0 0 6px; padding-left: 20px; }
+.upd-details li { font-size: 14px; line-height: 1.5; color: var(--mc-text); margin: 3px 0; }
 .upd-dim { color: var(--mc-muted); font-size: 12.5px; padding: 6px 0; }
 
 .upd-progress { flex: none; display: flex; flex-direction: column; gap: 5px; }

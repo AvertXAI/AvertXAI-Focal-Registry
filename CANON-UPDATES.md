@@ -492,3 +492,24 @@ a vault-held pointer; it never decodes archive imagery." So the two rules stop a
 **Why `-f` matters (Verified Data):** `node_modules/argon2/prebuilds/win32-x64/` ships a prebuilt N-API binary (`argon2` 0.44.0 installs via `node-gyp-build`, `package.json` `files` includes `prebuilds/**/*.node`). The forced rebuild in `postinstall` is the only reason a Python is needed for argon2 at all.
 **Suggestion:** (1) FACTS: record the mechanism above in one line so the next reader of a 200 MB installer does not have to rediscover it. (2) RULES, size gate: *"Measure `release/*.exe` before every release; a jump is a stop."* (3) The fix is Jason's: delete `node_modules/argon2/Python`, exclude it from the package (`build.files` negation `!node_modules/argon2/Python/**`, or narrow `asarUnpack` for argon2 to `prebuilds/**` and `**/*.node`), and pin node-gyp to a real interpreter so the launcher is never consulted — `npm config set python C:\Python314\python.exe` or `NODE_GYP_FORCE_PYTHON` (`find-python.js:73-81`), or `PYTHON_MANAGER_AUTOMATIC_INSTALL=false`. Then re-measure; expected ≈ 70 MB off every download.
 **Severity:** worth-fixing — same defect as the entry above; this entry replaces its speculation with the evidence.
+
+## [CONTRADICTS] 2026-09-10 — the automatic update check now runs every 15 minutes; canon and CLAUDE.md say every six hours (Jason's ruling, same day)
+**Canon says:** `DECISIONS-57.md:92` — "Check on boot + every 6 hours."; scoped `FR-DECISIONS-6.md:64` — "Check on boot and every 6 hours."; repo `CLAUDE.md:364` (§3.12) — "Check on boot and every six hours."
+**Reality:** Jason's installed 0.2.12 (`Focal Registry.exe` started 2026-09-09 11:48:48 local) arms one check 30 s after `boot:done` and then `setInterval(autoCheck, 6 h)` — `electron/core/updater.ts:27-28, 129-134` (pre-edit). Its ticks fell at ≈11:49, 17:49, 23:49; 0.2.13 went live at 03:55 local on 09-10, so the first tick that could see it was ≈05:49 — two hours after publish. Jason, 09-10: *"i havent yet got a popup notification of an update, check the app and make sure its always on, and not only when it boots."* Ruled and implemented: `RECHECK_INTERVAL_MS = 15 * 60 * 1000` plus a once-per-six-hours re-offer guard per version for automatic checks (`updater.ts`, this commit). Consent-first, install-on-quit, silent automatic failure and the manual-check behaviour are unchanged.
+**Evidence:** `grep -n "six hours" CLAUDE.md` → :364; `grep -n "every 6" CANON/FR-DECISIONS-6.md` → :64; real `DECISIONS-57.md:92`; `Get-Process` start time of `Focal Registry.exe` 9/9/2026 11:48:48 AM; feed `releaseDate: '2026-09-10T08:55:04.271Z'`; `git diff -- electron/core/updater.ts`.
+**Suggestion:** DECISIONS and FR-DECISIONS: "Check on boot, then every 15 minutes; a version an automatic check has offered is not re-offered for six hours; a manual check always shows." CLAUDE.md §3.12 first bullet likewise. Cost note for the record: one 360-byte never-cached manifest GET per install per 15 minutes, 10-second cap, offline guard.
+**Severity:** worth-fixing (canon text now lags a ruled, shipped behaviour)
+
+## [GAP] 2026-09-10 — FOLLOW-UP to the 15-minute cadence entry above: the manifest is 658 bytes on the feed, not 360
+**Canon says:** nothing on manifest size; the figure appears only in the entry above ("one 360-byte never-cached manifest GET").
+**Reality:** 360 bytes is `release/prerelease.yml` as electron-builder writes it; `scripts/release.mjs:69` appends the Summary as `releaseNotes` before upload, so the served file is larger — 658 bytes for 0.2.13. The cost conclusion is unchanged (sub-kilobyte, never cached, 10-second cap, offline guard).
+**Evidence:** packaging log `prerelease.yml 360 9/10/2026 3:55:04 AM` (pre-injection); `curl -sI https://updates.focalregistry.com/prerelease/prerelease.yml` → `Content-Length: 658` (verifier, same day); `release.mjs:68-69`.
+**Suggestion:** read the cost note above as "sub-kilobyte"; the code comment in `electron/core/updater.ts` already says so.
+**Severity:** cosmetic
+
+## [GAP] 2026-09-10 — FOLLOW-UP: the automatic update-check interval is 10 minutes, not the 15 named two entries above (Jason: "change the timer to 10mins", same session)
+**Canon says:** six hours (`DECISIONS-57.md:92`, `FR-DECISIONS-6.md:64`, `CLAUDE.md:364`).
+**Reality:** `RECHECK_INTERVAL_MS = 10 * 60 * 1000` — `electron/core/updater.ts`; re-offer guard unchanged at six hours; manual checks unchanged.
+**Evidence:** `grep -n RECHECK_INTERVAL_MS electron/core/updater.ts`; the ruling is Jason's message of 2026-09-10 in the session that shipped 0.2.13.
+**Suggestion:** the wording proposed two entries above, with "10 minutes" in place of "15 minutes".
+**Severity:** worth-fixing (same item as above; the number changed before it was committed)

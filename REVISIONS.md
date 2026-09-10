@@ -4,6 +4,17 @@ Newest first. The **Summary** block (400 characters max) is what the in-app Soft
 shows; the **Details** sections are for the website changelog. `scripts/release.mjs` parses this file,
 injects the current version's Summary into the update feed, and publishes this file to the feed root.
 
+## 0.2.13 — September 10, 2026
+
+**Summary:** Fixed: clicking a pasted image in a note now opens it full size — it used to show a broken picture. Also fixed: opening a note from search or the Recently edited list now takes the sidebar to that note's folder and highlights the note in the list, so you can see where it lives.
+
+### Details
+
+#### Fixed
+
+- Full-size view of pasted images: clicking a pasted screenshot in the editor opened the full-size view as a broken picture. It now opens the picture, shows "Opening…" while it loads, and says so plainly if the picture is no longer stored or never finished saving.
+- Opening a note from search or from Recently edited: the folder tree now switches to the note's folder (opening the folders above it and scrolling to it), the Notes/Ideas shelf switches to match, and the note's row is loaded, highlighted and scrolled into view — even when it sits far down a long folder. Clicking a different folder while that is happening is respected.
+
 ## 0.2.12 — September 9, 2026
 
 **Summary:** Notes get a copy button: open a note, click the copy icon above the list, pick any folder or subfolder, and a copy is filed there exactly as written — the original stays put. Also fixed: the notes list now updates the moment a note autosaves, showing the new preview and edited date without pressing Ctrl+S.

@@ -4,6 +4,17 @@ Newest first. The **Summary** block (400 characters max) is what the in-app Soft
 shows; the **Details** sections are for the website changelog. `scripts/release.mjs` parses this file,
 injects the current version's Summary into the update feed, and publishes this file to the feed root.
 
+## 0.2.14 — September 10, 2026
+
+**Summary:** The app now checks for updates every 10 minutes while it is open, not only at startup, so a new version reaches you within minutes of release. The Software Update window is reworked: the release notes fill the window under a dated heading with one line per change, and Show full details switches that same box to the complete list instead of opening a second panel.
+
+### Details
+
+#### Changed
+
+- Update checks run 30 seconds after start and then every 10 minutes while the app is open. A version you closed with Remind me later is offered again after six hours; Check for updates in Settings shows it straight away.
+- Software Update window: the notes box now fills the window, headed "Revisions Update" with the release date and one line per change. Show full details replaces the notes with the complete list in the same box; Back to summary returns to the notes. Nothing else about updating changed: downloads still start only when you click Install update, and the update installs when the app closes.
+
 ## 0.2.13 — September 10, 2026
 
 **Summary:** Fixed: clicking a pasted image in a note now opens it full size — it used to show a broken picture. Also fixed: opening a note from search or the Recently edited list now takes the sidebar to that note's folder and highlights the note in the list, so you can see where it lives.

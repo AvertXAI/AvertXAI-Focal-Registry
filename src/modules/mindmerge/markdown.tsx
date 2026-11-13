@@ -201,7 +201,12 @@ function normalise(body: string): string {
  * parser accepts and which reads the same. The stored text is never touched.
  */
 function boldLabels(text: string): string {
-  return text.replace(/(?<=^|[\s(\["'])\*\*(?=\S)([^*\n]*[^\s*\\])((?![*\\])[\p{P}\p{S}])\*\*(?=[\p{L}\p{N}])/gmu, "**$1**$2");
+  // A code span is matched first, so it is swallowed whole and handed back untouched: what sits
+  // between backticks is literal, and this pane must show it character for character.
+  return text.replace(
+    /(`+)[^\n]*?\1|(?<=^|[\s(\["'])\*\*(?=\S)([^*\n]*[^\s*\\])((?![*\\])[\p{P}\p{S}])\*\*(?=[\p{L}\p{N}])/gmu,
+    (match, ticks: string | undefined, label: string, mark: string) => (ticks ? match : `**${label}**${mark}`)
+  );
 }
 
 /**

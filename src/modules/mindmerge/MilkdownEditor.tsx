@@ -249,7 +249,10 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
     const imgType = view.state.schema.nodes.image;
     if (!imgType) return;
     const token = `mindmerge-pending:${Math.random().toString(36).slice(2)}`;
-    view.dispatch(placeImage(view.state, imgType.create({ src: token, alt: file.name || "image.png" }), dropPos).scrollIntoView());
+    const placed = placeImage(view.state, imgType.create({ src: token, alt: file.name || "image.png" }), dropPos);
+    // Scrolling goes to the caret, and a drop leaves the caret where it was, possibly off screen:
+    // that would carry the pane away from the picture just dropped.
+    view.dispatch(dropPos === undefined ? placed.scrollIntoView() : placed);
     const finish = (stored: string | null): void => {
       settledImages.set(token, stored);
       settleImages();
@@ -440,8 +443,8 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
              * screenshot as a 200,000-character base64 data URL straight into the note body — it
              * rendered, but the Raw view was a wall and every autosave shipped the whole wall
              * again. Now the BYTES go to MindMerge's attachment store and the document gets one
-             * readable line: ![pasted-image.png](mindmerge://<uuid>). The insert happens when the
-             * save lands (a beat later, not blocking the paste), at the selection that was active.
+             * readable line: ![pasted-image.png](mindmerge://<uuid>). The picture lands at once;
+             * only its reference waits for the save (attachImage).
              */
             const imageFile = Array.from(event.clipboardData?.items ?? [])
               .find((i) => i.kind === "file" && i.type.startsWith("image/"))
@@ -485,7 +488,10 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
            * ponytail: the first picture only; loop over the rest if dropping several ever matters.
            */
           handleDrop: (view, event) => {
-            if (readOnly) return false;
+            // A drag that began inside the editor is a rearrange. Chromium attaches a dragged
+            // picture's bytes as a file, so taking it here would save a second copy and leave the
+            // original where it was.
+            if (readOnly || view.dragging) return false;
             const file = Array.from(event.dataTransfer?.files ?? []).find((f) => f.type.startsWith("image/"));
             if (!file) return false;
             event.preventDefault();

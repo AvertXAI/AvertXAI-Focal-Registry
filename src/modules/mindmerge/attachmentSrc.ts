@@ -1,6 +1,6 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
 // ONE resolver for `vault://<uuid>` image references, shared by every surface that renders one —
-// the Markdoc preview, the WYSIWYG editor's DOM sweep, and the full-size modal. A pasted image's
+// the Markdoc preview, the WYSIWYG editor's image node view, and the full-size modal. A pasted image's
 // bytes live in MindMerge's own encrypted store (attachments.ts — machine-held key, never prompts); the note body carries only the short
 // reference, so the Raw view stays readable (Jason 08-16-2026). The cache is module-level and
 // session-lived: the same image scrolled past twice must not cross the bridge twice.

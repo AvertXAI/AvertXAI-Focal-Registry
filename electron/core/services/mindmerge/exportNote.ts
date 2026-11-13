@@ -32,6 +32,10 @@ const REF_RE = /mindmerge:\/\/([0-9a-fA-F-]{36})(?![0-9a-fA-F-])/g;
 const EXT_BY_MIME: Record<string, string> = {
   "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif",
   "image/webp": "webp", "image/svg+xml": "svg", "image/bmp": "bmp",
+  // The store accepts any image type, so a dropped file can carry one of these. Without an entry
+  // it would be written as .png over bytes that are not PNG.
+  "image/avif": "avif", "image/tiff": "tif", "image/x-icon": "ico",
+  "image/vnd.microsoft.icon": "ico", "image/heic": "heic", "image/heif": "heif",
 };
 
 /**
@@ -64,8 +68,8 @@ function pictureFileName(name: string, mime: string, taken: Set<string>): string
 
 /**
  * Writes the note to `filePath` and its pictures into a sibling "<file name>_files" folder. The
- * stored note and its pictures are only read. A file already at either name is overwritten — the
- * save dialog has asked about the .md by then.
+ * stored note and its pictures are only read. An earlier export to the same name is overwritten —
+ * the save dialog has asked about the .md by then.
  */
 export function exportNoteTo(
   filePath: string,
@@ -77,6 +81,12 @@ export function exportNoteTo(
   const dirName = `${path.basename(filePath, path.extname(filePath))}_files`;
   const links = new Map<string, string | null>(); // uuid as written → relative link, null = missing
   const taken = new Set<string>();
+  const filesDir = path.join(dir, dirName);
+  // The save dialog only asks about the .md. A "_files" folder with no .md beside it was not made
+  // by an earlier export to this name, so its files are stepped around rather than replaced unasked.
+  if (!fs.existsSync(filePath) && fs.existsSync(filesDir)) {
+    for (const existing of fs.readdirSync(filesDir)) taken.add(existing.toLowerCase());
+  }
   let images = 0;
   let missing = 0;
   for (const m of note.body.matchAll(REF_RE)) {
@@ -93,8 +103,8 @@ export function exportNoteTo(
     }
     const file = pictureFileName(found.name, found.mime, taken);
     // Created only now, so a note with no picture that resolves leaves no empty folder behind.
-    if (images === 0) fs.mkdirSync(path.join(dir, dirName), { recursive: true });
-    fs.writeFileSync(path.join(dir, dirName, file), Buffer.from(found.dataBase64, "base64"));
+    if (images === 0) fs.mkdirSync(filesDir, { recursive: true });
+    fs.writeFileSync(path.join(filesDir, file), Buffer.from(found.dataBase64, "base64"));
     links.set(uuid, `${encodeLinkPart(dirName)}/${encodeLinkPart(file)}`);
     images += 1;
   }

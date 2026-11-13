@@ -210,7 +210,8 @@ export default function TopBar({
 }
 
 /**
- * Where the open note lives, beside the lock. Display only.
+ * Where the open note lives, beside the lock. It changes nothing: the menu only copies the path or
+ * shows the file in its folder.
  *
  * THE MENU IS PORTALLED, for the reason ShellMenu's header spells out: .topbar seals its children
  * inside its own stacking context and is the containing block for fixed descendants, and .crumbs
@@ -224,7 +225,9 @@ function OpenLocation({ loc }: { loc: OpenFileLocation }) {
     if (!at) return;
     const close = (): void => setAt(null);
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") close();
+      // A Ctrl or Meta chord is a shell shortcut (Ctrl+K opens the search sheet). This menu sits
+      // above that sheet, so left open it would take the first click meant for a result.
+      if (e.key === "Escape" || e.ctrlKey || e.metaKey) close();
     };
     document.addEventListener("keydown", onKey);
     // The menu was placed by measurement, and a resize moves the path out from under it.

@@ -506,6 +506,17 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // The right-click menu offers Copy as Markdown over every rich editor, but only MindMerge's
+  // answers it. In the Vault and Scan Notes editors a plain copy already is the markdown, so that runs.
+  useEffect(
+    () =>
+      window.api.on("editor:copyAsMarkdown", () => {
+        const rich = document.activeElement?.closest(".ProseMirror");
+        if (rich && !rich.closest(".mm-milkdown")) document.execCommand("copy");
+      }),
+    []
+  );
+
   /**
    * THE CRASH NET. Before this the application had none: no window.onerror, no unhandledrejection
    * listener, and exactly one React error boundary — inside the Vault. Every crash any user has ever

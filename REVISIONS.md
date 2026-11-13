@@ -4,6 +4,33 @@ Newest first. The **Summary** block (400 characters max) is what the in-app Soft
 shows; the **Details** sections are for the website changelog. `scripts/release.mjs` parses this file,
 injects the current version's Summary into the update feed, and publishes this file to the feed root.
 
+## 0.2.15 — November 12, 2026
+
+**Summary:** Notes: copying from the editor now gives exactly what you see, and long values such as connection strings are saved and copied without added backslashes. A bold label typed right against its value stays bold. Pasted and dropped pictures land where you point. New: spelling suggestions on right-click, Copy as Markdown, note export, and the open note's location on the top bar.
+
+### Details
+
+#### Fixed
+
+- Copying from the note editor: the clipboard now holds exactly the text you see. Bold no longer arrives as `**text**` and addresses no longer gain backslashes.
+- Long values in notes (connection strings, keys, addresses): saved and copied as one unbroken string. Backslashes are no longer added inside them, and the part before an @ is no longer wrapped in angle brackets after you reopen the note.
+- A bold label typed right against its value, such as a bold "URL:" followed straight away by the address, stays bold after you switch notes and come back, in the editor and in the preview.
+- Pasting a value with no spaces in it (a key, a password, an address) keeps every character exactly as copied.
+- Pasting a picture: it lands at the cursor (mid-line, after Shift+Enter, on a new line or at the top) and its saved reference always reaches the note. Before, a save that overlapped the paste could leave a broken placeholder.
+- Dragging a picture file from a folder into the editor now adds it where you drop it.
+- Pictures in a note load cleanly the first time; the app no longer logs a blocked-image warning for each one.
+- The notification bell on the top bar is no longer covered by the window buttons when the app is zoomed out.
+- Time Tracker: starting time for someone with no default project now lets you pick a project right there, with an option to save it as their default. The Employees editor no longer clears a default project it could not find in its list.
+- Time Tracker keeps counting if you choose Exit while an update window keeps the app open.
+- Scan Notes: the notes mirror no longer makes a folder for every scanned folder. It writes only folders that have a note or a rename. Folders already on disk are left alone.
+
+#### Added
+
+- Right-click a misspelled word for spelling suggestions and Add to dictionary. Settings, General has a new switch, Check spelling as you type (on by default, English US).
+- Right-click, Copy as Markdown in the note editor copies the selection with its markdown formatting.
+- Export a note: saves a Markdown file, plus a folder named after it that holds the note's pictures, wherever you choose.
+- The top bar shows where the open note lives, next to the lock: the file's path for an imported note (click it for Copy path and Show in folder), or "Stored in Focal Registry".
+
 ## 0.2.14 — September 10, 2026
 
 **Summary:** The app now checks for updates every 10 minutes while it is open, not only at startup, so a new version reaches you within minutes of release. The Software Update window is reworked: the release notes fill the window under a dated heading with one line per change, and Show full details switches that same box to the complete list instead of opening a second panel.

@@ -258,6 +258,9 @@ export type PushChannel =
   // The imported-folder watcher (or a manual refresh) re-read changed files / imported new ones —
   // no payload; the renderer re-reads what it shows, the scan:notes:changed shape (08-30-2026).
   | "mindmerge:docsChanged"
+  // The right-click menu's Copy as Markdown: main only announces the click (it cannot see the
+  // document); the editor that has the focus answers with its own selection. No payload.
+  | "editor:copyAsMarkdown"
   | "rename:progress"
   | "migrate:progress"
   | "timetracker:tick"

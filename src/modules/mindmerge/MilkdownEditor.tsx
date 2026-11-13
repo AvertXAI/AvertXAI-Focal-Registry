@@ -23,13 +23,16 @@
 // which mindmerge.css already styles for the preview pane. The editor reuses those rules rather than
 // shipping a second stylesheet that would drift from the theme tokens.
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx, schemaCtx, serializerCtx } from "@milkdown/kit/core";
+import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx } from "@milkdown/kit/core";
 import { exitCode } from "@milkdown/kit/prose/commands";
 import { Slice } from "@milkdown/kit/prose/model";
+import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 import { TextSelection } from "@milkdown/kit/prose/state";
+import type { EditorView } from "@milkdown/kit/prose/view";
 import {
   commonmark,
   createCodeBlockCommand,
+  imageSchema,
   insertHrCommand,
   toggleEmphasisCommand,
   toggleInlineCodeCommand,
@@ -44,11 +47,12 @@ import {
 import { gfm, insertTableCommand, toggleStrikethroughCommand } from "@milkdown/kit/preset/gfm";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { history, redoCommand, undoCommand } from "@milkdown/kit/plugin/history";
-import { callCommand, insert } from "@milkdown/kit/utils";
+import { $view, callCommand, insert } from "@milkdown/kit/utils";
 import type { Ctx } from "@milkdown/kit/ctx";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
 import { mindmergeApi } from "./mindmergeApi";
 import { isMindMergeSrc, resolveAttachmentSrc } from "./attachmentSrc";
+import { faithfulMarkdown, faithfulMarkdownConfig, isSingleValue, placeImage, settlePendingImages, sliceMarkdown, visibleText } from "./editorLogic";
 
 /** Bytes for images pasted moments ago, keyed by their pending token — the on-screen preview
  *  while the encrypted save is in flight. Session-lived, tiny, and cleared when the save lands. */
@@ -68,8 +72,72 @@ function tell(level: "warn" | "error", message: string, err?: unknown): void {
   else console.warn(`[mindmerge:renderer] ${message}`, err ?? "");
 }
 
-/** One log line per failing image reference, not one per MutationObserver sweep. */
+/** One log line per failing image reference, not one per redraw. */
 const toldSrcFailures = new Set<string>();
+
+/** How each picture save ended, by pending token: the stored reference, or null when the save was
+ *  refused. Session-lived so an editor rebuilt while a save was in flight (Tidy, a mode switch)
+ *  still learns the outcome — the old flow told only the view the paste landed in, and a rebuild
+ *  left `mindmerge-pending:` in the note for good (MM-04). */
+const settledImages = new Map<string, string | null>();
+
+/**
+ * THE PICTURE ELEMENT NEVER CARRIES A SCHEME THE PAGE CANNOT LOAD (TT-02). The stock rendering
+ * stamped the stored `mindmerge://<uuid>` into `<img src>`; the browser tried to fetch it and the
+ * content-security policy logged a violation for every picture, on every redraw, before a sweep
+ * swapped the address. This view keeps the stored address in `data-mm-src` and gives `src` only
+ * bytes: the paste preview while a save is in flight, then the data URL from the attachment store.
+ * The document node is untouched, so what is saved and what is copied still say `mindmerge://`.
+ */
+function paintImage(dom: HTMLImageElement, node: ProseNode): void {
+  const stored = typeof node.attrs.src === "string" ? node.attrs.src : "";
+  dom.alt = typeof node.attrs.alt === "string" ? node.attrs.alt : "";
+  dom.title = typeof node.attrs.title === "string" ? node.attrs.title : "";
+  if (dom.dataset.mmSrc === stored) return;
+  dom.dataset.mmSrc = stored;
+  if (stored.startsWith("mindmerge-pending:")) {
+    const preview = pendingPreview.get(stored);
+    if (preview) dom.src = preview;
+    return;
+  }
+  if (!isMindMergeSrc(stored)) {
+    if (stored) dom.src = stored;
+    else dom.removeAttribute("src");
+    return;
+  }
+  // Whatever is showing — the paste preview — stays up until the stored bytes arrive: no blank frame.
+  void resolveAttachmentSrc(stored)
+    .then((url) => {
+      if (dom.dataset.mmSrc === stored) dom.src = url;
+    })
+    .catch((err: unknown) => {
+      if (toldSrcFailures.has(stored)) return;
+      toldSrcFailures.add(stored);
+      tell("warn", "Editor: a pasted image could not be loaded from MindMerge", err);
+    });
+}
+
+const imageView = $view(imageSchema.node, () => (node) => {
+  const dom = document.createElement("img");
+  paintImage(dom, node);
+  return {
+    dom,
+    update: (next) => {
+      if (next.type !== node.type) return false;
+      paintImage(dom, next);
+      return true;
+    },
+    ignoreMutation: () => true,
+  };
+});
+
+/** A paste's bytes are read after its node is already on screen; this shows them the moment they are. */
+function showPendingPreview(token: string, dataUrl: string): void {
+  pendingPreview.set(token, dataUrl);
+  document.querySelectorAll<HTMLImageElement>(`img[data-mm-src="${token}"]`).forEach((img) => {
+    img.src = dataUrl;
+  });
+}
 
 /** Everything the toolbar can ask for. A closed union so a typo is a compile error, not a dead
  *  button. The same union drives BOTH engines: Milkdown commands here, plain-text insertion in
@@ -153,6 +221,63 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
   const imgClick = useRef(onImageClick);
   imgClick.current = onImageClick;
 
+  /**
+   * ALWAYS THE VIEW THAT IS ON SCREEN NOW, never the one a paste landed in. The editor is rebuilt
+   * on Tidy and on a mode switch; a save that returned after a rebuild used to update a dead view,
+   * and the note kept its `mindmerge-pending:` token for good (MM-04, "paste fails").
+   */
+  const settleImages = (): void => {
+    try {
+      editor.current?.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const tr = settlePendingImages(view.state, settledImages);
+        if (tr) view.dispatch(tr);
+      });
+    } catch (err) {
+      tell("warn", "Editor: a pasted image's reference could not be finalised in the document", err);
+    }
+  };
+
+  /**
+   * A PICTURE GOES IN WHERE THE USER POINTED, AT ONCE (Jason 08-16-2026: "im trying to add it where
+   * the cursor is"; MM-04 and MM-05, 11-12-2026). A pending image node lands synchronously at the
+   * caret or the drop point. The bytes go to MindMerge's encrypted attachment store behind it, and
+   * the node becomes `mindmerge://<uuid>` when that save returns — or is removed if the save is
+   * refused. The document keeps one readable line and never a base64 wall.
+   */
+  const attachImage = (view: EditorView, file: File, dropPos?: number): void => {
+    const imgType = view.state.schema.nodes.image;
+    if (!imgType) return;
+    const token = `mindmerge-pending:${Math.random().toString(36).slice(2)}`;
+    view.dispatch(placeImage(view.state, imgType.create({ src: token, alt: file.name || "image.png" }), dropPos).scrollIntoView());
+    const finish = (stored: string | null): void => {
+      settledImages.set(token, stored);
+      settleImages();
+      pendingPreview.delete(token);
+    };
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+      if (!base64) { finish(null); return; }
+      showPendingPreview(token, dataUrl);
+      void mindmergeApi()
+        .saveAttachment({ name: file.name || undefined, mime: file.type, dataBase64: base64 })
+        .then((meta) => finish(`mindmerge://${meta.uuid}`))
+        .catch((err: unknown) => {
+          // Refused (oversize, store unavailable): the picture is lost, never the document — and SAID SO.
+          tell("error", "Editor: an image could not be saved to MindMerge — it was removed from the note", err);
+          finish(null);
+        });
+    };
+    // A read failure fires neither branch above; without this the pending node would stay forever.
+    reader.onerror = () => {
+      tell("error", "Editor: the image could not be read — it was removed from the note", reader.error);
+      finish(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
   useImperativeHandle(
     ref,
     (): MilkdownHandle => ({
@@ -231,23 +356,11 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
       .config((ctx) => {
         ctx.set(rootCtx, host.current as HTMLElement);
         ctx.set(defaultValueCtx, initial);
+        faithfulMarkdownConfig(ctx);
         ctx.update(editorViewOptionsCtx, (prev) => ({
           ...prev,
           editable: () => !readOnly,
 
-          /**
-           * COPY GIVES YOU MARKDOWN (Jason 08-12-2026: "i assumed everything was in md coding, and
-           * it wasnt copied that way. it was all plain text").
-           *
-           * It was not plain text by choice. ProseMirror's default text serializer is
-           * `textBetween()` — it walks the document collecting characters and knows nothing about
-           * the marks around them, so every heading, bullet, fence and bold run arrived stripped.
-           * In a WYSIWYG that is the wrong default by definition: the markdown IS the document, and
-           * an editor that will not hand it back is a one-way door.
-           *
-           * Milkdown already owns the serializer that writes the file — the same one autosave uses —
-           * so the clipboard now goes through it instead of a second, worse one.
-           */
           /**
            * CLICK AN IMAGE, SEE THE IMAGE (Jason 08-15-2026). Images render capped by CSS so they
            * cannot blast the pane; the full-size view is one click away, in a modal the parent
@@ -269,25 +382,14 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
             return false;
           },
 
-          clipboardTextSerializer: (slice) => {
-            const plain = (): string => slice.content.textBetween(0, slice.content.size, "\n\n");
-            try {
-              const schema = ctx.get(schemaCtx);
-              const serialize = ctx.get(serializerCtx);
-              // A selection inside one paragraph is INLINE content, which a doc node cannot hold.
-              // Wrap it in a paragraph first; a block selection needs no wrapping.
-              let doc;
-              try {
-                doc = schema.topNodeType.create(null, slice.content);
-              } catch {
-                doc = schema.topNodeType.create(null, schema.nodes.paragraph.create(null, slice.content));
-              }
-              return serialize(doc).trim() || plain();
-            } catch (err) {
-              tell("warn", "Editor: copying as markdown failed — the copy fell back to plain text", err);
-              return plain(); // a serializer that throws must never cost the user their copy
-            }
-          },
+          /**
+           * COPY GIVES YOU WHAT YOU SEE (Jason 11-12-2026, reversing his own 08-12-2026 ruling that
+           * copy should hand over markdown). Markdown on the clipboard meant a bold label arrived
+           * as `**label**` and a connection string arrived with the escapes markdown stores —
+           * pasted into a server's settings, that is a broken credential. The plain-text flavour
+           * is now the visible text; the markdown is one right-click away (Copy as Markdown).
+           */
+          clipboardTextSerializer: visibleText,
 
           /**
            * SHIFT+ENTER, EVERY TIME (Jason 08-12-2026: "hitting shift + enter is buggy, sometimes it
@@ -345,91 +447,21 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
               .find((i) => i.kind === "file" && i.type.startsWith("image/"))
               ?.getAsFile();
             if (imageFile) {
-              /**
-               * THE POSITION IS CAPTURED NOW — at the paste, at the selection the user is looking
-               * at (Jason 08-16-2026 PM: "im trying to add it where the cursor is, but somehow it
-               * always jumps 5-6 rows/lines under the cursor"). The old flow inserted only after
-               * FileReader + IPC + the encrypted write had all completed, and read the selection
-               * as it stood BY THEN — an async gap the caret could drift across. Joplin's editor
-               * is the model here (researched 08-16-2026): it drops the `![](:/id)` reference at
-               * the caret synchronously and fills the resource in behind. Same shape: a pending
-               * image node lands NOW; its real mindmerge:// id is swapped in when the save
-               * returns; a refused save removes the node rather than leaving a corpse.
-               */
-              const { state } = view;
-              const imgType = state.schema.nodes.image;
-              const paraType = state.schema.nodes.paragraph;
-              if (!imgType) return true;
-              const nonce = `mindmerge-pending:${Math.random().toString(36).slice(2)}`;
-              const node = imgType.create({ src: nonce, alt: imageFile.name || "image.png" });
-              /**
-               * A SCREENSHOT IS A BLOCK, NEVER A DECORATION: the image node is INLINE, so dropped
-               * at the caret it joins whatever block the caret is in — inside a heading, the
-               * serializer must then write that heading setext-style with escapes, which is the
-               * `====` damage. Into the paragraph only when the caret is already in a plain
-               * paragraph; anywhere else (heading, list item, quote) the image gets its OWN
-               * paragraph immediately after the current block — one line below the caret, not
-               * five.
-               */
-              const $from = state.selection.$from;
-              if ($from.parent.type === paraType || !paraType) {
-                view.dispatch(state.tr.replaceSelectionWith(node).scrollIntoView());
-              } else {
-                const after = $from.after(Math.max(1, $from.depth));
-                view.dispatch(state.tr.insert(after, paraType.create(null, node)).scrollIntoView());
-              }
-              /** Swap the pending node to its final src wherever it sits NOW (the user may have
-               *  kept typing), or remove it if the save was refused. Position is re-found by the
-               *  nonce, never remembered — remembered positions are how the jump bug happened. */
-              const finish = (src: string | null): void => {
-                try {
-                  const st = view.state;
-                  let pos = -1;
-                  st.doc.descendants((n, p) => {
-                    if (pos >= 0) return false;
-                    if (n.type.name === "image" && n.attrs.src === nonce) { pos = p; return false; }
-                    return true;
-                  });
-                  if (pos < 0) return; // they deleted it while it saved — their call stands
-                  if (src) view.dispatch(st.tr.setNodeMarkup(pos, undefined, { ...st.doc.nodeAt(pos)!.attrs, src }));
-                  else view.dispatch(st.tr.delete(pos, pos + 1));
-                } catch (err) {
-                  tell("warn", "Editor: a pasted image's reference could not be finalised in the document", err);
-                }
-              };
-              const reader = new FileReader();
-              reader.onload = () => {
-                const dataUrl = typeof reader.result === "string" ? reader.result : "";
-                const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
-                if (!base64) { finish(null); return; }
-                // The bytes render on screen immediately through the sweep below — the DOCUMENT
-                // keeps only the pending token, so no base64 wall can ever reach a save.
-                pendingPreview.set(nonce, dataUrl);
-                void mindmergeApi()
-                  .saveAttachment({ name: imageFile.name || undefined, mime: imageFile.type, dataBase64: base64 })
-                  .then((meta) => finish(`mindmerge://${meta.uuid}`))
-                  .catch((err: unknown) => {
-                    // Refused (not wired yet, oversize): the paste is lost, never the document —
-                    // and SAID SO.
-                    tell("error", "Editor: a pasted image could not be saved to MindMerge — the paste was removed", err);
-                    finish(null);
-                  })
-                  .finally(() => pendingPreview.delete(nonce));
-              };
-              // Adversarial review (08-16-2026) found the one hole in "always swapped or
-              // deleted": a FileReader failure fired neither, orphaning the pending node in the
-              // document forever. It now removes itself, on record.
-              reader.onerror = () => {
-                tell("error", "Editor: the pasted image could not be read from the clipboard — the paste was removed", reader.error);
-                finish(null);
-              };
-              reader.readAsDataURL(imageFile);
+              attachImage(view, imageFile);
               return true; // consumed — the base64 wall never enters the document
             }
+            // A copy made inside this editor carries ProseMirror's own slice, which keeps every mark
+            // and picture. The plain-text flavour is only the visible text now, so parsing that
+            // here would flatten a cut-and-paste to bare words.
+            if (event.clipboardData?.getData("text/html").includes("data-pm-slice")) return false;
             const text = event.clipboardData?.getData("text/plain");
             if (!text || text.trim() === "") return false;
             const { state } = view;
             if (state.selection.$from.parent.type.spec.code) return false;
+            if (isSingleValue(text)) {
+              view.dispatch(state.tr.insertText(text.trim()).scrollIntoView());
+              return true;
+            }
             try {
               const doc = ctx.get(parserCtx)(text);
               if (!doc || doc.content.size === 0) return false;
@@ -443,6 +475,22 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
             } catch {
               return false; // a document the parser chokes on still pastes the ordinary way
             }
+          },
+
+          /**
+           * A PICTURE DRAGGED IN FROM A FOLDER (MM-05). Nothing handled the drop, so the browser
+           * treated it as "open this file" and the window's navigation guard cancelled that —
+           * which looked like nothing happening. It now takes the same road as a paste, landing
+           * where it was dropped rather than where the caret happened to be.
+           * ponytail: the first picture only; loop over the rest if dropping several ever matters.
+           */
+          handleDrop: (view, event) => {
+            if (readOnly) return false;
+            const file = Array.from(event.dataTransfer?.files ?? []).find((f) => f.type.startsWith("image/"));
+            if (!file) return false;
+            event.preventDefault();
+            attachImage(view, file, view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos);
+            return true;
           },
 
           handleKeyDown: (view, event) => {
@@ -498,6 +546,8 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
       })
       .use(commonmark)
       .use(gfm)
+      .use(faithfulMarkdown)
+      .use(imageView)
       .use(listener)
       .use(history)
       .create()
@@ -506,6 +556,8 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
         // detached ProseMirror view into the DOM.
         if (dead) { void made.destroy(); return; }
         editor.current = made;
+        // A save that returned while this editor was still being built has nobody else to tell.
+        settleImages();
       })
       .catch((err: unknown) => {
         // A failed editor must not take the docs screen down with it — but an empty pane with
@@ -523,49 +575,25 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
   }, [docId, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
-   * RESOLVE mindmerge:// IMAGES IN THE EDITOR'S DOM. The document node keeps `mindmerge://<uuid>`
-   * as its src — that is what serialises back into the markdown — but a browser cannot load that
-   * scheme, so the on-screen <img> element gets its src swapped to the resolved data URL. A DOM
-   * swap, not a node change: the serializer reads node attrs, never the DOM, so the stored text is
-   * untouched. ProseMirror may redraw the element on nearby edits and re-stamp mindmerge://; the
-   * observer just swaps it again from the session cache.
-   * ponytail: a MutationObserver sweep, not a ProseMirror nodeview — a nodeview through Milkdown's
-   * plugin surface is the upgrade path if the swap ever visibly flickers.
+   * COPY AS MARKDOWN, from the right-click menu (MM-01). The menu is native and built in the main
+   * process, which cannot see the document — so it only announces the click, and the editor that
+   * has the focus answers with its own selection, written by the same serializer that saves the note.
    */
-  useEffect(() => {
-    const root = host.current;
-    if (!root) return;
-    const sweep = (): void => {
-      root.querySelectorAll<HTMLImageElement>("img").forEach((img) => {
-        const raw = img.getAttribute("src");
-        // A just-pasted image still saving: show its bytes from the pending map, DOM-only.
-        if (raw?.startsWith("mindmerge-pending:")) {
-          const url = pendingPreview.get(raw);
-          if (url && img.src !== url) img.src = url;
-          return;
-        }
-        if (!isMindMergeSrc(raw)) return;
-        void resolveAttachmentSrc(raw as string)
-          .then((url) => {
-            // Re-check before writing — the node may have been edited while the bytes crossed.
-            if (img.getAttribute("src") === raw) img.src = url;
-          })
-          .catch((err: unknown) => {
-            // Unavailable or gone: the broken-image glyph is the honest state here. Logged ONCE
-            // per reference — the sweep re-fires on every redraw and an attachment store that
-            // refuses every read is not a flood.
-            if (!toldSrcFailures.has(raw as string)) {
-              toldSrcFailures.add(raw as string);
-              tell("warn", "Editor: a pasted image could not be loaded from MindMerge", err);
-            }
+  useEffect(
+    () =>
+      window.api.on("editor:copyAsMarkdown", () => {
+        try {
+          editor.current?.action((ctx) => {
+            const view = ctx.get(editorViewCtx);
+            if (!view.hasFocus() || view.state.selection.empty) return;
+            void mindmergeApi().copyText(sliceMarkdown(ctx, view.state.selection.content()));
           });
-      });
-    };
-    const mo = new MutationObserver(sweep);
-    mo.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] });
-    sweep();
-    return () => mo.disconnect();
-  }, [docId]);
+        } catch (err) {
+          tell("warn", "Editor: Copy as Markdown failed — nothing was copied", err);
+        }
+      }),
+    []
+  );
 
   return <div className="mm-milkdown" ref={host} />;
 });

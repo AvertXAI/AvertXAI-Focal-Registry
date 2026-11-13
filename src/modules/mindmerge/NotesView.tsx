@@ -490,7 +490,7 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
   const save = useCallback((): void => {
     if (!current || !dirty) return;
     void api.updateNote(current.uuid, { title, body: draft })
-      .then((n) => { adopted(title, n); setDirty(false); loadList(style, false); })
+      .then((n) => { adopted(title, n); if (live.current?.body === draft && live.current.title === title) setDirty(false); loadList(style, false); })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, [api, current, dirty, title, draft, style, loadList, adopted]);
 
@@ -510,6 +510,10 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
         adopted(l.title, n);
         loadList(style, false);
         if (live.current?.uuid !== l.uuid) return; // the user moved on; do not touch their new note
+        // Anything typed while this save was in flight is not saved yet. Clearing the flag anyway
+        // cancelled the autosave already queued for it — which is how a pasted picture's final
+        // reference never reached the store and the note kept its placeholder (MM-04).
+        if (live.current.body !== l.body || live.current.title !== l.title) return;
         setDirty(false);
         if (announce) setJustSaved((n2) => n2 + 1);
       })

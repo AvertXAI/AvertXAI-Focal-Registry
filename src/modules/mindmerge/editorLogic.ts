@@ -143,6 +143,11 @@ function faithfulParagraph(read: (markdown: string) => MdNode, tidy: SaveTidy): 
     if (same === undefined) {
       try {
         same = comparable(read(tidy(placedPlain))) === comparable(read(tidy(placedEscaped)));
+        // A line break is written as a backslash at the end of its line, and tidy makes it a
+        // paragraph break. The draft is read before tidy ever runs (a switch of mode rebuilds
+        // the editor from it): there, a plain next line that starts a list or a heading ends the
+        // paragraph, and the break's backslash is read as a character of the line above it.
+        if (same && plain.includes("\\\n")) same = comparable(read(placedPlain)) === comparable(read(placedEscaped));
       } catch {
         same = false;
       }

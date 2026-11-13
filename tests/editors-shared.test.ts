@@ -226,6 +226,22 @@ test("each editor judges an escape by what its own save path keeps", async () =>
   }
 });
 
+test("Vault: a line after Shift+Enter that starts like a list or a heading reads back from the draft as typed", async () => {
+  const { schema, parse, write, paragraph, docOf } = await vault;
+  const lines = (second: string): ProseNode => docOf(paragraph(schema.text("login: FAKEPW"), schema.nodes.hardbreak.create(), schema.text(second)));
+  // A switch of mode rebuilds the editor from its own draft, which the save path's tidy has not
+  // touched. Read that way, the first line must not gain the line break's backslash.
+  for (const second of ["- rotate monthly", "* item", "+ item", "# heading", "1. first"]) {
+    const draft = write(lines(second));
+    const reread = parse(draft);
+    assert.equal(reread.childCount, 1, second);
+    assert.ok(!reread.textContent.includes("\\"), second);
+    assert.equal(write(reread), draft, second);
+  }
+  // A value after the break still carries no escape of its own.
+  assert.equal(write(lines(REDIS)).trim(), `login: FAKEPW\\\n${REDIS}`);
+});
+
 test("Vault: tidy never alters a run of non-space text in the fake strings", () => {
   for (const fake of FAKES) {
     for (const text of [fake, `${fake}\n\n${fake}`, `- ${fake}\n- ${fake}`, `label\n${fake}\\\nnext`, `    ${fake}`]) {

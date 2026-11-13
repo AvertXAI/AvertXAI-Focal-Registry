@@ -574,6 +574,9 @@ export function registerIpcHandlers(): void {
     // files are already in the DB, so skipIngest=true avoids a needless re-read (no loading overlay).
     if (key === "mindmerge.watch_path" || key === "mindmerge.watch_roots") restartMindMerge();
     else if (key === "mindmerge.watch_enabled") restartMindMerge(true);
+    // Spell check is a switch on the Chromium session, which only main can reach — flip it as the
+    // choice is saved so the Settings toggle needs no restart.
+    if (key === "spellcheck.enabled") getMainWindow()?.webContents.session.setSpellCheckerEnabled(value !== "0");
   });
 
   // --- feedback — the deliberate report/suggestion channel, and the crash screenshot ---

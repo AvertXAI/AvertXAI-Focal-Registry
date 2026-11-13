@@ -23,7 +23,7 @@ interface Props {
 // Module-level cache of the toggle values — survives Settings unmount/remount within a session. On a
 // repeat visit the toggles initialize from here, so they render in the CORRECT position on the very
 // first paint (no async default→loaded jump, which was what "moved" when switching to Settings).
-const toggleCache: { skipBoot?: boolean; trayOn?: boolean; launchStartup?: boolean; tipsOn?: boolean; preloadReq?: boolean } = {};
+const toggleCache: { skipBoot?: boolean; trayOn?: boolean; launchStartup?: boolean; tipsOn?: boolean; spellOn?: boolean; preloadReq?: boolean } = {};
 // "This device" is IMMUTABLE for the session — cache it at module scope so re-entering Settings
 // paints it on the first frame instead of flashing empty while identity.get() round-trips (the same
 // class of bug as the toggle warm-cache). A renderer reload (Ctrl+R) wipes this; the first mount
@@ -71,13 +71,15 @@ export function warmToggleCache(): Promise<void> {
     window.api.settings.get("tray_enabled"),
     window.api.settings.get("launch_at_startup"),
     window.api.settings.get("tips.enabled"),
+    window.api.settings.get("spellcheck.enabled"),
     // Not a setting — the boot-preload predicate that greys Skip Fast Boot (08-30-2026). Warmed
     // here for the same frame-one reason as the toggles; an unanswerable probe reads "available".
     window.api.boot.preloadRequired().catch(() => false),
-  ]).then(([sb, tr, ls, tp, pr]) => {
+  ]).then(([sb, tr, ls, tp, sp, pr]) => {
     toggleCache.skipBoot = sb === "1";
     toggleCache.trayOn = tr !== "0";
     toggleCache.launchStartup = ls === "1";
+    toggleCache.spellOn = sp !== "0"; // default ON — absent key means spelling is checked
     toggleCache.tipsOn = tp !== "0"; // default ON — absent key means tips show
     toggleCache.preloadReq = pr === true;
     setTipsEnabled(toggleCache.tipsOn); // warm the live <Tip> store in the same pass
@@ -89,6 +91,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
   const [skipBoot, setSkipBoot] = useState(() => toggleCache.skipBoot ?? false);
   const [trayOn, setTrayOn] = useState(() => toggleCache.trayOn ?? true); // tray-on-close — default ON (§3.11)
   const [launchStartup, setLaunchStartup] = useState(() => toggleCache.launchStartup ?? false); // open at Windows login — default OFF
+  const [spellOn, setSpellOn] = useState(() => toggleCache.spellOn ?? true); // spell check — default ON, English (US)
   const [tipsOn, setTipsOn] = useState(() => toggleCache.tipsOn ?? true); // helpful tips — ONE global switch, default ON
   // Imported data needs loading at boot → Skip Fast Boot is unavailable, faded grey, no explanation
   // (ruled 08-30-2026). Same predicate main uses to refuse the stored skip at launch.
@@ -138,6 +141,7 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
       setSkipBoot(toggleCache.skipBoot === true);
       setTrayOn(toggleCache.trayOn !== false);
       setLaunchStartup(toggleCache.launchStartup === true);
+      setSpellOn(toggleCache.spellOn !== false);
       setPreloadReq(toggleCache.preloadReq === true); // re-asked on every mount — imports made THIS session grey the toggle live
       requestAnimationFrame(() => setAnimReady(true));
     });
@@ -247,6 +251,12 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
     setLaunchStartup(next);
     toggleCache.launchStartup = next;
     void window.api.startup.setEnabled(next); // persists AND writes/clears the OS login item
+  };
+  const toggleSpell = () => {
+    const next = !spellOn;
+    setSpellOn(next);
+    toggleCache.spellOn = next;
+    void window.api.settings.set("spellcheck.enabled", next ? "1" : "0"); // main applies it to the running app on save
   };
   const toggleTips = () => {
     const next = !tipsOn;
@@ -391,6 +401,21 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
                   </div>
                   <p className="hint">
                     Short in-context explanations across the modules — one switch turns them all on or off.
+                  </p>
+                </div>
+                <div className="field" style={{ marginTop: 26 }}>
+                  <div className="setrow">
+                    <label htmlFor="spellcheck">Check spelling as you type</label>
+                    <button
+                      id="spellcheck"
+                      role="switch"
+                      aria-checked={spellOn}
+                      className={`switch${spellOn ? " on" : ""}${animReady ? "" : " no-anim"}`}
+                      onClick={toggleSpell}
+                    />
+                  </div>
+                  <p className="hint">
+                    English (US). Right-click a misspelled word for suggestions.
                   </p>
                 </div>
                 <div className="field" style={{ marginTop: 26 }}>

@@ -161,6 +161,25 @@ function hardenWebContents(win: BrowserWindow): void {
   win.webContents.on("context-menu", (_event, params) => {
     const template: Electron.MenuItemConstructorOptions[] = [];
     if (params.isEditable) {
+      // Chromium hands the suggestions to this event and nowhere else, so this menu has to offer them.
+      if (params.misspelledWord !== "") {
+        for (const suggestion of params.dictionarySuggestions) {
+          template.push({
+            label: suggestion.replace(/&/g, "&&"), // a lone "&" is a shortcut marker and would drop out of the label
+            click: () => win.webContents.replaceMisspelling(suggestion),
+          });
+        }
+        if (params.dictionarySuggestions.length === 0) template.push({ label: "No suggestions", enabled: false });
+        template.push(
+          {
+            label: "Add to dictionary",
+            click: () => {
+              win.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord);
+            },
+          },
+          { type: "separator" }
+        );
+      }
       template.push(
         { label: "Cut", role: "cut", enabled: params.editFlags.canCut },
         { label: "Copy", role: "copy", enabled: params.editFlags.canCopy },
@@ -510,6 +529,23 @@ app.whenReady().then(async () => {
     setTrayEnabled(on);
     return { ok: true };
   });
+  // Spell check defaults ON, English (US). It is a switch on the Chromium session, not in the page,
+  // so the saved choice is pushed there at every launch; "0" = the user turned it off.
+  let spellPref = true;
+  if (org) {
+    try {
+      spellPref = getSetting("spellcheck.enabled") !== "0";
+    } catch {
+      /* setting unreadable — keep the default ON */
+    }
+  }
+  try {
+    win.webContents.session.setSpellCheckerLanguages(["en-US"]);
+  } catch {
+    /* language code refused — keep the one Chromium picked */
+  }
+  // Last on purpose: choosing a language also switches the checker on, which would undo a saved OFF.
+  win.webContents.session.setSpellCheckerEnabled(spellPref);
   // Open-at-login — DEFAULT OFF. Re-assert the OS login item from the DB choice at boot (keeps the
   // registry path correct across reinstalls/moves), and flip it live from the Settings toggle.
   if (org) {

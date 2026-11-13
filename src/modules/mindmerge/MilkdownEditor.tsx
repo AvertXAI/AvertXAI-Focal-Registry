@@ -81,6 +81,10 @@ const toldSrcFailures = new Set<string>();
  *  left `mindmerge-pending:` in the note for good (MM-04). */
 const settledImages = new Map<string, string | null>();
 
+/** Every editor on screen. A save can return after the editor that took the paste is gone (a
+ *  switch of mode mounts another one), so all of them hear how it ended. */
+const liveSettlers = new Set<() => void>();
+
 /**
  * THE PICTURE ELEMENT NEVER CARRIES A SCHEME THE PAGE CANNOT LOAD (TT-02). The stock rendering
  * stamped the stored `mindmerge://<uuid>` into `<img src>`; the browser tried to fetch it and the
@@ -237,6 +241,11 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
       tell("warn", "Editor: a pasted image's reference could not be finalised in the document", err);
     }
   };
+  // The first render's function is enough: it reaches the editor through a ref.
+  useEffect(() => {
+    liveSettlers.add(settleImages);
+    return () => void liveSettlers.delete(settleImages);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * A PICTURE GOES IN WHERE THE USER POINTED, AT ONCE (Jason 08-16-2026: "im trying to add it where
@@ -255,7 +264,7 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
     view.dispatch(dropPos === undefined ? placed.scrollIntoView() : placed);
     const finish = (stored: string | null): void => {
       settledImages.set(token, stored);
-      settleImages();
+      for (const settle of liveSettlers) settle();
       pendingPreview.delete(token);
     };
     const reader = new FileReader();

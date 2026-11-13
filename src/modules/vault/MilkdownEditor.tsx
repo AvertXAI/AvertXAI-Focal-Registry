@@ -81,6 +81,10 @@ const toldSrcFailures = new Set<string>();
  *  a rebuild left `vault-pending:` in the note for good. */
 const settledImages = new Map<string, string | null>();
 
+/** Every editor on screen. A save can return after the editor that took the paste is gone (a
+ *  switch between Editor and Split mounts another one), so all of them hear how it ended. */
+const liveSettlers = new Set<() => void>();
+
 /**
  * HOW THIS EDITOR READS AND WRITES MARKDOWN, apart from the page it is drawn on. The component and
  * tests/editors-shared.test.ts both build from this one function, so the tests run against the
@@ -191,6 +195,11 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
       tell("warn", "Editor: a pasted image's reference could not be finalised in the document", err);
     }
   };
+  // The first render's function is enough: it reaches the editor through a ref.
+  useEffect(() => {
+    liveSettlers.add(settleImages);
+    return () => void liveSettlers.delete(settleImages);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * A PICTURE GOES IN WHERE THE USER POINTED, AT ONCE (Jason 08-16-2026 PM: "im trying to add it
@@ -210,7 +219,7 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
     view.dispatch(dropPos === undefined ? placed.scrollIntoView() : placed);
     const finish = (stored: string | null): void => {
       settledImages.set(token, stored);
-      settleImages();
+      for (const settle of liveSettlers) settle();
       pendingPreview.delete(token);
     };
     const reader = new FileReader();

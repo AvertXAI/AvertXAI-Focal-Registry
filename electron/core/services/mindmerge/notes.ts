@@ -169,49 +169,78 @@ function searchTerms(q: string): string[] {
  * RELEVANCE, NOT RECENCY (same day, same report: "i should [not] have to scroll all the way down for
  * that specific keyword like buildersaudit"). Ordering by updated_at alone put IDEAS-BUILDERSAUDIT.md
  * below a hundred notes that merely MENTION the word, because a search of 4,089 imported files is
- * mostly incidental body hits. The score is simply how many terms land in the TITLE — a note named
- * after your words is what you were looking for — and a shorter title breaks the tie, since it is the
- * more precisely about them. Recency only decides between equals.
+ * mostly incidental body hits. The first key is how many terms land in the TITLE — a note named
+ * after your words is what you were looking for; the second is how many land in the FILE NAME; then
+ * a shorter title breaks the tie, since it is the more precisely about them. Recency only decides
+ * between equals. Two keys, not one weighted sum: a sum lets a three-word file name outvote a
+ * one-word title, and a title hit must always come first.
+ *
+ * THE FILE NAME IS SEARCHED (Jason 09-09-2026: ARCHITECTURE-modular-direction-…-09-02-2026.md was
+ * unfindable by its own name — its title comes from the heading, and "architecture" was in neither
+ * the title nor the body). The file NAME, not the path: every imported path shares D:\dev\_source\…,
+ * so matching the whole path made "dev", "source" and "md" hit all 2,391 imported notes. The name is
+ * ranked above body hits, not below: ranked below, that note came 889th of 890 for "architecture"
+ * and 186th of 187 for "architecture modular" — unreachable either way. It still cannot pass the 54
+ * notes with "architecture" in their TITLE (rank 57, past the 40-row window); a second word from the
+ * name lands it first.
  *
  * WHY NOT FTS5: it would rank better, and it costs a virtual table, a migration and sync triggers on
- * every write. LIKE over 4,089 notes answers in single-digit milliseconds here. Revisit at ~100k.
+ * every write. LIKE answers in roughly 200 ms on the 297 MB, 2,394-note development database
+ * (measured 09-10-2026, the same before and after the file-name key) behind a 200 ms debounce.
+ * Revisit before it doubles.
  */
+// SQLite has no basename(): rtrim with the path's own non-separator characters eats back to the last
+// separator; NULL (an authored note) stays NULL, so every LIKE and CASE on it below is simply false.
+const BASENAME = `substr(source_path, length(rtrim(source_path, replace(replace(source_path, '\\', ''), '/', ''))) + 1)`;
+// THE PATH COLUMN SITS BEHIND THE BODY: source_path is stored after the 35 KB average body in each
+// row, so reading it from the table walks the overflow pages — 110 ms per scan, measured 09-10-2026,
+// even for a word no path contains. The import's unique index (org_id, source_path) carries the path
+// without the body; this subquery scans that index alone (about 1 ms — EXPLAIN says COVERING INDEX)
+// and the outer query only tests id membership. The IS NOT NULL term is what lets SQLite pick the
+// partial index — drop it and this is a table scan again. Three placeholders: org, pattern, pattern.
+const NAME_IDS = `SELECT id FROM mindmerge_docs WHERE org_id = ? AND source_path IS NOT NULL AND source_path LIKE ? AND ${BASENAME} LIKE ?`;
+
 export function searchNotes(db: Db, orgId: string, q: unknown, limit = 40): MindMergeDocMeta[] {
   const terms = searchTerms(typeof q === "string" ? q.trim() : "");
   if (terms.length === 0) return [];
   const cap = Math.min(Math.max(Number(limit) || 40, 1), 200);
   const like = terms.map((t) => `%${t}%`);
 
-  const clause = `org_id = ? AND archived_at IS NULL AND ${terms.map(() => "(title LIKE ? OR body LIKE ?)").join(" AND ")}`;
+  const clause = `org_id = ? AND archived_at IS NULL AND ${terms.map(() => `(title LIKE ? OR id IN (${NAME_IDS}) OR body LIKE ?)`).join(" AND ")}`;
   const whereArgs: unknown[] = [orgId];
-  for (const l of like) whereArgs.push(l, l);
+  for (const l of like) whereArgs.push(l, orgId, l, l, l);
 
-  const order = `(${terms.map(() => "(CASE WHEN title LIKE ? THEN 1 ELSE 0 END)").join(" + ")}) DESC,
-                 length(title) ASC, updated_at DESC, created_at DESC`;
+  const inTitle = `(${terms.map(() => "(CASE WHEN title LIKE ? THEN 1 ELSE 0 END)").join(" + ")})`;
+  const inName = `(${terms.map(() => `(CASE WHEN id IN (${NAME_IDS}) THEN 1 ELSE 0 END)`).join(" + ")})`;
+  const order = `${inTitle} DESC, ${inName} DESC, length(title) ASC, updated_at DESC, created_at DESC`;
+  const orderArgs = [...like, ...like.flatMap((l) => [orgId, l, l])];
 
   // Ids first, then the rows — the same two-phase shape listNotes measured at 3x, and for the same
   // reason: the excerpt below reads the body, so ORDER BY must not be the thing that computes it.
   const ids = (db
     .prepare(`SELECT id FROM mindmerge_docs WHERE ${clause} ORDER BY ${order} LIMIT ?`)
-    .all(...whereArgs, ...like, cap) as { id: number }[]).map((r) => r.id);
+    .all(...whereArgs, ...orderArgs, cap) as { id: number }[]).map((r) => r.id);
   if (ids.length === 0) return [];
 
   /**
    * THE EXCERPT IS THE MATCH, not the head of the file. Every row used to show `substr(body, 1, 180)`
    * — which for markdown is the same title and front-matter over and over, so twenty results looked
    * identical and none of them showed WHY they matched. The window is cut around the first term's
-   * first occurrence; a title-only hit still falls back to the head, because there is nothing else to
-   * show. Costs two instr() calls over the rows already about to be drawn, and nothing over the rest.
+   * first occurrence; a file-name hit shows the file name, because that IS the match (the head of the
+   * file would show the same front-matter as every other row and never the word); a title-only hit
+   * still falls back to the head, because there is nothing else to show. Costs two instr() calls
+   * over the rows already about to be drawn, one index probe, and nothing over the rest.
    */
   const first = terms[0];
   const cols = metaCols(
     `CASE WHEN instr(lower(body), ?) > 0
             THEN substr(body, max(1, instr(lower(body), ?) - 40), 220)
-            ELSE substr(body, 1, 180) END`
+          WHEN id IN (${NAME_IDS}) THEN ${BASENAME}
+          ELSE substr(body, 1, 180) END`
   );
   return db
     .prepare(`SELECT ${cols} FROM mindmerge_docs WHERE id IN (${ids.map(() => "?").join(",")}) ORDER BY ${order}`)
-    .all(first, first, ...ids, ...like) as MindMergeDocMeta[];
+    .all(first, first, orgId, like[0], like[0], ...ids, ...orderArgs) as MindMergeDocMeta[];
 }
 
 /** Back out of the archive. The mirror of archiveNote — nothing was destroyed, so nothing is rebuilt. */

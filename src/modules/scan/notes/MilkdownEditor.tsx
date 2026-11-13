@@ -28,7 +28,7 @@
 // which scannotes.css styles for the preview pane. The editor reuses those rules rather than
 // shipping a second stylesheet that would drift from the theme tokens.
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx, schemaCtx, serializerCtx } from "@milkdown/kit/core";
+import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx } from "@milkdown/kit/core";
 import { exitCode } from "@milkdown/kit/prose/commands";
 import { Slice } from "@milkdown/kit/prose/model";
 import { TextSelection } from "@milkdown/kit/prose/state";
@@ -52,10 +52,27 @@ import { history, redoCommand, undoCommand } from "@milkdown/kit/plugin/history"
 import { callCommand, insert } from "@milkdown/kit/utils";
 import type { Ctx } from "@milkdown/kit/ctx";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
+import { faithfulMarkdown, faithfulMarkdownConfig, isSingleValue, selectionMarkdown, visibleText } from "../../mindmerge/editorLogic";
 
 function tell(level: "warn" | "error", message: string, err?: unknown): void {
   if (level === "error") console.error(`[scan-notes:renderer] ${message}`, err ?? "");
   else console.warn(`[scan-notes:renderer] ${message}`, err ?? "");
+}
+
+/** Scan Notes stores a note's text exactly as the editor writes it: nothing tidies it on the way in. */
+const storedAsWritten = (markdown: string): string => markdown;
+
+/**
+ * HOW THIS EDITOR READS AND WRITES MARKDOWN, apart from the page it is drawn on. The component and
+ * tests/editors-shared.test.ts both build from this one function, so the tests run against the
+ * setup Scan Notes really uses. The rules are MindMerge's (editorLogic.ts): a web address or an
+ * email typed into a note is stored without backslashes markdown does not need, and a bold label
+ * typed hard against its value is still bold after a reload. An escape is dropped only when the
+ * text reads back the same without it, judged against text stored as written — the other two
+ * editors judge against their save path's tidy, which Scan Notes does not have.
+ */
+export function scanNotesMarkdownSetup(editor: Editor): Editor {
+  return editor.config((ctx) => faithfulMarkdownConfig(ctx, storedAsWritten)).use(commonmark).use(gfm).use(faithfulMarkdown);
 }
 
 /** Everything the toolbar can ask for. A closed union so a typo is a compile error, not a dead
@@ -200,7 +217,7 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
     if (!host.current) return;
     let dead = false;
 
-    void Editor.make()
+    void scanNotesMarkdownSetup(Editor.make())
       .config((ctx) => {
         ctx.set(rootCtx, host.current as HTMLElement);
         ctx.set(defaultValueCtx, initial);
@@ -209,32 +226,12 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
           editable: () => !readOnly,
 
           /**
-           * COPY GIVES YOU MARKDOWN. ProseMirror's default text serializer is `textBetween()` — it
-           * walks the document collecting characters and knows nothing about the marks around them,
-           * so every heading, bullet, fence and bold run arrives stripped. In a WYSIWYG that is the
-           * wrong default by definition: the markdown IS the document, and an editor that will not
-           * hand it back is a one-way door. Milkdown already owns the serializer that writes the
-           * file — the same one autosave uses — so the clipboard goes through it.
+           * COPY GIVES YOU WHAT YOU SEE (Jason 11-12-2026, the ruling MindMerge and the Vault follow
+           * too). Markdown on the clipboard meant a bold word arrived as `**word**` and a web
+           * address arrived with the escapes markdown stores. The plain-text flavour is the
+           * visible text; the markdown is one right-click away (Copy as Markdown).
            */
-          clipboardTextSerializer: (slice) => {
-            const plain = (): string => slice.content.textBetween(0, slice.content.size, "\n\n");
-            try {
-              const schema = ctx.get(schemaCtx);
-              const serialize = ctx.get(serializerCtx);
-              // A selection inside one paragraph is INLINE content, which a doc node cannot hold.
-              // Wrap it in a paragraph first; a block selection needs no wrapping.
-              let doc;
-              try {
-                doc = schema.topNodeType.create(null, slice.content);
-              } catch {
-                doc = schema.topNodeType.create(null, schema.nodes.paragraph.create(null, slice.content));
-              }
-              return serialize(doc).trim() || plain();
-            } catch (err) {
-              tell("warn", "Editor: copying as markdown failed — the copy fell back to plain text", err);
-              return plain(); // a serializer that throws must never cost the user their copy
-            }
-          },
+          clipboardTextSerializer: visibleText,
 
           /**
            * A PASTED MARKDOWN DOCUMENT ARRIVES AS MARKDOWN. A clipboard carries several flavours at
@@ -248,10 +245,19 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
            */
           handlePaste: (view, event) => {
             if (readOnly) return false;
+            // A copy made inside this editor carries ProseMirror's own slice, which keeps every
+            // mark. The plain-text flavour is only the visible text now, so parsing that here
+            // would flatten a cut-and-paste to bare words.
+            if (event.clipboardData?.getData("text/html").includes("data-pm-slice")) return false;
             const text = event.clipboardData?.getData("text/plain");
             if (!text || text.trim() === "") return false;
             const { state } = view;
             if (state.selection.$from.parent.type.spec.code) return false;
+            // Taken literally: read as markdown, a `*` pair or a backslash inside a value would be consumed.
+            if (isSingleValue(text)) {
+              view.dispatch(state.tr.insertText(text.trim()).scrollIntoView());
+              return true;
+            }
             try {
               const doc = ctx.get(parserCtx)(text);
               if (!doc || doc.content.size === 0) return false;
@@ -317,8 +323,6 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
          */
         ctx.get(listenerCtx).markdownUpdated((_c, md) => { if (!dead) cb.current(md); });
       })
-      .use(commonmark)
-      .use(gfm)
       .use(listener)
       .use(history)
       .create()
@@ -340,6 +344,31 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
     // `initial` is deliberately NOT a dependency: it is the seed, and re-seeding on every change
     // would fight the user's typing. Switching documents changes docId, which rebuilds properly.
   }, [docId, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * COPY AS MARKDOWN, from the right-click menu. The menu is native and built in the main process,
+   * which cannot see the document — so it only announces the click, and the editor that has the
+   * focus answers with its own selection, written by the same serializer that saves the note.
+   * The write is made by the main process, which needs neither page focus nor a click inside the
+   * page; a click on a native menu promises the page neither. Scan Notes has no copy channel of
+   * its own, and this one is plain, ungated, and already carries the top bar's "Copy path".
+   */
+  useEffect(
+    () =>
+      window.api.on("editor:copyAsMarkdown", () => {
+        const failed = (err: unknown): void => tell("warn", "Editor: Copy as Markdown failed — nothing was copied", err);
+        try {
+          editor.current?.action((ctx) => {
+            const view = ctx.get(editorViewCtx);
+            const markdown = view.hasFocus() ? selectionMarkdown(ctx, view.state) : null;
+            if (markdown !== null) void window.api.mindmerge.copyText(markdown).catch(failed);
+          });
+        } catch (err) {
+          failed(err);
+        }
+      }),
+    []
+  );
 
   return <div className="scannotes-milkdown" ref={host} />;
 });

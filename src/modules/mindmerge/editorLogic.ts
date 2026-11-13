@@ -4,7 +4,8 @@
 // selection becomes clipboard text, and where a pasted or dropped picture goes. They live apart
 // from MilkdownEditor.tsx so tests/editor.test.ts can run them against the editor's real parser and
 // serializer — the notes hold connection strings and keys, and a character added or dropped on the
-// way to storage is a broken credential (Jason 11-12-2026).
+// way to storage is a broken credential (Jason 11-12-2026). The Vault and Scan Notes editors
+// import the same functions, each with its own save path's tidy, so the three cannot drift.
 import { remarkCtx, remarkStringifyOptionsCtx, schemaCtx, serializerCtx } from "@milkdown/kit/core";
 import type { Ctx } from "@milkdown/kit/ctx";
 import type { Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
@@ -109,13 +110,22 @@ function inPlace(text: string, state: StringifyState, leadsItem: boolean): strin
 const comparable = (root: MdNode): string =>
   JSON.stringify(withBareLinksAsText(root), (key, value: unknown) => (key === "position" ? undefined : value));
 
-/** Keyed by both placed forms; the whole note is rewritten on every change, so most paragraphs repeat. */
-const readsBackTheSame = new Map<string, boolean>();
+/** What a module's save path does to a note's text before storing it. */
+export type SaveTidy = (markdown: string) => string;
+
+/**
+ * Keyed by both placed forms; the whole note is rewritten on every change, so most paragraphs
+ * repeat. One cache per tidy, because the answer depends on it: Scan Notes stores a line-start
+ * escape that the MindMerge and Vault save paths remove.
+ */
+const readsBackTheSame = new WeakMap<SaveTidy, Map<string, boolean>>();
 
 /** The places inPlace can rebuild. A table cell or a footnote gives characters a meaning it cannot see. */
 const MODELLED = new Set(["blockquote", "list", "listItem"]);
 
-function faithfulParagraph(read: (markdown: string) => MdNode): Handler {
+function faithfulParagraph(read: (markdown: string) => MdNode, tidy: SaveTidy): Handler {
+  const known = readsBackTheSame.get(tidy) ?? new Map<string, boolean>();
+  readsBackTheSame.set(tidy, known);
   return (node, parent, state, info) => {
     const escaped = writePhrasing(node, state, info, false);
     const plain = writePhrasing(withBareLinksAsText(node), state, info, true);
@@ -129,22 +139,27 @@ function faithfulParagraph(read: (markdown: string) => MdNode): Handler {
     const placedPlain = inPlace(plain, state, leadsItem);
     const placedEscaped = inPlace(escaped, state, leadsItem);
     const key = `${placedPlain}\u0000${placedEscaped}`;
-    let same = readsBackTheSame.get(key);
+    let same = known.get(key);
     if (same === undefined) {
       try {
-        same = comparable(read(tidyMarkdown(placedPlain))) === comparable(read(tidyMarkdown(placedEscaped)));
+        same = comparable(read(tidy(placedPlain))) === comparable(read(tidy(placedEscaped)));
       } catch {
         same = false;
       }
-      if (readsBackTheSame.size >= 2000) readsBackTheSame.clear();
-      readsBackTheSame.set(key, same);
+      if (known.size >= 2000) known.clear();
+      known.set(key, same);
     }
     return same ? plain : escaped;
   };
 }
 
-/** Goes in the editor's `.config()`. A heading is not a paragraph and a table cell is passed over, so both keep the stock escaping. */
-export function faithfulMarkdownConfig(ctx: Ctx): void {
+/**
+ * Goes in the editor's `.config()`. A heading is not a paragraph and a table cell is passed over,
+ * so both keep the stock escaping. `tidy` is what the editor's own save path does to the text
+ * before storing it (MindMerge's unless told otherwise); an editor whose notes are stored as
+ * written passes a function that returns its input.
+ */
+export function faithfulMarkdownConfig(ctx: Ctx, tidy: SaveTidy = tidyMarkdown): void {
   const read = (markdown: string): MdNode => {
     const remark = ctx.get(remarkCtx);
     return remark.runSync(remark.parse(markdown), markdown) as unknown as MdNode;
@@ -154,7 +169,7 @@ export function faithfulMarkdownConfig(ctx: Ctx): void {
     const escapeText = handlers.text;
     if (!escapeText) return prev;
     const text: Handler = (node, parent, state, info) => (writingPlain ? node.value ?? "" : escapeText(node, parent, state, info));
-    return { ...prev, handlers: { ...handlers, text, paragraph: faithfulParagraph(read) } as unknown as typeof prev.handlers };
+    return { ...prev, handlers: { ...handlers, text, paragraph: faithfulParagraph(read, tidy) } as unknown as typeof prev.handlers };
   });
 }
 
@@ -311,6 +326,18 @@ export function sliceMarkdown(ctx: Ctx, slice: Slice): string {
   // Part of one line is inline content, which only a paragraph can hold.
   const content = slice.content.firstChild?.isInline ? schema.nodes.paragraph.create(null, slice.content) : slice.content;
   return ctx.get(serializerCtx)(schema.topNodeType.create(null, content)).trim();
+}
+
+/**
+ * What the right-click "Copy as Markdown" hands over for the current selection, the same in every
+ * editor. Null when nothing is selected.
+ */
+export function selectionMarkdown(ctx: Ctx, state: EditorState): string | null {
+  const { selection, doc } = state;
+  if (selection.empty) return null;
+  // Inside a code block the text already is the markdown; written as prose it would gain escapes.
+  const code = selection.$from.sameParent(selection.$to) && selection.$from.parent.type.spec.code;
+  return code ? doc.textBetween(selection.from, selection.to, "\n") : sliceMarkdown(ctx, selection.content());
 }
 
 /**

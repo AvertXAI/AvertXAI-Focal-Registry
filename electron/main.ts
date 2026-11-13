@@ -192,8 +192,8 @@ function hardenWebContents(win: BrowserWindow): void {
         { label: "Cut", role: "cut", enabled: params.editFlags.canCut },
         { label: "Copy", role: "copy", enabled: params.editFlags.canCopy },
         // Only a rich editor has markdown that differs from what is on screen; a text box does not.
-        // Main cannot see the document, so it announces the click. MindMerge's editor answers with
-        // its own serializer; for the other editors App.tsx runs their plain copy, which is markdown.
+        // Main cannot see the document, so it announces the click, and the editor that has the
+        // focus answers with its own serializer: MindMerge, the Vault and Scan Notes each listen.
         ...(params.formControlType === "none"
           ? [{ label: "Copy as Markdown", enabled: params.editFlags.canCopy, click: () => win.webContents.send("editor:copyAsMarkdown") }]
           : []),

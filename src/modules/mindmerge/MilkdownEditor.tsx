@@ -52,7 +52,7 @@ import type { Ctx } from "@milkdown/kit/ctx";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
 import { mindmergeApi } from "./mindmergeApi";
 import { isMindMergeSrc, resolveAttachmentSrc } from "./attachmentSrc";
-import { faithfulMarkdown, faithfulMarkdownConfig, isSingleValue, placeImage, settlePendingImages, sliceMarkdown, visibleText } from "./editorLogic";
+import { faithfulMarkdown, faithfulMarkdownConfig, isSingleValue, placeImage, selectionMarkdown, settlePendingImages, visibleText } from "./editorLogic";
 
 /** Bytes for images pasted moments ago, keyed by their pending token — the on-screen preview
  *  while the encrypted save is in flight. Session-lived, tiny, and cleared when the save lands. */
@@ -591,11 +591,8 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
         try {
           editor.current?.action((ctx) => {
             const view = ctx.get(editorViewCtx);
-            const { selection, doc } = view.state;
-            if (!view.hasFocus() || selection.empty) return;
-            // Inside a code block the text already is the markdown; written as prose it would gain escapes.
-            const code = selection.$from.sameParent(selection.$to) && selection.$from.parent.type.spec.code;
-            void mindmergeApi().copyText(code ? doc.textBetween(selection.from, selection.to, "\n") : sliceMarkdown(ctx, selection.content()));
+            const markdown = view.hasFocus() ? selectionMarkdown(ctx, view.state) : null;
+            if (markdown !== null) void mindmergeApi().copyText(markdown);
           });
         } catch (err) {
           tell("warn", "Editor: Copy as Markdown failed — nothing was copied", err);

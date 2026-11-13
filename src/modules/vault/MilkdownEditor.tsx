@@ -22,10 +22,11 @@
 // which vault.css already styles for the preview pane. The editor reuses those rules rather than
 // shipping a second stylesheet that would drift from the theme tokens.
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx, schemaCtx, serializerCtx } from "@milkdown/kit/core";
+import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx } from "@milkdown/kit/core";
 import { exitCode } from "@milkdown/kit/prose/commands";
 import { Slice } from "@milkdown/kit/prose/model";
 import { TextSelection } from "@milkdown/kit/prose/state";
+import type { EditorView } from "@milkdown/kit/prose/view";
 import {
   commonmark,
   createCodeBlockCommand,
@@ -48,6 +49,8 @@ import type { Ctx } from "@milkdown/kit/ctx";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
 import { vaultApi } from "./vaultApi";
 import { isVaultSrc, resolveAttachmentSrc } from "./attachmentSrc";
+import { tidyMarkdown } from "./tidyMarkdown";
+import { faithfulMarkdown, faithfulMarkdownConfig, isSingleValue, placeImage, selectionMarkdown, settlePendingImages, visibleText } from "../mindmerge/editorLogic";
 
 /** Bytes for images pasted moments ago, keyed by their pending token — the on-screen preview
  *  while the encrypted save is in flight. Session-lived, tiny, and cleared when the save lands. */
@@ -71,6 +74,24 @@ function tell(level: "warn" | "error", message: string, err?: unknown): void {
 
 /** One log line per failing image reference, not one per MutationObserver sweep. */
 const toldSrcFailures = new Set<string>();
+
+/** How each picture save ended, by pending token: the stored reference, or null when the save was
+ *  refused. Session-lived so an editor rebuilt while a save was in flight (Tidy, the Split
+ *  raw-sync) still learns the outcome — the old flow told only the view the paste landed in, and
+ *  a rebuild left `vault-pending:` in the note for good. */
+const settledImages = new Map<string, string | null>();
+
+/**
+ * HOW THIS EDITOR READS AND WRITES MARKDOWN, apart from the page it is drawn on. The component and
+ * tests/editors-shared.test.ts both build from this one function, so the tests run against the
+ * setup the Vault really uses. The rules are MindMerge's (editorLogic.ts), because a note here
+ * holds the same connection strings and keys: a character added or dropped on the way to storage
+ * is a broken credential. The tidy is the Vault's own — an escape is dropped only when the text
+ * reads back the same after what this module's save path does to it.
+ */
+export function vaultMarkdownSetup(editor: Editor): Editor {
+  return editor.config((ctx) => faithfulMarkdownConfig(ctx, tidyMarkdown)).use(commonmark).use(gfm).use(faithfulMarkdown);
+}
 
 /** Everything the toolbar can ask for. A closed union so a typo is a compile error, not a dead
  *  button. The same union drives BOTH engines: Milkdown commands here, plain-text insertion in
@@ -154,6 +175,69 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
   const imgClick = useRef(onImageClick);
   imgClick.current = onImageClick;
 
+  /**
+   * ALWAYS THE VIEW THAT IS ON SCREEN NOW, never the one a paste landed in. The editor is rebuilt
+   * on Tidy and on a Split raw-sync; a save that returned after a rebuild used to update a dead
+   * view, and the note kept its `vault-pending:` token for good.
+   */
+  const settleImages = (): void => {
+    try {
+      editor.current?.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const tr = settlePendingImages(view.state, settledImages);
+        if (tr) view.dispatch(tr);
+      });
+    } catch (err) {
+      tell("warn", "Editor: a pasted image's reference could not be finalised in the document", err);
+    }
+  };
+
+  /**
+   * A PICTURE GOES IN WHERE THE USER POINTED, AT ONCE (Jason 08-16-2026 PM: "im trying to add it
+   * where the cursor is, but somehow it always jumps 5-6 rows/lines under the cursor"). A pending
+   * image node lands synchronously at the caret or the drop point — inserting only after the save
+   * returned left a gap the caret could drift across. The bytes go to the vault's attachment
+   * store behind it, and the node becomes `vault://<uuid>` when that save returns, or is removed
+   * if the save is refused. The document keeps one readable line and never a base64 wall.
+   */
+  const attachImage = (view: EditorView, file: File, dropPos?: number): void => {
+    const imgType = view.state.schema.nodes.image;
+    if (!imgType) return;
+    const token = `vault-pending:${Math.random().toString(36).slice(2)}`;
+    const placed = placeImage(view.state, imgType.create({ src: token, alt: file.name || "image.png" }), dropPos);
+    // Scrolling goes to the caret, and a drop leaves the caret where it was, possibly off screen:
+    // that would carry the pane away from the picture just dropped.
+    view.dispatch(dropPos === undefined ? placed.scrollIntoView() : placed);
+    const finish = (stored: string | null): void => {
+      settledImages.set(token, stored);
+      settleImages();
+      pendingPreview.delete(token);
+    };
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+      if (!base64) { finish(null); return; }
+      // Kept for the sweep below, which paints these bytes the next time it runs. The DOCUMENT
+      // keeps only the pending token, so no base64 wall can ever reach a save.
+      pendingPreview.set(token, dataUrl);
+      void vaultApi()
+        .saveAttachment({ name: file.name || undefined, mime: file.type, dataBase64: base64 })
+        .then((meta) => finish(`vault://${meta.uuid}`))
+        .catch((err: unknown) => {
+          // Refused (locked, oversize): the picture is lost, never the note — and SAID SO.
+          tell("error", "Editor: an image could not be saved to the vault — it was removed from the note", err);
+          finish(null);
+        });
+    };
+    // A read failure fires neither branch above; without this the pending node would stay forever.
+    reader.onerror = () => {
+      tell("error", "Editor: the image could not be read — it was removed from the note", reader.error);
+      finish(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
   useImperativeHandle(
     ref,
     (): MilkdownHandle => ({
@@ -228,7 +312,7 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
     if (!host.current) return;
     let dead = false;
 
-    void Editor.make()
+    void vaultMarkdownSetup(Editor.make())
       .config((ctx) => {
         ctx.set(rootCtx, host.current as HTMLElement);
         ctx.set(defaultValueCtx, initial);
@@ -236,19 +320,6 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
           ...prev,
           editable: () => !readOnly,
 
-          /**
-           * COPY GIVES YOU MARKDOWN (Jason 08-12-2026: "i assumed everything was in md coding, and
-           * it wasnt copied that way. it was all plain text").
-           *
-           * It was not plain text by choice. ProseMirror's default text serializer is
-           * `textBetween()` — it walks the document collecting characters and knows nothing about
-           * the marks around them, so every heading, bullet, fence and bold run arrived stripped.
-           * In a WYSIWYG that is the wrong default by definition: the markdown IS the document, and
-           * an editor that will not hand it back is a one-way door.
-           *
-           * Milkdown already owns the serializer that writes the file — the same one autosave uses —
-           * so the clipboard now goes through it instead of a second, worse one.
-           */
           /**
            * CLICK AN IMAGE, SEE THE IMAGE (Jason 08-15-2026). Pasted screenshots render capped by
            * CSS so they cannot blast the pane; the full-size view is one click away, in a modal the
@@ -265,25 +336,14 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
             return false;
           },
 
-          clipboardTextSerializer: (slice) => {
-            const plain = (): string => slice.content.textBetween(0, slice.content.size, "\n\n");
-            try {
-              const schema = ctx.get(schemaCtx);
-              const serialize = ctx.get(serializerCtx);
-              // A selection inside one paragraph is INLINE content, which a doc node cannot hold.
-              // Wrap it in a paragraph first; a block selection needs no wrapping.
-              let doc;
-              try {
-                doc = schema.topNodeType.create(null, slice.content);
-              } catch {
-                doc = schema.topNodeType.create(null, schema.nodes.paragraph.create(null, slice.content));
-              }
-              return serialize(doc).trim() || plain();
-            } catch (err) {
-              tell("warn", "Editor: copying as markdown failed — the copy fell back to plain text", err);
-              return plain(); // a serializer that throws must never cost the user their copy
-            }
-          },
+          /**
+           * COPY GIVES YOU WHAT YOU SEE (Jason 11-12-2026, reversing his own 08-12-2026 ruling that
+           * copy should hand over markdown). Markdown on the clipboard meant a bold label arrived
+           * as `**label**` and a connection string arrived with the escapes markdown stores —
+           * pasted into a server's settings, that is a broken credential. The plain-text flavour
+           * is the visible text; the markdown is one right-click away (Copy as Markdown).
+           */
+          clipboardTextSerializer: visibleText,
 
           /**
            * SHIFT+ENTER, EVERY TIME (Jason 08-12-2026: "hitting shift + enter is buggy, sometimes it
@@ -334,97 +394,29 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
              * screenshot as a 200,000-character base64 data URL straight into the note body — it
              * rendered, but the Raw view was a wall and every autosave shipped the whole wall
              * again. Now the BYTES go to the vault's attachment store and the document gets one
-             * readable line: ![pasted-image.png](vault://<uuid>). The insert happens when the save
-             * lands (a beat later, not blocking the paste), at the selection that was active.
+             * readable line: ![pasted-image.png](vault://<uuid>). The picture lands at once; only
+             * its reference waits for the save (attachImage).
              */
             const imageFile = Array.from(event.clipboardData?.items ?? [])
               .find((i) => i.kind === "file" && i.type.startsWith("image/"))
               ?.getAsFile();
             if (imageFile) {
-              /**
-               * THE POSITION IS CAPTURED NOW — at the paste, at the selection the user is looking
-               * at (Jason 08-16-2026 PM: "im trying to add it where the cursor is, but somehow it
-               * always jumps 5-6 rows/lines under the cursor"). The old flow inserted only after
-               * FileReader + IPC + the encrypted write had all completed, and read the selection
-               * as it stood BY THEN — an async gap the caret could drift across. Joplin's editor
-               * is the model here (researched 08-16-2026): it drops the `![](:/id)` reference at
-               * the caret synchronously and fills the resource in behind. Same shape: a pending
-               * image node lands NOW; its real vault:// id is swapped in when the save returns;
-               * a refused save removes the node rather than leaving a corpse.
-               */
-              const { state } = view;
-              const imgType = state.schema.nodes.image;
-              const paraType = state.schema.nodes.paragraph;
-              if (!imgType) return true;
-              const nonce = `vault-pending:${Math.random().toString(36).slice(2)}`;
-              const node = imgType.create({ src: nonce, alt: imageFile.name || "image.png" });
-              /**
-               * A SCREENSHOT IS A BLOCK, NEVER A DECORATION: the image node is INLINE, so dropped
-               * at the caret it joins whatever block the caret is in — inside a heading, the
-               * serializer must then write that heading setext-style with escapes, which is the
-               * `====` damage. Into the paragraph only when the caret is already in a plain
-               * paragraph; anywhere else (heading, list item, quote) the image gets its OWN
-               * paragraph immediately after the current block — one line below the caret, not
-               * five.
-               */
-              const $from = state.selection.$from;
-              if ($from.parent.type === paraType || !paraType) {
-                view.dispatch(state.tr.replaceSelectionWith(node).scrollIntoView());
-              } else {
-                const after = $from.after(Math.max(1, $from.depth));
-                view.dispatch(state.tr.insert(after, paraType.create(null, node)).scrollIntoView());
-              }
-              /** Swap the pending node to its final src wherever it sits NOW (the user may have
-               *  kept typing), or remove it if the save was refused. Position is re-found by the
-               *  nonce, never remembered — remembered positions are how the jump bug happened. */
-              const finish = (src: string | null): void => {
-                try {
-                  const st = view.state;
-                  let pos = -1;
-                  st.doc.descendants((n, p) => {
-                    if (pos >= 0) return false;
-                    if (n.type.name === "image" && n.attrs.src === nonce) { pos = p; return false; }
-                    return true;
-                  });
-                  if (pos < 0) return; // they deleted it while it saved — their call stands
-                  if (src) view.dispatch(st.tr.setNodeMarkup(pos, undefined, { ...st.doc.nodeAt(pos)!.attrs, src }));
-                  else view.dispatch(st.tr.delete(pos, pos + 1));
-                } catch (err) {
-                  tell("warn", "Editor: a pasted image's reference could not be finalised in the document", err);
-                }
-              };
-              const reader = new FileReader();
-              reader.onload = () => {
-                const dataUrl = typeof reader.result === "string" ? reader.result : "";
-                const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
-                if (!base64) { finish(null); return; }
-                // The bytes render on screen immediately through the sweep below — the DOCUMENT
-                // keeps only the pending token, so no base64 wall can ever reach a save.
-                pendingPreview.set(nonce, dataUrl);
-                void vaultApi()
-                  .saveAttachment({ name: imageFile.name || undefined, mime: imageFile.type, dataBase64: base64 })
-                  .then((meta) => finish(`vault://${meta.uuid}`))
-                  .catch((err: unknown) => {
-                    // Refused (locked, oversize): the paste is lost, never the note — and SAID SO.
-                    tell("error", "Editor: a pasted image could not be saved to the vault — the paste was removed", err);
-                    finish(null);
-                  })
-                  .finally(() => pendingPreview.delete(nonce));
-              };
-              // Adversarial review (08-16-2026) found the one hole in "always swapped or
-              // deleted": a FileReader failure fired neither, orphaning the pending node in the
-              // document forever. It now removes itself, on record.
-              reader.onerror = () => {
-                tell("error", "Editor: the pasted image could not be read from the clipboard — the paste was removed", reader.error);
-                finish(null);
-              };
-              reader.readAsDataURL(imageFile);
+              attachImage(view, imageFile);
               return true; // consumed — the base64 wall never enters the document
             }
+            // A copy made inside this editor carries ProseMirror's own slice, which keeps every mark
+            // and picture. The plain-text flavour is only the visible text now, so parsing that
+            // here would flatten a cut-and-paste to bare words.
+            if (event.clipboardData?.getData("text/html").includes("data-pm-slice")) return false;
             const text = event.clipboardData?.getData("text/plain");
             if (!text || text.trim() === "") return false;
             const { state } = view;
             if (state.selection.$from.parent.type.spec.code) return false;
+            // Taken literally: read as markdown, a `*` pair or a backslash inside a key would be consumed.
+            if (isSingleValue(text)) {
+              view.dispatch(state.tr.insertText(text.trim()).scrollIntoView());
+              return true;
+            }
             try {
               const doc = ctx.get(parserCtx)(text);
               if (!doc || doc.content.size === 0) return false;
@@ -438,6 +430,25 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
             } catch {
               return false; // a document the parser chokes on still pastes the ordinary way
             }
+          },
+
+          /**
+           * A PICTURE DRAGGED IN FROM A FOLDER. Nothing handled the drop, so it was left to the
+           * browser, which treats a dropped file as something to open and never as a picture for
+           * the note. It takes the same road as a paste, landing where it was dropped rather than
+           * where the caret happened to be.
+           * ponytail: the first picture only; loop over the rest if dropping several ever matters.
+           */
+          handleDrop: (view, event) => {
+            // A drag that began inside the editor is a rearrange. Chromium attaches a dragged
+            // picture's bytes as a file, so taking it here would save a second copy and leave the
+            // original where it was.
+            if (readOnly || view.dragging) return false;
+            const file = Array.from(event.dataTransfer?.files ?? []).find((f) => f.type.startsWith("image/"));
+            if (!file) return false;
+            event.preventDefault();
+            attachImage(view, file, view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos);
+            return true;
           },
 
           handleKeyDown: (view, event) => {
@@ -491,8 +502,6 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
          */
         ctx.get(listenerCtx).markdownUpdated((_c, md) => { if (!dead) cb.current(md); });
       })
-      .use(commonmark)
-      .use(gfm)
       .use(listener)
       .use(history)
       .create()
@@ -501,6 +510,8 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
         // detached ProseMirror view into the DOM.
         if (dead) { void made.destroy(); return; }
         editor.current = made;
+        // A save that returned while this editor was still being built has nobody else to tell.
+        settleImages();
       })
       .catch((err: unknown) => {
         // A failed editor must not take the notes screen down with it — but an empty pane with
@@ -560,6 +571,30 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
     sweep();
     return () => mo.disconnect();
   }, [docId]);
+
+  /**
+   * COPY AS MARKDOWN, from the right-click menu. The menu is native and built in the main process,
+   * which cannot see the document — so it only announces the click, and the editor that has the
+   * focus answers with its own selection, written by the same serializer that saves the note. It
+   * goes through the vault's copy funnel like every other copy this module makes itself, so the
+   * "clear the clipboard after N seconds" setting covers it.
+   */
+  useEffect(
+    () =>
+      window.api.on("editor:copyAsMarkdown", () => {
+        const failed = (err: unknown): void => tell("warn", "Editor: Copy as Markdown failed — nothing was copied", err);
+        try {
+          editor.current?.action((ctx) => {
+            const view = ctx.get(editorViewCtx);
+            const markdown = view.hasFocus() ? selectionMarkdown(ctx, view.state) : null;
+            if (markdown !== null) void vaultApi().copyText(markdown).catch(failed);
+          });
+        } catch (err) {
+          failed(err);
+        }
+      }),
+    []
+  );
 
   return <div className="vault-milkdown" ref={host} />;
 });

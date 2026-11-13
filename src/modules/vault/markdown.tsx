@@ -29,6 +29,7 @@ import Markdoc, { type RenderableTreeNode } from "@markdoc/markdoc";
 import { isHighlightable, tokenize, type Role, type Token } from "./codeTheme";
 import { vaultApi, type VaultSecretMeta } from "./vaultApi";
 import { cachedAttachmentSrc, isVaultSrc, resolveAttachmentSrc } from "./attachmentSrc";
+import { preprocess as sharedPreprocess } from "../mindmerge/markdown";
 
 // ---------------------------------------------------------------- source → Markdoc
 
@@ -48,7 +49,8 @@ function quote(s: string): string {
 }
 
 /**
- * The two vault-specific rewrites, applied ONLY OUTSIDE FENCED CODE BLOCKS.
+ * The vault's credential chip, rewritten ONLY OUTSIDE FENCED CODE BLOCKS. Task lists and bold
+ * labels are then read by MindMerge's preprocess, so the two preview panes read a note alike.
  *
  * The fence split is not fussiness: a runbook that documents this very syntax, or a note holding a
  * shell snippet with square brackets, would otherwise have its code block quietly rewritten. Code
@@ -61,16 +63,14 @@ function quote(s: string): string {
  */
 export function preprocess(raw: string): string {
   const parts = normalise(raw).split(/(```[\s\S]*?(?:```|$))/g);
-  return parts
+  const chipped = parts
     .map((part, i) => {
       if (i % 2 === 1) return part; // odd indices are the fenced blocks — untouched, by design
-      return part
-        .replace(/@\\?\[\\?\[vault:([^\]\\]+)\\?\]\\?\]/g, (_m, label: string) => `{% vault label=${quote(label.trim())} /%}`)
-        .replace(/^(\s*)[-*]\s+\[([ xX])\]\s+(.*)$/gm, (_m, indent: string, mark: string, text: string) =>
-          `${indent}- {% task checked=${mark.toLowerCase() === "x"} %}${text}{% /task %}`
-        );
+      return part.replace(/@\\?\[\\?\[vault:([^\]\\]+)\\?\]\\?\]/g, (_m, label: string) => `{% vault label=${quote(label.trim())} /%}`);
     })
     .join("");
+  // A bold label typed hard against its value is bold in the editor, so this pane has to agree.
+  return sharedPreprocess(chipped);
 }
 
 const CONFIG = {

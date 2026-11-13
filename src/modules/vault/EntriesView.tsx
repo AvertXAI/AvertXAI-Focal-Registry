@@ -85,7 +85,7 @@ export default function EntriesView({ secrets, folders = [], loading, error, fil
       setRowError(null);
       setBusy(uuid);
       void api
-        .read(uuid)
+        .read(uuid, "reveal")
         .then((full) => setRevealed((r) => ({ ...r, [uuid]: full.value })))
         .catch((e: unknown) => setRowError(e instanceof Error ? e.message : String(e)))
         .finally(() => setBusy(null));
@@ -106,7 +106,7 @@ export default function EntriesView({ secrets, folders = [], loading, error, fil
       setRowError(null);
       setBusy(uuid);
       void api
-        .read(uuid)
+        .read(uuid, "copy")
         .then((full) => api.copyText(full.value))
         .catch((e: unknown) => setRowError(e instanceof Error ? e.message : String(e)))
         .finally(() => setBusy(null));

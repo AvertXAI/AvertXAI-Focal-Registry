@@ -114,7 +114,8 @@ const META_COLS =
   "archived_at, archive_reason, created_at, updated_at";
 // Newest access-log stamp per secret — the ledger's "Last read" column. Derived, never stored.
 const LAST_READ =
-  "(SELECT MAX(a.ts) FROM vault_access_log a WHERE a.secret_uuid = vault_secrets.uuid AND a.action = 'read' AND a.granted = 1) AS last_read_at";
+  // A reveal and a copy are reads under their own names; counting only 'read' would leave this empty.
+  "(SELECT MAX(a.ts) FROM vault_access_log a WHERE a.secret_uuid = vault_secrets.uuid AND a.action IN ('read', 'reveal', 'copy') AND a.granted = 1) AS last_read_at";
 // The current credential payload, same derivation path — used by readSecret ALONE; nothing else
 // selects either column. `extras` rides the same row so one read returns one coherent version.
 const CURRENT_VALUE =
@@ -196,7 +197,7 @@ export function listSecrets(db: Db, orgId: string, includeArchived = false): Vau
     behaves exactly like a missing one. Archived secrets remain readable: data access is never
     hostage to retirement (the restore-over-cap doctrine), archive only hides a secret from the
     default list. */
-export function readSecret(db: Db, orgId: string, caller: string, uuid: unknown): VaultSecretWithValue {
+export function readSecret(db: Db, orgId: string, caller: string, uuid: unknown, why?: unknown): VaultSecretWithValue {
   const who = vText(caller, "caller", MAX_TAG);
   const locator = vUuid(uuid);
   const row = db
@@ -206,7 +207,17 @@ export function readSecret(db: Db, orgId: string, caller: string, uuid: unknown)
     logAccess(db, orgId, "read", locator, null, who, false, "not found");
     throw new Error("Secret not found");
   }
-  logAccess(db, orgId, "read", row.uuid, row.label, who, true);
+  // The page says what the value is wanted for, so the log can tell a reveal from a copy. Any
+  // other word, and every reader that gives none, stays a plain read.
+  const action: VaultAction = why === "reveal" || why === "copy" ? why : "read";
+  try {
+    logAccess(db, orgId, action, row.uuid, row.label, who, true);
+  } catch {
+    // A vault file's log table keeps the action list it was created with: SQLite cannot widen it.
+    // One that predates these two names refuses the row, and a refused row must not refuse the
+    // value with it. So that file gets the name every table accepts, with the reason beside it.
+    logAccess(db, orgId, "read", row.uuid, row.label, who, true, action);
+  }
   return { ...row, extras: parseExtras(row.extras) };
 }
 

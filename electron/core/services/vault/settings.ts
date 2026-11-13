@@ -30,7 +30,9 @@ export const VAULT_DEFAULTS = {
   "clipboard.clear_seconds": "30",
   // Presentation — remembered across navigation, per canon (view state persists to the database).
   "view.mode": "list", // 'list' | 'grid'
-  "view.sort": "label", // 'label' | 'recent' | 'kind'
+  // One of the grid's three chips: 'popular' | 'recent' | 'az' (CollageView). It was "label", a
+  // name no chip has, so a vault that had never touched the chips showed none of them lit.
+  "view.sort": "popular",
   "view.show_archived": "0",
   // Generator preferences, so a photographer's chosen shape survives the app closing.
   "generator.length": "16",

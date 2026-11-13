@@ -14,9 +14,11 @@
 // lock would paint secrets metadata after the door closed. Every mount re-reads.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Vault } from "../../icons";
+import { unlockDelayMs } from "../../shared/vaultRules";
 import ErrorBoundary from "./ErrorBoundary";
 import { parseShortcuts, type Shortcut } from "./Sidebar";
 import VaultSettingsView from "./VaultSettingsView";
+import { useLockWatch } from "./useLockWatch";
 import { vaultApi, type VaultFolder, type VaultLockState, type VaultSecretMeta } from "./vaultApi";
 
 export default function VaultSettings() {
@@ -36,6 +38,8 @@ export default function VaultSettings() {
   }, [api]);
 
   const open = lock !== null && !lock.locked;
+  // Same watch as the module's own screen: this page sits open over a vault that can lock under it.
+  useLockWatch(api, open, setLock);
 
   // Mirrors VaultModule's loaders — same calls, same defensive catches, so the two doors can never
   // disagree about what the settings surface is looking at.
@@ -125,6 +129,13 @@ export default function VaultSettings() {
                 {lock.failedAttempts > 0 && !unlockError && (
                   <div className="vault-lockerror">
                     {lock.failedAttempts} failed {lock.failedAttempts === 1 ? "attempt" : "attempts"} — every one is recorded.
+                  </div>
+                )}
+                {/* Said before the wait starts, so a slow "Opening…" does not read as a hang. */}
+                {unlockDelayMs(lock.failedAttempts) > 0 && (
+                  <div className="vault-hint" style={{ marginTop: 8 }}>
+                    Wrong passwords slow the lock down. The next try will take about{" "}
+                    {unlockDelayMs(lock.failedAttempts) / 1000} seconds.
                   </div>
                 )}
                 <div className="vault-btnrow" style={{ marginTop: 12, justifyContent: "center" }}>

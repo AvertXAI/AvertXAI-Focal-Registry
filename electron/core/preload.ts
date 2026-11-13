@@ -559,7 +559,7 @@ const api: Api = {
     initialActive: () => invoke("vault:initialActive"),
     create: (input: unknown) => invoke("vault:createSecret", input),
     list: (includeArchived?: boolean) => invoke("vault:listSecrets", includeArchived === true),
-    read: (uuid: string) => invoke("vault:readSecret", uuid),
+    read: (uuid: string, why?: string) => invoke("vault:readSecret", uuid, why ?? ""),
     supersede: (uuid: string, value: string, extras?: unknown) => invoke("vault:supersedeSecret", uuid, value, extras ?? null),
     updateMeta: (uuid: string, patch: unknown) => invoke("vault:updateSecretMeta", uuid, patch),
     setFavourite: (uuid: string, on: boolean) => invoke("vault:setFavourite", uuid, on),

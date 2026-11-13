@@ -104,11 +104,11 @@ export function VaultChip({ label, secrets }: { label: string; secrets: VaultSec
   const reveal = (): void => {
     if (shown !== null) return setShown(null);
     setBusy(true);
-    void api.read(hit.uuid).then((f) => setShown(f.value)).catch(() => setShown(null)).finally(() => setBusy(false));
+    void api.read(hit.uuid, "reveal").then((f) => setShown(f.value)).catch(() => setShown(null)).finally(() => setBusy(false));
   };
   const copy = (): void => {
     setBusy(true);
-    void api.read(hit.uuid).then((f) => api.copyText(f.value)).then(() => setCopied(true))
+    void api.read(hit.uuid, "copy").then((f) => api.copyText(f.value)).then(() => setCopied(true))
       .catch(() => undefined).finally(() => setBusy(false));
   };
   return (

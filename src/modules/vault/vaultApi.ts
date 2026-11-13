@@ -153,7 +153,8 @@ export interface VaultApi {
   create: (input: VaultSecretInput) => Promise<VaultSecretMeta>;
   list: (includeArchived?: boolean) => Promise<VaultSecretMeta[]>;
   /** THE one credential path. Access-logged main-side, misses included. */
-  read: (uuid: string) => Promise<VaultSecretWithValue>;
+  /** `why` says what the value is wanted for, so the access log can tell a reveal from a copy. */
+  read: (uuid: string, why?: "reveal" | "copy") => Promise<VaultSecretWithValue>;
   supersede: (uuid: string, value: string, extras?: VaultSecretExtras | null) => Promise<VaultSecretMeta>;
   updateMeta: (uuid: string, patch: Partial<VaultSecretInput>) => Promise<VaultSecretMeta>;
   setFavourite: (uuid: string, on: boolean) => Promise<VaultSecretMeta>;

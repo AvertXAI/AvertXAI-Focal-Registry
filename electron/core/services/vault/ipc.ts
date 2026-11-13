@@ -42,6 +42,7 @@ import { getAttachment, saveAttachment } from "./attachments";
 import { analyseHealth } from "./health";
 import { estimateStrength, generateBulk, generateMemorable, generatePassphrase, generatePassword, generatePin } from "./generator";
 import type { VaultGeneratorOptions, VaultSecretInput } from "./types";
+import { unlockDelayMs } from "../../../../src/shared/vaultRules";
 
 /**
  * Module-local copy of core/ipc.ts's resilient registrar (it is module-local there; a cross-import
@@ -195,10 +196,12 @@ function vaultCtx(): Promise<{ db: Db; orgId: string }> {
  * When the real gate lands, this is the function that starts refusing; nothing else moves.
  * The lock/unlock/state channels deliberately do NOT call it, or the vault could never be opened.
  */
-async function gated(): Promise<{ db: Db; orgId: string }> {
+async function gated(use = true): Promise<{ db: Db; orgId: string }> {
   const ctx = await vaultCtx();
   if (!lock.isUnlocked(ctx.db, ctx.orgId)) throw new Error("The vault is locked.");
-  lock.touch(); // idle clock measures USE, not wall time
+  // Housekeeping the page runs on its own timer passes false. That is not the owner using the
+  // vault, and counting it pushed the idle lock back every hour.
+  if (use) lock.touch(); // idle clock measures USE, not wall time
   return ctx;
 }
 
@@ -224,9 +227,19 @@ export function registerVaultIpc(): void {
   });
   // Both outcomes are recorded INSIDE lock.unlock — see its comment; the handler must not add a
   // second row, and must not be the only thing standing between a failed attempt and the log.
-  safeHandle("vault:unlock", async (_e, password: unknown) => {
-    const { db, orgId } = await vaultCtx();
-    return lock.unlock(db, orgId, password, RENDERER_CALLER).state;
+  // WRONG PASSWORDS SLOW THE NEXT TRY DOWN. Tries are taken one at a time, and each first waits a
+  // time that grows with the wrong ones before it, so firing guesses side by side gains nothing.
+  // The count lives in memory: a restart clears it, which buys three free tries per restart —
+  // still far slower than guessing with no wait at all.
+  let unlockTurn: Promise<unknown> = Promise.resolve();
+  safeHandle("vault:unlock", (_e, password: unknown) => {
+    const turn = unlockTurn.then(async () => {
+      const { db, orgId } = await vaultCtx();
+      await new Promise((done) => setTimeout(done, unlockDelayMs(lock.lockState(db, orgId).failedAttempts)));
+      return lock.unlock(db, orgId, password, RENDERER_CALLER).state;
+    });
+    unlockTurn = turn.catch(() => undefined);
+    return turn;
   });
   safeHandle("vault:lock", async () => {
     const { db, orgId } = await vaultCtx();
@@ -314,9 +327,9 @@ export function registerVaultIpc(): void {
     return secrets.listSecrets(db, orgId, includeArchived === true);
   });
   // THE single value-bearing channel. The service logs the ask — hit or miss — before returning.
-  safeHandle("vault:readSecret", async (_e, uuid: unknown) => {
+  safeHandle("vault:readSecret", async (_e, uuid: unknown, why: unknown) => {
     const { db, orgId } = await gated();
-    return secrets.readSecret(db, orgId, RENDERER_CALLER, uuid);
+    return secrets.readSecret(db, orgId, RENDERER_CALLER, uuid, why);
   });
   safeHandle("vault:supersedeSecret", async (_e, uuid: unknown, value: unknown, extras: unknown) => {
     const { db, orgId } = await gated();
@@ -328,7 +341,17 @@ export function registerVaultIpc(): void {
   });
   safeHandle("vault:setFavourite", async (_e, uuid: unknown, on: unknown) => {
     const { db, orgId } = await gated();
-    return secrets.setFavourite(db, orgId, uuid, on);
+    const row = secrets.setFavourite(db, orgId, uuid, on);
+    // Logged here, the way the folder changes just below are: the star was the one change to an
+    // entry that left no trace.
+    try {
+      secrets.logAccess(db, orgId, "favourite", row.uuid, row.label, RENDERER_CALLER, true, row.favourite === 1 ? "added" : "removed");
+    } catch (err) {
+      // A vault file's log table keeps the action list it was made with, and one older than this
+      // name refuses the row. The star is already saved by then, so it must not come back as failed.
+      console.error("[vault] the star was saved but its log row was refused:", err instanceof Error ? err.message : err);
+    }
+    return row;
   });
   safeHandle("vault:archiveSecret", async (_e, uuid: unknown, reason: unknown) => {
     const { db, orgId } = await gated();
@@ -1015,7 +1038,7 @@ export function registerVaultIpc(): void {
    * instead of the decision being invisible.
    */
   safeHandle("vault:compactIfDue", async (_e, dry: unknown) => {
-    const { db, orgId } = await gated();
+    const { db, orgId } = await gated(false);
     const every = vaultSettings.getSetting(db, orgId, "maintenance.compact_every");
     const file = path.join(app.getPath("userData"), `${orgId}.atd`);
 

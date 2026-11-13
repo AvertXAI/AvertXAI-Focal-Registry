@@ -254,12 +254,12 @@ function SshPane({ keys, onReload, onAddKey }: { keys: VaultSecretMeta[]; onRelo
     if (!current) return;
     if (pass !== null) return setPass(null);
     setBusy(true);
-    void api.read(current.uuid).then((f) => setPass(f.extras?.passphrase ?? "(no passphrase stored)")).catch(() => undefined).finally(() => setBusy(false));
+    void api.read(current.uuid, "reveal").then((f) => setPass(f.extras?.passphrase ?? "(no passphrase stored)")).catch(() => undefined).finally(() => setBusy(false));
   };
   const copyPass = (): void => {
     if (!current) return;
     setBusy(true);
-    void api.read(current.uuid).then((f) => api.copyText(f.extras?.passphrase ?? "")).then(() => setCopied(true)).catch(() => undefined).finally(() => setBusy(false));
+    void api.read(current.uuid, "copy").then((f) => api.copyText(f.extras?.passphrase ?? "")).then(() => setCopied(true)).catch(() => undefined).finally(() => setBusy(false));
   };
 
   if (keys.length === 0) {

@@ -36,9 +36,11 @@ import { clampWidth } from "./Resizer";
 import Sidebar, { SHORTCUTS_VISIBLE, SIDE_MAX, SIDE_MIN, ShortcutModal, parseShortcuts, sideDefault, type Section, type Shortcut } from "./Sidebar";
 import { AccessLogView, GeneratorView, HealthView } from "./ToolsViews";
 import VaultSettingsView from "./VaultSettingsView";
+import { useLockWatch } from "./useLockWatch";
 import { vaultApi, type VaultFolder, type VaultLockState, type VaultRepo, type VaultSecretMeta, type VaultServer } from "./vaultApi";
 import "./vault.css";
 import { bumpRender } from "../../diag";
+import { unlockDelayMs } from "../../shared/vaultRules";
 
 /** How Passwords shows its entries. Grid is the main page (Jason 08-06-2026); persisted, never localStorage. */
 type ViewMode = "grid" | "list" | "panes";
@@ -100,7 +102,10 @@ export default function VaultModule() {
   const section = (settings["view.section"] as Section) ?? "passwords";
   const sidebarCollapsed = settings["view.sidebar_collapsed"] === "1";
   const viewMode = (settings["view.mode"] as ViewMode) ?? "grid";
-  const sort = (settings["view.sort"] as CollageSort) ?? "popular";
+  // A stored value no chip stands for (the old default was one) reads as the first chip, so one
+  // of the three is always lit and the order on screen is always the lit one's.
+  const storedSort = settings["view.sort"];
+  const sort: CollageSort = storedSort === "recent" || storedSort === "az" ? storedSort : "popular";
   const shortcuts = useMemo(() => parseShortcuts(settings["sidebar.shortcuts"]), [settings]);
   /**
    * SIDEBAR WIDTH PER SECTION (Jason 08-12-2026: "all dividers are different depending on tabs").
@@ -193,6 +198,8 @@ export default function VaultModule() {
   useEffect(() => { readLock(); }, [readLock]);
 
   const open = lock !== null && !lock.locked;
+  // Main can lock behind this screen — the idle limit, or the other door — and does not say so.
+  useLockWatch(api, open, setLock);
 
   // Asked again every time the vault locks, and dropped every time it opens: a password changed
   // while the vault was open must not leave the first-setup note — or a value revealed earlier —
@@ -397,6 +404,13 @@ export default function VaultModule() {
                     {lock.failedAttempts} failed {lock.failedAttempts === 1 ? "attempt" : "attempts"} — every one is recorded.
                   </div>
                 )}
+                {/* Said before the wait starts, so a slow "Opening…" does not read as a hang. */}
+                {lock && unlockDelayMs(lock.failedAttempts) > 0 && (
+                  <div className="vault-hint" style={{ marginTop: 8 }}>
+                    Wrong passwords slow the lock down. The next try will take about{" "}
+                    {unlockDelayMs(lock.failedAttempts) / 1000} seconds.
+                  </div>
+                )}
                 <div className="vault-btnrow" style={{ marginTop: 12, justifyContent: "center" }}>
                   <button className="vault-btn primary" disabled={!password || unlocking} onClick={submitUnlock}>
                     {unlocking ? "Opening…" : "Unlock"}
@@ -556,6 +570,18 @@ export default function VaultModule() {
             {section === "notes" && <ErrorBoundary surface="Secured Notes"><NotesView secrets={secrets} settings={settings} onSetting={setSetting} onHelp={() => setHelpModal(true)} onImport={() => setImportModal("notes")} folderId={noteFolder} reloadKey={noteReloadKey} onNotesChanged={() => setNoteReloadKey((k) => k + 1)} openUuid={pendingNote} onOpened={onNoteOpened} /></ErrorBoundary>}
             {section === "infra" && <ErrorBoundary surface="Infrastructure"><InfraView secrets={secrets} onReload={loadData} onImport={() => setImportModal("infra")} onAddKey={() => { setNewKind("ssh_key"); setEditing("new"); }} reloadKey={noteReloadKey} devMode={devMode} /></ErrorBoundary>}
             {section === "repos" && <ErrorBoundary surface="Repos"><ReposView secrets={secrets} /></ErrorBoundary>}
+            {/* THE MANUAL LOCK. It is here and not on the tab strip because the strip is full at the
+                740-pixel floor: four tabs, the error pill and the gear leave no room for one more.
+                Not offered when the lock is turned off, because there is nothing to lock then: read
+                from the live setting, so it follows the tick box on this same page at once. */}
+            {section === "settings" && settings["lock.enabled"] !== "0" && (
+              <div className="vault-btnrow" style={{ justifyContent: "flex-end", marginBottom: 12 }}>
+                <button className="vault-btn" title="Closes the vault until the master password is typed again"
+                  onClick={() => void api.lock().then(setLock).catch(readLock)}>
+                  Lock the vault now
+                </button>
+              </div>
+            )}
             {section === "settings" && (
               <ErrorBoundary surface="Settings"><VaultSettingsView settings={settings} lockState={lock} onSetting={setSetting} onLockChanged={setLock}
                 onDataChanged={loadData} shortcuts={shortcuts} onShortcuts={setShortcuts} secrets={secrets} folders={folders} /></ErrorBoundary>

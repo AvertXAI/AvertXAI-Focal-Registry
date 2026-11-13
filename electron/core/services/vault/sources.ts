@@ -45,7 +45,9 @@ const SOURCES: Record<string, SourceDef> = {
   brave: { dirs: ["downloads", "desktop"], needles: ["brave password", "brave-password"], exts: ["csv"] },
   firefox: { dirs: ["downloads", "desktop", "documents"], needles: ["firefox", "logins"], exts: ["csv"] },
   "1password": { dirs: ["downloads", "desktop"], needles: ["1password", "1passwordexport"], exts: ["csv"] },
-  bitwarden: { dirs: ["downloads", "desktop"], needles: ["bitwarden"], exts: ["csv", "json"] },
+  // CSV only. Nothing here reads Bitwarden's .json export, and offering one put a nonsense table on
+  // the column-mapping screen. The on-screen steps for Bitwarden already say to export CSV.
+  bitwarden: { dirs: ["downloads", "desktop"], needles: ["bitwarden"], exts: ["csv"] },
   lastpass: { dirs: ["downloads", "desktop"], needles: ["lastpass"], exts: ["csv"] },
   dashlane: { dirs: ["downloads", "desktop"], needles: ["dashlane"], exts: ["csv"] },
   keepass: { dirs: ["downloads", "desktop", "documents"], needles: ["keepass"], exts: ["csv"] },

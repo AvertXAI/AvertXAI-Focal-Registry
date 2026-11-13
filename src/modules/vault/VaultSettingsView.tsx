@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import CodeAppearance from "./CodeAppearance";
 import SidebarEditor from "./SidebarEditor";
 import type { Shortcut } from "./Sidebar";
+import { MASTER_PASSWORD_MIN } from "../../shared/vaultRules";
 import { vaultApi, type VaultCompactStatus, type VaultFolder, type VaultLockState, type VaultSecretMeta } from "./vaultApi";
 
 export interface VaultSettingsProps {
@@ -187,14 +188,14 @@ export default function VaultSettingsView({ settings, lockState, onSetting, onLo
             <input id="pw-cur" type="password" value={pwCurrent} onChange={(e) => setPwCurrent(e.target.value)} autoComplete="current-password" />
           </div>
           <div className="vault-field">
-            <label htmlFor="pw-next">New password — at least 8 characters</label>
+            <label htmlFor="pw-next">New password — at least {MASTER_PASSWORD_MIN} characters</label>
             <input id="pw-next" type="password" value={pwNext} onChange={(e) => setPwNext(e.target.value)} autoComplete="new-password" />
           </div>
         </div>
         {pwError && <div className="vault-state error">{pwError}</div>}
         {pwMessage && <div className="vault-hint">{pwMessage}</div>}
         <div className="vault-btnrow" style={{ marginTop: 10 }}>
-          <button className="vault-btn primary" disabled={!pwCurrent || pwNext.length < 8} onClick={changePassword}>
+          <button className="vault-btn primary" disabled={!pwCurrent || pwNext.length < MASTER_PASSWORD_MIN} onClick={changePassword}>
             Change master password
           </button>
         </div>

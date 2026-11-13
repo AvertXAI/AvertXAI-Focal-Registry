@@ -56,7 +56,7 @@ export default function DetailPane({ secret, onReload, onEdit, onClose }: Detail
     setBusy(true);
     setError(null);
     void api
-      .read(secret.uuid)
+      .read(secret.uuid, "reveal")
       .then((full) => {
         setValue(full.value);
         setExtras(full.extras);
@@ -69,7 +69,7 @@ export default function DetailPane({ secret, onReload, onEdit, onClose }: Detail
     setBusy(true);
     setError(null);
     void api
-      .read(secret.uuid)
+      .read(secret.uuid, "copy")
       .then((full) => api.copyText(full.value))
       .then(() => setCopied(true))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))

@@ -27,6 +27,7 @@
 //------------------------------------------------------------
 import crypto from "node:crypto";
 import { readDeviceIdentity } from "../identity";
+import { MASTER_PASSWORD_MIN } from "../../../../src/shared/vaultRules";
 import type { Db } from "./db";
 import { getBool, getInternal, getNumber, setInternal } from "./settings";
 import { logAccess } from "./store";
@@ -115,8 +116,8 @@ export function seedMasterPassword(db: Db, orgId: string, password: unknown): vo
   if (typeof password !== "string") {
     throw new Error("A master password is required.");
   }
-  if (password.length < 12) {
-    throw new Error("A master password must be at least 12 characters.");
+  if (password.length < MASTER_PASSWORD_MIN) {
+    throw new Error(`A master password must be at least ${MASTER_PASSWORD_MIN} characters.`);
   }
   // THE TRAILING-SPACE LOCKOUT, CLOSED HERE PERMANENTLY. This used to validate the TRIMMED length
   // and derive from the RAW string, which let a password with a trailing space pass the check and
@@ -227,6 +228,12 @@ function verify(db: Db, orgId: string, password: string): boolean {
 
 export function lockState(db: Db, orgId: string): VaultLockState {
   const enabled = getBool(db, orgId, "lock.enabled");
+  // The idle limit is checked on every state read, not only when data is asked for: the vault's
+  // screens ask for this state on a timer, and it must not say "open" once the limit has passed.
+  // ponytail: the idle clock starts when a call begins, not when it ends, so one call that runs
+  // longer than the limit (a very large import) comes back to the lock screen. Ceiling: count a
+  // gated call again when it returns.
+  if (enabled) autoLockIfIdle(db, orgId);
   return {
     enabled,
     locked: enabled ? !unlocked : false,
@@ -290,8 +297,10 @@ function autoLockIfIdle(db: Db, orgId: string): void {
  * this is what the settings surface will call, and it is already the real thing.
  */
 export function changeMasterPassword(db: Db, orgId: string, current: unknown, next: unknown): void {
-  if (typeof next !== "string" || next.length < 8 || next.length > 512) {
-    throw new Error("A master password must be at least 8 characters.");
+  // The same minimum as the first password. A change used to accept eight where setup demanded
+  // twelve, so the weaker rule was one visit to Settings away.
+  if (typeof next !== "string" || next.length < MASTER_PASSWORD_MIN || next.length > 512) {
+    throw new Error(`A master password must be at least ${MASTER_PASSWORD_MIN} characters.`);
   }
   if (typeof current !== "string" || !verify(db, orgId, current)) {
     throw new Error("The current master password is not correct.");

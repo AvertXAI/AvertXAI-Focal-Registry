@@ -49,6 +49,7 @@ import { ensureScanNotesSchema } from "./services/scan/notesDb";
 import * as scanReport from "./services/scan/report";
 import * as scanExport from "./services/scan/export";
 import * as storage from "./services/storage";
+import { registerDataExportIpc } from "./services/data/exportAllIpc";
 import { registerDataCopyIpc } from "./services/data/copyAllIpc";
 import { ensureScanSchema } from "./services/scan/db";
 import { generateUUIDv7 } from "./services/utils/uuidv7";
@@ -797,6 +798,8 @@ export function registerIpcHandlers(): void {
   // as TimeTracker/Employees/Vault: registration and the module's own lazy org context live in the
   // module's own ipc file. They land BESIDE the ingest channels above, never instead of them.
   registerMindMergeDocsIpc();
+  // Export all data (dataexport:*) — same shape: its channels live in its own ipc file.
+  registerDataExportIpc();
 
   // --- storage (Phase 2): the app-managed Markdown root + the Documents export folder ---
   // locations ENSURES the tree exists (first look creates it, no prompt beyond the root choice).

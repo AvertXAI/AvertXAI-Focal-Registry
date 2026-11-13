@@ -123,6 +123,13 @@ const api: Api = {
     applyOverlay: (mode: string) => invoke("theme:overlay", mode),
     setModalDim: (on: boolean | "viewer") => invoke("theme:modalDim", on),
   },
+  // Export all data: the folder dialog and the whole write are main-side. The page hands back
+  // only the folder the dialog gave it.
+  dataExport: {
+    pickFolder: () => invoke("dataexport:pickFolder"),
+    run: (opts: { folder: string; includeVault: boolean }) => invoke("dataexport:run", opts),
+    reveal: () => invoke("dataexport:reveal"),
+  },
   storage: {
     locations: () => invoke("storage:locations"),
     pickRoot: () => invoke("storage:pickRoot"),

@@ -1609,6 +1609,18 @@ export interface Api {
      *  have to recede INTO when the viewer is expanded. */
     setModalDim: (on: boolean | "viewer") => Promise<void>;
   };
+  /** Export all data: every database written to a folder as plain files another app can read. */
+  dataExport: {
+    /** The folder dialog. Null when it was cancelled. */
+    pickFolder: () => Promise<string | null>;
+    /** Writes the export into the folder the dialog returned; the page cannot name another one.
+     *  A failure carries a sentence to show as it is, and the unfinished folder when one was left. */
+    run: (opts: { folder: string; includeVault: boolean }) => Promise<
+      { ok: true; path: string; tables: number; rows: number } | { ok: false; error: string; path?: string }
+    >;
+    /** Shows the folder the last export left. It takes no path, so the page cannot point it elsewhere. */
+    reveal: () => Promise<void>;
+  };
   /** App-managed Markdown storage root + the Documents export folder (Settings transparency). */
   storage: {
     locations: () => Promise<StorageLocations>;

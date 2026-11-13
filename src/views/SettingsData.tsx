@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { signalAppAsk, signalAppToast } from "../App";
 import { formatStamp } from "../shared/datetime";
 import type { DataCopyStatus } from "../shared/types";
+import { ExportRow } from "./data/ExportRow";
 
 // Outside the component on purpose: closing Settings unmounts this pane, and a backup that is
 // still running must show as running, and answer exactly once, when Settings is opened again.
@@ -111,7 +112,7 @@ export function SettingsData() {
           else, the Secured Vault and the pictures in MindMerge will not open from it.
         </p>
       </div>
-      {/* DS-02 mounts here */}
+      <ExportRow />
       {/* MM-09 mounts here */}
     </>
   );

@@ -201,6 +201,20 @@ async function gated(): Promise<{ db: Db; orgId: string }> {
   return ctx;
 }
 
+/**
+ * IS THE GENERATED FIRST PASSWORD STILL IN USE? One answer for the two things that hang on it: the
+ * lock screen's first-setup note and the developer reveal (VA-01). The rule is lock.ts's; this adds
+ * the two inputs only main has — whether the build is packaged, and the device read.
+ *
+ * The device read is kept for the run because it spawns two processes on this thread. That is safe:
+ * the answer can only ever move from "generated" to "chosen", and the stored record is checked
+ * before this is consulted, so a change made later in the same run is still seen.
+ */
+let initialMatch: boolean | null = null;
+function initialActive(db: Db, orgId: string): boolean {
+  return lock.initialStillActive(db, orgId, app.isPackaged, () => (initialMatch ??= lock.isSetupRequired(db, orgId)));
+}
+
 export function registerVaultIpc(): void {
   // ---- the lock (ungated, by necessity) ----
   safeHandle("vault:lockState", async () => {
@@ -267,14 +281,24 @@ export function registerVaultIpc(): void {
     secrets.logAccess(db, orgId, "password_change", null, null, RENDERER_CALLER, true);
     return lock.lockState(db, orgId);
   });
+  // Asked FROM the lock screen, so it cannot sit behind gated(). A yes or a no and nothing else —
+  // no password, no salt, no verifier. A failure leaves the page on its default, which is hidden.
+  safeHandle("vault:initialActive", async () => {
+    const { db, orgId } = await vaultCtx();
+    return initialActive(db, orgId);
+  });
   // [master-password-placeholder] — DEV-MODE REVEAL (removed when the wizard's one-time change
   // ships). RECOMPUTES the derived initial from device identity on every call: it never reads the
   // stored verifier or lock state, so a changed password stays unknowable here. Ungated by the
   // lock — it lives ON the lock screen — and gated MAIN-SIDE on the existing developer mode, so a
   // forged call with dev mode off learns nothing. The value goes to the caller and nowhere else:
   // safeHandle logs failures only, and no success path writes it to any log.
+  // REFUSED ONCE THE USER HAS THEIR OWN PASSWORD (VA-01): the derived value then opens nothing, and
+  // putting it on screen would present a dead credential as the live one.
   safeHandle("vault:devRevealInitial", async () => {
     if (!getDevMode()) throw new Error("Developer mode is required.");
+    const { db, orgId } = await vaultCtx();
+    if (!initialActive(db, orgId)) throw new Error("The initial master password is no longer in use.");
     return lock.deriveInitialMasterPassword();
   });
 

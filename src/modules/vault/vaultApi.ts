@@ -139,6 +139,9 @@ export interface VaultApi {
   changeMasterPassword: (current: string, next: string) => Promise<VaultLockState>;
   /** [master-password-placeholder] — dev-mode only; RECOMPUTES the derived initial, never reads stored state. */
   devRevealInitial: () => Promise<string>;
+  /** Does the generated first password still open this vault? Decided main-side, boolean only.
+   *  The lock screen's first-setup note and the reveal above stay hidden unless it says yes. */
+  initialActive: () => Promise<boolean>;
   /** Has the user never chosen their own master password? The boot setup wizard's one trigger.
    *  Boolean only, and NOT gated on unlock — the vault is always locked at boot, so a gated
    *  trigger could never fire. Recomputes and compares; reads no stored credential out. */

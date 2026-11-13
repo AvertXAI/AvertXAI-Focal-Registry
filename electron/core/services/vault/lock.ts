@@ -60,6 +60,10 @@ export function deriveInitialMasterPassword(): string {
 
 const VERIFIER_KEY = "lock.verifier"; // internal — never renderer-writable (see settings.ts)
 const SALT_KEY = "lock.salt";
+// Stamped whenever a password the user chose goes in (first run, or any change), so "is the
+// generated one still in use?" has a stored answer that needs no device read. A timestamp only:
+// nothing in it comes from a password.
+const CHOSEN_KEY = "lock.chosen_at";
 const SCRYPT_KEYLEN = 32;
 
 /** In-process lock state. Deliberately NOT persisted: a restart always lands locked, which is the
@@ -131,6 +135,7 @@ export function seedMasterPassword(db: Db, orgId: string, password: unknown): vo
   const salt = crypto.randomBytes(16).toString("hex");
   setInternal(db, orgId, SALT_KEY, salt);
   setInternal(db, orgId, VERIFIER_KEY, derive(password, salt));
+  setInternal(db, orgId, CHOSEN_KEY, new Date().toISOString());
 }
 
 /**
@@ -139,7 +144,9 @@ export function seedMasterPassword(db: Db, orgId: string, password: unknown): vo
  * NOTHING STORED ANSWERS THIS, and that is why the shape is what it is. `ensureMasterPassword`
  * above and `changeMasterPassword` below write the SAME two keys, with the same random salt and the
  * same scrypt output: a seeded verifier and a chosen one are byte-for-byte indistinguishable. There
- * is no `set_at`, no flag, no provenance column anywhere.
+ * is no `set_at`, no flag, no provenance column anywhere — on any vault seeded before the
+ * `lock.chosen_at` record existed (see initialStillActive below), which is every vault this
+ * wizard is for. That is why this still recomputes instead of reading the record.
  *
  * So this RECOMPUTES rather than reads — Jason's ruling, DECISIONS-56: "recompute-and-compare, zero
  * schema change". `deriveInitialMasterPassword()` is deterministic per machine and `derive()` is a
@@ -170,6 +177,39 @@ export function isSetupRequired(db: Db, orgId: string): boolean {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   } catch (e) {
     console.error("[vault] setup check could not derive the initial master password:", e);
+    return false;
+  }
+}
+
+/**
+ * IS THE GENERATED FIRST PASSWORD STILL THE ONE THAT OPENS THIS VAULT? (VA-01)
+ *
+ * The lock screen's first-setup note and the developer reveal exist for that one situation. Once
+ * the user has their own password the note is out of date and the revealed value opens nothing,
+ * so both must go for good. The answer is made here, in main, and leaves as a yes or a no.
+ *
+ * STORED FACTS FIRST, and either one alone means "no":
+ *   1. the `lock.chosen_at` record, written from this build on whenever a chosen password goes in;
+ *   2. a verifier row whose two timestamps differ. Only `changeMasterPassword` ever rewrites that
+ *      row (both seeders refuse to overwrite), so a second timestamp proves a change made before
+ *      the record existed — without reading the verifier itself.
+ *
+ * WITH NEITHER, nothing stored can tell a generated verifier from one chosen at first run. A
+ * packaged build hides in that case. A developer build asks the machine through `matchesInitial`
+ * (the recompute in `isSetupRequired`): it is passed in because it spawns two processes, so the
+ * caller decides how often, and so a test never derives this machine's real value.
+ *
+ * FAILS CLOSED. No verifier, an unreadable table or an answer that throws all mean "no".
+ */
+export function initialStillActive(db: Db, orgId: string, packaged: boolean, matchesInitial: () => boolean): boolean {
+  try {
+    if (getInternal(db, orgId, CHOSEN_KEY)) return false;
+    const row = db
+      .prepare("SELECT created_at, updated_at FROM vault_settings WHERE org_id = ? AND key = ?")
+      .get(orgId, VERIFIER_KEY) as { created_at: string | null; updated_at: string | null } | undefined;
+    if (!row || row.created_at !== row.updated_at) return false;
+    return !packaged && matchesInitial();
+  } catch {
     return false;
   }
 }
@@ -259,6 +299,9 @@ export function changeMasterPassword(db: Db, orgId: string, current: unknown, ne
   const salt = crypto.randomBytes(16).toString("hex");
   setInternal(db, orgId, SALT_KEY, salt);
   setInternal(db, orgId, VERIFIER_KEY, derive(next, salt));
+  // ponytail: three separate writes, not one transaction — if only this one failed, a change that
+  // took effect would be reported as failed. The rewritten verifier row still proves the change.
+  setInternal(db, orgId, CHOSEN_KEY, new Date().toISOString());
   unlocked = true;
   failedAttempts = 0;
 }

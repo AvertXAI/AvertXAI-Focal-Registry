@@ -545,6 +545,8 @@ const api: Api = {
      *  re-derived main-side and never crosses this bridge — see vault/ipc.ts. */
     completeSetup: (next: string) => invoke("vault:completeSetup", next),
     devRevealInitial: () => invoke("vault:devRevealInitial"),
+    /** Boolean only: whether the generated first password is still the one in use. */
+    initialActive: () => invoke("vault:initialActive"),
     create: (input: unknown) => invoke("vault:createSecret", input),
     list: (includeArchived?: boolean) => invoke("vault:listSecrets", includeArchived === true),
     read: (uuid: string) => invoke("vault:readSecret", uuid),

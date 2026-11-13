@@ -64,6 +64,8 @@ export default function VaultModule() {
    *  lives in this state alone: recomputed main-side on click, never logged, never persisted. */
   const [devMode, setDevMode] = useState(false);
   const [revealed, setRevealed] = useState<string | null>(null);
+  /** Whether the generated first password still opens this vault. Main decides; hidden until it says yes. */
+  const [initialActive, setInitialActive] = useState(false);
 
   const [secrets, setSecrets] = useState<VaultSecretMeta[]>([]);
   const [folders, setFolders] = useState<VaultFolder[]>([]);
@@ -191,6 +193,18 @@ export default function VaultModule() {
   useEffect(() => { readLock(); }, [readLock]);
 
   const open = lock !== null && !lock.locked;
+
+  // Asked again every time the vault locks, and dropped every time it opens: a password changed
+  // while the vault was open must not leave the first-setup note — or a value revealed earlier —
+  // on the next lock screen. Hidden until main says yes, so a failed ask stays hidden.
+  useEffect(() => {
+    setInitialActive(false);
+    setRevealed(null);
+    if (open) return;
+    let stale = false;
+    void api.initialActive().then((on) => { if (!stale) setInitialActive(on === true); }).catch(() => undefined);
+    return () => { stale = true; };
+  }, [api, open]);
 
   const loadData = useCallback((): void => {
     if (!open) return;
@@ -388,14 +402,16 @@ export default function VaultModule() {
                     {unlocking ? "Opening…" : "Unlock"}
                   </button>
                 </div>
-                <div className="vault-lockplaceholder">
-                  This lock protects the screen, not the file. The vault is already encrypted and still opens from this
-                  computer's own credential store — tying the master password to that encryption is the next step.
-                </div>
+                {initialActive && (
+                  <div className="vault-lockplaceholder">
+                    This lock protects the screen, not the file. The vault is already encrypted and still opens from this
+                    computer's own credential store — tying the master password to that encryption is the next step.
+                  </div>
+                )}
                 {/* [master-password-placeholder] — dev-only reveal, removed when the wizard's
                     one-time change ships. RECOMPUTED main-side from device identity on click;
                     nothing reads stored state and nothing logs the value. */}
-                {devMode && (
+                {initialActive && devMode && (
                   <div className="vault-lockdev">
                     {revealed ? (
                       <code className="vault-lockdev-value">{revealed}</code>

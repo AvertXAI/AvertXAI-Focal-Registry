@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MindMergeTreeNode, NoteRow } from "../../shared/types";
 import { renderMarkdown } from "./markdown";
+import GeneratedPill from "./GeneratedPill";
 import MilkdownEditor from "./MilkdownEditor";
 
 const api = window.api;
@@ -387,6 +388,8 @@ export default function DocsSurface(p: Props) {
       {/* ---------- editor ---------- */}
       <div className="mmd-ed">
         <div className="mmd-eh">
+          {/* Typing here goes into the file itself, which the next Scan Notes sync replaces. */}
+          <GeneratedPill sourcePath={selFile} editsFile />
           <div className="mmd-modes">
             {MODES.map((m) => (
               <button key={m.id} className={"mmd-mode" + (mode === m.id ? " on" : "")} onClick={() => setMode(m.id)}>

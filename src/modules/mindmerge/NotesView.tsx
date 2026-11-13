@@ -32,7 +32,8 @@ import MilkdownEditor, { type EditorAction, type MilkdownHandle } from "./Milkdo
 import { rawEdit } from "./rawFormat";
 import { mindmergeApi, type MindMergeDoc, type MindMergeDocFolder, type MindMergeDocMeta } from "./mindmergeApi";
 import { tidyMarkdown } from "./tidyMarkdown";
-import { publishOpenFileLocation } from "../../shared/openFileLocation";
+import { publishOpenFileLocation, type OpenFileLocation } from "../../shared/openFileLocation";
+import GeneratedPill from "./GeneratedPill";
 
 /** The list's date stamp. It came from the vault's EntriesView, which is NOT part of this port, so
     the four lines live here rather than dragging a whole secrets table across the module line. */
@@ -223,11 +224,18 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
   // The top bar shows where the open note lives. Keyed on the uuid alone, so typing and saving
   // never ask again.
   const currentUuid = current?.uuid ?? null;
+  // Kept with the uuid it was asked for, so the last note's answer can never label this one.
+  const [openSource, setOpenSource] = useState<OpenFileLocation | null>(null);
   useEffect(() => {
     if (!currentUuid) { publishOpenFileLocation(null); return; }
     let stale = false;
     void api.docLocation(currentUuid)
-      .then((r) => { if (!stale) publishOpenFileLocation({ uuid: currentUuid, sourcePath: r.sourcePath }); })
+      .then((r) => {
+        if (stale) return;
+        const loc = { uuid: currentUuid, sourcePath: r.sourcePath };
+        publishOpenFileLocation(loc);
+        setOpenSource(loc);
+      })
       .catch(() => { if (!stale) publishOpenFileLocation(null); });
     return () => { stale = true; };
   }, [api, currentUuid]);
@@ -1147,6 +1155,7 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
           <button className={`mm-btn sm${needsTidy ? " tidyhot" : ""}`}
             data-tip={needsTidy ? "Paste damage found in this note — Tidy repairs it" : "Tidy — repairs paste damage in a note"}
             disabled={!current || mode === "preview"} onClick={askTidy}>Tidy</button>
+          <GeneratedPill sourcePath={openSource && openSource.uuid === currentUuid ? openSource.sourcePath : null} />
           <div className="mm-seg mm-modeseg">
             {(["editor", "raw", "split", "preview"] as const).map((m) => (
               <button key={m} className={mode === m ? "on" : ""} onClick={() => setMode(m)}>{m[0].toUpperCase() + m.slice(1)}</button>

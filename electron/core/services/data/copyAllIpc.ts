@@ -15,7 +15,7 @@ import { openMindMergeDb } from "../mindmerge/db";
 import { getMainSetting, setMainSetting } from "../settings";
 import { defaultMarkdownRoot, focalRegistryDir, MARKDOWN_ROOT_KEY } from "../storage";
 import { trackJob } from "../work/registry";
-import { copyEverything, isInside, stampOf, type CopyPlan } from "./copyAll";
+import { contractsGap, copyEverything, isInside, stampOf, type CopyPlan } from "./copyAll";
 
 // Main-only rows: the page asks for a folder through the picker below and never writes these itself.
 const FOLDER_KEY = "data.copy_folder";
@@ -51,8 +51,22 @@ function chosenFolder(): string {
 
 // Read without resolveMarkdownRoot(): that one records the default when the row is missing, and
 // a backup must not change a setting on its way through.
+const recordsRoot = (): string => saved(MARKDOWN_ROOT_KEY)?.trim() || defaultMarkdownRoot();
+
 function managedTree(): string {
-  return focalRegistryDir(saved(MARKDOWN_ROOT_KEY)?.trim() || defaultMarkdownRoot());
+  return focalRegistryDir(recordsRoot());
+}
+
+/** How many projects say they have a contract file. Zero when TimeTracker has never run here. */
+function contractsOnRecord(): number {
+  try {
+    const row = getDb()
+      .prepare(`SELECT COUNT(*) AS n FROM timetracker_projects WHERE contract_file_path IS NOT NULL AND contract_file_path != ''`)
+      .get() as { n: number };
+    return row.n;
+  } catch {
+    return 0; // no TimeTracker tables yet
+  }
 }
 
 /** Why a folder cannot hold backups, or null when it can. A backup kept inside the data it
@@ -93,6 +107,7 @@ async function planFor(destinationRoot: string): Promise<Omit<CopyPlan, "shouldS
   const docsFile = `mindmerge_${org.org_id}.db`;
   const picturesFile = `${org.org_id}.mtd`;
   const picturesKeyFile = `${org.org_id}.mxd`;
+  const loose: CopyPlan["files"] = [];
   try {
     if (fs.existsSync(inData(docsFile))) {
       databases.push({ name: "MindMerge documents", fileName: docsFile, db: openMindMergeDb(org.org_id, userData) });
@@ -103,7 +118,13 @@ async function planFor(destinationRoot: string): Promise<Omit<CopyPlan, "shouldS
         const key = await deriveAttachKey(getOrCreateAttachSecret(org.org_id));
         databases.push({ name: "MindMerge pictures", fileName: picturesFile, db: openAttachmentsDb(org.org_id, userData, key) });
       } else {
-        notes.push(`${picturesFile} (MindMerge pictures) was left out: its key file ${picturesKeyFile} is missing, so the app cannot open it either.`);
+        // No key file, so the app cannot open this store and nothing is writing to it: a plain
+        // copy of its files is a whole copy. Leaving it out would lose the pictures for good on
+        // the day the key file turns up in an older backup.
+        for (const name of [picturesFile, `${picturesFile}-wal`, `${picturesFile}-shm`]) {
+          if (fs.existsSync(inData(name))) loose.push({ from: inData(name), to: name });
+        }
+        notes.push(`${picturesFile} (MindMerge pictures) was copied as a plain file, not through the app: its key file ${picturesKeyFile} is missing, so the app cannot open it. It can be opened again only with that key file.`);
       }
     }
   } catch (err) {
@@ -113,10 +134,11 @@ async function planFor(destinationRoot: string): Promise<Omit<CopyPlan, "shouldS
   }
 
   // The key files are ordinary files, not live databases, so a plain copy is a whole copy.
-  const files = [`${org.org_id}.ixd`, picturesKeyFile]
+  const keyFiles = [`${org.org_id}.ixd`, picturesKeyFile]
     .filter((name) => fs.existsSync(inData(name)))
     .map((name) => ({ from: inData(name), to: name }));
-  if (files.length > 0) {
+  const files = [...keyFiles, ...loose];
+  if (keyFiles.length > 0) {
     notes.push(
       "The Vault and MindMerge pictures are tied to this Windows account on this PC: their key files (.ixd and .mxd) are wrapped by Windows. Restored under another account or on another PC, those two cannot be opened. Everything else can."
     );
@@ -128,6 +150,13 @@ async function planFor(destinationRoot: string): Promise<Omit<CopyPlan, "shouldS
     .filter((name) => fs.existsSync(path.join(attached, name)))
     .map((name) => ({ from: path.join(attached, name), to: path.join("TimeTracker", name) }));
   if (folders.length > 0) notes.push(`The TimeTracker folder came from ${attached}. A restore puts it back there.`);
+  // Never a backup that calls itself whole while the contract files its rows point at are out of reach.
+  if (!fs.existsSync(path.join(attached, "contracts"))) {
+    const root = recordsRoot();
+    const gap = contractsGap(contractsOnRecord(), root, fs.existsSync(root));
+    if (gap && "refuse" in gap) throw new Error(gap.refuse);
+    if (gap) notes.push(gap.note);
+  }
 
   return { databases, files, folders, destinationRoot, stamp: stampOf(new Date()), appVersion: app.getVersion(), notes };
 }

@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 import Database from "better-sqlite3-multiple-ciphers";
-import { copyEverything, isInside, stampOf, type CopyPlan } from "../electron/core/services/data/copyAll";
+import { contractsGap, copyEverything, isInside, stampOf, type CopyPlan } from "../electron/core/services/data/copyAll";
 import { closeAllDbs, createTable, openDb } from "../electron/core/services/db";
 
 const MADE_UP_KEY = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
@@ -161,6 +161,23 @@ test("DS-01: a destination inside a folder being copied is refused before anythi
   const result = await copyEverything(planFor(inside));
   assert.equal(result.ok, false);
   assert.equal(fs.existsSync(inside), false);
+});
+
+test("DS-01: contract files on record with no folder to copy are never passed over in silence", () => {
+  const root = path.join(os.tmpdir(), "Fake Records");
+  // Nothing on record: nothing to say, whether the records folder is there or not.
+  assert.equal(contractsGap(0, root, true), null);
+  assert.equal(contractsGap(0, root, false), null);
+  // The records folder cannot be reached (a drive that is not connected): the backup is refused.
+  const unplugged = contractsGap(2, root, false);
+  assert.ok(unplugged && "refuse" in unplugged);
+  assert.match(unplugged.refuse, /2 projects have a contract file on record/);
+  assert.match(unplugged.refuse, /cannot be reached/);
+  // The records folder is there and the contracts folder is not: the backup goes ahead and says so.
+  const gone = contractsGap(1, root, true);
+  assert.ok(gone && "note" in gone);
+  assert.match(gone.note, /1 project has a contract file on record/);
+  assert.match(gone.note, /no contract files are in this backup/);
 });
 
 test("DS-01: the folder beside the data folder is not inside it, and the stamp is local and sortable", () => {

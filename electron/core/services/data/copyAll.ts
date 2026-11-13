@@ -53,6 +53,20 @@ export function isInside(target: string, parent: string): boolean {
   return rel === "" || (rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel));
 }
 
+/**
+ * What a backup does when projects have a contract file on record and no contracts folder was
+ * found. The databases hold only the paths, so a backup that said nothing would look whole with
+ * the files missing from it. A records folder that cannot be reached is usually a drive to plug
+ * in, so that run is refused; a folder that is simply not there is said in the manifest.
+ */
+export function contractsGap(onRecord: number, recordsRoot: string, rootReachable: boolean): { refuse: string } | { note: string } | null {
+  if (onRecord <= 0) return null;
+  const projects = onRecord === 1 ? "1 project has" : `${onRecord} projects have`;
+  return rootReachable
+    ? { note: `${projects} a contract file on record, but no contracts folder was found under ${recordsRoot}, so no contract files are in this backup.` }
+    : { refuse: `${projects} a contract file on record, but the records folder ${recordsRoot} cannot be reached. If it is on a drive that is not connected, connect it and back up again.` };
+}
+
 // Every copy below blocks the thread. Without a turn of the event loop before each file, a
 // "Stop safely" from the quit toast could not arrive until the whole backup was over.
 async function between(plan: CopyPlan): Promise<void> {

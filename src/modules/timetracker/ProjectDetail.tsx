@@ -274,7 +274,7 @@ export default function ProjectDetail({
           <div className="tt-detailsub">Client / project info</div>
         </div>
         <button className="tt-btn ghost" onClick={() => setContractModal(true)} disabled={project.completed_at != null}
-          title={project.completed_at ? "Completed — view-only" : "Contract date, signed-by, terms — the facts the profit timeline reads"}>Contract</button>
+          title={project.completed_at ? "Completed — view-only" : "Contract date, signed-by, terms — the date Billed lands on in Analytics"}>Contract</button>
         <button className="tt-btn ghost" onClick={() => setPayModal(true)}
           title="Record and review money received on this project">Payments</button>
         <button className="tt-btn ghost" onClick={onEdit} disabled={project.completed_at != null}

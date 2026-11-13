@@ -314,8 +314,8 @@ function marginByProject(db: Db, orgId: string, projectId?: number | null): Marg
     .slice(0, 12);
 }
 
-/** Contract-paid projects that CANNOT sit on the profit timeline: no contract_date. The empty
-    state and the caption both read this so the absence is explained, never silent. */
+/** Contract-paid projects whose billed amount CANNOT sit on the timeline: no contract_date. The
+    money chart's caption reads this so the absence is explained, never silent. */
 function timelineExcludedCount(db: Db, orgId: string, projectId?: number | null): number {
   return (
     db

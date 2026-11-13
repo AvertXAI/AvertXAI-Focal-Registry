@@ -151,10 +151,20 @@ export function addProjectEmployee(db: Db, orgId: string, projectId: number, per
     )
     .get(pid, person) as { id: number } | undefined;
   if (!live) {
-    db.prepare(
-      `INSERT INTO timetracker_project_employees (uuid, org_id, project_id, person_id, added_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(generateUUIDv7(), orgId, pid, person, nowIso(), nowIso());
+    db.transaction(() => {
+      db.prepare(
+        `INSERT INTO timetracker_project_employees (uuid, org_id, project_id, person_id, added_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(generateUUIDv7(), orgId, pid, person, nowIso(), nowIso());
+      // Someone with no default project gets this one, so Add Time and the timer have a project
+      // to start from. A default they already have is theirs and is never replaced (ruled
+      // 11-13-2026). Only on a real add: adding a live member again changes nothing.
+      db.prepare(
+        `UPDATE employee_people
+         SET default_project_id = ?, default_project_name = (SELECT name FROM timetracker_projects WHERE id = ?), updated_at = ?
+         WHERE id = ? AND default_project_id IS NULL`
+      ).run(pid, pid, nowIso(), person);
+    })();
   }
   const row = listProjectEmployees(db, pid).find((m) => m.person_id === person);
   if (!row) throw new Error("Could not read the membership back after adding it.");

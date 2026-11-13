@@ -151,7 +151,8 @@ export function ensureTimeTrackerSchema(db: Db): void {
   // PROJECT MEMBERSHIP — who is ON this project, which employee_entries cannot express because it
   // only records work ALREADY DONE. The modal assigns people before any hours exist.
   //   · Lives in TIMETRACKER's schema because the project owns the roster, not the person: a
-  //     person's employees.default_project_id stays exactly what it was, a PREFILL for Add Time.
+  //     person's employees.default_project_id is only a PREFILL for Add Time. Joining a project
+  //     fills it in when it is empty and never replaces one they have (ruled 11-13-2026).
   //   · person_id is a SOFT reference (no FK) for the same reason every Employees↔TimeTracker link
   //     is soft — one side must survive the other being purged.
   //   · removed_at is a soft removal so "who was on this in June" stays answerable.

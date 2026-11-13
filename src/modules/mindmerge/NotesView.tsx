@@ -32,6 +32,7 @@ import MilkdownEditor, { type EditorAction, type MilkdownHandle } from "./Milkdo
 import { rawEdit } from "./rawFormat";
 import { mindmergeApi, type MindMergeDoc, type MindMergeDocFolder, type MindMergeDocMeta } from "./mindmergeApi";
 import { tidyMarkdown } from "./tidyMarkdown";
+import { NOTE_REPAIRED_EVENT } from "./noteDamage";
 import { publishOpenFileLocation, type OpenFileLocation } from "../../shared/openFileLocation";
 import GeneratedPill from "./GeneratedPill";
 
@@ -832,6 +833,34 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
    */
   const [rawGen, setRawGen] = useState(0);
   const editorMd = useRef<string>("");
+
+  // A repair made in Settings (MM-09) is saved while this editor stays loaded underneath. An open
+  // note would still hold the old text and write it straight back over the repair on the next
+  // keystroke, so the repaired note is read again and the list is refreshed. A note with unsaved
+  // typing is left alone: what was typed is never thrown away, and the repair screen simply lists
+  // that note again the next time it is opened.
+  useEffect(() => {
+    const onRepaired = (e: Event): void => {
+      const uuid = (e as CustomEvent<string>).detail;
+      loadList(style, false);
+      const shown = live.current;
+      if (!shown || shown.uuid !== uuid || shown.dirty) return;
+      void api
+        .getNote(uuid)
+        .then((n) => {
+          const now = live.current;
+          if (!now || now.uuid !== n.uuid || now.dirty) return;
+          setCurrent(n);
+          setDraft(n.body);
+          setTitle(n.title);
+          editorMd.current = n.body;
+          setTidyGen((g) => g + 1);
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener(NOTE_REPAIRED_EVENT, onRepaired);
+    return () => window.removeEventListener(NOTE_REPAIRED_EVENT, onRepaired);
+  }, [api, loadList, style]);
 
   /**
    * ONE TOOLBAR, TWO ENGINES (Task 2, 08-16-2026). In Editor the buttons drive Milkdown's own

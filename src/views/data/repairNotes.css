@@ -1,0 +1,22 @@
+/* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
+/* Repair damaged notes (Settings, Data). Tokens only, so all three themes are covered without a
+   rule per theme. Nothing here has a fixed width: the Settings pane is about 416 pixels wide at
+   its narrowest, so every row wraps and the two text boxes scroll inside themselves. */
+.repair-list{display:flex;flex-direction:column;gap:12px;margin-top:12px;min-width:0}
+.repair-list .hint{margin:0}
+.repair-list .tip{margin:0}
+.repair-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:12px;border:1px solid var(--mc-border);border-radius:var(--mc-radius);background:var(--mc-nested)}
+.repair-title{font-weight:600;overflow-wrap:anywhere}
+.repair-kinds,.repair-acts{display:flex;flex-wrap:wrap;gap:8px}
+.repair-list .tip .repair-acts{margin-top:10px}
+.repair-side{font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--mc-muted)}
+/* A connection string is one long line. It scrolls sideways here; wrapping it would look like a
+   change that is not there. contain:inline-size keeps that long line out of the pane's own
+   smallest width: the Settings grid column is `1fr`, which may not shrink below what its content
+   says it needs, so without this one long line would push the whole pane wider than the modal. */
+.repair-pre{contain:inline-size;margin:0;max-height:180px;overflow:auto;padding:8px 10px;border:1px solid var(--mc-border);border-radius:var(--mc-radius);background:var(--mc-field);color:var(--mc-text);font:12px/1.5 var(--mc-mono);white-space:pre}
+/* Two classes on purpose: `.field label` makes every label in a Settings row a bold block. */
+.repair-card .repair-check{display:flex;align-items:center;gap:8px;margin:0;font-weight:400;font-size:13px}
+.repair-check input{accent-color:var(--mc-accent-primary)}
+.hint.repair-error{color:var(--mm-danger-color)}
+.hint.repair-ok{color:var(--mc-green)}

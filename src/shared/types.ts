@@ -1937,6 +1937,13 @@ export interface Api {
   identity: {
     get: () => Promise<DeviceIdentityInfo>;
   };
+  /** Repair damaged notes (Settings, Data). Both calls only read: which notes still carry damage
+   *  an earlier version saved, and one note's stored text. A repair is saved with
+   *  mindmerge.updateNote, the save the editor uses, so a note's text has one way in. */
+  dataRepair: {
+    list: () => Promise<Array<{ uuid: string; title: string; kinds: string[] }>>;
+    read: (uuid: string) => Promise<{ body: string } | null>;
+  };
   migrate: {
     registry: () => Promise<MigrateClassDef[]>;
     drives: () => Promise<MigrateDrive[]>;

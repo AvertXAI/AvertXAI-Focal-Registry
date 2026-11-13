@@ -32,6 +32,7 @@ import { openMindMergeDb, type Db } from "./db";
 import * as notes from "./notes";
 import * as noteFolders from "./noteFolders";
 import * as attachments from "./attachments";
+import { listDamagedDocs, readDocBody } from "./repair";
 import { exportNoteTo, safeFileStem } from "./exportNote";
 import { openAttachmentsDb } from "./attachDb";
 import { deriveAttachKey, getOrCreateAttachSecret } from "./attachCrypto";
@@ -614,6 +615,17 @@ export function registerMindMergeDocsIpc(): void {
   safeHandle("mindmerge:updateDoc", async (_e, uuid: unknown, patch: unknown) => {
     const { db, orgId } = mindMergeCtx();
     return notes.updateNote(db, orgId, uuid, (patch ?? {}) as never);
+  });
+  // The repair screen (Settings, Data) reads through these two and nothing else: which notes still
+  // carry the old damage, and one note's stored text. It saves through mindmerge:updateDoc above,
+  // the editor's own save, so a note's text still has exactly one way into the database.
+  safeHandle("dataRepair:list", async () => {
+    const { db, orgId } = mindMergeCtx();
+    return listDamagedDocs(db, orgId);
+  });
+  safeHandle("dataRepair:read", async (_e, uuid: unknown) => {
+    const { db, orgId } = mindMergeCtx();
+    return readDocBody(db, orgId, uuid);
   });
   safeHandle("mindmerge:archiveDoc", async (_e, uuid: unknown) => {
     const { db, orgId } = mindMergeCtx();

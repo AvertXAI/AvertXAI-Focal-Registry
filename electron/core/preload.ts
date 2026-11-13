@@ -297,6 +297,10 @@ const api: Api = {
   identity: {
     get: () => invoke("identity:get"),
   },
+  dataRepair: {
+    list: () => invoke("dataRepair:list"),
+    read: (uuid: string) => invoke("dataRepair:read", uuid),
+  },
   migrate: {
     registry: () => invoke("migrate:registry"),
     drives: () => invoke("migrate:drives"),

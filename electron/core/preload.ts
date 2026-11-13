@@ -209,6 +209,8 @@ const api: Api = {
     // ruling. Encryption at rest proven by attachments-proof.ts.
     saveAttachment: (input: unknown) => invoke("mindmerge:saveAttachment", input),
     getAttachment: (uuid: string) => invoke("mindmerge:getAttachment", uuid),
+    // Export — the save dialog and the write are main-side; only the uuid crosses.
+    exportNote: (uuid: string) => invoke("mindmerge:exportDoc", uuid),
     // The clipboard funnel — every copy in the module goes through this, never navigator.clipboard.
     copyText: (text: string) => invoke("mindmerge:copyText", text),
     // The open note's location for the top bar. Only a uuid crosses; main resolves the path.

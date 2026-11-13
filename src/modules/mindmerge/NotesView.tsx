@@ -685,6 +685,33 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   };
 
+  /**
+   * EXPORT THE OPEN NOTE. The file is written main-side from the STORED row, so the draft is saved
+   * first — otherwise text typed a moment ago would be missing from the file. Only the uuid crosses
+   * the bridge. The ref stops a second click queueing a second save dialog behind the first.
+   */
+  const exporting = useRef(false);
+  const exportCurrent = (): void => {
+    const l = live.current;
+    if (!l || exporting.current) return;
+    exporting.current = true;
+    // An earlier failure must not sit beside this attempt's result.
+    setError(null);
+    void flush()
+      .then(() => api.exportNote(l.uuid))
+      .then((r) => {
+        if (!r) return; // the save dialog was cancelled
+        const file = r.path.replace(/^.*[\\/]/, "");
+        const pictures = (n: number): string => `${n} picture${n === 1 ? "" : "s"}`;
+        setOutcome(
+          `Exported "${file}"${r.images > 0 ? ` with ${pictures(r.images)}` : ""}.` +
+          (r.missing > 0 ? ` ${pictures(r.missing)} could not be found.` : "")
+        );
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => { exporting.current = false; });
+  };
+
   const newNote = useCallback((): void => {
     // FLUSH BEFORE CREATING (Tier-1 fix 5). + New changes the current record exactly the way
     // clicking another row does, and it was the ONE such path that still skipped the flush — type,
@@ -946,6 +973,15 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
                 onClick={() => setCopyOpen(true)}
               >
                 ⧉
+              </button>
+              {/* Export sits beside Copy because both act on the OPEN note. ⭱ mirrors Import's ⭳. */}
+              <button
+                className="mm-iconbtn"
+                title={current ? "Export this note as a file" : "Open a note first"}
+                disabled={!current}
+                onClick={exportCurrent}
+              >
+                ⭱
               </button>
               <button
                 className={`mm-iconbtn trash${picked.size > 0 ? " armed" : ""}`}

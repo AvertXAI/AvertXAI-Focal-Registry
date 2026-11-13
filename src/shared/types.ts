@@ -1676,6 +1676,9 @@ export interface Api {
      *  so, so a throw is the correct, honest behaviour — never a silent no-op. */
     saveAttachment: (input: { name?: string; mime: string; dataBase64: string }) => Promise<{ uuid: string; name: string; mime: string; byteCount: number }>;
     getAttachment: (uuid: string) => Promise<{ name: string; mime: string; dataBase64: string }>;
+    /** Save one document as a Markdown file, its pictures in a "<name>_files" folder beside it.
+     *  The place is chosen in a main-side save dialog; null means the dialog was cancelled. */
+    exportNote: (uuid: string) => Promise<{ path: string; images: number; missing: number } | null>;
     /** THE copy funnel. Every copy in the module goes through this, never navigator.clipboard. */
     copyText: (text: string) => Promise<boolean>;
     /** Where a document came from, for the top bar. `sourcePath` is null for one written in the app. */

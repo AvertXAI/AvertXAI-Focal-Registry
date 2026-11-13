@@ -163,6 +163,9 @@ export interface MindMergeDocsApi {
    *  so. Base64 is the TRANSPORT (the bridge speaks JSON); at rest it is a BLOB. */
   saveAttachment: (input: { name?: string; mime: string; dataBase64: string }) => Promise<{ uuid: string; name: string; mime: string; byteCount: number }>;
   getAttachment: (uuid: string) => Promise<{ name: string; mime: string; dataBase64: string }>;
+  /** Save one document as a Markdown file, its pictures in a "<name>_files" folder beside it. The
+   *  place is chosen in a main-side save dialog; null means the dialog was cancelled. */
+  exportNote: (uuid: string) => Promise<{ path: string; images: number; missing: number } | null>;
   /** THE copy funnel. Every copy in the module goes through this, never through
    *  navigator.clipboard directly — the main side arms the "clear after N seconds" timer and clears
    *  only if the clipboard still holds this exact value when the timer fires. */

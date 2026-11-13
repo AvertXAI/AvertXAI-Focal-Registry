@@ -32,6 +32,7 @@ import { openMindMergeDb, type Db } from "./db";
 import * as notes from "./notes";
 import * as noteFolders from "./noteFolders";
 import * as attachments from "./attachments";
+import { exportNoteTo, safeFileStem } from "./exportNote";
 import { openAttachmentsDb } from "./attachDb";
 import { deriveAttachKey, getOrCreateAttachSecret } from "./attachCrypto";
 // READ-ONLY, LOCAL, AND NOT VAULT DATA. codeThemes.ts opens the machine's Visual Studio Code
@@ -81,6 +82,15 @@ function showOpen(
   // The unparented overload stays as the fallback ONLY for the case where the window has already
   // gone (a dialog asked for during teardown) — never as the normal path.
   return win ? dialog.showOpenDialog(win, opts) : dialog.showOpenDialog(opts);
+}
+
+/** Same rule for SAVE. */
+function showSave(
+  event: { sender: Electron.WebContents },
+  opts: Electron.SaveDialogOptions
+): Promise<Electron.SaveDialogReturnValue> {
+  const win = parentOf(event);
+  return win ? dialog.showSaveDialog(win, opts) : dialog.showSaveDialog(opts);
 }
 
 // Every log row born on this bridge says so. The page cannot claim to be anyone else.
@@ -886,6 +896,49 @@ export function registerMindMergeDocsIpc(): void {
   safeHandle("mindmerge:getAttachment", async (_e, uuid: unknown) => {
     const { db, orgId } = await attachCtx();
     return attachments.getAttachment(db, orgId, uuid);
+  });
+  // The whole export runs main-side: the text never crosses the bridge and the page never names a path.
+  safeHandle("mindmerge:exportDoc", async (e, uuid: unknown) => {
+    const { db, orgId } = mindMergeCtx();
+    const note = notes.getNote(db, orgId, uuid);
+    // Opened BEFORE the dialog, so a picture store that will not open fails before a place is
+    // chosen — and only for a note that has pictures, so a text note never creates that store.
+    const store = note.body.includes("mindmerge://")
+      ? await attachCtx().catch(() => {
+          // The store's own message is technical and can name a file under the user's profile.
+          logDocEvent(db, orgId, {
+            level: "error", area: "notes", channel: "mindmerge:exportDoc", actor: RENDERER_CALLER,
+            message: "Export stopped — the picture store did not open",
+          });
+          throw new Error("The pictures in this note could not be opened, so nothing was exported.");
+        })
+      : null;
+    const r = await showSave(e, {
+      title: "Export note",
+      defaultPath: `${safeFileStem(note.title)}.md`,
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    // A cancelled dialog is not an export and is not logged as one.
+    if (r.canceled || !r.filePath) return null;
+    try {
+      const out = exportNoteTo(r.filePath, note, (id) => {
+        if (!store) throw new Error("No attachment store");
+        return attachments.getAttachment(store.db, store.orgId, id);
+      });
+      // Counts only. The path carries the title and the body is the user's text.
+      logDocEvent(db, orgId, {
+        level: "info", area: "notes", channel: "mindmerge:exportDoc", actor: RENDERER_CALLER,
+        message: `Exported a note — ${out.images} picture${out.images === 1 ? "" : "s"} saved, ${out.missing} not found`,
+      });
+      return out;
+    } catch (err) {
+      // A file-system message names the path, so only its code is kept and the user gets plain words.
+      logDocEvent(db, orgId, {
+        level: "error", area: "notes", channel: "mindmerge:exportDoc", actor: RENDERER_CALLER,
+        message: `Export failed (${(err as NodeJS.ErrnoException)?.code ?? "unknown"})`,
+      });
+      throw new Error("The note could not be saved there. Choose another place and try again.");
+    }
   });
 
   // ---- The open note's location, for the top bar. The path is looked up from the uuid on every

@@ -125,9 +125,52 @@ test("MM-03: a bold label hard against its value reads back as bold", async () =
 
 test("MM-03: the preview pane reads a bold label the way the editor does", () => {
   assert.equal(preprocess(LABELLED).trim(), "**URL (INTERNAL)**:redis://default:FAKE000@fake.internal:6379/0");
-  for (const untouched of [SENTENCE, REDIS, "**A**: text.**B** end", "2 ** 3 and f(**x)", `\`\`\`\n${LABELLED}\n\`\`\``, "`rm **/build/**tmp` and `echo **KEY:**value`"]) {
+  for (const untouched of [SENTENCE, REDIS, "**A**: text.**B** end", "2 ** 3 and f(**x)", `\`\`\`\n${LABELLED}\n\`\`\``, "`rm **/build/**tmp` and `echo **KEY:**value`", "**see [docs](https://fake.internal)**now", "**run `npm test`**now", "f(**Note:**x)"]) {
     assert.equal(preprocess(untouched).trim(), untouched);
   }
+});
+
+test("MM-02: a pipe typed in a table cell stays inside its cell", async () => {
+  const { parse, stored } = await ready;
+  const table = "| Service | Password |\n| ------- | -------- |\n| db      | pa\\|ss   |";
+  const cells = (doc: ProseNode): string[] => {
+    const found: string[] = [];
+    doc.descendants((node) => { if (node.type.name === "table_cell" || node.type.name === "table_header") found.push(node.textContent); });
+    return found;
+  };
+  assert.deepEqual(cells(parse(table)), ["Service", "Password", "db", "pa|ss"]);
+  assert.deepEqual(cells(parse(stored(parse(table)))), ["Service", "Password", "db", "pa|ss"]);
+});
+
+test("MM-02: three backticks in a sentence never reach a later code block", async () => {
+  const { schema, parse, stored, paragraph, docOf } = await ready;
+  // Tidy protects code by pairing fences across the whole note, so a stray run of three in prose
+  // would pair with the next block's opening fence and expose its contents.
+  const code = "curl -X POST \\\n  https://fake.internal/hook";
+  const doc = docOf(paragraph(schema.text("wrap it in ``` marks")), schema.nodes.code_block.create(null, schema.text(code)));
+  const back = parse(stored(doc));
+  assert.equal(back.firstChild?.textContent, "wrap it in ``` marks");
+  assert.equal(back.lastChild?.textContent, code);
+});
+
+test("MM-03: double asterisks that are not a label stay as typed", async () => {
+  const { parse } = await ready;
+  for (const literal of ["pass f(**kwargs) through to g(**opts)", "(a)**2 + (b)**2", "use **kwargs or call f(**kwargs)", "dict(**a,**b)", "{**a, 'k':**b}"]) {
+    assert.equal(parse(literal).textContent, literal, literal);
+  }
+  // Bold inside bold, as other programs write it, still nests the standard way.
+  assert.equal(parse("**a (**b**) c**").textContent, "a (b) c");
+  // The label shape still closes in the places a label is written.
+  for (const labelled of ["**Host:**fake.internal", "see **Host:**fake.internal now", "* **Host:**fake.internal", "> **Host:**fake.internal", "first line\n**Host:**fake.internal"]) {
+    assert.ok(!parse(labelled).textContent.includes("*"), labelled);
+  }
+});
+
+test("MM-01: text shown in angle brackets is copied with its brackets", async () => {
+  const { parse } = await ready;
+  const line = "ssh -i <keyfile> admin@fake.internal";
+  const doc = parse(line);
+  assert.equal(visibleText(doc.slice(1, doc.content.size - 1)), line);
 });
 
 test("MM-01: copying gives the visible text; Copy as Markdown gives the markdown", async () => {

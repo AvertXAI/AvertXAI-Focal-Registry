@@ -111,11 +111,19 @@ const comparable = (root: MdNode): string =>
 /** Keyed by both placed forms; the whole note is rewritten on every change, so most paragraphs repeat. */
 const readsBackTheSame = new Map<string, boolean>();
 
+/** The places inPlace can rebuild. A table cell or a footnote gives characters a meaning it cannot see. */
+const MODELLED = new Set(["blockquote", "list", "listItem"]);
+
 function faithfulParagraph(read: (markdown: string) => MdNode): Handler {
   return (node, parent, state, info) => {
     const escaped = writePhrasing(node, state, info, false);
     const plain = writePhrasing(withBareLinksAsText(node), state, info, true);
     if (plain === escaped) return escaped;
+    if (!state.stack.every((construct) => MODELLED.has(construct))) return escaped;
+    // Tidy pairs code fences across the whole note, which the one-paragraph check below cannot
+    // see: a bare run of three backticks would pair with the next block's opening fence and leave
+    // that block's contents open to tidying.
+    if (plain.includes("```")) return escaped;
     const leadsItem = parent?.type === "listItem" && parent.children?.[0] === node;
     const placedPlain = inPlace(plain, state, leadsItem);
     const placedEscaped = inPlace(escaped, state, leadsItem);
@@ -134,7 +142,7 @@ function faithfulParagraph(read: (markdown: string) => MdNode): Handler {
   };
 }
 
-/** Goes in the editor's `.config()`. Headings and table cells are not paragraphs and keep the stock escaping. */
+/** Goes in the editor's `.config()`. A heading is not a paragraph and a table cell is passed over, so both keep the stock escaping. */
 export function faithfulMarkdownConfig(ctx: Ctx): void {
   const read = (markdown: string): MdNode => {
     const remark = ctx.get(remarkCtx);
@@ -161,6 +169,8 @@ interface TokenEffects {
 }
 interface TokenContext {
   previous: Code;
+  events: TokenEvent[];
+  sliceSerialize: (token: AttentionToken) => string;
   parser: { constructs: { text: Record<number, TokenConstruct | TokenConstruct[] | undefined> } };
 }
 interface TokenConstruct {
@@ -172,6 +182,31 @@ interface TokenConstruct {
 const ASTERISK = 42;
 const isBlank = (code: Code): boolean => code === null || code < 0 || /\s/u.test(String.fromCodePoint(code));
 const isPunctuation = (code: Code): boolean => code !== null && code > 0 && /[\p{P}\p{S}]/u.test(String.fromCodePoint(code));
+const isOpeningBracket = (code: Code): boolean => code === 40 || code === 91 || code === 123;
+
+/**
+ * Whether the bold this run would close began the way a label does: two asterisks at the start of
+ * the line or after a space. `f(**kwargs)` and `(a)**2` open after punctuation; closing against
+ * those made bold out of text nobody marked, and the asterisks vanished from the screen and from
+ * a copy.
+ */
+function closesALabel(context: TokenContext): boolean {
+  const { events } = context;
+  try {
+    // The last event is this run's own start.
+    for (let at = events.length - 2; at >= 0; at--) {
+      const [kind, token] = events[at];
+      if (kind !== "enter" || token.type !== "attentionSequence" || !token._open) continue;
+      const run = context.sliceSerialize(token);
+      if (run.charCodeAt(0) !== ASTERISK) continue;
+      const lead = events[at - 1];
+      return run.length >= 2 && (!lead || /\s$/u.test(context.sliceSerialize(lead[1])));
+    }
+  } catch {
+    // An opener that cannot be read is not one to widen the rules for.
+  }
+  return false;
+}
 
 /**
  * `**LABEL:**value` IS BOLD.
@@ -180,7 +215,8 @@ const isPunctuation = (code: Code): boolean => code !== null && code > 0 && /[\p
  * so a bold label typed hard against its value — `**REDIS URL (INTERNAL):**redis://…` — came back
  * from storage as literal asterisks (MM-03). The editor writes exactly that text for exactly that
  * bold, so the reader has to accept it. Only that one case is widened: two asterisks, punctuation
- * before, a letter or digit after. Pairing is still the standard resolver's job.
+ * before (not an opening bracket), a letter or digit after, closing bold that began the way a
+ * label does. Pairing is still the standard resolver's job.
  */
 const lenientStrongClose: TokenConstruct = {
   name: "mindmergeLenientStrongClose",
@@ -193,14 +229,14 @@ const lenientStrongClose: TokenConstruct = {
         size += 1;
         return inside;
       }
-      if (size !== 2 || isBlank(code) || isPunctuation(code)) return nok(code);
+      if (size !== 2 || isBlank(code) || isPunctuation(code) || !closesALabel(this)) return nok(code);
       const token = effects.exit("attentionSequence");
       token._open = true;
       token._close = true;
       return ok(code);
     };
     return (code) => {
-      if (!isPunctuation(before)) return nok(code);
+      if (!isPunctuation(before) || isOpeningBracket(before)) return nok(code);
       effects.enter("attentionSequence");
       return inside(code);
     };
@@ -255,9 +291,11 @@ export const faithfulMarkdown = [lenientStrongClosePlugin, plainEmailPlugin].fla
 
 /** What a selection looks like on screen — which is what a copy must hand to another program. */
 export function visibleText(slice: Slice): string {
-  return slice.content.textBetween(0, slice.content.size, "\n\n", (leaf) =>
-    leaf.type.name !== "hardbreak" ? "" : leaf.attrs.isInline ? " " : "\n"
-  );
+  return slice.content.textBetween(0, slice.content.size, "\n\n", (leaf) => {
+    if (leaf.type.name === "hardbreak") return leaf.attrs.isInline ? " " : "\n";
+    // Inline HTML is shown as its own source, such as a <placeholder> typed in a command.
+    return leaf.type.name === "html" ? String(leaf.attrs.value ?? "") : "";
+  });
 }
 
 /** The same selection as markdown, for the right-click "Copy as Markdown". */

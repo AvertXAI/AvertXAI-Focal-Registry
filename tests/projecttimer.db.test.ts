@@ -115,8 +115,11 @@ test("pausing a timer that is waiting for an answer ends the question", () => {
   reset();
   const left = leftBehind("Fake project F", "running", 180, 120);
   timer.captureInterrupted(db);
+  // What sends the Mini Timer's Pause and Stop to the main window while the question is open.
+  assert.equal(timer.isWaiting(left.id), true);
   timer.pause(db, ORG, left.id);
   assert.deepEqual(timer.listInterrupted(db), []);
+  assert.equal(timer.isWaiting(left.id), false);
 });
 
 test("an end time outside the stretch that was counting is refused and the timer stays", () => {

@@ -329,6 +329,9 @@ export function countingNow(db: Db): MultiTimerStatus["sessions"] {
   return status(db).sessions.filter((s) => s.state === "running" && !interruptedIds.has(s.id));
 }
 
+/** This session is waiting for his answer at the next-launch prompt. */
+export const isWaiting = (sessionId: number): boolean => interruptedIds.has(sessionId);
+
 export function listInterrupted(db: Db): InterruptedSession[] {
   return rows(db)
     .filter((r) => interruptedIds.has(r.id))

@@ -19,7 +19,7 @@ import path from "node:path";
 import { getDb } from "../db";
 import { getActiveOrg } from "../db/registry";
 import * as storage from "../storage";
-import { getMainWindow } from "../../windows";
+import { getMainWindow, showMain } from "../../windows";
 import { ensureTimeTrackerSchema, type Db } from "./db";
 import * as projects from "./projects";
 import * as completion from "./completion";
@@ -620,9 +620,20 @@ export function registerTimeTrackerIpc(): void {
     timerChanged();
     return st;
   });
-  safeHandle("timetracker:pauseTimer", (_e, sessionId: unknown) => {
+  // The Mini Timer sits outside the next-launch question and lists a timer the last launch left
+  // running as if it were counting. A Stop from there would file every hour the app was closed,
+  // in an entry that can never be changed, so it is sent to the main window, where the question
+  // is. The main window's own screen stays free: it is what he is told to use when the question
+  // could not be shown.
+  const settledInMain = (e: { sender: unknown }, sessionId: unknown): number => {
+    const id = vId(sessionId, "session id");
+    if (!timer.isWaiting(id) || e.sender === getMainWindow()?.webContents) return id;
+    showMain();
+    throw new Error("This timer was left running when Focal Registry last closed. Answer for it in the main window.");
+  };
+  safeHandle("timetracker:pauseTimer", (e, sessionId: unknown) => {
     const { db, orgId } = ttCtx();
-    const st = timer.pause(db, orgId, vId(sessionId, "session id"));
+    const st = timer.pause(db, orgId, settledInMain(e, sessionId));
     timerChanged();
     return st;
   });
@@ -645,9 +656,9 @@ export function registerTimeTrackerIpc(): void {
   // avoid clobbering it — the exact boundary-parsing fragility the two-editor ruling avoided.
   // time_entries has a single INSERT path and NO update path anywhere in the codebase, so a filed
   // block is immutable by construction rather than by a UI that politely declines to edit it.
-  safeHandle("timetracker:stopTimer", (_e, sessionId: unknown, note: unknown) => {
+  safeHandle("timetracker:stopTimer", (e, sessionId: unknown, note: unknown) => {
     const { db, orgId } = ttCtx();
-    stopAndFile(db, orgId, vId(sessionId, "session id"), note);
+    stopAndFile(db, orgId, settledInMain(e, sessionId), note);
     // Return shape UNCHANGED (MultiTimerStatus): the mini window's stop rides this same channel, and
     // the renderer already holds the session's notes, so it computes its own "filed" toast locally.
     return timer.status(db);

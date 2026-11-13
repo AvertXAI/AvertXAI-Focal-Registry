@@ -319,8 +319,16 @@ tbody tr:hover{background:var(--mc-nested)}
    opt out; the right pad clears the native titleBarOverlay
    (min/max/close) so nothing sits under the OS controls.
    ============================================================ */
+/* The reserve follows the controls strip itself, not a fixed number (SH-02). The strip is drawn by
+   the operating system and does not zoom; a fixed 150px of page space shrank with Ctrl+minus until
+   the strip sat on top of the bell, at every window width. The titlebar-area variables are the
+   strip's real edge in page units. Without them the old 150px stands; the clamp keeps a wrong
+   reading from ever squeezing the bar. */
 .topbar{position:sticky;top:0;z-index:30;background:var(--mc-topbar);
-  padding-right:150px;-webkit-app-region:drag}
+  padding-right:clamp(60px,calc(100vw - env(titlebar-area-x,0px) - env(titlebar-area-width,calc(100vw - 138px)) + 12px),320px);
+  -webkit-app-region:drag}
+/* Fixed-size controls never give up width to a long title; the title is what shortens. */
+.topbar .iconbtn,.topbar .acts{flex:none}
 .topbar button,.topbar .searchbox,.topbar input{-webkit-app-region:no-drag}
 
 /* ============================================================

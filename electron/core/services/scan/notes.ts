@@ -1258,8 +1258,11 @@ export interface SyncResult {
 }
 
 /**
- * Regenerate EVERY app-owned file for one drive, in both trees. No diffing — the database is
+ * Regenerate the app-owned files for one drive, in both trees. No diffing — the database is
  * authoritative and the files are mirrors.
+ *
+ * ONLY A FOLDER WITH A NOTE OR A RENAME ON RECORD IS MIRRORED. Jason ruled 11-12-2026 that a mirror
+ * folder for every scanned folder is junk: stop creating them, never delete the ones on disk.
  *
  * THE SHAPE IS THE DRIVE'S OWN SHAPE (Jason ruled on device, 08-17-2026): `<D Drive>\<the folder's
  * path below the drive root>\`. Open the mirror and you are looking at the same tree you would see
@@ -1297,6 +1300,12 @@ export function syncDrive(db: Db, orgId: string, driveId: number, vol: ScanVolum
     if (!card) continue;
     const segs = relativeSegments(f.path);
     if (segs.length === 0) continue; // the drive ROOT itself owns no mirror directory of its own
+    const history = folderHistory(db, orgId, f.path);
+    const notes = (listNotes(db, orgId, driveId, f.path) as ScanNoteMeta[]).map((m) =>
+      getNote(db, orgId, m.uuid)
+    );
+    // Ahead of the claim below, so a folder that is not mirrored can never block one that is.
+    if (notes.length === 0 && history.length === 0) continue;
     const key = segs.join("\\").toLowerCase();
     // Cannot fire now that the key is a full relative path — kept as a cheap invariant check, so a
     // future change to mirrorSegment that DID collapse two names would announce itself rather than
@@ -1318,10 +1327,6 @@ export function syncDrive(db: Db, orgId: string, driveId: number, vol: ScanVolum
     }
     claimed.set(key, f.path);
 
-    const history = folderHistory(db, orgId, f.path);
-    const notes = (listNotes(db, orgId, driveId, f.path) as ScanNoteMeta[]).map((m) =>
-      getNote(db, orgId, m.uuid)
-    );
     const report = folderReportMarkdown(card, history);
     const noteDoc = folderNotesMarkdown(card, notes, history);
 

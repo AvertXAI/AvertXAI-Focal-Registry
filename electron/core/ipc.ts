@@ -54,6 +54,7 @@ import { generateUUIDv7 } from "./services/utils/uuidv7";
 import * as settings from "./services/settings";
 import * as licensing from "./services/licensing";
 import { applyThemeOverlay, getMainWindow, setOverlayDim } from "./windows";
+import { holdQuit } from "./services/work/guardMain";
 
 // --- MindMerge host — root-side glue ONLY. The service stays electron-free: orgId, baseDir
 // (userData, where the module's own .db lives) and settings are injected from here. Lazy so it
@@ -670,8 +671,14 @@ export function registerIpcHandlers(): void {
   // Relaunch from the crash prompt. app.relaunch existed nowhere in this codebase before now; the
   // Help menu's "Safe Mode Restart" and "Clear Cache and Restart" are still unbuilt placeholders.
   safeOn("feedback:restart", () => {
-    app.relaunch();
-    app.quit();
+    // The relaunch is booked only when the quit really goes ahead. Booked first, a quit that the
+    // guard held and he then cancelled would leave it standing, and the app would start itself
+    // again at the next exit, whenever that was.
+    const restart = (): void => {
+      app.relaunch();
+      app.quit();
+    };
+    if (!holdQuit("quit", restart)) restart();
   });
 
   // Native window-control overlay tint. The window is born in the JARVIS boot navy; the renderer

@@ -583,6 +583,19 @@ body.nav-docked .app-footer {
 .fb-crashhead h3 { font-size: 15px; font-weight: 700; color: var(--mc-text); }
 .fb-crashdot { width: 10px; height: 10px; border-radius: 50%; background: #e0574f; flex: none; }
 
+/* The next-launch prompt (LeftoverPrompt.tsx). It rides .overlay and .fb-modal like the dialogs
+   above, so the caption buttons dim with no wiring of its own. One block per timer that was left
+   running, then the jobs that were cut short. */
+.leftover-block { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--mc-border); }
+.leftover-head { font-size: 14px; font-weight: 700; color: var(--mc-text); }
+.leftover-block .fb-acts { margin-top: 12px; }
+/* 12px sides, not .fb-btn's 17. One of the three answers carries a full date and time, and at 17
+   the row is within a few pixels of the card's 506px body; at 12 it fits with about 40 to spare. */
+.leftover-block .fb-btn { padding: 8px 12px; }
+.leftover-jobs { list-style: none; margin-top: 8px; display: flex; flex-direction: column; gap: 10px;
+  font-size: 13.5px; color: var(--mc-text); }
+.leftover-note { display: block; font-size: 12.5px; line-height: 1.5; color: var(--mc-muted); }
+
 .fb-about { text-align: center; padding: 10px 0 4px; }
 .fb-aboutapp { font-size: 21px; font-weight: 700; color: var(--mc-text); }
 .fb-aboutver { font-family: var(--mc-mono); font-weight: 400; font-size: 16px; color: var(--mc-muted); margin-left: 7px; }

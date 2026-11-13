@@ -709,6 +709,25 @@ tbody tr:hover{background:var(--mc-nested)}
 .updatetoast-actions { display: flex; gap: 8px; margin-top: 8px; }
 .updatetoast-primary { background: var(--mc-green); border-color: var(--mc-green); color: #fff; font-weight: 600; }
 
+/* ---- The quit guard (QuitGuardToast.tsx): the ask-toast above, one row per thing still running ----
+   THE WIDTH IS FIXED, not fitted to the text. A timer's line changes every second, and a toast that
+   resized with it would shake. 560px leaves a 164px gutter at the 740px window floor.
+   THE HEIGHT STOPS UNDER THE TOP BAR. The top bar is a window-drag surface, and a drag surface takes
+   the click before the page sees it, so a button that reached up into it could not be pressed.
+   align-items is reset because a long list scrolls inside the toast: a centred child taller than
+   its scroll box is cut off at the top, where no scrollbar can reach it. */
+.quitguard { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - var(--mc-topbar-height) - 32px);
+  overflow-y: auto; align-items: flex-start; }
+.quitguard .updatetoast-ask { flex: 1; min-width: 0; }
+.quitguard-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 6px;
+  padding-top: 8px; border-top: 1px solid var(--mc-border); }
+/* 260px is chosen so no row sits a pixel either side of wrapping: a timer's two short buttons
+   (about 144px together) always share the text's line, a job's two long ones (about 310px) never do. */
+.quitguard-text { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+.quitguard-row .updatetoast-actions { margin: 0 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
+.quitguard-chosen { margin-left: auto; color: var(--mc-muted); font-weight: 600; }
+.quitguard-foot { justify-content: flex-end; padding-top: 8px; border-top: 1px solid var(--mc-border); }
+
 /* F1/F6 (08-10): the purge dry-run line and the reset dialog */
 .dv-purgecount { font-size: 12px; color: var(--mc-text); max-width: 460px; line-height: 1.5; }
 .dv-reset { max-width: 560px; }

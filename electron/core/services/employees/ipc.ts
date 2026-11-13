@@ -144,7 +144,7 @@ export function registerEmployeesIpc(): void {
 
   // ---- tasks ----
   // ---- the employee timer. No tick channel by design: elapsed time is renderer-computed from
-  // ---- started_at, so a running session costs the main process nothing.
+  // ---- the session's stored stamps (src/shared/employeeTimer.ts), so nothing is pushed per second.
   safeHandle("employees:activeSessions", () => {
     const { db, orgId } = empCtx();
     return sessions.getActiveSessions(db, orgId);
@@ -157,6 +157,12 @@ export function registerEmployeesIpc(): void {
     const { db, orgId } = empCtx();
     return sessions.stopSession(db, orgId, sessionId as number, note);
   });
+  mutHandle("employees:pauseSession", (_e, sessionId: unknown) =>
+    sessions.pauseSession(empCtx().db, sessionId as number)
+  );
+  mutHandle("employees:resumeSession", (_e, sessionId: unknown) =>
+    sessions.resumeSession(empCtx().db, sessionId as number)
+  );
   mutHandle("employees:cancelSession", (_e, sessionId: unknown) => {
     return sessions.cancelSession(empCtx().db, sessionId as number);
   });

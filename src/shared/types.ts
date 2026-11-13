@@ -266,7 +266,41 @@ export type PushChannel =
   | "timetracker:tick"
   | "timetracker:changed"
   | "timetracker:break"
-  | "timetracker:idle";
+  | "timetracker:idle"
+  // The quit guard's toast: the running work and the answers so far, or null to take it down.
+  | "quitguard:state";
+
+/** What the quit toast offers per line. Timers: pause or stop. Jobs: finish, or stop safely. */
+export type WorkAction = "pause" | "stop" | "finish" | "stopSafely";
+export interface QuitGuardLine {
+  id: string;
+  kind: "timer" | "job";
+  text: string;
+  actions: WorkAction[];
+  answer: WorkAction | null;
+}
+export interface QuitGuardState {
+  lines: QuitGuardLine[];
+  /** Every line is answered and carried out; only jobs that are finishing are left. */
+  waiting: boolean;
+  /** "quit" | "update" | "shutdown" */
+  reason: string;
+}
+/** A timer found running at launch: the app was closed while it counted. */
+export interface LeftoverTimer {
+  id: string;
+  source: "employee" | "project";
+  project: string;
+  person: string | null;
+  startedAt: string;
+  lastSeenAt: string;
+}
+/** A job that was stopped before it finished, and what is safe to do next. */
+export interface CutShortJob {
+  text: string;
+  next: string;
+  at: string;
+}
 
 /** LOCAL-ONLY device identity — shown read-only in Settings; never transmitted, never in exports. */
 export interface DeviceIdentityInfo {
@@ -1414,6 +1448,12 @@ export interface EmployeeSession {
   rate_at_start: number;
   note: string | null;
   started_at: string;
+  /** Set while the clock is held; null while it counts. */
+  paused_at: string | null;
+  /** Whole seconds of pauses that have already ended. */
+  paused_seconds: number;
+  /** When the app last saw this timer counting, stamped about once a minute. */
+  last_seen_at: string | null;
   ended_at: string | null;
   created_at: string;
 }
@@ -1834,6 +1874,15 @@ export interface Api {
     /** Persist the open-at-login choice and write/clear the OS login item (Windows Run key). */
     setEnabled: (enabled: boolean) => Promise<{ ok: boolean }>;
   };
+  /** The quit guard: what is running when the app is asked to end, and the answers. */
+  quitGuard: {
+    state: () => Promise<QuitGuardState | null>;
+    answer: (id: string, action: WorkAction) => Promise<void>;
+    cancel: () => Promise<void>;
+    leftovers: () => Promise<{ timers: LeftoverTimer[]; jobs: CutShortJob[] }>;
+    resolveTimer: (id: string, choice: "keep" | "stopAtLastSeen" | "stopAt", endIso?: string) => Promise<{ ok: boolean; error?: string }>;
+    dismissJobs: () => Promise<void>;
+  };
   /** Migrate module — discovery is read-only; bundle export writes only the chosen destination. */
   /** LOCAL device identity (Settings "This device") — read-only; never transmitted anywhere. */
   identity: {
@@ -2050,6 +2099,9 @@ export interface Api {
       start: (input: EmployeeSessionInput) => Promise<EmployeeSession>;
       /** Files the work through the SAME createEntry a manual entry uses, then closes the session. */
       stop: (sessionId: number, note?: string | null) => Promise<{ session: EmployeeSession; entry: EmployeeEntry }>;
+      /** Holds the clock without filing anything. Resume carries on from where it was held. */
+      pause: (sessionId: number) => Promise<EmployeeSession>;
+      resume: (sessionId: number) => Promise<EmployeeSession>;
       /** Closes a session WITHOUT filing an entry — started by mistake. */
       cancel: (sessionId: number) => Promise<EmployeeSession>;
     };

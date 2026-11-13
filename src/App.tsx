@@ -15,6 +15,8 @@ import ReportProblem from "./components/ReportProblem";
 import SuggestSomething from "./components/SuggestSomething";
 import AboutDialog from "./components/AboutDialog";
 import CrashDialog from "./components/CrashDialog";
+import QuitGuardToast from "./components/QuitGuardToast";
+import LeftoverPrompt from "./components/LeftoverPrompt";
 
 /** See the crash-net effect below. False = errors log to the console and no prompt ever shows. */
 export const CRASH_DIALOG_VISIBLE = false;
@@ -343,6 +345,10 @@ export default function App() {
   const [gsOpen, setGsOpen] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  // The quit toast and the next-launch prompt keep their own data. App only hears whether each is
+  // showing, because the Scout guest has to stand down under both (the effect further down).
+  const [quitAskOpen, setQuitAskOpen] = useState(false);
+  const [leftoverOpen, setLeftoverOpen] = useState(false);
   // The crash prompt. Null until something actually breaks — this is the only feedback surface a
   // user ever sees without going looking for it.
   const [crash, setCrash] = useState<{ where: string; begun: FeedbackBegin } | null>(null);
@@ -491,8 +497,11 @@ export default function App() {
     // the module and reflow nothing, so without this the Scout guest view paints straight over the
     // top of them. A crash dialog hidden behind a native browser view is the worst possible one.
     const anyFeedback = reportOpen !== null || suggestOpen || aboutOpen || crash !== null || gsOpen;
-    window.api.scout.setShellOverlay(settingsOpen || anyFeedback || (navPeek && !navDocked));
-  }, [settingsOpen, reportOpen, suggestOpen, aboutOpen, crash, navPeek, navDocked]);
+    // Both wait for an answer and neither can be dismissed. Under the guest, one would hold the
+    // quit and the other would lock the shell, with nothing on screen to click.
+    const mustAnswer = quitAskOpen || leftoverOpen;
+    window.api.scout.setShellOverlay(settingsOpen || anyFeedback || mustAnswer || (navPeek && !navDocked));
+  }, [settingsOpen, reportOpen, suggestOpen, aboutOpen, crash, navPeek, navDocked, quitAskOpen, leftoverOpen]);
 
   // Ctrl+K opens the global search anywhere in the shell (the sheet's own Escape closes it).
   useEffect(() => {
@@ -871,6 +880,11 @@ export default function App() {
       <AppLoadingHost />
       {/* Break/idle prompts must outlive the TimeTracker module's mount — App-level, like UpdateToast. */}
       <AttentionToast />
+      {/* After the other two toasts on purpose: all three share one corner and one z-index, so the
+          last one in the page is the one on top, and a held quit is the one that cannot wait.
+          ponytail: they overlap, they do not stack. A break or idle prompt raised during a held
+          quit sits under this one until the quit is answered or cancelled; stack them if seen. */}
+      <QuitGuardToast onOpenChange={setQuitAskOpen} />
 
       {view === "home" && <Home onNavigate={select} modules={visibleModules} />}
       {view === "data-viewer" && <DataViewerModule />}
@@ -931,6 +945,9 @@ export default function App() {
         <SuggestSomething onClose={() => setSuggestOpen(false)} modules={visibleModules} />
       )}
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+      {/* After every other overlay, so it sits on top of them: it cannot be closed until it is
+          answered. Down here, below the boot returns, so it only asks once the shell is up. */}
+      <LeftoverPrompt onOpenChange={setLeftoverOpen} />
 
       {/* AI spark — present in v7 chrome; not-built stub (wiring is a later phase). */}
       <button className="spark nb" aria-label="AI assistant">

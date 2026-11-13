@@ -156,6 +156,23 @@ function timerChanged(): void {
   forwardToMini("timetracker:changed");
 }
 
+/**
+ * Stops a session and files its notes. ONE body for the Stop button, the quit guard's Stop and the
+ * close of a timer an earlier launch left running (work/timerSources.ts): a second copy is how a
+ * stop ends up dropping the quick notes, or leaving the notes pad to be wiped at the next start.
+ * `endedAt` is handed in only for that last case, where the app was not open at the true end.
+ */
+export function stopAndFile(db: Db, orgId: string, sessionId: number, typedNote: unknown, endedAt?: string): void {
+  const info = timer.sessionFilingInfo(db, sessionId);
+  const quick = parseSessionNotes(info.note).lines;
+  const staged = projects.getNote(db, info.projectId).trim();
+  const parts = [...quick, ...(staged === "" ? [] : [staged])];
+  const joined = parts.join("\n");
+  timer.stop(db, orgId, sessionId, joined || vNullableString(typedNote, "session note", 20000), endedAt);
+  if (staged !== "") projects.saveNote(db, orgId, info.projectId, ""); // staged text now lives in the record
+  timerChanged();
+}
+
 export function registerTimeTrackerIpc(): void {
   // Eager service start when an org exists (true service start — crash-marking before any UI asks);
   // pre-org boot (first-run wizard) skips, and the lazy ctx covers the post-wizard session.
@@ -598,15 +615,7 @@ export function registerTimeTrackerIpc(): void {
   // block is immutable by construction rather than by a UI that politely declines to edit it.
   safeHandle("timetracker:stopTimer", (_e, sessionId: unknown, note: unknown) => {
     const { db, orgId } = ttCtx();
-    const id = vId(sessionId, "session id");
-    const info = timer.sessionFilingInfo(db, id);
-    const quick = parseSessionNotes(info.note).lines;
-    const staged = projects.getNote(db, info.projectId).trim();
-    const parts = [...quick, ...(staged === "" ? [] : [staged])];
-    const joined = parts.join("\n");
-    timer.stop(db, orgId, id, joined || vNullableString(note, "session note", 20000));
-    if (staged !== "") projects.saveNote(db, orgId, info.projectId, ""); // staged text now lives in the record
-    timerChanged();
+    stopAndFile(db, orgId, vId(sessionId, "session id"), note);
     // Return shape UNCHANGED (MultiTimerStatus): the mini window's stop rides this same channel, and
     // the renderer already holds the session's notes, so it computes its own "filed" toast locally.
     return timer.status(db);

@@ -192,7 +192,8 @@ export interface Adjustment {
 }
 
 /** An open (or closed) work session — the employee timer. Holds NO money and NO duration: the
-    money rule lives in entries/reports, and elapsed time is derived from started_at. */
+    money rule lives in entries/reports, and elapsed time is derived from started_at and the two
+    pause columns (src/shared/employeeTimer.ts). */
 export interface Session {
   id: number;
   uuid: string;
@@ -205,7 +206,13 @@ export interface Session {
   rate_at_start: number;
   note: string | null;
   started_at: string;
-  /** NULL = running. Set on stop or cancel; the row is never deleted. */
+  /** Set while the clock is held; NULL while it counts. */
+  paused_at: string | null;
+  /** Whole seconds of pauses that have already ended. */
+  paused_seconds: number;
+  /** When the app last saw this timer counting, stamped about once a minute. NULL until the first stamp. */
+  last_seen_at: string | null;
+  /** NULL = open (counting or paused). Set on stop or cancel; the row is never deleted. */
   ended_at: string | null;
   created_at: string;
 }

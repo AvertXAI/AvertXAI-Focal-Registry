@@ -92,7 +92,12 @@ export function createQuitGuard(deps: GuardDeps): QuitGuard {
 
   return {
     request(reason, proceed) {
-      if (deps.running().length === 0) return false;
+      if (deps.running().length === 0) {
+        // This quit goes ahead now, so an earlier one still held has nothing left to wait for.
+        // Left open, its next check would start a second quit on top of this one.
+        if (held) close();
+        return false;
+      }
       const fresh = held === null;
       held = { reason, proceed };
       if (fresh) stopChecking = deps.every(check, 1000);

@@ -16,9 +16,17 @@
 //              mid-session must never retroactively reprice work already under way, the same
 //              doctrine that makes rate_at_entry mandatory.
 //
-//              NO MAIN-PROCESS CLOCK. Nothing here ticks. The renderer computes elapsed time from
-//              started_at on its own interval, so a running session costs zero main-process work
-//              and survives a renderer reload without drifting.
+//              NO PER-SECOND CLOCK. Nothing here ticks. The renderer computes elapsed time from the
+//              stored stamps on its own interval, so a running session survives a renderer reload
+//              without drifting.
+//
+//              PAUSE AND LAST-SEEN (11-13-2026). Start and stop alone meant a clock left running
+//              while the app was closed billed every hour of the gap: one entry reached 1,114.95
+//              hours. A pause is two columns on the open row (paused_at, paused_seconds), never a
+//              split entry. last_seen_at is stamped about once a minute by work/timerSources.ts
+//              while the clock counts, so the next launch can offer the last moment the app was
+//              open as the end time. The arithmetic is src/shared/employeeTimer.ts, shared with
+//              the card that shows the clock.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/employees/sessions.ts
 //------------------------------------------------------------
@@ -27,6 +35,7 @@ import { nowIso, type Db } from "./db";
 import { createEntry } from "./entries";
 import { getPerson } from "./people";
 import { assertNotCompleted } from "../timetracker/completion";
+import { workedMs, type PausableSession } from "../../../../src/shared/employeeTimer";
 import type { Entry, PayType, Session, SessionInput } from "./types";
 import { PAY_TYPES, vAmount, vEnum, vId, vNullableId, vNullableString, vString, vUuid } from "./validate";
 
@@ -39,9 +48,9 @@ function localDateOf(iso: string): string {
 
 /** Elapsed hours as a decimal, rounded to 1/100th of an hour (36 seconds) — the precision the
     ledger displays and the money maths uses. Never negative, even if a clock moved backwards. */
-export function elapsedHours(startedAt: string, endedAt: string): number {
-  const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();
-  return Math.max(0, Math.round((ms / 3_600_000) * 100) / 100);
+export function elapsedHours(session: PausableSession, endedAt: string): number {
+  // Pauses come out here, through the same arithmetic the card's clock uses.
+  return Math.round((workedMs(session, Date.parse(endedAt)) / 3_600_000) * 100) / 100;
 }
 
 export function getActiveSessions(db: Db, orgId: string): Session[] {
@@ -103,6 +112,15 @@ export function startSession(db: Db, orgId: string, input: SessionInput): Sessio
   return getSession(db, Number(res.lastInsertRowid));
 }
 
+/** An end time chosen for a timer the app was not open to stop. It has to fall inside the session. */
+function vEndedAt(value: unknown, startedAt: string): string {
+  const ms = typeof value === "string" ? Date.parse(value) : NaN;
+  if (Number.isNaN(ms)) throw new Error("That end time could not be read.");
+  if (ms <= Date.parse(startedAt)) throw new Error("The end time must be after the timer started.");
+  if (ms > Date.now()) throw new Error("The end time cannot be in the future.");
+  return new Date(ms).toISOString();
+}
+
 /**
  * Stops the clock and FILES THE WORK.
  *
@@ -113,11 +131,22 @@ export function startSession(db: Db, orgId: string, input: SessionInput): Sessio
  *
  * Both writes run in ONE transaction, so a failure anywhere leaves neither.
  */
-export function stopSession(db: Db, orgId: string, sessionId: number, note?: unknown): { session: Session; entry: Entry } {
+export function stopSession(
+  db: Db,
+  orgId: string,
+  sessionId: number,
+  note?: unknown,
+  at?: unknown
+): { session: Session; entry: Entry } {
   const session = getSession(db, vId(sessionId, "session id"));
   if (session.ended_at) throw new Error("That timer has already been stopped.");
-  const endedAt = nowIso();
-  const hours = elapsedHours(session.started_at, endedAt);
+  // `at` closes a timer the app was not open to stop (the question at the next launch): the hours
+  // then run from the start to that time, not to now.
+  // ponytail: pauses are kept as one total, not as spans, so an end time earlier than a pause still
+  // has that whole pause taken out. It can only under-count, never over-count. Store the spans if
+  // that ever matters.
+  const endedAt = at == null ? nowIso() : vEndedAt(at, session.started_at);
+  const hours = elapsedHours(session, endedAt);
   // A note typed at stop wins over one typed at start — it is the later, better-informed one.
   const finalNote = note == null ? session.note : vNullableString(note, "note", 2000);
 
@@ -146,7 +175,7 @@ export function stopSession(db: Db, orgId: string, sessionId: number, note?: unk
     db.prepare(`UPDATE employee_sessions SET ended_at = ?, note = ?, updated_at = ? WHERE id = ?`).run(
       endedAt,
       finalNote,
-      endedAt,
+      nowIso(), // the row changes now, whatever end time it is closed at
       session.id
     );
     return created;
@@ -168,6 +197,55 @@ export function cancelSession(db: Db, sessionId: number): Session {
     session.id
   );
   return getSession(db, session.id);
+}
+
+/**
+ * Holds the clock. Nothing is filed and nothing is lost: the time so far stays on the session.
+ * Not behind the completion lock, on purpose. A pause changes no project figure, and a timer that
+ * could be neither paused nor stopped would hold a quit for ever.
+ */
+export function pauseSession(db: Db, sessionId: number, at = nowIso()): Session {
+  const session = getSession(db, vId(sessionId, "session id"));
+  if (session.ended_at) throw new Error("That timer has already been stopped.");
+  if (!session.paused_at) {
+    db.prepare(`UPDATE employee_sessions SET paused_at = ?, updated_at = ? WHERE id = ?`).run(at, at, session.id);
+  }
+  return getSession(db, session.id);
+}
+
+export function resumeSession(db: Db, sessionId: number, at = nowIso()): Session {
+  const session = getSession(db, vId(sessionId, "session id"));
+  if (session.ended_at) throw new Error("That timer has already been stopped.");
+  if (session.paused_at) {
+    // last_seen_at moves too: a timer resumed in this launch must not look like one an earlier
+    // launch left running.
+    const pausedFor = Math.max(0, Math.round((Date.parse(at) - Date.parse(session.paused_at)) / 1000));
+    db.prepare(
+      `UPDATE employee_sessions
+       SET paused_at = NULL, paused_seconds = paused_seconds + ?, last_seen_at = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(pausedFor, at, at, session.id);
+  }
+  return getSession(db, session.id);
+}
+
+/**
+ * Stamps every counting session as seen at `at`. A paused clock is not counting, so it is skipped.
+ * With `since`, a session last seen before it is skipped too: that is a timer an earlier launch
+ * left running, and stamping it would erase the one fact the launch question needs, the last
+ * moment the app was open.
+ */
+export function touchSessions(db: Db, orgId: string, at: string, since: string | null = null): void {
+  db.prepare(
+    `UPDATE employee_sessions SET last_seen_at = ?
+     WHERE org_id = ? AND ended_at IS NULL AND paused_at IS NULL
+       AND (? IS NULL OR COALESCE(last_seen_at, started_at) >= ?)`
+  ).run(at, orgId, since, since);
+}
+
+/** The answer "keep all of it" for a timer an earlier launch left running: it is watched again from now. */
+export function markSeen(db: Db, sessionId: number, at = nowIso()): void {
+  db.prepare(`UPDATE employee_sessions SET last_seen_at = ? WHERE id = ? AND ended_at IS NULL`).run(at, sessionId);
 }
 
 /** By uuid, for a caller that holds the public locator rather than the row id. */

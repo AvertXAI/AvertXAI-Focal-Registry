@@ -10,11 +10,13 @@
 // format, empErrors, entryCost) import nothing from src/modules/timetracker/ except ProjectModal,
 // which is itself a leaf — verified with the module graph, see the phase report.
 //
-// The clock ticks HERE, in the renderer, off started_at. There is no tick channel and no
-// main-process clock for employee sessions (see services/employees/sessions.ts).
+// The clock ticks HERE, in the renderer, off the session's stored stamps. There is no tick channel
+// for employee sessions. The arithmetic is src/shared/employeeTimer.ts, the same one that files
+// the hours, so a paused clock holds still here exactly as it does in the ledger.
 import { useCallback, useEffect, useState } from "react";
 import type { EmployeePerson, EmployeeSession, TimeTrackerProjectListItem } from "../../shared/types";
 import { navigateToModule } from "../../shared/navigate";
+import { workedMs } from "../../shared/employeeTimer";
 import AddTimeModal from "./AddTimeModal";
 import PersonModal, { type PersonModalState } from "./PersonModal";
 import { ProjectChooser, ProjectModalHost } from "./NewEmployeeWizard";
@@ -25,9 +27,9 @@ import "./employees.css";
 
 const NEW_PERSON = "__new__";
 
-/** hh:mm:ss from two ISO stamps — the running readout. Never negative. */
-function elapsedClock(startedAt: string, now: number): string {
-  const s = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
+/** hh:mm:ss on the Stop button. Pauses are taken out, and a paused clock holds still. */
+function elapsedClock(session: EmployeeSession, now: number): string {
+  const s = Math.floor(workedMs(session, now) / 1000);
   return [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60]
     .map((n) => String(n).padStart(2, "0"))
     .join(":");
@@ -221,6 +223,21 @@ export default function EmployeesCard() {
       .finally(() => setBusy(false));
   };
 
+  const togglePause = (): void => {
+    if (!running || busy) return;
+    const change = running.paused_at ? api.employees.sessions.resume : api.employees.sessions.pause;
+    setBusy(true);
+    setError(null);
+    void change(running.id)
+      .then((s) => setSessions((prev) => prev.map((x) => (x.id === s.id ? s : x))))
+      .catch((e: unknown) => {
+        const raw = e instanceof Error ? e.message : String(e);
+        console.error("[employees-card] pause or resume failed:", raw);
+        setError(explainEmployeesError(raw, "this timer"));
+      })
+      .finally(() => setBusy(false));
+  };
+
   return (
     <div className="emp-card-embed">
       <div className="emp-embedlabel">Employees</div>
@@ -247,9 +264,18 @@ export default function EmployeesCard() {
             </select>
 
             {running ? (
-              <button className="emp-btn stop" disabled={busy} onClick={stop}>
-                ■ Stop · {elapsedClock(running.started_at, now)}
-              </button>
+              <>
+                <button className="emp-btn stop" disabled={busy} onClick={stop}>
+                  ■ Stop · {elapsedClock(running, now)}
+                </button>
+                <button
+                  className={running.paused_at ? "emp-btn primary" : "emp-btn"}
+                  disabled={busy}
+                  onClick={togglePause}
+                >
+                  {running.paused_at ? "▶ Resume" : "Pause"}
+                </button>
+              </>
             ) : (
               <button className="emp-btn primary" disabled={!person || busy} onClick={start}>
                 ▶ Start time
@@ -268,6 +294,13 @@ export default function EmployeesCard() {
               Adjust
             </button>
           </div>
+
+          {running?.paused_at && person && (
+            <p className="emp-embedhint ask">
+              {person.name}&apos;s timer is paused. Resume it to keep counting, or stop it to file the
+              time so far.
+            </p>
+          )}
 
           {picking && person && (
             <>

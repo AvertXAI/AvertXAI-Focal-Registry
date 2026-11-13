@@ -179,6 +179,8 @@ export function pause(db: Db, orgId: string, sessionId: number): MultiTimerStatu
       `UPDATE timetracker_active_sessions SET state = 'paused', accumulated_seconds = ?, last_paused_at = ? WHERE id = ?`
     ).run(elapsedSeconds(row), nowIso(), sessionId);
     safeLog(db, orgId, "paused", row.project_id, row.project_name);
+    // Pausing a timer an earlier launch left running is an answer for it: the time so far is kept.
+    interruptedIds.delete(sessionId);
   }
   return status(db);
 }
@@ -234,14 +236,24 @@ function closeSession(db: Db, orgId: string, row: SessionInfoRow, durationSecond
     )
     .run(generateUUIDv7(), orgId, row.project_id, row.wall_started_at, ended, durationSeconds, finalNote, ended);
   db.prepare(`DELETE FROM timetracker_active_sessions WHERE id = ?`).run(row.id);
+  // SQLite hands a freed row id to the next session, which must not inherit this one's question.
+  interruptedIds.delete(row.id);
   return db.prepare(`SELECT * FROM timetracker_time_entries WHERE id = ?`).get(Number(res.lastInsertRowid)) as TimeEntry;
 }
 
-export function stop(db: Db, orgId: string, sessionId: number, note: string | null): TimeEntry {
+export function stop(db: Db, orgId: string, sessionId: number, note: string | null, endedAt?: string): TimeEntry {
   const row = rowById(db, sessionId);
   const wasFocused = row.is_focused === 1;
-  const duration = elapsedSeconds(row);
-  const entry = closeSession(db, orgId, row, duration, note);
+  // An end time handed in closes a timer the app was not open to stop. It has to fall inside the
+  // stretch that was counting: after the last resume, and after the elapsed base, which an idle
+  // discard can move past it. Otherwise the entry would claim time nobody worked, or none at all.
+  const at = endedAt === undefined ? Date.now() : Date.parse(endedAt);
+  const from = Math.max(Date.parse(row.started_at), Date.parse(row.last_resumed_at ?? row.wall_started_at));
+  if (endedAt !== undefined && !(at > from && at <= Date.now())) {
+    throw new Error("The end time must be after the timer last started and not in the future.");
+  }
+  const duration = elapsedSeconds(row, at);
+  const entry = closeSession(db, orgId, row, duration, note, endedAt === undefined ? undefined : new Date(at).toISOString());
   safeLog(db, orgId, "stopped", row.project_id, row.project_name, `total ${hms(duration)}`);
   // Keep something focused so the bar/mini always have a current session.
   if (wasFocused) {
@@ -285,7 +297,10 @@ export function discardIdle(db: Db, sessionId: number, seconds: number): MultiTi
 
 /** Single batched UPDATE — the ticker calls this every ~5s; it's the crash-recovery source. */
 export function heartbeatAll(db: Db): void {
-  db.prepare(`UPDATE timetracker_active_sessions SET last_heartbeat = ? WHERE state = 'running'`).run(nowIso());
+  // A timer an earlier launch left running keeps its old stamp until he has answered for it: that
+  // stamp is the last moment the app was open, and it is what he is offered as the end time.
+  const waiting = interruptedIds.size > 0 ? ` AND id NOT IN (${[...interruptedIds].join(",")})` : "";
+  db.prepare(`UPDATE timetracker_active_sessions SET last_heartbeat = ? WHERE state = 'running'${waiting}`).run(nowIso());
 }
 
 // ---------- crash recovery (per-session) ----------
@@ -301,7 +316,9 @@ let interruptedIds: Set<number> = new Set();
  * and because sessions outlive navigation, this capture cannot wait for the module to be opened.
  */
 export function captureInterrupted(db: Db): InterruptedSession[] {
-  interruptedIds = new Set(rows(db).map((r) => r.id));
+  // Only sessions that were still counting. One that was paused when the app closed lost no time
+  // and has nothing to ask: it comes back paused, as he left it.
+  interruptedIds = new Set(rows(db).filter((r) => r.state === "running").map((r) => r.id));
   return listInterrupted(db);
 }
 

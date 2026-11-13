@@ -190,6 +190,20 @@ export function ensureEmployeesSchema(db: Db): void {
     "started_at TEXT NOT NULL",
     "ended_at TEXT", // NULL = running. Set on stop; the row is never deleted.
   ]);
+  // Additive, guarded, AFTER its createTable. The timer could only start and stop, so a clock left
+  // running while the app was closed billed every hour of the gap. paused_at and paused_seconds
+  // let it be held; last_seen_at is when the app last saw it counting, which is what the next
+  // launch offers as the end time. Still no worked duration is stored: the hours are derived from
+  // these stamps when the clock stops (src/shared/employeeTimer.ts).
+  {
+    const cols = (db.pragma("table_info(employee_sessions)") as { name: string }[]).map((c) => c.name);
+    const add = (name: string, decl: string): void => {
+      if (!cols.includes(name)) db.exec(`ALTER TABLE employee_sessions ADD COLUMN ${decl};`);
+    };
+    add("paused_at", "paused_at TEXT"); // NULL = counting
+    add("paused_seconds", "paused_seconds INTEGER NOT NULL DEFAULT 0"); // pauses that have already ended
+    add("last_seen_at", "last_seen_at TEXT"); // NULL = never stamped: an older build's session, or under a minute old
+  }
   // ONE open session per person, enforced by the DATABASE rather than by a caller remembering.
   // A partial index over the running rows only: two stopped sessions for the same person are
   // normal and must stay legal, so the uniqueness applies WHERE ended_at IS NULL.

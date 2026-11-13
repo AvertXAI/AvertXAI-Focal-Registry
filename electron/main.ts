@@ -17,6 +17,7 @@ import { initUpdater, notifyUpdaterBootDone } from "./core/updater";
 import { attachDevToolsShortcut } from "./core/devtools";
 import { initDiag } from "./diag";
 import * as feedback from "./core/services/feedback";
+import { captureJobsLeftRunning, holdQuit, registerQuitGuard, sessionEnding } from "./core/services/work/guardMain";
 
 /**
  * DEV SANDBOX (Jason 08-24-2026). An unpackaged run must NEVER share data with the installed app.
@@ -100,7 +101,14 @@ const TRAY_ICON = nativeImage.createFromDataURL(
 let isQuitting = false;
 // Any real app.quit() — tray Exit or the updater's quitAndInstall — must win over hide-to-tray.
 // before-quit fires ahead of window close; ✕ never calls app.quit(), so hide-to-tray is unaffected.
-app.on("before-quit", () => {
+// The quit guard comes first: while a timer or a job is running the quit is cancelled here and
+// nothing is torn down. A held quit is not a quit, so the flag goes back and ✕ keeps hiding.
+app.on("before-quit", (e) => {
+  if (holdQuit("quit", () => app.quit())) {
+    e.preventDefault();
+    isQuitting = false;
+    return;
+  }
   isQuitting = true;
 });
 // Checkpoint and close every open connection BEFORE the process goes, so each WAL sidecar is folded
@@ -308,6 +316,13 @@ function createWindow(): BrowserWindow {
   // Attention flashes clear when the user comes back to the window.
   win.on("focus", () => win.flashFrame(false));
 
+  // Windows shutdown, restart or sign-out. Windows shows "Focal Registry is preventing shutdown"
+  // while the toast waits; if it ends the session anyway, session-end is the last word we get.
+  win.on("query-session-end", (e) => {
+    if (holdQuit("shutdown", () => app.quit())) e.preventDefault();
+  });
+  win.on("session-end", () => sessionEnding());
+
   // Hide-to-tray: the ✕ hides the window instead of destroying it, unless a real Quit is underway.
   // The window is never destroyed by ✕, so window-all-closed never fires from it (tray keeps us alive).
   win.on("close", (e) => {
@@ -317,7 +332,10 @@ function createWindow(): BrowserWindow {
     if (trayEnabled && !isQuitting) {
       e.preventDefault();
       win.hide();
+      return;
     }
+    // Tray off: this close IS the quit, so it asks about running work while the window still exists.
+    if (!isQuitting && holdQuit("quit", () => app.quit())) e.preventDefault();
   });
 
   // Query param hands the boot theme to the renderer so src/main.tsx can set data-theme BEFORE
@@ -499,7 +517,10 @@ app.whenReady().then(async () => {
     notifyUpdaterBootDone(); // arms the automatic check cycle — first boot:done only, never during boot
   });
   ipcMain.on("boot:start", () => setBooting(true));
+  // Before the handlers register: registering makes each engine relabel its interrupted runs.
+  if (org) captureJobsLeftRunning(getDb());
   registerIpcHandlers();
+  registerQuitGuard();
   const win = createWindow();
   setMainWindow(win);
   // Crash visibility (added at the 08-14 mount gate): a dead or hung renderer paints a silent

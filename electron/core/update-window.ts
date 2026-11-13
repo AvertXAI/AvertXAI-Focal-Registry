@@ -14,6 +14,7 @@ import path from "node:path";
 import { autoUpdater } from "electron-updater";
 import { baseFor, overlayFor } from "./windows";
 import { getSetting, setSetting } from "./services/settings";
+import { holdQuit } from "./services/work/guardMain";
 import { registerWorkSource } from "./services/work/registry";
 
 export type UpdateMode = "normal" | "required" | "unmaintained";
@@ -215,6 +216,8 @@ export function registerUpdateWindowIpc(): void {
   }));
   ipcMain.on("updwin:install", () => {
     if (!app.isPackaged) return; // dev preview: nothing to install
+    // Install-and-quit ends the app like any other quit, so it asks about running work first.
+    if (holdQuit("update", () => autoUpdater.quitAndInstall())) return;
     autoUpdater.quitAndInstall();
   });
   ipcMain.on("updwin:skip", () => {

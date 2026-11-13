@@ -66,6 +66,19 @@ test("Cancel keeps both running and the app open", () => {
   assert.equal(h.guard.state(), null);
 });
 
+test("a second quit that finds nothing running goes ahead, and the held one does not quit again", () => {
+  const h = harness();
+  h.guard.request("quit", h.proceed);
+  h.guard.answer("timer:1", "pause");
+  h.guard.answer("job:1", "finish");
+  h.end("job:1"); // the job ends between two checks
+  assert.equal(h.guard.request("quit", h.proceed), false, "nothing is running, so this quit is not held");
+  assert.equal(h.guard.state(), null);
+  assert.equal(h.checking(), false);
+  h.tick();
+  assert.equal(h.quits(), 0, "the caller of the second quit goes ahead by itself; the held one adds no quit");
+});
+
 test("Finish, then quit: the timer is paused at once, and the quit goes ahead when the job ends", () => {
   const h = harness();
   h.guard.request("update", h.proceed);

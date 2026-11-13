@@ -216,6 +216,26 @@ test("an hours correction that would take an entry below zero is refused", () =>
   assert.deepEqual(listEntriesForPerson(db, who), [entry]);
 });
 
+test("a \"more\" correction that a later \"less\" one stands on cannot be deleted from under it", () => {
+  const who = person("Fake Person G");
+  const entry = hourly(who, 10, 20, "2026-09-07");
+  const more = adjustHours(who, entry.id, 300); // 15 hours
+  const less = adjustHours(who, entry.id, -720); // 3 hours, allowed only because of the 5 added
+  assert.equal(balanceFor(db, who).hours, 3);
+  // Deleting the added hours first would leave the entry at minus two.
+  assert.throws(() => softDeleteAdjustment(db, ORG, more.uuid), /below zero hours/);
+  assert.equal(balanceFor(db, who).hours, 3);
+  assert.equal(balanceFor(db, who).earned, 60);
+  // In the other order both go, and the entry is back to what was logged.
+  softDeleteAdjustment(db, ORG, less.uuid);
+  softDeleteAdjustment(db, ORG, more.uuid);
+  assert.equal(balanceFor(db, who).hours, 10);
+  assert.equal(balanceFor(db, who).earned, 200);
+  // A "less" correction can always be deleted: that only gives hours back.
+  softDeleteAdjustment(db, ORG, adjustHours(who, entry.id, -600).uuid);
+  assert.equal(balanceFor(db, who).hours, 10);
+});
+
 test("hours with no entry named are valued only when one rate is in play", () => {
   const two = person("Fake Person C");
   hourly(two, 4, 20, "2026-09-02");

@@ -19,6 +19,7 @@ import type {
   EmployeePerson,
   TimeTrackerProjectListItem,
 } from "../../shared/types";
+import { signalAppToast } from "../../App";
 import { explainEmployeesError, type EmployeesErrorExplanation } from "./empErrors";
 import { fmtMoney, normalizeMoney } from "./format";
 
@@ -85,12 +86,15 @@ export default function AdjustmentsView({ people, personFilter, onPersonFilter, 
     onDataChanged();
   };
 
+  // A delete or a restore can be refused (it would take an entry below zero hours, or the project
+  // is completed). The reason is shown: a button that does nothing and says nothing reads as broken.
+  const refused = (e: unknown): void => signalAppToast(explainEmployeesError(e instanceof Error ? e.message : String(e), "this correction").plain, "err");
   const softDelete = (uuid: string): void => {
     setBusy(uuid);
     void api.employees.adjustments
       .softDelete(uuid)
       .then(afterWrite)
-      .catch((e: unknown) => console.error("[employees] adjustment delete failed:", e))
+      .catch(refused)
       .finally(() => setBusy(null));
   };
   const restore = (uuid: string): void => {
@@ -98,7 +102,7 @@ export default function AdjustmentsView({ people, personFilter, onPersonFilter, 
     void api.employees.adjustments
       .restore(uuid)
       .then(afterWrite)
-      .catch((e: unknown) => console.error("[employees] adjustment restore failed:", e))
+      .catch(refused)
       .finally(() => setBusy(null));
   };
 

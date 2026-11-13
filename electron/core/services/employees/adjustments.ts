@@ -326,6 +326,11 @@ export function softDeleteAdjustment(db: Db, orgId: string, uuid: string): void 
   if (!existing) throw new Error(`Adjustment ${uuid} not found`);
   if (existing.deleted_at) return;
   assertNotCompleted(db, existing.project_id); // by-uuid path — parent resolved first
+  // Deleting a "more" correction takes its hours off the entry again, so it is held to the same
+  // floor as making a "less" one: a later "less" correction may be standing on those hours.
+  if (existing.kind === "hours" && existing.entry_id !== null && (existing.delta_minutes ?? 0) > 0) {
+    assertEntryHoursLeft(db, existing.entry_id, -(existing.delta_minutes ?? 0));
+  }
   const at = nowIso();
   const audit = JSON.parse(existing.audit_log) as EmployeeAuditEntry[];
   audit.push({ action: "deleted", at });

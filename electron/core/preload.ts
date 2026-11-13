@@ -466,6 +466,8 @@ const api: Api = {
       get: (id: number) => invoke("employees:getPerson", id),
       create: (input: unknown) => invoke("employees:createPerson", input),
       update: (id: number, input: unknown) => invoke("employees:updatePerson", id, input),
+      setDefaultProject: (id: number, projectId: number, projectName: string) =>
+        invoke("employees:setDefaultProject", id, projectId, projectName),
       archive: (id: number, reason: string) => invoke("employees:archivePerson", id, reason),
       restore: (id: number) => invoke("employees:restorePerson", id),
     },

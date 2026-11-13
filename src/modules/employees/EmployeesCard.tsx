@@ -49,6 +49,11 @@ export default function EmployeesCard() {
   const [personModal, setPersonModal] = useState<PersonModalState>(null);
   const [projects, setProjects] = useState<TimeTrackerProjectListItem[]>([]);
   const [groups, setGroups] = useState<TimeTrackerGroup[]>([]);
+  // The person the project picker is open for. Held as an id so that landing on anyone else
+  // (the new-employee wizard selects its own person) closes it without extra wiring.
+  const [pickFor, setPickFor] = useState<number | null>(null);
+  const [pickSel, setPickSel] = useState("");
+  const [saveDefault, setSaveDefault] = useState(false);
 
   const load = useCallback((): void => {
     setReadError(false);
@@ -68,17 +73,30 @@ export default function EmployeesCard() {
     load();
   }, [load]);
 
+  // Projects are made and completed elsewhere while this card stays mounted. A list read once at
+  // mount handed the person form a project it did not contain, and the form saved that as none.
+  const loadProjects = useCallback((): void => {
+    void api.timetracker.projects
+      .list()
+      .then(setProjects)
+      // A failed re-read keeps the last good list: an emptied picker would read as "no projects".
+      .catch((e: unknown) => console.error("[employees-card] projects read failed:", e));
+  }, [api]);
+
   // Re-read on any employee/timer write from anywhere. Without this the card kept whatever it read
   // at mount — which is why a person created on one tab did not appear in the picker on another.
   useEffect(() => {
-    const onChanged = (): void => load();
+    const onChanged = (): void => {
+      load();
+      loadProjects();
+    };
     return api.on<void>("timetracker:changed", onChanged);
-  }, [api, load]);
+  }, [api, load, loadProjects]);
 
   useEffect(() => {
-    void api.timetracker.projects.list().then(setProjects).catch(() => setProjects([]));
+    loadProjects();
     void api.timetracker.groups.list().then(setGroups).catch(() => setGroups([]));
-  }, [api]);
+  }, [api, loadProjects]);
 
   // One interval, and ONLY while something is running — an idle card does no work at all.
   useEffect(() => {
@@ -96,6 +114,10 @@ export default function EmployeesCard() {
 
   const person = (people ?? []).find((p) => String(p.id) === selected) ?? null;
   const running = person ? sessions.find((s) => s.employee_id === person.id) ?? null : null;
+  // Completed jobs refuse new time, so the picker never offers one.
+  const openProjects = projects.filter((p) => p.completed_at == null);
+  const pickedProject = openProjects.find((p) => String(p.id) === pickSel) ?? null;
+  const picking = person !== null && pickFor === person.id && !running;
 
   const onPick = (value: string): void => {
     if (value === NEW_PERSON) {
@@ -103,22 +125,18 @@ export default function EmployeesCard() {
       return;
     }
     setSelected(value);
+    setPickFor(null);
     setError(null);
   };
 
   const start = (): void => {
     if (!person || busy) return;
-    // A timer needs a project and a rate. Both come from the person's defaults — the card has no
-    // form of its own, deliberately: anything more than "start their clock" belongs in Add Time.
-    const projectId = person.default_project_id;
-    const projectName = person.default_project_name;
-    if (projectId == null || projectName == null) {
-      setError({
-        plain: `${person.name} has no default project, so there is nowhere to put the time.`,
-        hint: "Open Employees, edit them, and pick a project — or use + Add time to log it against one now.",
-      });
-      return;
-    }
+    // A timer needs a project and a rate. Both come from the person's defaults. The one thing the
+    // card asks for itself is a project when there is no default: sending the user to the editor
+    // for it left no way to start the clock from here. Anything more belongs in Add Time.
+    const picked = picking ? pickedProject : null;
+    const projectId = picked?.id ?? person.default_project_id;
+    const projectName = picked?.name ?? person.default_project_name;
     const payType = person.default_pay_type ?? "hourly";
     if (payType === "job" || payType === "task") {
       setError({
@@ -127,6 +145,18 @@ export default function EmployeesCard() {
       });
       return;
     }
+    if (projectId == null || projectName == null) {
+      setError(null);
+      // Already open: leave the user's choice and tick alone.
+      if (pickFor !== person.id) {
+        setPickSel("");
+        setSaveDefault(false);
+        setPickFor(person.id);
+        loadProjects();
+      }
+      return;
+    }
+    const asDefault = picked !== null && saveDefault;
     setBusy(true);
     setError(null);
     void api.employees.sessions
@@ -139,7 +169,20 @@ export default function EmployeesCard() {
         rateAtStart: person.default_rate ?? 0,
         note: null,
       })
-      .then((s) => setSessions((prev) => [...prev, s]))
+      .then((s) => {
+        setSessions((prev) => [...prev, s]);
+        setPickFor(null);
+        if (!asDefault) return;
+        // The clock is already running, so a failed save must not read as a failed start.
+        void api.employees.people.setDefaultProject(person.id, projectId, projectName).catch((e: unknown) => {
+          const raw = e instanceof Error ? e.message : String(e);
+          console.error("[employees-card] default project save failed:", raw);
+          setError({
+            plain: `The timer is running, but ${projectName} was not saved as ${person.name}'s default project.`,
+            hint: "Open Employees and edit them to set it.",
+          });
+        });
+      })
       .catch((e: unknown) => {
         const raw = e instanceof Error ? e.message : String(e);
         console.error("[employees-card] start failed:", raw);
@@ -226,6 +269,38 @@ export default function EmployeesCard() {
             </button>
           </div>
 
+          {picking && person && (
+            <>
+              <p className="emp-embedhint ask">
+                {openProjects.length === 0
+                  ? `${person.name} has no default project, and there are no open projects to choose from. Add a project first.`
+                  : `${person.name} has no default project yet. Choose one to start their time.`}
+              </p>
+              <div className="emp-embedrow">
+                <select
+                  className="emp-input"
+                  aria-label="Project"
+                  value={pickSel}
+                  onChange={(e) => setPickSel(e.target.value)}
+                >
+                  <option value="">{openProjects.length === 0 ? "No open projects…" : "Choose a project…"}</option>
+                  {openProjects.map((p) => (
+                    <option key={p.id} value={String(p.id)}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="emp-check">
+                  <input type="checkbox" checked={saveDefault} onChange={(e) => setSaveDefault(e.target.checked)} />
+                  Save as {person.name}&apos;s default project
+                </label>
+                <button className="emp-btn primary" disabled={!pickedProject || busy} onClick={start}>
+                  Start
+                </button>
+              </div>
+            </>
+          )}
+
           <p className="emp-embedhint">
             Find an employee, start their time, add time, or make adjustments — without leaving
             TimeTracker.
@@ -261,9 +336,13 @@ export default function EmployeesCard() {
         <ProjectModalHost
           groups={groups}
           onClose={() => setWizard(null)}
-          onSavedStop={() => setWizard(null)}
+          onSavedStop={() => {
+            setWizard(null);
+            loadProjects();
+          }}
           onSavedGoToEmployee={(p) => {
             setWizard(null);
+            loadProjects();
             setPersonModal({ mode: "new", project: p });
           }}
         />

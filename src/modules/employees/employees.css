@@ -305,6 +305,10 @@
    740px floor rather than compressing into unreadable stubs. */
 .emp-embedrow .emp-input { flex: 1 1 190px; width: auto; min-width: 150px; }
 .emp-embedhint { font-size: 11px; color: var(--mc-dimmer); line-height: 1.5; margin-top: 8px; }
+/* The project picker's prompt stands where an error used to, so it reads at text strength; its
+   row sits one hint-gap below it. */
+.emp-embedhint.ask { color: var(--mc-text); }
+.emp-embedhint + .emp-embedrow { margin-top: 8px; }
 /* A running stop button reads as live without borrowing the not-built orange (§3.6). */
 .emp-btn.stop { background: color-mix(in srgb, var(--employees-negative-color) 22%, var(--mc-nested));
   border-color: var(--employees-negative-color); color: var(--mc-text); font-weight: 600;

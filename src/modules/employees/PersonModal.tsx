@@ -88,7 +88,16 @@ export default function PersonModal({
     return rate.trim() !== "" && Number.isFinite(n) && n >= 0 ? n : null;
   };
   const rateInvalid = rate.trim() !== "" && rateValue() === null;
-  const project = projects.find((p) => String(p.id) === projectSel) ?? null;
+  // The list can lag (a project made a moment ago) or leave one out (an archived project). The
+  // person's own project stays a choice either way: resolving only through the list saved an
+  // untouched default as none.
+  const keptId = seedProject?.id ?? editing?.default_project_id ?? null;
+  const keptName = seedProject?.name ?? editing?.default_project_name ?? null;
+  const unlisted =
+    keptId !== null && !projects.some((p) => p.id === keptId) ? { id: keptId, name: keptName } : null;
+  const project =
+    projects.find((p) => String(p.id) === projectSel) ??
+    (unlisted !== null && String(unlisted.id) === projectSel ? unlisted : null);
 
   const submit = (addTime: boolean): void => {
     if (saving) return;
@@ -250,6 +259,7 @@ export default function PersonModal({
               ) : (
               <select className="emp-input" value={projectSel} onChange={(e) => setProjectSel(e.target.value)}>
                 <option value="">No default project</option>
+                {unlisted && <option value={String(unlisted.id)}>{unlisted.name ?? "Current project"}</option>}
                 {projects.map((p) => (
                   <option key={p.id} value={String(p.id)}>
                     {p.name}

@@ -174,6 +174,24 @@ export function updatePerson(db: Db, id: number, input: PersonInput): Person {
   return getPerson(db, personId);
 }
 
+/** The default project ALONE. updatePerson rewrites the whole row and nulls whatever the caller
+    leaves out, so a one-field change must never be sent through it. */
+export function setDefaultProject(db: Db, id: number, projectId: number, projectName: string): Person {
+  const personId = vId(id, "person id");
+  const res = db
+    .prepare(
+      `UPDATE employee_people SET default_project_id = ?, default_project_name = ?, updated_at = ? WHERE id = ?`
+    )
+    .run(
+      vId(projectId, "default project id"),
+      vString(projectName, "default project name", 200, true).trim(),
+      nowIso(),
+      personId
+    );
+  if (res.changes === 0) throw new Error(`Person ${personId} not found`);
+  return getPerson(db, personId);
+}
+
 /** Soft archive. History stays queryable and any outstanding balance remains owed. */
 export function archivePerson(db: Db, orgId: string, id: number, reason: string): Person {
   const person = getPerson(db, id);

@@ -114,6 +114,9 @@ export function registerEmployeesIpc(): void {
   mutHandle("employees:updatePerson", (_e, id: unknown, input: unknown) =>
     people.updatePerson(empCtx().db, id as number, input as PersonInput)
   );
+  mutHandle("employees:setDefaultProject", (_e, id: unknown, projectId: unknown, projectName: unknown) =>
+    people.setDefaultProject(empCtx().db, id as number, projectId as number, projectName as string)
+  );
   mutHandle("employees:archivePerson", (_e, id: unknown, reason: unknown) => {
     const { db, orgId } = empCtx();
     return people.archivePerson(db, orgId, id as number, reason as string);

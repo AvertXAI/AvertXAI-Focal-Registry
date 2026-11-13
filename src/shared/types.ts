@@ -2025,6 +2025,8 @@ export interface Api {
       get: (id: number) => Promise<EmployeePerson>;
       create: (input: EmployeePersonInput) => Promise<EmployeePerson>;
       update: (id: number, input: EmployeePersonInput) => Promise<EmployeePerson>;
+      /** The default project alone. `update` rewrites the whole row, so it cannot carry one field. */
+      setDefaultProject: (id: number, projectId: number, projectName: string) => Promise<EmployeePerson>;
       archive: (id: number, reason: string) => Promise<EmployeePerson>;
       restore: (id: number) => Promise<EmployeePerson>;
     };

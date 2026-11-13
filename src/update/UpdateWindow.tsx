@@ -6,6 +6,7 @@
 // of the summary — one box, two views, never a second panel. Required mode (major bump) offers only
 // Install now / Quit; unmaintained mode nags with Update now / Later.
 import { useEffect, useRef, useState } from "react";
+import type { DataCopyResult } from "../shared/types";
 
 type Mode = "normal" | "required" | "unmaintained";
 interface InitState {
@@ -52,6 +53,7 @@ declare global {
     updateApi: {
       init: () => Promise<InitState | null>;
       details: () => Promise<DetailGroup[] | null>;
+      copyFirst: () => Promise<DataCopyResult>;
       download: () => Promise<void>;
       install: () => void;
       skip: () => void;
@@ -73,6 +75,11 @@ export default function UpdateWindow() {
   const [prog, setProg] = useState<Progress | null>(null);
   const [open, setOpen] = useState(false);
   const [details, setDetails] = useState<DetailGroup[] | "loading" | "failed" | null>(null);
+  // Ticked every time the window opens, never remembered: skipping the backup has to be chosen
+  // again for each update.
+  const [copyFirst, setCopyFirst] = useState(true);
+  const [copying, setCopying] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   /** The incoming version the window is currently showing — so a re-offer can tell "same version,
       refreshed" from "a newer version landed". */
   const shown = useRef<string | null>(null);
@@ -127,7 +134,24 @@ export default function UpdateWindow() {
   if (!st) return null;
   const required = st.mode === "required";
   const unmaintained = st.mode === "unmaintained";
-  const primary = () => (stage === "ready" ? window.updateApi.install() : startDownload());
+  // The backup runs here, at consent: once the download is in, any ordinary quit installs it, so
+  // waiting for the Restart button would come too late.
+  const consent = async () => {
+    if (copying) return;
+    if (!copyFirst) {
+      startDownload();
+      return;
+    }
+    setCopying(true);
+    const result = await window.updateApi
+      .copyFirst()
+      .catch((e: unknown): DataCopyResult => ({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+    setCopying(false);
+    if (result.ok) startDownload();
+    // Never an empty reason: an empty one would read as "no failure" and put the idle buttons back.
+    else setCopyError(result.error || "No reason was given.");
+  };
+  const primary = () => (stage === "ready" ? window.updateApi.install() : void consent());
   const primaryLabel = stage === "ready" ? "Restart and install" : required ? "Install now" : unmaintained ? "Update now" : "Install update";
 
   return (
@@ -213,8 +237,25 @@ export default function UpdateWindow() {
         Full changelog: focalregistry.com/releases
       </button>
 
-      <div className="upd-actions">
-        {required ? (
+      {stage === "idle" && !copyError && (
+        <label className="upd-check">
+          <input type="checkbox" checked={copyFirst} disabled={copying} onChange={(e) => setCopyFirst(e.target.checked)} />
+          {copying ? "Backing up everything first…" : "Back up everything first"}
+        </label>
+      )}
+      {copyError && (
+        <div className="upd-copyfail" role="alert">
+          The backup did not finish, so the update has not started. {copyError}
+        </div>
+      )}
+
+      <div className={"upd-actions" + (copying ? " busy" : "")}>
+        {copyError ? (
+          <>
+            <button className="upd-btn" onClick={() => setCopyError(null)}>Cancel</button>
+            <button className="upd-btn primary" onClick={() => { setCopyError(null); startDownload(); }}>Install anyway</button>
+          </>
+        ) : required ? (
           <>
             <button className="upd-btn" onClick={() => window.updateApi.quit()}>Quit</button>
             <button className="upd-btn primary" disabled={stage === "downloading"} onClick={primary}>{primaryLabel}</button>

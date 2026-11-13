@@ -14,6 +14,7 @@ import path from "node:path";
 import { autoUpdater } from "electron-updater";
 import { baseFor, overlayFor } from "./windows";
 import { getSetting, setSetting } from "./services/settings";
+import { runDataCopy } from "./services/data/copyAllIpc";
 import { holdQuit } from "./services/work/guardMain";
 import { registerWorkSource } from "./services/work/registry";
 
@@ -202,6 +203,9 @@ export function registerUpdateWindowIpc(): void {
   });
   ipcMain.handle("updwin:init", () => state);
   ipcMain.handle("updwin:details", () => fetchDetails());
+  // The backup is asked for at consent, before any download: once an update is downloaded, an
+  // ordinary quit installs it with no button pressed, so any later step would come too late.
+  ipcMain.handle("updwin:copyFirst", () => runDataCopy());
   ipcMain.handle("updwin:download", () => whileDownloading(async () => {
     // Dev preview has no feed — simulate a short download so the full flow is gateable on-device.
     if (!app.isPackaged) {

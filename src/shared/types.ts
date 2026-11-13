@@ -1507,6 +1507,17 @@ export type {
   VaultSecretWithValue,
 } from "../modules/vault/vaultApi";
 
+/** `path` rides along on a failure too: the folder left behind is marked "(incomplete)", and the
+    message has to be able to name it. */
+export type DataCopyResult = { ok: true; path: string } | { ok: false; error: string; path?: string };
+export interface DataCopyStatus {
+  folder: string;
+  /** ISO, so the page formats it like every other date. */
+  lastAt: string | null;
+  lastPath: string | null;
+  running: boolean;
+}
+
 export interface Api {
   /** Read-only SQLite browser (Data Viewer module) — introspection only, never writes. */
   db: {
@@ -1865,6 +1876,14 @@ export interface Api {
   updater: {
     check: () => Promise<UpdateCheckOutcome>;
     version: () => Promise<string>;
+  };
+  /** Back up everything (Settings → Data). A run() made while one is already going joins it, so
+   *  two callers can never copy the same data twice. pickFolder() remembers the choice itself. */
+  dataCopy: {
+    status: () => Promise<DataCopyStatus>;
+    pickFolder: () => Promise<string | null>;
+    run: () => Promise<DataCopyResult>;
+    reveal: (path: string) => Promise<void>;
   };
   tray: {
     /** Persist the tray-on-close setting and rewire the ✕ behaviour live (no restart). */

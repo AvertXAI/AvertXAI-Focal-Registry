@@ -51,7 +51,17 @@ body { padding: 0 !important; overflow: hidden; }
 
 .upd-link { align-self: flex-start; background: none; border: none; padding: 0; cursor: pointer; font-size: 12px; color: var(--mc-accent-primary); text-decoration: underline; }
 
+/* "Back up everything first" sits on its own row above the buttons. It, and the notice that takes
+   its place when the backup fails, both come out of the notes box above: the window is a fixed
+   560 by 540 and that box is the only part that flexes. The notice is capped and scrolls for the
+   same reason, so a long reason can never push the buttons out of the window. */
+.upd-check { flex: none; align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--mc-text); cursor: pointer; }
+.upd-check input { flex: none; width: 15px; height: 15px; accent-color: var(--mc-accent-primary); }
+.upd-copyfail { flex: none; max-height: 84px; overflow-y: auto; padding: 8px 10px; border-radius: var(--mc-radius); border: 1px solid var(--mc-border); background: color-mix(in srgb, var(--mc-orange) 16%, var(--mc-panels)); color: var(--mc-text); font-size: 12.5px; line-height: 1.4; overflow-wrap: anywhere; }
+
 .upd-actions { flex: none; margin-top: auto; display: flex; justify-content: flex-end; gap: 8px; }
+/* While the backup runs a second press would only join the same backup, but it must not look possible. */
+.upd-actions.busy .upd-btn { opacity: 0.5; pointer-events: none; }
 .upd-btn { padding: 7px 14px; border-radius: var(--mc-radius); border: 1px solid var(--mc-border); background: var(--mc-nested); color: var(--mc-text); font-size: 13px; cursor: pointer; }
 .upd-btn:hover:not(:disabled) { background: var(--mc-panels); }
 .upd-btn.primary { background: var(--mc-accent-primary); border-color: var(--mc-accent-primary); color: #ffffff; font-weight: 600; }

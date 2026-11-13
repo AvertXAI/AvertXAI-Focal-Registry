@@ -49,6 +49,7 @@ import { ensureScanNotesSchema } from "./services/scan/notesDb";
 import * as scanReport from "./services/scan/report";
 import * as scanExport from "./services/scan/export";
 import * as storage from "./services/storage";
+import { registerDataCopyIpc } from "./services/data/copyAllIpc";
 import { ensureScanSchema } from "./services/scan/db";
 import { generateUUIDv7 } from "./services/utils/uuidv7";
 import * as settings from "./services/settings";
@@ -809,6 +810,9 @@ export function registerIpcHandlers(): void {
   });
   // Copies the existing tree to the new root, then re-points — never moves/deletes the old (2.6).
   safeHandle("storage:changeRoot", (_e, newRoot: unknown) => storage.changeMarkdownRoot(String(newRoot ?? "")));
+  // Back up everything registers from its own file: the Software Update window starts the same
+  // run, so the run and its one-at-a-time rule cannot live inside this function.
+  registerDataCopyIpc();
   // migrate module — discovery is READ-ONLY against sources; bundle export writes ONLY into the
   // user-chosen destination via the shared copyVerified core (hash ON — removable media). Jobs drain
   // a single-slot queue (Jason's ruling); long-running work is fire-and-forget over migrate:progress.

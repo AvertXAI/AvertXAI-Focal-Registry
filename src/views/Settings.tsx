@@ -12,6 +12,7 @@ import { setTipsEnabled } from "../components/Tip";
 import MindMergeSettings from "../modules/mindmerge/MindMergeSettings";
 import TimeTrackerSettings from "../modules/timetracker/TimeTrackerSettings";
 import ManageBilling from "../components/ManageBilling";
+import { SettingsData } from "./SettingsData";
 import VaultSettings from "../modules/vault/VaultSettings";
 import type { DeviceIdentityInfo, StorageLocations } from "../shared/types";
 
@@ -35,7 +36,7 @@ let deviceCache: DeviceIdentityInfo | null = null;
 // same-session remounts; app_settings "settings_active_section" (bare snake_case — shell-level
 // key, in RENDERER_KEYS) survives a restart. Unknown/stale values fall back to General.
 let sectionCache: string | null = null;
-const LIVE_SECTIONS = new Set(["General", "Appearance", "Storage", "My Profile", "Business Profile", "Manage Billing", "Scan", "TimeTracker", "MindMerge", "Vault"]);
+const LIVE_SECTIONS = new Set(["General", "Appearance", "Storage", "Data", "My Profile", "Business Profile", "Manage Billing", "Scan", "TimeTracker", "MindMerge", "Vault"]);
 
 /** Business Profile keys (08-06) — the invoice's bill-from block, terms and default tax rate.
     Config-as-Data rows in app_settings; every key is in RENDERER_KEYS. */
@@ -286,6 +287,10 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
             <button className={nav("Storage")} onClick={() => openSection("Storage")}>
               <FolderIcon />
               Storage
+            </button>
+            <button className={nav("Data")} onClick={() => openSection("Data")}>
+              <DataIcon />
+              Data
             </button>
             <button className={nav("My Profile")} onClick={() => openSection("My Profile")}>
               <PersonIcon />
@@ -546,6 +551,8 @@ export default function Settings({ themeMode, onThemeChange }: Props) {
               </>
             )}
 
+            {activeSection === "Data" && <SettingsData />}
+
             {activeSection === "My Profile" && (
               <>
                 <h2>My Profile</h2>
@@ -752,6 +759,14 @@ function MindMergeIcon() {
     <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 1.8h4.5L12 5.3V14a.7.7 0 0 1-.7.7H4a.7.7 0 0 1-.7-.7V2.5A.7.7 0 0 1 4 1.8Z" />
       <path d="M8.3 1.8v3.2h3.2M5.6 8.3h4.8M5.6 10.8h4.8" />
+    </svg>
+  );
+}
+function DataIcon() {
+  return (
+    <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <ellipse cx="8" cy="3.8" rx="5.2" ry="2" />
+      <path d="M2.8 3.8v8.4c0 1.1 2.3 2 5.2 2s5.2-.9 5.2-2V3.8M2.8 8c0 1.1 2.3 2 5.2 2s5.2-.9 5.2-2" />
     </svg>
   );
 }

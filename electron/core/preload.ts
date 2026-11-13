@@ -656,6 +656,12 @@ const api: Api = {
     check: () => invoke("updater:check"),
     version: () => invoke("updater:version"),
   },
+  dataCopy: {
+    status: () => invoke("datacopy:status"),
+    pickFolder: () => invoke("datacopy:pickFolder"),
+    run: () => invoke("datacopy:run"),
+    reveal: (path: string) => invoke("datacopy:reveal", path),
+  },
   tray: {
     // Persist the tray-on-close setting AND rewire the ✕ behaviour live (handled in main.ts).
     setEnabled: (enabled: boolean) => invoke("tray:setEnabled", enabled),

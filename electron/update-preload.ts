@@ -12,6 +12,7 @@ const on = <T,>(channel: string) => (cb: (payload: T) => void): (() => void) => 
 contextBridge.exposeInMainWorld("updateApi", {
   init: () => ipcRenderer.invoke("updwin:init"),
   details: () => ipcRenderer.invoke("updwin:details"),
+  copyFirst: () => ipcRenderer.invoke("updwin:copyFirst"),
   download: () => ipcRenderer.invoke("updwin:download"),
   install: () => ipcRenderer.send("updwin:install"),
   skip: () => ipcRenderer.send("updwin:skip"),

@@ -205,8 +205,12 @@ export function resolveLeftoverTimer(
   endIso?: string
 ): { ok: boolean; error?: string } {
   const c = ctx();
+  if (!c) return { ok: false, error: "That timer is no longer waiting for an answer." };
   const left = leftoverTimers().find((t) => t.id === id);
-  if (!c || !left) return { ok: false, error: "That timer is no longer waiting for an answer." };
+  // Settled somewhere else while the prompt was open (the Mini Timer's own Pause or Stop). There
+  // is nothing left to answer, so the question goes away: refused, the prompt would have no
+  // button that works and no way to close.
+  if (!left) return { ok: true };
   try {
     if (choice === "keep") {
       if (left.source === "project") timer.recoverResume(c.db, sessionId(id));

@@ -53,7 +53,9 @@ function beat(db: Db, orgId: string, notify: AttentionNotify): void {
   // LIVE settings read, every beat — never cached at engine start (the shipped-bug guard).
   const s = getSettings(db);
   const sessions = timer.status(db).sessions;
-  const running = sessions.filter((x) => x.state === "running");
+  // Not every session in the running state: a timer an earlier launch left running is waiting for
+  // his answer. Counted here, the break auto-pause would answer for him and file the closed gap.
+  const running = timer.countingNow(db);
 
   // ---- break reminder: accrue tracked-work time only while something RUNS; a stretch with no
   // running timer resets the clock (a stopped stretch IS a break). Disabled → fully reset.

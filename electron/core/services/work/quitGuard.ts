@@ -41,6 +41,8 @@ export function createQuitGuard(deps: GuardDeps): QuitGuard {
   let held: { reason: string; proceed: () => void } | null = null;
   const answers = new Map<string, WorkAction>();
   const acted = new Set<string>();
+  /** An answer of his was carried out during this hold, so the quit is his to have once work ends. */
+  let answered = false;
   let stopChecking: (() => void) | null = null;
 
   const snapshot = (lines: WorkLine[]): GuardState => ({
@@ -55,6 +57,7 @@ export function createQuitGuard(deps: GuardDeps): QuitGuard {
     held = null;
     answers.clear();
     acted.clear();
+    answered = false;
     deps.publish(null);
   }
 
@@ -62,16 +65,21 @@ export function createQuitGuard(deps: GuardDeps): QuitGuard {
     if (!held) return;
     // A copy: acting on a line can take it off its source's own list while this loop is on it.
     const lines = [...deps.running()];
-    for (const id of [...answers.keys()]) {
-      if (!lines.some((line) => line.id === id)) answers.delete(id);
+    // A line that went away and comes back is new work and needs its own answer: a timer he
+    // paused here and then resumed while a job finishes. Remembered as acted, it would be listed
+    // with no buttons and the quit would wait on it for ever.
+    for (const id of [...answers.keys(), ...acted]) {
+      if (lines.some((line) => line.id === id)) continue;
+      answers.delete(id);
+      acted.delete(id);
     }
     if (lines.length === 0) {
       // Work that ended by itself before he answered is not an answer: the app stays open, and
       // he quits again if he still wants to. Only a quit he answered for goes ahead.
       const { proceed } = held;
-      const answered = acted.size > 0;
+      const go = answered;
       close();
-      if (answered) proceed();
+      if (go) proceed();
       return;
     }
     // Nothing is carried out until the last line has its answer, so Cancel can still keep it all.
@@ -79,6 +87,7 @@ export function createQuitGuard(deps: GuardDeps): QuitGuard {
       for (const line of lines) {
         if (acted.has(line.id)) continue;
         acted.add(line.id);
+        answered = true;
         // A line that cannot be acted on stays listed, so the quit keeps waiting and he can Cancel.
         try {
           deps.act(line.id, answers.get(line.id) as WorkAction);

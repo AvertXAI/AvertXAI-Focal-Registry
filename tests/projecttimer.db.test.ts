@@ -80,6 +80,12 @@ test("only a timer that was still counting is asked about, and its last-seen tim
   );
 
   const fresh = leftBehind("Fake project C", "running", 10, 5); // not captured: this launch's own
+  // Only this launch's own timer is work being done now. The break reminder reads this list, so
+  // its auto-pause can never answer the question about the one that is waiting.
+  assert.deepEqual(
+    timer.countingNow(db).map((s) => s.id),
+    [fresh.id]
+  );
   timer.heartbeatAll(db);
   assert.equal(heartbeat(left.id), iso(left.seen));
   assert.notEqual(heartbeat(fresh.id), iso(fresh.seen));

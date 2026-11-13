@@ -138,6 +138,27 @@ test("an answer cannot be changed once it was carried out", () => {
   assert.deepEqual(h.acted, [["timer:1", "pause"], ["job:1", "finish"]]);
 });
 
+test("a timer resumed while a job finishes is asked about again, and the quit waits for that answer", () => {
+  const h = harness();
+  h.guard.request("quit", h.proceed);
+  h.guard.answer("timer:1", "pause");
+  h.guard.answer("job:1", "finish");
+  h.tick();
+  assert.equal(h.published.at(-1)?.waiting, true);
+  // He resumes the same timer from its own screen while the job is still finishing.
+  h.running.unshift({ id: "timer:1", kind: "timer", text: "Timer: Fake Project · Fake Person · 1h 06m", actions: ["pause", "stop"] });
+  h.tick();
+  assert.equal(h.published.at(-1)?.waiting, false, "one line has no answer again, so its buttons are back");
+  assert.equal(h.published.at(-1)?.lines[0].answer, null);
+  h.end("job:1");
+  h.tick();
+  assert.equal(h.quits(), 0, "the timer is running and nobody answered for it");
+  h.guard.answer("timer:1", "stop");
+  assert.deepEqual(h.acted.at(-1), ["timer:1", "stop"]);
+  h.tick();
+  assert.equal(h.quits(), 1);
+});
+
 test("a tracked job is listed while it runs, hears Stop safely, and leaves the list when done", async () => {
   let release: () => void = () => undefined;
   let sawStop = false;

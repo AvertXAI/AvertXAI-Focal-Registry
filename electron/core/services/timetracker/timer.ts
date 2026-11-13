@@ -322,6 +322,13 @@ export function captureInterrupted(db: Db): InterruptedSession[] {
   return listInterrupted(db);
 }
 
+/** The sessions that are counting work being done now. A timer an earlier launch left running
+    is in the running state too, but it is waiting for his answer at the next-launch prompt, so
+    nothing may pause, stop or count it on his behalf. */
+export function countingNow(db: Db): MultiTimerStatus["sessions"] {
+  return status(db).sessions.filter((s) => s.state === "running" && !interruptedIds.has(s.id));
+}
+
 export function listInterrupted(db: Db): InterruptedSession[] {
   return rows(db)
     .filter((r) => interruptedIds.has(r.id))

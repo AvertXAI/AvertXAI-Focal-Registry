@@ -130,9 +130,10 @@ function startTicker(db: Db): void {
   // better-sqlite3 handle this interval touches EVERY tick (tickPayload each second, heartbeatAll
   // each fifth), so any tick landing after it threw against a closed db — under the old default
   // handler that was a native error dialog per second until force-kill; under the new crash net it
-  // was a silent crash report per second. Clearing on before-quit ends the ticks before the DBs
-  // close. Mirrors the pattern thumbWorker.ts:102 already proved.
-  app.on("before-quit", () => {
+  // was a silent crash report per second. Cleared on will-quit, in the same synchronous emit that
+  // closes the DBs, so no tick can land after the close. Not before-quit: that also fires for a
+  // quit that then aborts, and the ticker would stay dead for the rest of the session.
+  app.on("will-quit", () => {
     if (tickerHandle) clearInterval(tickerHandle);
     tickerHandle = null;
   });

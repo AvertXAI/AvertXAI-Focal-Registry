@@ -37,8 +37,9 @@ export function startAttentionEngine(db: Db, orgId: string, notify: AttentionNot
   handle = setInterval(() => beat(db, orgId, notify), BEAT_MS);
   // TEARDOWN (08-24-2026): each beat reads settings and timer status from the shared db, so a beat
   // after will-quit's closeAllDbs() throws against a closed handle — same lane as the 1s ticker,
-  // at a 15s cadence. Cleared on before-quit so the last beat lands before the DBs close.
-  app.on("before-quit", () => {
+  // at a 15s cadence. Cleared on will-quit, in the same synchronous emit that closes the DBs.
+  // before-quit also fires for a quit that then aborts, which would silence the engine for good.
+  app.on("will-quit", () => {
     if (handle) clearInterval(handle);
     handle = null;
   });

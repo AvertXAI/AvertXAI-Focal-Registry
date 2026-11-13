@@ -52,6 +52,7 @@ import Markdoc, { type RenderableTreeNode } from "@markdoc/markdoc";
     the return to Record<string, unknown> and stopped assigning. Same shape, named type. */
 type MarkdocComponents = NonNullable<Parameters<typeof Markdoc.renderers.react>[2]>["components"];
 import { isHighlightable, tokenize, type Role, type Token } from "./codeTheme";
+import { isBoldLabel } from "./boldLabel";
 import { mindmergeApi } from "./mindmergeApi";
 import { cachedAttachmentSrc, isMindMergeSrc, resolveAttachmentSrc } from "./attachmentSrc";
 
@@ -209,6 +210,11 @@ function boldLabels(text: string): string {
   return text.replace(
     /(`+)[^\n]*?\1|(?<=^|\s)\*\*(?=\S)([^*\n]*[^\s*\\])((?![*\\()\[\]{}`_~>])[\p{P}\p{S}])\*\*(?=[\p{L}\p{N}])/gmu,
     (match, ticks: string | undefined, label: string, mark: string) => (ticks ? match : `**${label}**${mark}`)
+  ).replace(
+    // After an opening bracket or a quote the editor reads bold only for a label (MM-10), so the
+    // same test decides here: `(**Note:**x)` is a label, `f(**a,**b)` is code and stays as typed.
+    /(`+)[^\n]*?\1|(?<=[([{"'“‘])\*\*(?=\S)([^*\n]*[^\s*\\]):\*\*(?=[\p{L}\p{N}])/gmu,
+    (match, ticks: string | undefined, label: string) => (ticks || !isBoldLabel(`${label}:`) ? match : `**${label}**:`)
   );
 }
 

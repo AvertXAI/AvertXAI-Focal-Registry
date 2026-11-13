@@ -10,6 +10,7 @@ import type { Ctx } from "@milkdown/kit/ctx";
 import type { Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
 import type { EditorState, Transaction } from "@milkdown/kit/prose/state";
 import { $remark } from "@milkdown/kit/utils";
+import { isBoldLabel } from "./boldLabel";
 import { tidyMarkdown } from "./tidyMarkdown";
 
 interface MdNode {
@@ -160,7 +161,7 @@ export function faithfulMarkdownConfig(ctx: Ctx): void {
 /** micromark hands a tokenizer a code point, null at the end of input, or a negative value for a line ending or tab. */
 type Code = number | null;
 type TokenState = (code: Code) => TokenState | undefined;
-interface AttentionToken { type: string; _open?: boolean; _close?: boolean }
+interface AttentionToken { type: string; _open?: boolean; _close?: boolean; start?: unknown; end?: unknown }
 type TokenEvent = [string, AttentionToken, unknown];
 interface TokenEffects {
   enter: (type: string) => AttentionToken;
@@ -183,12 +184,14 @@ const ASTERISK = 42;
 const isBlank = (code: Code): boolean => code === null || code < 0 || /\s/u.test(String.fromCodePoint(code));
 const isPunctuation = (code: Code): boolean => code !== null && code > 0 && /[\p{P}\p{S}]/u.test(String.fromCodePoint(code));
 const isOpeningBracket = (code: Code): boolean => code === 40 || code === 91 || code === 123;
+const ENDS_WITH_OPENING_BRACKET_OR_QUOTE = /[([{"'“‘]$/u;
 
 /**
  * Whether the bold this run would close began the way a label does: two asterisks at the start of
  * the line or after a space. `f(**kwargs)` and `(a)**2` open after punctuation; closing against
  * those made bold out of text nobody marked, and the asterisks vanished from the screen and from
- * a copy.
+ * a copy. After an opening bracket or a quote, `(**Note:**x)`, it closes only when the bold text
+ * itself reads as a label (MM-10).
  */
 function closesALabel(context: TokenContext): boolean {
   const { events } = context;
@@ -200,7 +203,11 @@ function closesALabel(context: TokenContext): boolean {
       const run = context.sliceSerialize(token);
       if (run.charCodeAt(0) !== ASTERISK) continue;
       const lead = events[at - 1];
-      return run.length >= 2 && (!lead || /\s$/u.test(context.sliceSerialize(lead[1])));
+      if (run.length < 2) return false;
+      const before = lead ? context.sliceSerialize(lead[1]) : "";
+      if (!lead || /\s$/u.test(before)) return true;
+      if (!ENDS_WITH_OPENING_BRACKET_OR_QUOTE.test(before)) return false;
+      return isBoldLabel(context.sliceSerialize({ type: "", start: token.end, end: events[events.length - 1][1].start }));
     }
   } catch {
     // An opener that cannot be read is not one to widen the rules for.

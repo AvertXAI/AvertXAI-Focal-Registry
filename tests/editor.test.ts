@@ -125,7 +125,14 @@ test("MM-03: a bold label hard against its value reads back as bold", async () =
 
 test("MM-03: the preview pane reads a bold label the way the editor does", () => {
   assert.equal(preprocess(LABELLED).trim(), "**URL (INTERNAL)**:redis://default:FAKE000@fake.internal:6379/0");
-  for (const untouched of [SENTENCE, REDIS, "**A**: text.**B** end", "2 ** 3 and f(**x)", `\`\`\`\n${LABELLED}\n\`\`\``, "`rm **/build/**tmp` and `echo **KEY:**value`", "**see [docs](https://fake.internal)**now", "**run `npm test`**now", "f(**Note:**x)", "**a ~~b~~**c", "~~~\necho **WARNING:**disk\n- [ ] not a task\n~~~"]) {
+  // MM-10: after a bracket or a quote only a label is bold, exactly as in the editor.
+  assert.equal(preprocess("(**Note:**x)").trim(), "(**Note**:x)");
+  assert.equal(preprocess('"**Note:**x"').trim(), '"**Note**:x"');
+  assert.equal(preprocess("f(**Note:**x)").trim(), "f(**Note**:x)");
+  for (const code of ["f(**a,**b)", "g(**opts)", "use **kwargs", "x(**1:**2)", "call(**a=1:**b)", "`(**Note:**x)`"]) {
+    assert.equal(preprocess(code).trim(), code);
+  }
+  for (const untouched of [SENTENCE, REDIS, "**A**: text.**B** end", "2 ** 3 and f(**x)", `\`\`\`\n${LABELLED}\n\`\`\``, "`rm **/build/**tmp` and `echo **KEY:**value`", "**see [docs](https://fake.internal)**now", "**run `npm test`**now", "**a ~~b~~**c", "~~~\necho **WARNING:**disk\n- [ ] not a task\n~~~"]) {
     assert.equal(preprocess(untouched).trim(), untouched);
   }
 });
@@ -164,6 +171,38 @@ test("MM-03: double asterisks that are not a label stay as typed", async () => {
   for (const labelled of ["**Host:**fake.internal", "see **Host:**fake.internal now", "* **Host:**fake.internal", "> **Host:**fake.internal", "first line\n**Host:**fake.internal"]) {
     assert.ok(!parse(labelled).textContent.includes("*"), labelled);
   }
+});
+
+test("MM-10: a bold label after a bracket or a quote reads as bold; code after a bracket stays as typed", async () => {
+  const { schema, parse, stored, paragraph, docOf } = await ready;
+  const boldOf = (doc: ProseNode): string => {
+    let bold = "";
+    doc.descendants((node) => {
+      if (node.isText && node.marks.some((mark) => mark.type.name === "strong")) bold += node.text ?? "";
+    });
+    return bold;
+  };
+  const labelled: Array<[string, string, string]> = [
+    ["(**Note:**x)", "(Note:x)", "Note:"],
+    ['"**Note:**x"', '"Note:x"', "Note:"],
+    ["see (**Host name:**fake.internal) now", "see (Host name:fake.internal) now", "Host name:"],
+    ["[**Port:**6379]", "[Port:6379]", "Port:"],
+    ["f(**Note:**x)", "f(Note:x)", "Note:"],
+  ];
+  for (const [typed, shown, bold] of labelled) {
+    const doc = parse(typed);
+    assert.equal(doc.textContent, shown, typed);
+    assert.equal(boldOf(doc), bold, typed);
+  }
+  for (const literal of ["f(**a,**b)", "g(**opts)", "use **kwargs", "call(**a=1:**b)", "x(**1:**2)", "(**a(b):**c)", "pass (**kw) and (**x:y)"]) {
+    const doc = parse(literal);
+    assert.equal(doc.textContent, literal, literal);
+    assert.equal(boldOf(doc), "", literal);
+  }
+  // What the editor writes for that bold is what it reads back.
+  const typed = docOf(paragraph(schema.text("("), schema.text("Note:", [schema.marks.strong.create()]), schema.text("x)")));
+  assert.equal(stored(typed), "(**Note:**x)");
+  assert.equal(stored(parse(stored(typed))), "(**Note:**x)");
 });
 
 test("MM-01: text shown in angle brackets is copied with its brackets", async () => {

@@ -64,7 +64,7 @@ export function ensureMigrateSchema(db: Db): void {
     "org_id TEXT NOT NULL",
     "job_id INTEGER NOT NULL",
     "destination_root TEXT NOT NULL", // <dest>\FocalRegistry\Bundles\<label>-MM-DD-YYYY\
-    "status TEXT NOT NULL", // 'running' | 'completed' | 'partial' | 'failed' | 'crashed'
+    "status TEXT NOT NULL", // 'running' | 'completed' | 'partial' | 'failed' | 'aborted' | 'crashed'
     "item_count INTEGER DEFAULT 0",
     "bytes_total INTEGER DEFAULT 0",
     "items_copied INTEGER DEFAULT 0",

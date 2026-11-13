@@ -486,6 +486,11 @@ export function isRunning(): boolean {
   return active?.running === true;
 }
 
+// isRunning() cannot say which run: the quit guard needs the id to describe it and to stop it.
+export function activeRunId(): number | null {
+  return active?.running ? active.runId : null;
+}
+
 export function requestPause(runId: number): boolean {
   if (active?.running && active.runId === runId) {
     active.pauseRequested = true;

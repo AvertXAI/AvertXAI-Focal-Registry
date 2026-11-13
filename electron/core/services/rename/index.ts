@@ -133,6 +133,32 @@ export function requestAbort(batchId: number): boolean {
   return true;
 }
 
+// The batches copying right now. The quit guard lists them: before this there was no way to tell
+// from outside that a batch was in flight.
+export interface RenameWork {
+  batchId: number;
+  kind: "rename" | "revert";
+  done: number;
+  total: number;
+}
+const working = new Set<RenameWork>();
+export function renameWork(): RenameWork[] {
+  return [...working];
+}
+
+// Every batch runs through here so its entry goes however the batch ends. An entry left behind by
+// a batch that threw would hold every later quit open.
+async function tracked<T>(kind: RenameWork["kind"], run: (work: RenameWork) => Promise<T>): Promise<T> {
+  const work: RenameWork = { batchId: 0, kind, done: 0, total: 0 };
+  working.add(work);
+  try {
+    return await run(work);
+  } finally {
+    working.delete(work);
+    aborting.delete(work.batchId);
+  }
+}
+
 /** Any batch left 'running' by a crash is marked 'crashed' at service start (mirrors Scan). */
 export function markInterruptedRenames(db: Db): number {
   const info = db
@@ -153,7 +179,11 @@ export interface StartRenameOpts {
  * process and progress can stream. Returns the batchId immediately-usable id (the row is created
  * synchronously first). NEVER touches a source. Records every file — copied, skipped, or errored.
  */
-export async function startRename(db: Db, orgId: string, opts: StartRenameOpts): Promise<number> {
+export function startRename(db: Db, orgId: string, opts: StartRenameOpts): Promise<number> {
+  return tracked("rename", (work) => runRename(db, orgId, opts, work));
+}
+
+async function runRename(db: Db, orgId: string, opts: StartRenameOpts, work: RenameWork): Promise<number> {
   const { sources, destination, settings, onProgress } = opts;
 
   // (B2) Drive-root guard — refuse before anything is created or copied.
@@ -176,6 +206,7 @@ export async function startRename(db: Db, orgId: string, opts: StartRenameOpts):
       settings.sequencePad, destination
     );
   const batchId = Number(batchInfo.lastInsertRowid);
+  work.batchId = batchId;
   const insSource = db.prepare("INSERT INTO rename_sources (uuid, org_id, batch_id, folder_path) VALUES (?, ?, ?, ?)");
   for (const s of sources) insSource.run(generateUUIDv7(), orgId, batchId, s);
 
@@ -183,6 +214,7 @@ export async function startRename(db: Db, orgId: string, opts: StartRenameOpts):
   const files = gatherSources(sources);
   const preview = buildPreview(files, settings);
   const total = preview.length;
+  work.total = total;
 
   fs.mkdirSync(destination, { recursive: true }); // create the destination tree (never a source)
 
@@ -228,6 +260,7 @@ export async function startRename(db: Db, orgId: string, opts: StartRenameOpts):
 
     if (pending.length >= RENAME_COMMIT_BATCH) flush();
     if ((i & 15) === 15) {
+      work.done = i + 1; // the quit guard can only look while the loop is parked at the yield below
       emit(row.copyFilename);
       await new Promise((r) => setImmediate(r)); // yield: keep the UI alive + let throttled progress flush
     }
@@ -386,7 +419,11 @@ export interface RevertResult {
   extraOnDisk: number; // on disk but not in the log (4.3) — left alone, reported
 }
 
-export async function startRevert(db: Db, orgId: string, opts: StartRevertOpts): Promise<RevertResult> {
+export function startRevert(db: Db, orgId: string, opts: StartRevertOpts): Promise<RevertResult> {
+  return tracked("revert", (work) => runRevert(db, orgId, opts, work));
+}
+
+async function runRevert(db: Db, orgId: string, opts: StartRevertOpts, work: RenameWork): Promise<RevertResult> {
   const { batchId, copiesFolder, destination, onProgress } = opts;
   if (isDriveRoot(destination)) throw new Error(`Refusing a drive root as the revert destination: "${destination}".`);
 
@@ -417,6 +454,7 @@ export async function startRevert(db: Db, orgId: string, opts: StartRevertOpts):
     )
     .run(generateUUIDv7(), orgId, batchId, original?.client_name ?? null, original?.project_name ?? null, destination);
   const revertBatchId = Number(info.lastInsertRowid);
+  work.batchId = revertBatchId;
   db.prepare("INSERT INTO rename_sources (uuid, org_id, batch_id, folder_path) VALUES (?, ?, ?, ?)").run(
     generateUUIDv7(), orgId, revertBatchId, copiesFolder
   );
@@ -424,6 +462,7 @@ export async function startRevert(db: Db, orgId: string, opts: StartRevertOpts):
   fs.mkdirSync(destination, { recursive: true });
 
   const total = mapping.length;
+  work.total = total;
   let restored = 0, skipped = 0, missing = 0;
   const emit = (currentFile: string | null, status = "running"): void =>
     onProgress({ batchId: revertBatchId, status, currentFile, total, copied: restored, skipped, errored: missing });
@@ -434,7 +473,11 @@ export async function startRevert(db: Db, orgId: string, opts: StartRevertOpts):
     if (pending.length) insertBatch(db, orgId, revertBatchId, pending.splice(0, pending.length));
   };
 
+  let finalStatus = "completed";
   for (let i = 0; i < mapping.length; i++) {
+    // Between files, like the copy loop: the file before this one is fully written, and its
+    // ledger row is flushed on the way out below. Before this, a revert could not be stopped.
+    if (aborting.has(revertBatchId)) { finalStatus = "aborted"; break; }
     const m = mapping[i];
     const src = path.join(copiesFolder, m.copy_filename); // the copy we revert FROM (read-only)
     const dest = path.join(destination, m.source_filename); // restore under the ORIGINAL name
@@ -463,6 +506,7 @@ export async function startRevert(db: Db, orgId: string, opts: StartRevertOpts):
     }
     if (pending.length >= RENAME_COMMIT_BATCH) flush();
     if ((i & 15) === 15) {
+      work.done = i + 1; // the quit guard can only look while the loop is parked at the yield below
       emit(m.source_filename);
       await new Promise((r) => setImmediate(r));
     }
@@ -470,9 +514,9 @@ export async function startRevert(db: Db, orgId: string, opts: StartRevertOpts):
   flush();
 
   db.prepare(
-    `UPDATE rename_batches SET status = 'completed', finished_at = CURRENT_TIMESTAMP, files_copied = ?,
+    `UPDATE rename_batches SET status = ?, finished_at = CURRENT_TIMESTAMP, files_copied = ?,
        files_skipped = ?, files_errored = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-  ).run(restored, skipped, missing, revertBatchId);
-  onProgress({ batchId: revertBatchId, status: "completed", currentFile: null, total, copied: restored, skipped, errored: missing });
+  ).run(finalStatus, restored, skipped, missing, revertBatchId);
+  onProgress({ batchId: revertBatchId, status: finalStatus, currentFile: null, total, copied: restored, skipped, errored: missing });
   return { revertBatchId, restored, skipped, missing, extraOnDisk };
 }

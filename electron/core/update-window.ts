@@ -14,6 +14,7 @@ import path from "node:path";
 import { autoUpdater } from "electron-updater";
 import { baseFor, overlayFor } from "./windows";
 import { getSetting, setSetting } from "./services/settings";
+import { registerWorkSource } from "./services/work/registry";
 
 export type UpdateMode = "normal" | "required" | "unmaintained";
 export interface UpdateWindowState {
@@ -145,8 +146,25 @@ export function openUpdateWindow(next: UpdateWindowState): void {
   void updWin.loadFile(path.join(__dirname, "../dist/update.html"), { query: { theme } });
 }
 
+// The percent of a download in flight, null when there is none. The quit guard lists it.
+let downloadPercent: number | null = null;
+// Cleared however the download ends: a failed download left marked as running would hold every
+// later quit open.
+async function whileDownloading(run: () => Promise<void>): Promise<void> {
+  downloadPercent = 0;
+  try {
+    await run();
+  } finally {
+    downloadPercent = null;
+  }
+}
+
 /** Push a live event (progress / downloaded) into the window if it is open. */
 export function forwardToUpdateWindow(channel: string, payload?: unknown): void {
+  // The real updater and the dev simulation both report progress through here, so this is the
+  // one place that sees every percent.
+  const percent = (payload as { percent?: unknown } | undefined)?.percent;
+  if (channel === "updwin:progress" && downloadPercent !== null && typeof percent === "number") downloadPercent = percent;
   if (updWin && !updWin.isDestroyed()) updWin.webContents.send(channel, payload);
 }
 
@@ -162,9 +180,28 @@ let registered = false;
 export function registerUpdateWindowIpc(): void {
   if (registered) return;
   registered = true;
+  // Registered here and not with the engines in work/jobSources.ts: that file is tested headless
+  // and must not import Electron, which this one does.
+  registerWorkSource({
+    list: () =>
+      downloadPercent === null
+        ? []
+        : [
+            {
+              id: "update:download",
+              kind: "job",
+              text: `Update download: ${downloadPercent} percent`,
+              // The updater owns the file it is writing and the app has no cancel for it, so the
+              // only safe answer is to let it finish.
+              actions: ["finish"],
+              next: "Nothing to redo: the update is offered again and its download starts over.",
+            },
+          ],
+    act: () => {},
+  });
   ipcMain.handle("updwin:init", () => state);
   ipcMain.handle("updwin:details", () => fetchDetails());
-  ipcMain.handle("updwin:download", async () => {
+  ipcMain.handle("updwin:download", () => whileDownloading(async () => {
     // Dev preview has no feed — simulate a short download so the full flow is gateable on-device.
     if (!app.isPackaged) {
       for (let pct = 0; pct <= 100; pct += 20) {
@@ -175,7 +212,7 @@ export function registerUpdateWindowIpc(): void {
       return;
     }
     await autoUpdater.downloadUpdate();
-  });
+  }));
   ipcMain.on("updwin:install", () => {
     if (!app.isPackaged) return; // dev preview: nothing to install
     autoUpdater.quitAndInstall();

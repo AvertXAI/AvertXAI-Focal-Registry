@@ -570,7 +570,7 @@ function BundleView({ jobId, drives, progress, onBack }: { jobId: number; drives
   }, [api, jobId, destLetter]);
 
   const bundleP = progress && progress.kind === "bundle" && progress.jobId === jobId ? progress : null;
-  const terminal = bundleP && ["completed", "partial", "failed"].includes(bundleP.status);
+  const terminal = bundleP && ["completed", "partial", "failed", "aborted"].includes(bundleP.status);
   const pct = bundleP && bundleP.bytesTotal ? Math.round(((bundleP.bytesDone ?? 0) / bundleP.bytesTotal) * 100) : 0;
 
   const exportBundle = (): void => {
@@ -619,11 +619,12 @@ function BundleView({ jobId, drives, progress, onBack }: { jobId: number; drives
           <div className="mig-hint">
             {terminal
               ? bundleP!.status === "completed" ? "Bundle complete — every copy checksum-verified."
+                : bundleP!.status === "aborted" ? `Bundle stopped at ${bundleP!.copied ?? 0} of ${bundleP!.totalItems ?? 0}. Export again today to carry on in the same folder.`
                 : bundleP!.status === "partial" ? `Bundle finished with ${bundleP!.failed} failed cop${bundleP!.failed === 1 ? "y" : "ies"} — the rest are verified.`
                   : `Bundle failed${bundleP?.error ? ` — ${bundleP.error}` : ""}.`
               : bundleP ? `Copying ${bundleP.currentPath ?? "…"} — ${bundleP.copied ?? 0} of ${bundleP.totalItems ?? 0}` : "Starting…"}
           </div>
-          <div className="mig-progbar"><i style={{ width: `${terminal ? 100 : pct}%` }} /></div>
+          <div className="mig-progbar"><i style={{ width: `${terminal && bundleP!.status !== "aborted" ? 100 : pct}%` }} /></div>
           {bundleP && !terminal && (
             <div className="mig-hint mig-mono">{pct}% · {fmtBytes(bundleP.bytesDone)} / {fmtBytes(bundleP.bytesTotal)} · verified {bundleP.copied ?? 0}</div>
           )}

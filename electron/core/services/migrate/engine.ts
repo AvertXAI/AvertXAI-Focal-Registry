@@ -124,6 +124,21 @@ export function isEngineBusy(): boolean {
   return draining;
 }
 
+// The search in flight, so the quit guard can name it. Null while the queue is idle.
+let searching: number | null = null;
+export function activeSearchJob(): number | null {
+  return searching;
+}
+// "Stop safely" before a quit. Stopping only the search in flight would let the queue start the
+// next one, and the quit would then wait on a search nobody was asked about. Jobs still queued
+// stay queued, as a crash would leave them.
+let holdQueue = false;
+export function stopSearchSafely(): void {
+  if (searching === null) return;
+  holdQueue = true;
+  aborting.add(searching);
+}
+
 export function createJob(db: Db, orgId: string, opts: CreateJobOpts): number {
   const info = db
     .prepare(
@@ -148,8 +163,9 @@ export async function pumpQueue(db: Db, orgId: string, onProgress: OnProgress): 
       const job = db
         .prepare("SELECT * FROM migrate_jobs WHERE org_id = ? AND status = 'queued' ORDER BY id LIMIT 1")
         .get(orgId) as MigrateJobRow | undefined;
-      if (!job) break;
+      if (!job || holdQueue) break;
       try {
+        searching = job.id;
         await runDiscovery(db, orgId, job, onProgress);
       } catch (e) {
         db.prepare("UPDATE migrate_jobs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?").run(job.id);
@@ -162,6 +178,8 @@ export async function pumpQueue(db: Db, orgId: string, onProgress: OnProgress): 
     }
   } finally {
     draining = false;
+    searching = null;
+    holdQueue = false; // a quit that was cancelled must not leave the queue held for the session
   }
 }
 
@@ -408,7 +426,37 @@ export function bundlePreflight(db: Db, jobId: number, destRoot: string): Prefli
   return { ok: true, neededBytes: needed, freeBytes, bundleDir };
 }
 
+// The bundles copying right now, for the quit guard.
+export interface BundleWork {
+  bundleId: number;
+  done: number;
+  total: number;
+}
+const bundling = new Set<BundleWork>();
+export function bundleWork(): BundleWork[] {
+  return [...bundling];
+}
+// A bundle's "Stop safely". Kept apart from the search's abort flags: those are keyed by job, and
+// one left over from a search would stop that job's bundle before its first file.
+const stoppingBundles = new Set<number>();
+export function requestStopBundle(bundleId: number): void {
+  stoppingBundles.add(bundleId);
+}
+
 export async function startBundle(db: Db, orgId: string, jobId: number, destRoot: string, onProgress: OnProgress): Promise<number> {
+  const work: BundleWork = { bundleId: 0, done: 0, total: 0 };
+  bundling.add(work);
+  try {
+    return await copyBundle(db, orgId, jobId, destRoot, onProgress, work);
+  } finally {
+    // However the copy ends: an entry left behind by a bundle that threw would hold every later
+    // quit open.
+    bundling.delete(work);
+    stoppingBundles.delete(work.bundleId);
+  }
+}
+
+async function copyBundle(db: Db, orgId: string, jobId: number, destRoot: string, onProgress: OnProgress, work: BundleWork): Promise<number> {
   const pre = bundlePreflight(db, jobId, destRoot);
   if (!pre.ok) throw new Error(pre.error ?? "preflight failed");
   const job = getJob(db, jobId)!;
@@ -424,6 +472,8 @@ export async function startBundle(db: Db, orgId: string, jobId: number, destRoot
     )
     .run(generateUUIDv7(), orgId, jobId, pre.bundleDir, items.length, bytesTotal);
   const bundleId = Number(info.lastInsertRowid);
+  work.bundleId = bundleId;
+  work.total = items.length;
 
   fs.mkdirSync(pre.bundleDir, { recursive: true });
 
@@ -439,6 +489,7 @@ export async function startBundle(db: Db, orgId: string, jobId: number, destRoot
   const manifest: ManifestEntry[] = [];
   const usedNames = new Map<string, number>(); // per-subfolder collision suffixing (two sources, same filename)
   let copied = 0, failed = 0, bytesDone = 0;
+  let stopped = false;
 
   const emit = (status: string, current: string | null, force = false): void =>
     throttled(onProgress, {
@@ -449,6 +500,9 @@ export async function startBundle(db: Db, orgId: string, jobId: number, destRoot
   emit("running", null, true);
 
   for (let i = 0; i < items.length; i++) {
+    // Between files only: the file before this one is copied, checked and in the ledger, so a
+    // stop here leaves nothing half-written. Before this, a bundle could not be stopped.
+    if (stoppingBundles.has(bundleId)) { stopped = true; break; }
     const item = items[i];
     const sub = bundleSubfolder(item.asset_class, item.extension);
     const subDir = path.join(pre.bundleDir, sub);
@@ -483,6 +537,7 @@ export async function startBundle(db: Db, orgId: string, jobId: number, destRoot
     }
     if ((i & 7) === 7) {
       bump.run(copied, failed, bundleId);
+      work.done = i + 1; // the quit guard can only look while the loop is parked at the yield below
       emit("running", item.filename);
       await tick();
     }
@@ -496,7 +551,9 @@ export async function startBundle(db: Db, orgId: string, jobId: number, destRoot
     "utf8"
   );
 
-  const finalStatus = failed > 0 ? (copied > 0 ? "partial" : "failed") : "completed";
+  // "aborted", as a stopped rename is: the manifest above lists exactly what was copied, and an
+  // export to the same folder skips those files.
+  const finalStatus = stopped ? "aborted" : failed > 0 ? (copied > 0 ? "partial" : "failed") : "completed";
   db.prepare("UPDATE migrate_bundles SET status = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?").run(finalStatus, bundleId);
   emit(finalStatus, null, true);
   return bundleId;

@@ -379,7 +379,9 @@ function drainScanNotes(withSync = true): void {
   }
 }
 // Kill the PowerShell child on quit so no orphan process survives the app.
-app.on("before-quit", () => {
+// On will-quit, not before-quit: before-quit also fires for a quit that is then held or cancelled,
+// and nothing restarts the watcher, so new drives would stop appearing for the rest of the session.
+app.on("will-quit", () => {
   if (driveDebounce) clearTimeout(driveDebounce);
   stopDriveWatcher?.();
   stopDriveWatcher = null;
@@ -815,6 +817,14 @@ export function registerIpcHandlers(): void {
     }
     return { db, orgId: org.org_id };
   };
+  // Relabel at service start, as Scan and Rename do above, not on the first visit to Migrate. A
+  // job a crash left "running" is listed once at the next launch; left lazy, it would be listed
+  // again at every launch until Migrate was opened.
+  try {
+    migrateCtx();
+  } catch {
+    /* no active org yet: the lazy init covers the session after the wizard */
+  }
   const sendMigrateProgress = (p: migrateEngine.MigrateProgress): void => {
     getMainWindow()?.webContents.send("migrate:progress", p);
   };

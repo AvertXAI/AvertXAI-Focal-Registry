@@ -13,14 +13,18 @@
 // the Data Viewer (database) buttons, and the account avatar are all GONE from this bar. The alert
 // bell is the only thing that stays on the right. Nothing was lost with them — the Data Viewer and
 // Settings are both reachable from the ▤ menu, and search was never wired to an engine.
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Bell, Lock } from "../icons";
 import type { ModuleRow } from "../shared/types";
-import type { ThemeMode, View } from "../App";
+import { signalAppToast, type ThemeMode, type View } from "../App";
+import type { OpenFileLocation } from "../shared/openFileLocation";
 import ShellMenu from "./ShellMenu";
 
 interface Props {
   leaf: string;
+  /** Where the open MindMerge note lives; null when no note is open or another module is showing. */
+  openLocation: OpenFileLocation | null;
   /** Active org display name — Config-as-Data 'org_name', drives the brand crumb. */
   orgName: string;
   /** Active view, so the arrows and the Go menu know where they are. */
@@ -49,6 +53,7 @@ interface Props {
 
 export default function TopBar({
   leaf,
+  openLocation,
   orgName,
   view,
   modules,
@@ -173,6 +178,7 @@ export default function TopBar({
             <span className="leaf">{leaf}</span>
           </span>
           <Lock className="lock" size={15} />
+          {openLocation && <OpenLocation loc={openLocation} />}
         </div>
 
         {/* The bell is the ONLY act left on this bar. `.acts` keeps margin-left:auto, which is what
@@ -200,6 +206,85 @@ export default function TopBar({
         />
       )}
     </header>
+  );
+}
+
+/**
+ * Where the open note lives, beside the lock. Display only.
+ *
+ * THE MENU IS PORTALLED, for the reason ShellMenu's header spells out: .topbar seals its children
+ * inside its own stacking context and is the containing block for fixed descendants, and .crumbs
+ * clips on top of that. So it is placed by measuring the path, not by CSS.
+ */
+function OpenLocation({ loc }: { loc: OpenFileLocation }) {
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!at) return;
+    const close = (): void => setAt(null);
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", onKey);
+    // The menu was placed by measurement, and a resize moves the path out from under it.
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+    };
+  }, [at]);
+
+  // A menu left open must not carry over to a different note.
+  useEffect(() => setAt(null), [loc.uuid]);
+
+  const sourcePath = loc.sourcePath;
+  if (!sourcePath) return <span className="toploc">Stored in Focal Registry</span>;
+
+  const toggle = (): void => {
+    if (at) {
+      setAt(null);
+      return;
+    }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setAt({ top: r.bottom + 6, left: r.left });
+  };
+  const copy = (): void => {
+    setAt(null);
+    void window.api.mindmerge
+      .copyText(sourcePath)
+      .then(() => signalAppToast("Path copied.", "ok"))
+      .catch(() => signalAppToast("The path could not be copied.", "err"));
+  };
+  const reveal = (): void => {
+    setAt(null);
+    void window.api.mindmerge
+      .revealDoc(loc.uuid)
+      .then((found) => {
+        if (!found) {
+          signalAppToast("That file is no longer there. It may have been moved or renamed, or its drive is not connected.", "err");
+        }
+      })
+      .catch(() => signalAppToast("The folder could not be opened.", "err"));
+  };
+
+  return (
+    <>
+      <button ref={btnRef} className="toploc" onClick={toggle} title={sourcePath} aria-expanded={at !== null}>
+        <span className="toploc-text">{sourcePath}</span>
+      </button>
+      {at &&
+        createPortal(
+          <>
+            <div className="shellmenu-scrim toploc-scrim" onClick={() => setAt(null)} />
+            <div className="shellmenu toploc-menu" style={{ top: at.top, left: at.left }}>
+              <button onClick={copy}>Copy path</button>
+              <button onClick={reveal}>Show in folder</button>
+            </div>
+          </>,
+          document.body
+        )}
+    </>
   );
 }
 

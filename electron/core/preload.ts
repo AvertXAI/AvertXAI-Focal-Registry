@@ -211,6 +211,9 @@ const api: Api = {
     getAttachment: (uuid: string) => invoke("mindmerge:getAttachment", uuid),
     // The clipboard funnel — every copy in the module goes through this, never navigator.clipboard.
     copyText: (text: string) => invoke("mindmerge:copyText", text),
+    // The open note's location for the top bar. Only a uuid crosses; main resolves the path.
+    docLocation: (uuid: string) => invoke("mindmerge:docLocation", uuid),
+    revealDoc: (uuid: string) => invoke("mindmerge:revealDoc", uuid),
     // Colour themes installed in Visual Studio Code on this machine. Reads only; never the network.
     findCodeThemes: () => invoke("mindmerge:findCodeThemes"),
     readCodeTheme: (file: string) => invoke("mindmerge:readCodeTheme", file),

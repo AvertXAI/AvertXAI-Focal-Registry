@@ -32,6 +32,7 @@ import MilkdownEditor, { type EditorAction, type MilkdownHandle } from "./Milkdo
 import { rawEdit } from "./rawFormat";
 import { mindmergeApi, type MindMergeDoc, type MindMergeDocFolder, type MindMergeDocMeta } from "./mindmergeApi";
 import { tidyMarkdown } from "./tidyMarkdown";
+import { publishOpenFileLocation } from "../../shared/openFileLocation";
 
 /** The list's date stamp. It came from the vault's EntriesView, which is NOT part of this port, so
     the four lines live here rather than dragging a whole secrets table across the module line. */
@@ -219,6 +220,19 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
   const [loadingMore, setLoadingMore] = useState(false);
   const [rows, setRows] = useState<MindMergeDocMeta[] | null>(() => listCache.get(cacheKey(style, "active", 0)) ?? null);
   const [current, setCurrent] = useState<MindMergeDoc | null>(null);
+  // The top bar shows where the open note lives. Keyed on the uuid alone, so typing and saving
+  // never ask again.
+  const currentUuid = current?.uuid ?? null;
+  useEffect(() => {
+    if (!currentUuid) { publishOpenFileLocation(null); return; }
+    let stale = false;
+    void api.docLocation(currentUuid)
+      .then((r) => { if (!stale) publishOpenFileLocation({ uuid: currentUuid, sourcePath: r.sourcePath }); })
+      .catch(() => { if (!stale) publishOpenFileLocation(null); });
+    return () => { stale = true; };
+  }, [api, currentUuid]);
+  // Leaving the tab or the module must not strand a path on the top bar.
+  useEffect(() => () => publishOpenFileLocation(null), []);
   const [draft, setDraft] = useState("");
   const [title, setTitle] = useState("");
   const [dirty, setDirty] = useState(false);

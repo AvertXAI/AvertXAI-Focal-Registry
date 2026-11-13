@@ -34,6 +34,7 @@ import ScoutViewerModule from "./modules/scout-viewer/ScoutViewerModule";
 import MarketplaceModule from "./modules/marketplace/MarketplaceModule";
 import EmployeesModule from "./modules/employees/EmployeesModule";
 import { NAVIGATE_EVENT } from "./shared/navigate";
+import { OPEN_FILE_LOCATION_EVENT, type OpenFileLocation } from "./shared/openFileLocation";
 import { entitlementsReady, moduleHidden, useEntitlements } from "./entitlements";
 import { defaultSettings, type MindMergeSettings } from "./modules/mindmerge/config.manifest";
 import { startDiagReporter, bumpRender } from "./diag";
@@ -695,6 +696,15 @@ export default function App() {
     peekTimer.current = window.setTimeout(() => setNavPeek(false), 220);
   };
 
+  // The open note's location, published by MindMerge (src/shared/openFileLocation.ts) because a
+  // module is mounted with no props and cannot reach the top bar itself.
+  const [openLocation, setOpenLocation] = useState<OpenFileLocation | null>(null);
+  useEffect(() => {
+    const on = (e: Event): void => setOpenLocation((e as CustomEvent<OpenFileLocation | null>).detail);
+    window.addEventListener(OPEN_FILE_LOCATION_EVENT, on);
+    return () => window.removeEventListener(OPEN_FILE_LOCATION_EVENT, on);
+  }, []);
+
   const select = (v: View) => {
     setView(v);
     window.scrollTo(0, 0);
@@ -802,6 +812,8 @@ export default function App() {
     <>
       <TopBar
         leaf={leaf}
+        // Only while MindMerge is the view on screen: a path under another module's name would be wrong.
+        openLocation={view === "mindmerge" ? openLocation : null}
         orgName={orgName ?? "AvertXAI"}
         view={view}
         modules={visibleModules.filter((m) => m.is_enabled === 1)}

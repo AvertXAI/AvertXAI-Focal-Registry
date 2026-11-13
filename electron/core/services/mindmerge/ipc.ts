@@ -20,7 +20,7 @@
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/mindmerge/ipc.ts
 //------------------------------------------------------------
-import { BrowserWindow, app, clipboard, dialog, ipcMain } from "electron";
+import { BrowserWindow, app, clipboard, dialog, ipcMain, shell } from "electron";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -886,6 +886,33 @@ export function registerMindMergeDocsIpc(): void {
   safeHandle("mindmerge:getAttachment", async (_e, uuid: unknown) => {
     const { db, orgId } = await attachCtx();
     return attachments.getAttachment(db, orgId, uuid);
+  });
+
+  // ---- The open note's location, for the top bar. The path is looked up from the uuid on every
+  // ---- call and never accepted from the renderer, so the page cannot aim Explorer at a file of
+  // ---- its own choosing.
+  function sourcePathOf(db: Db, orgId: string, uuid: unknown): string | null {
+    const row = db.prepare("SELECT source_path FROM mindmerge_docs WHERE org_id = ? AND uuid = ?").get(orgId, String(uuid)) as
+      | { source_path?: string | null }
+      | undefined;
+    return row?.source_path || null;
+  }
+  safeHandle("mindmerge:docLocation", async (_e, uuid: unknown) => {
+    const { db, orgId } = mindMergeCtx();
+    return { sourcePath: sourcePathOf(db, orgId, uuid) };
+  });
+  // False, not a throw, when the file is gone: a moved file or an unplugged drive is ordinary,
+  // and the top bar says so in its own words.
+  safeHandle("mindmerge:revealDoc", async (_e, uuid: unknown) => {
+    const { db, orgId } = mindMergeCtx();
+    const p = sourcePathOf(db, orgId, uuid);
+    if (!p) return false;
+    // Awaited, not existsSync: a dead network share can take seconds to answer, and a sync probe
+    // would hold every other IPC call in the app for that long.
+    try { await fs.promises.access(p); } catch { return false; }
+    // Explorer opens the wrong folder for a forward-slash path.
+    void shell.showItemInFolder(path.normalize(p));
+    return true;
   });
 
   /**

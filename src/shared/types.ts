@@ -1678,6 +1678,11 @@ export interface Api {
     getAttachment: (uuid: string) => Promise<{ name: string; mime: string; dataBase64: string }>;
     /** THE copy funnel. Every copy in the module goes through this, never navigator.clipboard. */
     copyText: (text: string) => Promise<boolean>;
+    /** Where a document came from, for the top bar. `sourcePath` is null for one written in the app. */
+    docLocation: (uuid: string) => Promise<{ sourcePath: string | null }>;
+    /** Show an imported document's file in its folder. The path is looked up main-side from the
+     *  uuid; false means the file is no longer there. */
+    revealDoc: (uuid: string) => Promise<boolean>;
     /** Colour themes installed in Visual Studio Code on this machine. Reads only; never the network. */
     findCodeThemes: () => Promise<{ active: string | null; themes: MindMergeFoundTheme[] }>;
     /** The RAW text of one — JSONC and all. Parsing lives in codeTheme.ts, one implementation. */

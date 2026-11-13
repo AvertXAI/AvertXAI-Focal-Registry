@@ -167,6 +167,64 @@ body.nav-docked .topbar {
   background: none;
 }
 
+/* OPEN FILE LOCATION (TopBar.tsx): where the open MindMerge note lives, beside the lock.
+   BASIS 0 ON THE CRUMB, only while a location is showing. With the default `auto` basis a long
+   path makes the whole row overflow, and flexbox then takes the excess from EVERY shrinkable item
+   in proportion, so the 28px icon buttons and the bell squeeze along with the text. At basis 0
+   the crumb is handed exactly the room the fixed items leave, and the path is all that gives. */
+.crumbs:has(.toploc) {
+  flex: 1 1 0;
+}
+/* Grows from nothing up to its own text and no further. From nothing, so the path is the FIRST
+   thing to shorten and the module name keeps its full width until the path is gone. No further,
+   because the path button is no-drag: any width past its text is window-drag handle taken off
+   the bar. */
+.toploc {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: max-content;
+  font-size: 12.5px;
+  color: var(--mc-muted);
+}
+.toploc,
+.toploc-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toploc-text {
+  display: block;
+}
+/* No-drag on the button only. The plain "Stored in Focal Registry" text has nothing to click, so
+   it stays part of the window-drag handle. */
+button.toploc {
+  padding: 2px 6px;
+  text-align: left;
+  border-radius: var(--mc-radius);
+  -webkit-app-region: no-drag;
+}
+button.toploc:hover,
+button.toploc[aria-expanded="true"] {
+  color: var(--mc-text);
+  background: var(--mc-nested);
+}
+/* .crumbs clips, so the focus ring is drawn inside the button rather than outside it. */
+button.toploc:focus-visible {
+  outline-offset: -2px;
+}
+/* The menu reuses .shellmenu's panel and rows. Only its placement is new: it is portalled out of
+   the header and positioned inline from the path's measured box (see TopBar.tsx). */
+.toploc-menu {
+  position: fixed;
+  z-index: 130;
+  width: 160px;
+}
+/* The top bar under this scrim is a window-drag surface, and a drag surface takes the click
+   before the page sees it. Without this, a click on the bar would not close the menu. */
+.toploc-scrim {
+  -webkit-app-region: no-drag;
+}
+
 /* ───────────────────────── EDGE TAB — MODULE SIDEBARS ONLY ─────────────────────────
    RULED 08-19-2026. The SHELL rail has NO edge tab; the top bar's dock icon is its only
    open/close control. The old shell tab class is retired — do not reintroduce it.

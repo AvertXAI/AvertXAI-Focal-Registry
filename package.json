@@ -21,7 +21,7 @@
     "kill": "powershell -ExecutionPolicy Bypass -File scripts/pids.ps1 -Kill",
     "package": "npm run build && electron-builder --win",
     "release": "npm run build && electron-builder --win && node scripts/release.mjs",
-    "test": "esbuild tests/editor.test.ts --bundle --platform=node --format=cjs --outfile=out/tests/editor.test.cjs --log-level=warning && node --test out/tests/editor.test.cjs",
+    "test": "node tests/run.cjs",
     "postinstall": "electron-rebuild -f -w better-sqlite3-multiple-ciphers,argon2"
   },
   "build": {

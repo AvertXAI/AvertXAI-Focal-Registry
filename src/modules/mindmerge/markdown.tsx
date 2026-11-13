@@ -204,9 +204,10 @@ function boldLabels(text: string): string {
   // A code span is matched first, so it is swallowed whole and handed back untouched: what sits
   // between backticks is literal, and this pane must show it character for character. The label
   // has to open the way the editor requires (line start or a space), and the mark moved out of
-  // the bold is never one that closes a link, a code span or a bracket: that would break it.
+  // the bold is never one that closes a link, a code span, a strikethrough or a bracket: that
+  // would break it.
   return text.replace(
-    /(`+)[^\n]*?\1|(?<=^|\s)\*\*(?=\S)([^*\n]*[^\s*\\])((?![*\\()\[\]{}`_>])[\p{P}\p{S}])\*\*(?=[\p{L}\p{N}])/gmu,
+    /(`+)[^\n]*?\1|(?<=^|\s)\*\*(?=\S)([^*\n]*[^\s*\\])((?![*\\()\[\]{}`_~>])[\p{P}\p{S}])\*\*(?=[\p{L}\p{N}])/gmu,
     (match, ticks: string | undefined, label: string, mark: string) => (ticks ? match : `**${label}**${mark}`)
   );
 }
@@ -219,7 +220,9 @@ function boldLabels(text: string): string {
  * fences are literal text and must survive verbatim.
  */
 export function preprocess(raw: string): string {
-  const parts = normalise(raw).split(/(```[\s\S]*?(?:```|$))/g);
+  // A tilde fence is a code block too (a README pasted into Raw), and its Copy button must hand
+  // over the command exactly as stored, so it is set aside with the backtick fences.
+  const parts = normalise(raw).split(/(```[\s\S]*?(?:```|$)|(?<=^|\n)~~~[\s\S]*?(?:\n~~~|$))/g);
   return parts
     .map((part, i) => {
       if (i % 2 === 1) return part; // odd indices are the fenced blocks — untouched, by design

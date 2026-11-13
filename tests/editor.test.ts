@@ -125,7 +125,7 @@ test("MM-03: a bold label hard against its value reads back as bold", async () =
 
 test("MM-03: the preview pane reads a bold label the way the editor does", () => {
   assert.equal(preprocess(LABELLED).trim(), "**URL (INTERNAL)**:redis://default:FAKE000@fake.internal:6379/0");
-  for (const untouched of [SENTENCE, REDIS, "**A**: text.**B** end", "2 ** 3 and f(**x)", `\`\`\`\n${LABELLED}\n\`\`\``, "`rm **/build/**tmp` and `echo **KEY:**value`", "**see [docs](https://fake.internal)**now", "**run `npm test`**now", "f(**Note:**x)"]) {
+  for (const untouched of [SENTENCE, REDIS, "**A**: text.**B** end", "2 ** 3 and f(**x)", `\`\`\`\n${LABELLED}\n\`\`\``, "`rm **/build/**tmp` and `echo **KEY:**value`", "**see [docs](https://fake.internal)**now", "**run `npm test`**now", "f(**Note:**x)", "**a ~~b~~**c", "~~~\necho **WARNING:**disk\n- [ ] not a task\n~~~"]) {
     assert.equal(preprocess(untouched).trim(), untouched);
   }
 });

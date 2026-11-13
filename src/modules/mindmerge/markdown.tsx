@@ -195,6 +195,16 @@ function normalise(body: string): string {
 }
 
 /**
+ * `**Label:**value` IS BOLD IN THE EDITOR, so it has to be bold here too (MM-03). A strict parser
+ * will not close bold after punctuation when a letter follows, and this pane showed the asterisks.
+ * For display only, the label's last punctuation mark is moved outside the bold — which a strict
+ * parser accepts and which reads the same. The stored text is never touched.
+ */
+function boldLabels(text: string): string {
+  return text.replace(/(?<=^|[\s(\["'])\*\*(?=\S)([^*\n]*[^\s*\\])((?![*\\])[\p{P}\p{S}])\*\*(?=[\p{L}\p{N}])/gmu, "**$1**$2");
+}
+
+/**
  * The task-list rewrite, applied ONLY OUTSIDE FENCED CODE BLOCKS.
  *
  * The fence split is not fussiness: a runbook that documents this very syntax, or a note holding a
@@ -206,7 +216,7 @@ export function preprocess(raw: string): string {
   return parts
     .map((part, i) => {
       if (i % 2 === 1) return part; // odd indices are the fenced blocks — untouched, by design
-      return part.replace(/^(\s*)[-*]\s+\[([ xX])\]\s+(.*)$/gm, (_m, indent: string, mark: string, text: string) =>
+      return boldLabels(part).replace(/^(\s*)[-*]\s+\[([ xX])\]\s+(.*)$/gm, (_m, indent: string, mark: string, text: string) =>
         `${indent}- {% task checked=${mark.toLowerCase() === "x"} %}${text}{% /task %}`
       );
     })

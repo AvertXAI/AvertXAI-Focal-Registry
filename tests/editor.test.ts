@@ -11,6 +11,7 @@ import { gfm } from "@milkdown/kit/preset/gfm";
 import type { Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
 import { EditorState, TextSelection } from "@milkdown/kit/prose/state";
 import { faithfulMarkdown, faithfulMarkdownConfig, isSingleValue, placeImage, settlePendingImages, sliceMarkdown, visibleText } from "../src/modules/mindmerge/editorLogic";
+import { preprocess } from "../src/modules/mindmerge/markdown";
 import { tidyMarkdown } from "../src/modules/mindmerge/tidyMarkdown";
 
 const REDIS = "redis://default:FAKEPASSWORD0000000000000000000000000000000000000000@fake-cache.internal:6379/0";
@@ -107,6 +108,13 @@ test("MM-03: a bold label hard against its value reads back as bold", async () =
   assert.equal(reread.child(1).marks.length, 0);
   assert.equal(parse("a **b:**c and **d:**e").textContent, "a b:c and d:e");
   assert.equal(parse("2 ** 3 and f(**x)").textContent, "2 ** 3 and f(**x)");
+});
+
+test("MM-03: the preview pane reads a bold label the way the editor does", () => {
+  assert.equal(preprocess(LABELLED).trim(), "**URL (INTERNAL)**:redis://default:FAKE000@fake.internal:6379/0");
+  for (const untouched of [SENTENCE, REDIS, "**A**: text.**B** end", "2 ** 3 and f(**x)", `\`\`\`\n${LABELLED}\n\`\`\``]) {
+    assert.equal(preprocess(untouched).trim(), untouched);
+  }
 });
 
 test("MM-01: copying gives the visible text; Copy as Markdown gives the markdown", async () => {

@@ -11,6 +11,7 @@
 import type { Db } from "./db";
 import { grandTotals, listArchivedProjects, listProjects } from "./projects";
 import { classifyProjectType, isForProfit } from "./derive";
+import { netTotals } from "../employees/netHours";
 import type {
   CostsByCategoryPoint,
   HoursByProjectPoint,
@@ -41,10 +42,8 @@ function cutoffIso(range: ReportRange): string | null {
   return new Date(Date.now() - days * 86_400_000).toISOString();
 }
 
-/** The employee-pay expression the charts share — ENTRY_COST_SQL's rule, verbatim: donated is
-    free, hourly is hours x rate, flat types are their agreed amount. Employee pay is a COST to the
-    photographer, which is exactly how the project totals already count it (52a211b). */
-const EMP_COST = `CASE e.pay_type WHEN 'donated' THEN 0 WHEN 'hourly' THEN e.hours_worked * e.rate_at_entry ELSE COALESCE(e.flat_amount, 0) END`;
+// Employee hours and pay on the charts come from netTotals (employees/netHours.ts), the same lines
+// the cards and the Ledger add up, so a chart cannot show time or pay that a card does not.
 
 /**
  * Totals mirror the grand-total bar exactly (same listProjects/grandTotals rollup),
@@ -182,18 +181,13 @@ function timeSeries(db: Db, orgId: string, range: ReportRange, granularity: Repo
   // all sat in today's created_at bucket — one point, which the chart layer honestly draws as a
   // dot. Employee hours join the hours series and employee pay joins the costs series, bucketed by
   // the day the WORK happened (worked_on), which is also what makes the range controls bite.
-  const empSql = `
-    SELECT ${bucket("e.worked_on")} AS k,
-           SUM(e.hours_worked) AS hrs,
-           SUM(${EMP_COST}) AS pay
-    FROM employee_entries e
-    WHERE e.org_id = @orgId AND e.project_id IS NOT NULL ${sinceDate ? `AND e.worked_on >= @sinceDate` : ``} ${pid != null ? `AND e.project_id = @pid` : ``}
-    GROUP BY k`;
-  for (const r of db.prepare(empSql).all(base) as { k: string; hrs: number; pay: number }[]) {
-    if (!r.k) continue;
-    const p = at(r.k);
-    p.hours += r.hrs ?? 0;
-    p.costs += r.pay ?? 0;
+  // Net of corrections: a corrected entry moves the day it was worked on, and a correction that
+  // names no entry lands on the day it was made, which is the only date it has.
+  for (const t of netTotals(db, { orgId, projectsOnly: true, since: sinceDate, projectId: pid }, granularity)) {
+    if (!t.bucket) continue;
+    const p = at(String(t.bucket));
+    p.hours += t.hours;
+    p.costs += t.cost;
   }
 
   return [...points.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));
@@ -211,17 +205,25 @@ function hoursByProject(db: Db, orgId: string, range: ReportRange, projectId?: n
   // project, matching the rail totals (C8; canon: employee hours feed every chart).
   const rows = db
     .prepare(
-      `SELECT p.name AS name,
+      `SELECT p.id AS id, p.name AS name,
               COALESCE((SELECT SUM(te.duration_seconds) FROM timetracker_time_entries te
-                 WHERE te.project_id = p.id ${since ? `AND te.started_at >= @since` : ``}), 0) / 3600.0
-            + COALESCE((SELECT SUM(e.hours_worked) FROM employee_entries e
-                 WHERE e.project_id = p.id ${sinceDate ? `AND e.worked_on >= @sinceDate` : ``}), 0) AS hrs
+                 WHERE te.project_id = p.id ${since ? `AND te.started_at >= @since` : ``}), 0) / 3600.0 AS hrs
        FROM timetracker_projects p
        WHERE p.org_id = @orgId AND p.archived_at IS NULL ${pid != null ? `AND p.id = @pid` : ``}
        ORDER BY hrs DESC`
     )
-    .all(params) as { name: string; hrs: number }[];
-  const ranked = rows.map((r) => ({ name: r.name, hours: r.hrs ?? 0 })).filter((r) => r.hours > 0);
+    .all(params) as { id: number; name: string; hrs: number }[];
+  // The crew's hours are added from the one net sum, so a corrected entry moves this bar exactly
+  // as it moves the project's Total hours. Sorted again because the SQL order is own time only.
+  const crew = new Map(
+    netTotals(db, { orgId, projectsOnly: true, since: sinceDate, projectId: pid }, "project").map(
+      (t) => [t.bucket, t.hours] as const
+    )
+  );
+  const ranked = rows
+    .map((r) => ({ name: r.name, hours: (r.hrs ?? 0) + (crew.get(r.id) ?? 0) }))
+    .filter((r) => r.hours > 0)
+    .sort((a, b) => b.hours - a.hours);
   if (ranked.length <= TOP_PROJECTS) return ranked;
   const top = ranked.slice(0, TOP_PROJECTS);
   const others = ranked.slice(TOP_PROJECTS).reduce((s, r) => s + r.hours, 0);
@@ -248,15 +250,7 @@ function costsByCategory(db: Db, orgId: string, range: ReportRange, projectId?: 
     .all(params) as CostsByCategoryPoint[];
   // Employee pay is a cost category of its own (C8) — same rule as the project totals, range by
   // the day the work happened.
-  const emp = (
-    db
-      .prepare(
-        `SELECT COALESCE(SUM(${EMP_COST}), 0) AS amount
-         FROM employee_entries e
-         WHERE e.org_id = @orgId AND e.project_id IS NOT NULL ${sinceDate ? `AND e.worked_on >= @sinceDate` : ``} ${pid != null ? `AND e.project_id = @pid` : ``}`
-      )
-      .get(params) as { amount: number }
-  ).amount;
+  const emp = netTotals(db, { orgId, projectsOnly: true, since: sinceDate, projectId: pid })[0].cost;
   if (emp > 0) rows.push({ category: "Employee pay", amount: emp });
   // Itemized purchases join here too (ruled 08-06) — same synthetic-category shape as Employee pay.
   const items = (

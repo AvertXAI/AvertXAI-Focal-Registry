@@ -19,6 +19,7 @@ import { listActive as listActiveAdjustments } from "./adjustments";
 import { classifyProjectType } from "./derive";
 import { enforceCap } from "./license";
 import { assertNotCompleted } from "./completion";
+import { EMPLOYEE_BY_PROJECT_SQL } from "../employees/netHours";
 import type {
   ArchiveAuditEntry,
   Cost,
@@ -59,17 +60,9 @@ SELECT
   -- cross-module SELECT is the sanctioned arrangement here: one database, one connection, no
   -- ATTACH (employees/db.ts).
   COALESCE((SELECT SUM(co.amount) FROM timetracker_costs co WHERE co.project_id = p.id), 0)
-  + COALESCE((SELECT SUM(CASE e.pay_type
-        WHEN 'donated' THEN 0
-        WHEN 'hourly'  THEN e.hours_worked * e.rate_at_entry
-        ELSE COALESCE(e.flat_amount, 0) END)
-      FROM employee_entries e WHERE e.project_id = p.id), 0)
-  + COALESCE((SELECT SUM((ea.delta_minutes / 60.0) * ea.rate_at_entry)
-      FROM employee_adjustments ea
-      WHERE ea.project_id = p.id AND ea.kind = 'hours' AND ea.deleted_at IS NULL), 0)
-  + COALESCE((SELECT SUM(ea.delta_amount)
-      FROM employee_adjustments ea
-      WHERE ea.project_id = p.id AND ea.kind = 'amount' AND ea.deleted_at IS NULL), 0)
+  -- Employee pay is joined once below (emp) from the ONE shared set of employee lines in
+  -- employees/netHours.ts, so this figure cannot drift from the Ledger or the charts.
+  + COALESCE(emp.cost, 0)
   -- ITEMIZED PURCHASES (ruled 08-06, profit build): the recon proved these rows were in NO
   -- analytics read — "Costs" and "Spent" were different, overlapping sets. This term ends that:
   -- total_costs IS the ruled SPENT — crew pay + itemized purchases + hard cost lines.
@@ -85,15 +78,14 @@ SELECT
   MAX(0,
     COALESCE((SELECT SUM(te.duration_seconds) FROM timetracker_time_entries te WHERE te.project_id = p.id), 0)
     + COALESCE((SELECT SUM(a.delta_minutes) * 60 FROM timetracker_adjustments a WHERE a.project_id = p.id AND a.deleted_at IS NULL), 0)
-    + COALESCE((SELECT SUM(e.hours_worked) * 3600 FROM employee_entries e WHERE e.project_id = p.id), 0)
-    + COALESCE((SELECT SUM(ea.delta_minutes) * 60 FROM employee_adjustments ea
-        WHERE ea.project_id = p.id AND ea.kind = 'hours' AND ea.deleted_at IS NULL), 0)
+    + COALESCE(emp.seconds, 0)
   ) AS total_seconds,
   (SELECT MAX(te.ended_at) FROM timetracker_time_entries te WHERE te.project_id = p.id) AS last_worked,
   (SELECT vl.amount FROM timetracker_value_ledger vl WHERE vl.project_id = p.id ORDER BY vl.id DESC LIMIT 1) AS latest_ledger_amount
 FROM timetracker_projects p
 JOIN timetracker_clients c ON c.id = p.client_id
 LEFT JOIN timetracker_groups g ON g.id = p.group_id
+LEFT JOIN (${EMPLOYEE_BY_PROJECT_SQL}) emp ON emp.project_id = p.id
 `;
 
 /**
@@ -152,11 +144,10 @@ export function groupTotals(db: Db, orgId: string): GroupTotalRow[] {
          SUM(MAX(0,
            COALESCE((SELECT SUM(te.duration_seconds) FROM timetracker_time_entries te WHERE te.project_id = p.id), 0)
            + COALESCE((SELECT SUM(a.delta_minutes) * 60 FROM timetracker_adjustments a WHERE a.project_id = p.id AND a.deleted_at IS NULL), 0)
-           + COALESCE((SELECT SUM(e.hours_worked) * 3600 FROM employee_entries e WHERE e.project_id = p.id), 0)
-           + COALESCE((SELECT SUM(ea.delta_minutes) * 60 FROM employee_adjustments ea
-               WHERE ea.project_id = p.id AND ea.kind = 'hours' AND ea.deleted_at IS NULL), 0)
+           + COALESCE(emp.seconds, 0)
          )) AS total_seconds
        FROM timetracker_projects p
+       LEFT JOIN (${EMPLOYEE_BY_PROJECT_SQL}) emp ON emp.project_id = p.id
        WHERE p.org_id = ? AND p.archived_at IS NULL
        GROUP BY p.group_id`
     )

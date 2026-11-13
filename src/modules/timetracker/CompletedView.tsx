@@ -7,6 +7,7 @@
 // Every read already existed; this file is only the composer the recon said was missing.
 import { useEffect, useState } from "react";
 import type {
+  EmployeeAdjustment,
   EmployeeEntry,
   EmployeePerson,
   TimeTrackerProjectItem,
@@ -30,6 +31,7 @@ interface DocData {
   spend: TimeTrackerProjectSpend | null;
   members: TimeTrackerProjectMember[];
   entries: EmployeeEntry[];
+  adjustments: EmployeeAdjustment[];
   items: TimeTrackerProjectItem[];
   note: string;
   people: EmployeePerson[];
@@ -82,12 +84,13 @@ export default function CompletedView({ projects, onDataChanged }: Props) {
       api.timetracker.financials.items(openId),
       api.timetracker.notes.get(openId),
       api.employees.people.list(),
+      api.employees.adjustments.listAll(),
     ])
-      .then(([spend, members, entries, items, note, people]) => {
-        if (!dead) setDoc({ spend, members, entries, items, note, people, failed: false });
+      .then(([spend, members, entries, items, note, people, adjustments]) => {
+        if (!dead) setDoc({ spend, members, entries, adjustments, items, note, people, failed: false });
       })
       .catch(() => {
-        if (!dead) setDoc({ spend: null, members: [], entries: [], items: [], note: "", people: [], failed: true });
+        if (!dead) setDoc({ spend: null, members: [], entries: [], adjustments: [], items: [], note: "", people: [], failed: true });
       });
     return () => {
       dead = true;
@@ -220,6 +223,21 @@ export default function CompletedView({ projects, onDataChanged }: Props) {
                         cur.hasHours = cur.hasHours || e.pay_type === "hourly" || e.pay_type === "donated" || e.hours_worked > 0;
                         byId.set(e.employee_id, cur);
                       }
+                      // Live corrections count here too. Without them a corrected person read here
+                      // at the hours as first logged, while the Spent card above read the net figure.
+                      for (const a of doc.adjustments) {
+                        if (a.deleted_at || a.project_id !== p.id) continue;
+                        const cur = byId.get(a.employee_id) ?? { ...nameOf(a.employee_id), pay: "—", hours: 0, cost: 0, hasHours: false };
+                        if (a.kind === "hours") {
+                          const hours = (a.delta_minutes ?? 0) / 60;
+                          cur.hours += hours;
+                          cur.cost += hours * (a.rate_at_entry ?? 0);
+                          cur.hasHours = true;
+                        } else {
+                          cur.cost += a.delta_amount ?? 0;
+                        }
+                        byId.set(a.employee_id, cur);
+                      }
                       const rows = [...byId.values()];
                       return rows.length === 0 ? (
                         <div className="tt-emptyrow">Nobody was assigned or logged time.</div>
@@ -232,7 +250,7 @@ export default function CompletedView({ projects, onDataChanged }: Props) {
                                 <td>{r.name}</td>
                                 <td className="dim">{r.role}</td>
                                 <td className="mono dim">{r.pay}</td>
-                                <td className="mono">{r.hasHours ? r.hours.toFixed(1) : "—"}</td>
+                                <td className="mono">{r.hasHours ? r.hours.toFixed(2) : "—"}</td>
                                 <td className="mono">{fmtMoney(r.cost)}</td>
                               </tr>
                             ))}

@@ -250,6 +250,10 @@ export function registerEmployeesIpc(): void {
     return reports.employeeCostForProject(db, orgId, projectId as number);
   });
   safeHandle("employees:balance", (_e, employeeId: unknown) => reports.balanceFor(empCtx().db, employeeId as number));
+  safeHandle("employees:hoursByPerson", () => {
+    const { db, orgId } = empCtx();
+    return reports.hoursByPerson(db, orgId);
+  });
 
   // ---- activity ----
   safeHandle("employees:listActivity", (_e, opts: unknown) => {

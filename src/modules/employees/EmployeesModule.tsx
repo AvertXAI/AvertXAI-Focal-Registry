@@ -96,6 +96,13 @@ export default function EmployeesModule() {
 
   const load = useCallback((): void => {
     setError(false);
+    // The rail's hours for EVERYONE, net of corrections, from the same main-side sum the Ledger
+    // cards read. It used to be filled one person at a time, only once their ledger had been
+    // opened. A failed read leaves the last figures standing rather than zeroing the list.
+    void api.employees.reports
+      .hoursByPerson()
+      .then((rows) => setHoursById(Object.fromEntries(rows.map((r) => [r.employee_id, r.hours]))))
+      .catch((e: unknown) => console.error("[employees] hours read failed:", e));
     void api.employees.people
       .list()
       .then((rows) => {

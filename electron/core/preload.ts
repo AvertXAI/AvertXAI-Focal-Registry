@@ -521,6 +521,7 @@ const api: Api = {
       costByProject: () => invoke("employees:costByProject"),
       costForProject: (projectId: number) => invoke("employees:costForProject", projectId),
       balance: (employeeId: number) => invoke("employees:balance", employeeId),
+      hoursByPerson: () => invoke("employees:hoursByPerson"),
     },
     activity: {
       list: (opts?: { limit?: number; employeeId?: number }) => invoke("employees:listActivity", opts ?? {}),

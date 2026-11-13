@@ -45,7 +45,9 @@ export function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-const fmtHours = (h: number): string => `${h.toFixed(h % 1 === 0 ? 0 : 1)}h`;
+// Two places when they are needed: a corrected total such as 14.95 must read 14.95 here too,
+// not 14.9, or the rail looks like it disagrees with the cards.
+const fmtHours = (h: number): string => `${h.toFixed(2).replace(/\.?0+$/, "")}h`;
 
 export default function PeopleRail({
   people,

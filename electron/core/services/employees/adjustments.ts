@@ -16,7 +16,8 @@ import { nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
 import { getPerson } from "./people";
 import { assertNotCompleted } from "../timetracker/completion";
-import type { Adjustment, AdjustmentKind, EmployeeAuditEntry } from "./types";
+import { netTotals } from "./netHours";
+import type { Adjustment, AdjustmentKind, EmployeeAuditEntry, Entry } from "./types";
 import { vAmount, vDeltaAmount, vDeltaMinutes, vId, vNullableId, vNullableString, vString, vUuid } from "./validate";
 
 interface AdjustmentRow extends Omit<Adjustment, "audit_log"> {
@@ -53,11 +54,15 @@ export function listAllAdjustments(db: Db, orgId: string): Adjustment[] {
 export interface HoursAdjustmentInput {
   employeeId: number;
   /** REQUIRED on an hours adjustment — the hours belong to a project or they cannot be costed. */
-  projectId: number;
-  projectName: string;
+  // The stored row always has both, but a caller may leave them null: with an entry named they are
+  // read off the entry, and with neither stated the person's one hourly rate and project are used
+  // (refused when there are several).
+  projectId: number | null;
+  projectName: string | null;
   deltaMinutes: number;
   /** Mandatory: what the corrected hours are worth. Never re-derived later. */
-  rateAtEntry: number;
+  // Null means "read it off the entry, or use the person's one rate". The stored row always has one.
+  rateAtEntry: number | null;
   note: string;
   /** 08-06: the ENTRY this corrects, when it corrects one — soft reference, nullable. */
   entryId?: number | null;
@@ -141,17 +146,87 @@ function insert(
   return getOne(db, uuid);
 }
 
-/** Correct hours. Project is required; the rate travels with the correction. */
+/**
+ * Where an hours correction lands and what its hours are worth.
+ *   An entry is named: both come from the entry, never from the caller, so the dollars are always
+ *   the hours at the rate that entry was agreed at. Canon: hours only move money for hourly work,
+ *   so a per-job, per-task or donated entry keeps its pay and the correction carries a zero rate.
+ *   Project and rate are stated: used as given. That is the Adjustments tab, where both are typed.
+ *   Neither: only safe when the person has exactly one hourly rate on one project. With more than
+ *   one in play a guess could value the hours at the wrong rate, so it is refused.
+ */
+function hoursTerms(
+  db: Db,
+  employeeId: number,
+  entryId: number | null,
+  input: HoursAdjustmentInput
+): { projectId: number; projectName: string; rate: number } {
+  if (entryId !== null) {
+    const entry = db.prepare(`SELECT * FROM employee_entries WHERE id = ?`).get(entryId) as Entry | undefined;
+    if (!entry || entry.employee_id !== employeeId) throw new Error("That entry does not belong to this person.");
+    // The table refuses an hours correction with no project, and that rule cannot be relaxed
+    // without rebuilding the table, so say it in words before SQLite says it in code.
+    if (entry.project_id === null) {
+      throw new Error("That entry is not tied to a project, so its hours cannot be corrected. Use an Amount adjustment for it instead.");
+    }
+    return {
+      projectId: entry.project_id,
+      projectName: entry.project_name,
+      rate: entry.pay_type === "hourly" ? entry.rate_at_entry : 0,
+    };
+  }
+  if (input.projectId != null && input.rateAtEntry != null) {
+    return {
+      projectId: vId(input.projectId, "project id"),
+      projectName: vString(input.projectName, "project name", 200, true).trim(),
+      rate: vAmount(input.rateAtEntry, "rate"),
+    };
+  }
+  const inPlay = db
+    .prepare(
+      `SELECT project_id, MAX(project_name) AS project_name, rate_at_entry
+       FROM employee_entries
+       WHERE employee_id = ? AND pay_type = 'hourly' AND project_id IS NOT NULL
+       GROUP BY project_id, rate_at_entry`
+    )
+    .all(employeeId) as { project_id: number; project_name: string; rate_at_entry: number }[];
+  if (inPlay.length !== 1) {
+    throw new Error(
+      "Pick the entry these hours belong to. With no entry named, hours can only be valued when this person has one hourly rate on one project."
+    );
+  }
+  return { projectId: inPlay[0].project_id, projectName: inPlay[0].project_name, rate: inPlay[0].rate_at_entry };
+}
+
+/**
+ * An entry cannot end up with less than no hours. Checked against the same net figure every total
+ * reads, so the refusal and the totals can never disagree about what is left.
+ */
+function assertEntryHoursLeft(db: Db, entryId: number, deltaMinutes: number): void {
+  const left = netTotals(db, { entryId })[0].hours;
+  // A millionth of an hour of slack: stored hours are decimals, and taking an entry to exactly
+  // zero must not be refused over float dust.
+  if (left + deltaMinutes / 60 < -1e-6) {
+    throw new Error(`That would take the entry below zero hours. It has ${left.toFixed(2)} hours left.`);
+  }
+}
+
+/** Correct hours. The rate travels with the correction, so later rate changes never reprice it. */
 export function createHoursAdjustment(db: Db, orgId: string, input: HoursAdjustmentInput): Adjustment {
+  const employeeId = vId(input.employeeId, "person id");
+  const deltaMinutes = vDeltaMinutes(input.deltaMinutes);
+  const entryId = vNullableId(input.entryId, "entry id");
+  const terms = hoursTerms(db, employeeId, entryId, input);
+  if (entryId !== null) assertEntryHoursLeft(db, entryId, deltaMinutes);
   return insert(db, orgId, "hours", {
-    employeeId: vId(input.employeeId, "person id"),
-    projectId: vId(input.projectId, "project id"),
-    projectName: vString(input.projectName, "project name", 200, true).trim(),
-    deltaMinutes: vDeltaMinutes(input.deltaMinutes),
-    rateAtEntry: vAmount(input.rateAtEntry, "rate"),
+    employeeId,
+    projectId: terms.projectId,
+    projectName: terms.projectName,
+    deltaMinutes,
+    rateAtEntry: terms.rate,
     deltaAmount: null,
     note: requireNote(input.note),
-    entryId: vNullableId(input.entryId, "entry id"),
+    entryId,
   });
 }
 
@@ -185,6 +260,11 @@ export function updateAdjustment(db: Db, uuid: string, deltaValue: number, note:
   const isHours = existing.kind === "hours";
   const nextMinutes = isHours ? vDeltaMinutes(deltaValue) : null;
   const nextAmount = isHours ? null : vDeltaAmount(deltaValue);
+  // An edit can dig as deep as a new correction, so it gets the same floor. Only the change counts:
+  // what is left already includes this correction's current value.
+  if (nextMinutes !== null && existing.entry_id !== null) {
+    assertEntryHoursLeft(db, existing.entry_id, nextMinutes - (existing.delta_minutes ?? 0));
+  }
   const at = nowIso();
   const audit = JSON.parse(existing.audit_log) as EmployeeAuditEntry[];
   audit.push({
@@ -215,6 +295,11 @@ export function restoreAdjustment(db: Db, orgId: string, uuid: string): Adjustme
   if (!existing) throw new Error(`Adjustment ${uuid} not found`);
   if (!existing.deleted_at) return parse(existing);
   assertNotCompleted(db, existing.project_id); // restoring a correction is a correction too
+  // Bringing back a deleted "less" correction takes its hours off again, so it is held to the
+  // same floor as making it was.
+  if (existing.kind === "hours" && existing.entry_id !== null) {
+    assertEntryHoursLeft(db, existing.entry_id, existing.delta_minutes ?? 0);
+  }
   const at = nowIso();
   const audit = JSON.parse(existing.audit_log) as EmployeeAuditEntry[];
   audit.push({ action: "restored", at });

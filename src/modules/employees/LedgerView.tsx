@@ -36,11 +36,10 @@ const fmtDate = (ymd: string): string => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
   return m ? `${m[2]}/${m[3]}/${m[1]}` : ymd;
 };
-const daysAgo = (ymd: string): number => {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
-  if (!m) return Number.POSITIVE_INFINITY;
-  const then = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
-  return (Date.now() - then) / 86_400_000;
+/** "−1100h 00m" / "+2h 30m": a correction in the unit people read. Minutes are what is stored. */
+const fmtDelta = (minutes: number): string => {
+  const abs = Math.abs(minutes);
+  return `${minutes < 0 ? "−" : "+"}${Math.floor(abs / 60)}h ${String(abs % 60).padStart(2, "0")}m`;
 };
 
 export default function LedgerView({ person, refreshKey, onHours, onEdit, onArchive, onAddTime }: Props) {
@@ -74,7 +73,8 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
         setBalance(bal);
         setTaskNames(Object.fromEntries(tasks.map((t) => [t.id, t.title])));
         setAdjustments(adjs.filter((a) => a.deleted_at === null));
-        onHours(person.id, rows.reduce((s, e) => s + e.hours_worked, 0));
+        // Net of corrections, so the rail agrees with the cards the moment this ledger opens.
+        onHours(person.id, bal.hours);
       })
       .catch((e: unknown) => {
         if (!live) return;
@@ -87,10 +87,11 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
     };
   }, [api, person.id, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const week = (entries ?? []).filter((e) => daysAgo(e.worked_on) <= 7);
-  const month = (entries ?? []).filter((e) => daysAgo(e.worked_on) <= 30);
-  const year = (entries ?? []).filter((e) => new Date(e.worked_on).getFullYear() === new Date().getFullYear());
-  const hoursOf = (list: EmployeeEntry[]): number => list.reduce((s, e) => s + e.hours_worked, 0);
+  /** Signed minutes of this entry's live hours corrections; 0 when it has none. */
+  const adjMinutesFor = (entryId: number): number =>
+    adjustments
+      .filter((a) => a.entry_id === entryId && a.kind === "hours")
+      .reduce((s, a) => s + (a.delta_minutes ?? 0), 0);
   /** Signed dollar sum of this entry's live adjustments; null when it has none ("—", not $0.00). */
   const adjFor = (entryId: number): number | null => {
     const mine = adjustments.filter((a) => a.entry_id === entryId);
@@ -99,7 +100,11 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
   const reload = (): void => {
     // Same fetch the mount effect runs — the module's refreshKey path also lands here.
     void api.employees.adjustments.list(person.id).then((adjs) => setAdjustments(adjs.filter((a) => a.deleted_at === null))).catch(() => {});
-    void api.employees.reports.balance(person.id).then(setBalance).catch(() => {});
+    // A correction moves this person's hours in the rail too, so hand it the fresh net figure.
+    void api.employees.reports
+      .balance(person.id)
+      .then((bal) => { setBalance(bal); onHours(person.id, bal.hours); })
+      .catch(() => {});
   };
 
   return (
@@ -138,18 +143,18 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
           <div className="emp-cards">
             <div className="emp-card">
               <span className="emp-cardlabel">This week</span>
-              <span className="emp-cardvalue">{fmtHours(hoursOf(week))}</span>
-              <span className="emp-cardsub">{week.length} {week.length === 1 ? "entry" : "entries"}</span>
+              <span className="emp-cardvalue">{fmtHours(balance?.week.hours ?? 0)}</span>
+              <span className="emp-cardsub">{balance?.week.entries ?? 0} {balance?.week.entries === 1 ? "entry" : "entries"}</span>
             </div>
             <div className="emp-card">
               <span className="emp-cardlabel">Last 30 days</span>
-              <span className="emp-cardvalue">{fmtHours(hoursOf(month))}</span>
-              <span className="emp-cardsub">{month.length} {month.length === 1 ? "entry" : "entries"}</span>
+              <span className="emp-cardvalue">{fmtHours(balance?.month.hours ?? 0)}</span>
+              <span className="emp-cardsub">{balance?.month.entries ?? 0} {balance?.month.entries === 1 ? "entry" : "entries"}</span>
             </div>
             <div className="emp-card">
               <span className="emp-cardlabel">Year to date</span>
-              <span className="emp-cardvalue">{fmtHours(hoursOf(year))}</span>
-              <span className="emp-cardsub">{year.length} {year.length === 1 ? "entry" : "entries"}</span>
+              <span className="emp-cardvalue">{fmtHours(balance?.year.hours ?? 0)}</span>
+              <span className="emp-cardsub">{balance?.year.entries ?? 0} {balance?.year.entries === 1 ? "entry" : "entries"}</span>
             </div>
             <div className="emp-card">
               <span className="emp-cardlabel">Outstanding</span>
@@ -176,6 +181,7 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
               <tbody>
                 {entries.map((e) => {
                   const adj = adjFor(e.id);
+                  const adjMin = adjMinutesFor(e.id);
                   const base = entryCost(e);
                   return (
                     <tr key={e.id}>
@@ -193,9 +199,13 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
                       {/* The "it took longer" mechanic: the adjustment is its OWN row against the
                           entry — signed, reasoned — and Net is what actually gets paid. */}
                       <td className={"money" + (adj == null ? " dim" : adj < 0 ? " emp-adjneg" : " emp-adjpos")}>
+                        {adjMin !== 0 && <><span className="emp-adjpart">{fmtDelta(adjMin)}</span>{" · "}</>}
                         {adj == null ? "—" : `${adj < 0 ? "−" : "+"}${fmtMoney(Math.abs(adj))}`}
                       </td>
-                      <td className="money"><b>{fmtMoney(base + (adj ?? 0))}</b></td>
+                      <td className="money">
+                        {adjMin !== 0 && <><span className="emp-adjpart">{(e.hours_worked + adjMin / 60).toFixed(2)} h</span>{" · "}</>}
+                        <b>{fmtMoney(base + (adj ?? 0))}</b>
+                      </td>
                     </tr>
                   );
                 })}
@@ -218,6 +228,8 @@ export default function LedgerView({ person, refreshKey, onHours, onEdit, onArch
  * AGAINST one entry (the "it took longer" mechanic). Writes through the EXISTING adjustment
  * services — amount kind against the entry's project; the entry link is the new nullable column.
  * The entry itself is never rewritten.
+ * 11-13: Hours or Amount. An hours correction sends only the hours. The service reads the project
+ * and the rate off the entry, so the dollars are always the hours at that entry's agreed rate.
  */
 function AddAdjustmentModal({
   person,
@@ -235,29 +247,56 @@ function AddAdjustmentModal({
   const api = window.api;
   const [entrySel, setEntrySel] = useState<string>(entry ? String(entry.id) : "");
   const [amount, setAmount] = useState("");
+  // Opens on Amount because that is what this dialog has always been; Hours is one click away.
+  const [kind, setKind] = useState<"hours" | "amount">("amount");
   const [sign, setSign] = useState<"+" | "-">("-");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const linked = entries.find((e) => String(e.id) === entrySel) ?? null;
+  const typed = Number(amount.replace(/,/g, ""));
+  const minutes = Number.isFinite(typed) && typed > 0 ? Math.round(typed * 60) * (sign === "-" ? -1 : 1) : 0;
+  // Shown before saving so the hours, and what they are worth, can be checked against the entry.
+  // Only hourly work is paid by the hour, so only there do corrected hours move money.
+  const worth = linked?.pay_type === "hourly" ? (minutes / 60) * linked.rate_at_entry : 0;
+  const preview =
+    minutes === 0
+      ? "—"
+      : `= ${fmtDelta(minutes)}` +
+        (!linked ? "" : worth === 0 ? " · pay unchanged" : ` · ${worth < 0 ? "−" : "+"}${fmtMoney(Math.abs(worth))}`);
 
   const save = (): void => {
     if (saving) return;
     const n = Number(amount.replace(/,/g, ""));
+    if (kind === "hours" && minutes === 0) { setError("The hours must be more than zero. Pick less or more for the direction."); return; }
+    // The service's own ceiling on one correction, said here in plain words.
+    if (kind === "hours" && Math.abs(minutes) > 100_000) { setError("One correction can move at most 1,666 hours. Split a larger one in two."); return; }
     if (!Number.isFinite(n) || n <= 0) { setError("The adjustment amount must be more than zero — pick + or − for its direction."); return; }
     if (reason.trim() === "") { setError("A reason is required — it is the whole record of why the pay moved."); return; }
     setSaving(true);
     setError(null);
-    void api.employees.adjustments
-      .createAmount({
+    const op = kind === "hours"
+      ? api.employees.adjustments.createHours({
+          employeeId: person.id,
+          // Left empty on purpose: the service reads the project and the rate off the entry, so
+          // the hours can never be valued at anything but that entry's agreed rate.
+          projectId: null,
+          projectName: null,
+          deltaMinutes: minutes,
+          rateAtEntry: null,
+          note: reason.trim(),
+          entryId: linked?.id ?? null,
+        })
+      : api.employees.adjustments.createAmount({
         employeeId: person.id,
         projectId: linked?.project_id ?? null,
         projectName: linked?.project_name ?? null,
         deltaAmount: sign === "-" ? -n : n,
         note: reason.trim(),
         entryId: linked?.id ?? null,
-      })
+      });
+    void op
       .then(onSaved)
       .catch((e: unknown) => { setSaving(false); setError(e instanceof Error ? e.message : String(e)); });
   };
@@ -269,8 +308,17 @@ function AddAdjustmentModal({
         <p className="emp-hint" style={{ marginBottom: 12 }}>
           {person.name} — a signed correction, its own row. The entry&apos;s agreed rate and hours are never rewritten.
         </p>
+        <div className="emp-field">
+          <span>Adjust</span>
+          <div className="emp-pillset" role="radiogroup" aria-label="What to adjust">
+            <button type="button" role="radio" aria-checked={kind === "hours"}
+              className={"emp-pillbtn" + (kind === "hours" ? " on" : "")} onClick={() => setKind("hours")}>Hours</button>
+            <button type="button" role="radio" aria-checked={kind === "amount"}
+              className={"emp-pillbtn" + (kind === "amount" ? " on" : "")} onClick={() => setKind("amount")}>Amount</button>
+          </div>
+        </div>
         <label className="emp-field">
-          <span>Against entry (optional)</span>
+          <span>Against entry{kind === "amount" ? " (optional)" : ""}</span>
           <select className="emp-input" value={entrySel} onChange={(e) => setEntrySel(e.target.value)}>
             <option value="">— none (general correction) —</option>
             {entries.map((e) => (
@@ -291,9 +339,10 @@ function AddAdjustmentModal({
             </div>
           </label>
           <label className="emp-field">
-            <span>Amount ($)</span>
+            <span>{kind === "hours" ? "Hours" : "Amount ($)"}</span>
             <input className="emp-input mono" inputMode="decimal" autoFocus value={amount}
               onChange={(e) => setAmount(e.target.value)} />
+            {kind === "hours" && <em className="emp-hint mono">{preview}</em>}
           </label>
         </div>
         <label className="emp-field">

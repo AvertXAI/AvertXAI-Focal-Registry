@@ -388,6 +388,9 @@
 /* ---- Profit build (08-07): adjustments column + the loading select (B7) ---- */
 .emp-adjneg { color: #e0574f; }
 .emp-adjpos { color: var(--mc-green); }
+/* The hours and the dollars of one correction each stay whole, and the cell may break between
+   them, so showing both never makes the column wider than its longer half. */
+.emp-adjpart { white-space: nowrap; }
 .emp-btn.soft { background: color-mix(in srgb, var(--mc-accent-primary) 70%, transparent); border-color: transparent; color: #fff; }
 .emp-linkbtn.sm { font-size: 11px; padding: 0 4px; margin-left: 6px; }
 /* B7: the select's stand-in while its options load — DISABLED look, never an openable empty list. */

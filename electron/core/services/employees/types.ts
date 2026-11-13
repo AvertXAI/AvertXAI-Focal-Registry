@@ -262,5 +262,22 @@ export interface EmployeeBalance {
   paid: number;
   /** earned − paid. Positive = owed to the person. */
   outstanding: number;
+  /** All-time hours, net of every live hours correction. */
+  hours: number;
+  /** The same net hours inside each window the Ledger cards show. */
+  week: EmployeePeriod;
+  month: EmployeePeriod;
+  year: EmployeePeriod;
+}
+
+/** One Ledger card: the net hours worked in a window and how many entries fall inside it. */
+export interface EmployeePeriod {
+  hours: number;
+  entries: number;
+}
+
+/** One person's all-time net hours, the figure beside their name in the people list. */
+export interface PersonHours {
+  employee_id: number;
   hours: number;
 }

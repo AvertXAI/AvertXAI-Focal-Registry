@@ -265,7 +265,10 @@ function AdjustmentEditor({
   const editing = editor.mode === "edit" ? editor.adj : null;
   // Narrowed off `editor` directly — `editing` is a derived value TypeScript cannot use to narrow
   // the union it came from.
-  const kind = editor.mode === "edit" ? editor.adj.kind : editor.kind;
+  // A new correction can flip between the two; an existing one cannot, the service keeps its kind.
+  // ponytail: this dialog gets the switch but no entry picker. A correction against one entry is
+  // made from that person's Ledger; add the same select here if the detour proves annoying.
+  const [kind, setKind] = useState(editor.mode === "edit" ? editor.adj.kind : editor.kind);
   const isHours = kind === "hours";
 
   const [personId, setPersonId] = useState(String(editing?.employee_id ?? defaultPersonId ?? people[0]?.id ?? ""));
@@ -344,6 +347,17 @@ function AdjustmentEditor({
             : "Changes money only — no hours, no rate. Use this for a bonus, a deduction, or a figure agreed after the fact."}
         </p>
 
+        {!editing && (
+          <div className="emp-field">
+            <span>Adjust</span>
+            <div className="emp-pillset" role="radiogroup" aria-label="What to adjust">
+              <button type="button" role="radio" aria-checked={isHours}
+                className={"emp-pillbtn" + (isHours ? " on" : "")} onClick={() => setKind("hours")}>Hours</button>
+              <button type="button" role="radio" aria-checked={!isHours}
+                className={"emp-pillbtn" + (!isHours ? " on" : "")} onClick={() => setKind("amount")}>Amount</button>
+            </div>
+          </div>
+        )}
         {!editing && (
           <label className="emp-field">
             <span>Person</span>

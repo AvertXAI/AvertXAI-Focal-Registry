@@ -1363,10 +1363,11 @@ export interface EmployeeAdjustment {
 export interface EmployeeHoursAdjustmentInput {
   entryId?: number | null;
   employeeId: number;
-  projectId: number;
-  projectName: string;
+  // Project and rate may be null: with an entry named, the service reads both off the entry.
+  projectId: number | null;
+  projectName: string | null;
   deltaMinutes: number;
-  rateAtEntry: number;
+  rateAtEntry: number | null;
   note: string;
 }
 
@@ -1493,6 +1494,23 @@ export interface EmployeeBalance {
   earned: number;
   paid: number;
   outstanding: number;
+  /** All-time hours, net of every live hours correction. */
+  hours: number;
+  /** The same net hours inside each window the Ledger cards show. */
+  week: EmployeePeriod;
+  month: EmployeePeriod;
+  year: EmployeePeriod;
+}
+
+/** One Ledger card: the net hours worked in a window and how many entries fall inside it. */
+export interface EmployeePeriod {
+  hours: number;
+  entries: number;
+}
+
+/** One person's all-time net hours, the figure beside their name in the people list. */
+export interface EmployeePersonHours {
+  employee_id: number;
   hours: number;
 }
 
@@ -2156,6 +2174,8 @@ export interface Api {
       costByProject: () => Promise<EmployeeProjectCost[]>;
       costForProject: (projectId: number) => Promise<EmployeeProjectCost>;
       balance: (employeeId: number) => Promise<EmployeeBalance>;
+      /** Everyone's net hours in one read, for the people list. */
+      hoursByPerson: () => Promise<EmployeePersonHours[]>;
     };
     activity: {
       list: (opts?: { limit?: number; employeeId?: number }) => Promise<EmployeeEventRow[]>;

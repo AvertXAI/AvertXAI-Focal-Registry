@@ -14,8 +14,9 @@
 // File: electron/core/services/employees/reports.ts
 //------------------------------------------------------------
 import type { Db } from "./db";
-import type { EmployeeBalance, ProjectEmployeeCost } from "./types";
+import type { EmployeeBalance, EmployeePeriod, PersonHours, ProjectEmployeeCost } from "./types";
 import { vId } from "./validate";
+import { cents, netTotals } from "./netHours";
 
 /**
  * What one entry costs. The ONE definition — every read in this file uses this fragment so a
@@ -26,12 +27,7 @@ import { vId } from "./validate";
  *   job/task→ the agreed flat amount (the DB guarantees it is present for these two types).
  *             Hours are still recorded, which is what makes "effective rate = amount ÷ hours" real.
  */
-export const ENTRY_COST_SQL = `
-  CASE e.pay_type
-    WHEN 'donated' THEN 0
-    WHEN 'hourly'  THEN e.hours_worked * e.rate_at_entry
-    ELSE COALESCE(e.flat_amount, 0)
-  END`;
+export { ENTRY_COST_SQL } from "./netHours";
 
 /**
  * THE SEAM a later phase joins to TimeTracker's analytics: per project, the employee hours logged
@@ -44,42 +40,16 @@ export const ENTRY_COST_SQL = `
  * on project_id — this read deliberately does not, so it keeps working after a project is purged.
  */
 export function employeeCostByProject(db: Db, orgId: string): ProjectEmployeeCost[] {
-  return db
-    .prepare(
-      `SELECT project_id,
-              MAX(project_name) AS project_name,
-              SUM(hours) AS employee_hours,
-              SUM(cost)  AS employee_cost
-       FROM (
-         SELECT e.project_id AS project_id,
-                e.project_name AS project_name,
-                e.hours_worked AS hours,
-                ${ENTRY_COST_SQL} AS cost
-         FROM employee_entries e
-         WHERE e.org_id = ? AND e.project_id IS NOT NULL
-
-         UNION ALL
-
-         SELECT a.project_id,
-                COALESCE(a.project_name, ''),
-                a.delta_minutes / 60.0,
-                (a.delta_minutes / 60.0) * a.rate_at_entry
-         FROM employee_adjustments a
-         WHERE a.org_id = ? AND a.kind = 'hours' AND a.deleted_at IS NULL AND a.project_id IS NOT NULL
-
-         UNION ALL
-
-         SELECT a.project_id,
-                COALESCE(a.project_name, ''),
-                0,
-                a.delta_amount
-         FROM employee_adjustments a
-         WHERE a.org_id = ? AND a.kind = 'amount' AND a.deleted_at IS NULL AND a.project_id IS NOT NULL
-       )
-       GROUP BY project_id
-       ORDER BY employee_cost DESC, project_id ASC`
-    )
-    .all(orgId, orgId, orgId) as ProjectEmployeeCost[];
+  // Reads the one net sum instead of keeping its own copy of the union, so a project's employee
+  // cost and a person's balance are the same arithmetic and cannot drift apart.
+  return netTotals(db, { orgId, projectsOnly: true }, "project")
+    .map((t) => ({
+      project_id: t.bucket as number,
+      project_name: t.project_name,
+      employee_hours: t.hours,
+      employee_cost: t.cost,
+    }))
+    .sort((a, b) => b.employee_cost - a.employee_cost || a.project_id - b.project_id);
 }
 
 /** The same seam for ONE project — the detail read behind a project's employee cost line. */
@@ -95,43 +65,37 @@ export function employeeCostForProject(db: Db, orgId: string, projectId: number)
  * there is nothing to special-case. Never stored: canon rules the balance derived and carrying
  * across periods, and a stored copy is a second truth that drifts.
  */
-export function balanceFor(db: Db, employeeId: number): EmployeeBalance {
+export function balanceFor(db: Db, employeeId: number, today = new Date()): EmployeeBalance {
   const id = vId(employeeId, "person id");
-
-  const entries = db
-    .prepare(
-      `SELECT COALESCE(SUM(e.hours_worked), 0) AS hours, COALESCE(SUM(${ENTRY_COST_SQL}), 0) AS cost
-       FROM employee_entries e WHERE e.employee_id = ?`
-    )
-    .get(id) as { hours: number; cost: number };
-
-  const hoursAdj = db
-    .prepare(
-      `SELECT COALESCE(SUM(a.delta_minutes / 60.0), 0) AS hours,
-              COALESCE(SUM((a.delta_minutes / 60.0) * a.rate_at_entry), 0) AS cost
-       FROM employee_adjustments a
-       WHERE a.employee_id = ? AND a.kind = 'hours' AND a.deleted_at IS NULL`
-    )
-    .get(id) as { hours: number; cost: number };
-
-  const amountAdj = db
-    .prepare(
-      `SELECT COALESCE(SUM(a.delta_amount), 0) AS amount
-       FROM employee_adjustments a
-       WHERE a.employee_id = ? AND a.kind = 'amount' AND a.deleted_at IS NULL`
-    )
-    .get(id) as { amount: number };
-
+  const net = netTotals(db, { employeeId: id })[0];
   const payments = db
     .prepare(`SELECT COALESCE(SUM(p.amount), 0) AS paid FROM employee_payments p WHERE p.employee_id = ?`)
     .get(id) as { paid: number };
-
-  const earned = entries.cost + hoursAdj.cost + amountAdj.amount;
+  const period = (since: string): EmployeePeriod => {
+    const t = netTotals(db, { employeeId: id, since })[0];
+    return { hours: t.hours, entries: t.entries };
+  };
+  // The Ledger cards' windows, counted on the day the work happened. Local dates on purpose:
+  // worked_on is a local calendar day, and a UTC date would shift the window at night.
+  const daysBack = (n: number): string => {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - n);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
   return {
     employee_id: id,
-    earned,
+    earned: net.cost,
     paid: payments.paid,
-    outstanding: earned - payments.paid,
-    hours: entries.hours + hoursAdj.hours,
+    outstanding: cents(net.cost - payments.paid),
+    hours: net.hours,
+    // Today and the six days before it: the same seven days this card has always counted.
+    week: period(daysBack(6)),
+    month: period(daysBack(29)),
+    year: period(`${today.getFullYear()}-01-01`),
   };
+}
+
+/** Net hours for every person in the org, for the people list. Someone with nothing logged is
+    simply absent, and the list shows them as zero. */
+export function hoursByPerson(db: Db, orgId: string): PersonHours[] {
+  return netTotals(db, { orgId }, "employee").map((t) => ({ employee_id: t.bucket as number, hours: t.hours }));
 }

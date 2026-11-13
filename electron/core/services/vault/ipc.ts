@@ -33,6 +33,7 @@ import * as infra from "./infra";
 import * as repos from "./repos";
 import { deriveSshArt } from "./sshart";
 import { findVsCodeThemes, readVsCodeTheme } from "./codeThemes";
+import { createImportPick } from "./importPick";
 import fs from "node:fs";
 import { FILE_FILTERS, exportDirFor, locateExports, statPickedFiles, walkForDocs } from "./sources";
 import { clearAllEvents, clearRoutine, listEvents, logEvent, newRequestId, presentableMessage, type VaultLogLevel } from "./log";
@@ -685,6 +686,9 @@ export function registerVaultIpc(): void {
     });
     return r.canceled ? [] : r.filePaths;
   });
+  // What the last file dialog handed out. readImportText below reads from this list and nowhere
+  // else, so the page cannot name a file the user did not just pick (VA-02; rule in importPick.ts).
+  const importPick = createImportPick();
   // FILES, which is what Infrastructure actually imports — a zone export or a spreadsheet you just
   // downloaded, not a directory of them. Filters are per target; see FILE_FILTERS.
   safeHandle("vault:chooseFiles", async (e, target: unknown) => {
@@ -694,7 +698,7 @@ export function registerVaultIpc(): void {
       properties: ["openFile", "multiSelections"],
       filters: FILE_FILTERS[key],
     });
-    return r.canceled ? [] : r.filePaths;
+    return importPick.remember(r.canceled ? [] : r.filePaths);
   });
   /**
    * Read a chosen file's TEXT so the renderer can run it through a parser and show a review table
@@ -707,8 +711,7 @@ export function registerVaultIpc(): void {
    */
   safeHandle("vault:readImportText", async (_e, filePath: unknown) => {
     await gated();
-    const p = typeof filePath === "string" ? filePath : "";
-    if (!p) throw new Error("No file was chosen.");
+    const p = importPick.take(filePath);
     const stat = fs.statSync(p);
     const MAX = 8 * 1024 * 1024;
     if (stat.size > MAX) throw new Error("That file is too large to read here — it is over 8 megabytes.");

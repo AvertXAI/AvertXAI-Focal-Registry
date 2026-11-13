@@ -46,6 +46,8 @@ import { findVsCodeThemes, readVsCodeTheme } from "../vault/codeThemes";
 // have produced a second implementation of the same disk walk, so the import-machinery handlers
 // below call the existing one.
 import { DOC_EXTS, FILE_FILTERS, SKIP_DIRS, statPickedFiles, walkForDocs } from "../vault/sources";
+// SAME CLASS OF REUSE once more: importPick.ts imports only node:path and holds no vault data.
+import { createImportPick } from "../vault/importPick";
 
 /**
  * Module-local copy of core/ipc.ts's resilient registrar (it is module-local there; a cross-import
@@ -745,6 +747,9 @@ export function registerMindMergeDocsIpc(): void {
     });
     return r.canceled ? [] : r.filePaths;
   });
+  // What the last file dialog handed out. readImportText below reads from this list and nowhere
+  // else, so the page cannot name a file the user did not just pick (rule in vault/importPick.ts).
+  const importPick = createImportPick();
   // FILES — one old .md you want to keep, not a directory of them. Filters are per target; see
   // FILE_FILTERS. Only the "notes" target is meaningful here (the vault's infra/repos surfaces do
   // not cross into MindMerge), and "notes" is already the default when no target is given.
@@ -756,7 +761,7 @@ export function registerMindMergeDocsIpc(): void {
       properties: ["openFile", "multiSelections"],
       filters: FILE_FILTERS[key],
     });
-    return r.canceled ? [] : r.filePaths;
+    return importPick.remember(r.canceled ? [] : r.filePaths);
   });
   /**
    * Read a chosen file's TEXT so the renderer can run it through a parser and show a review table
@@ -769,8 +774,7 @@ export function registerMindMergeDocsIpc(): void {
    */
   safeHandle("mindmerge:readImportText", async (_e, filePath: unknown) => {
     enforceFeature(getDb(), "mindmergeBrain");
-    const p = typeof filePath === "string" ? filePath : "";
-    if (!p) throw new Error("No file was chosen.");
+    const p = importPick.take(filePath);
     const stat = fs.statSync(p);
     const MAX = 8 * 1024 * 1024;
     if (stat.size > MAX) throw new Error("That file is too large to read here — it is over 8 megabytes.");

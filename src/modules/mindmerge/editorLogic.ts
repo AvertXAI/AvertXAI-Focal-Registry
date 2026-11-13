@@ -10,6 +10,7 @@ import type { Ctx } from "@milkdown/kit/ctx";
 import type { Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
 import type { EditorState, Transaction } from "@milkdown/kit/prose/state";
 import { $remark } from "@milkdown/kit/utils";
+import { tidyMarkdown } from "./tidyMarkdown";
 
 interface MdNode {
   type: string;
@@ -23,6 +24,9 @@ interface MdNode {
 
 type PhrasingInfo = Record<string, unknown>;
 interface StringifyState {
+  /** The constructs being written, outermost first — which quote or list item this text sits in. */
+  stack: string[];
+  bulletCurrent?: string;
   enter: (construct: string) => () => void;
   containerPhrasing: (parent: MdNode, info: PhrasingInfo) => string;
 }
@@ -37,8 +41,9 @@ const textOf = (node: MdNode): string => node.value ?? (node.children ?? []).map
  * `redis\://user:pw\@host` because a colon after "s" and an at-sign *could* start a link. The value
  * still reads correctly in the editor, but Raw, an export and anything pasted elsewhere carry the
  * backslashes. So each paragraph is written twice — escaped and plain — and the plain form is kept
- * only when reading it back gives the same paragraph. A paragraph that really needs an escape
- * (`2*3*4`, a literal `<div>`) keeps the escaped form it has always had.
+ * only when the store would read it back exactly as it reads the escaped form: after the save
+ * path's tidy, and in the same quote or list position. A paragraph that really needs an escape
+ * (`2*3*4`, a literal `<div>`, a value ending in a backslash) keeps the form it has always had.
  */
 let writingPlain = false;
 
@@ -75,32 +80,50 @@ function withBareLinksAsText(node: MdNode): MdNode {
   return { ...node, children };
 }
 
-function soleParagraph(root: MdNode, inListItem: boolean): MdNode | null {
-  let only = root.children?.length === 1 ? root.children[0] : undefined;
-  if (inListItem) {
-    const item = only?.type === "list" && only.children?.length === 1 ? only.children[0] : undefined;
-    only = item && item.checked == null && item.children?.length === 1 ? item.children[0] : undefined;
+/**
+ * The paragraph as it will sit in the stored note: between other blocks, inside its quotes and list
+ * items. Where text sits changes what it means — `[ ] x` is a checkbox only at the head of a list
+ * item, `**` alone after a `*` bullet is a rule — so both forms are judged in place, not alone.
+ */
+function inPlace(text: string, state: StringifyState, leadsItem: boolean): string {
+  const containers = state.stack.filter((construct) => construct === "blockquote" || construct === "listItem");
+  // For a numbered list the writer keeps only the delimiter here and puts the number in front itself.
+  const bullet = state.bulletCurrent ?? "*";
+  const ownMarker = bullet === "." || bullet === ")" ? `1${bullet}` : bullet;
+  let lines = text.split("\n");
+  for (let depth = containers.length - 1; depth >= 0; depth--) {
+    if (containers[depth] === "blockquote") {
+      lines = lines.map((line) => (line ? `> ${line}` : ">"));
+      continue;
+    }
+    const leads = leadsItem && depth === containers.length - 1;
+    const marker = leads ? ownMarker : "*";
+    const indent = " ".repeat(marker.length + 1);
+    const body = lines.map((line, at) => (leads && at === 0 ? `${marker} ${line}` : line ? indent + line : line));
+    lines = leads ? body : [`${marker} x`, "", ...body];
   }
-  return only?.type === "paragraph" ? only : null;
+  return ["x", "", ...lines, "", "x"].join("\n");
 }
 
-/** Keyed by both written forms; the whole note is rewritten on every change, so most paragraphs repeat. */
+const comparable = (root: MdNode): string =>
+  JSON.stringify(withBareLinksAsText(root), (key, value: unknown) => (key === "position" ? undefined : value));
+
+/** Keyed by both placed forms; the whole note is rewritten on every change, so most paragraphs repeat. */
 const readsBackTheSame = new Map<string, boolean>();
 
 function faithfulParagraph(read: (markdown: string) => MdNode): Handler {
   return (node, parent, state, info) => {
     const escaped = writePhrasing(node, state, info, false);
-    const bare = withBareLinksAsText(node);
-    const plain = writePhrasing(bare, state, info, true);
+    const plain = writePhrasing(withBareLinksAsText(node), state, info, true);
     if (plain === escaped) return escaped;
-    // The first paragraph of a list item is read back as one: there, a leading "[ ] " is a checkbox.
-    const inListItem = parent?.type === "listItem" && parent.children?.[0] === node;
-    const key = `${inListItem ? "- " : ""}${plain}\u0000${escaped}`;
+    const leadsItem = parent?.type === "listItem" && parent.children?.[0] === node;
+    const placedPlain = inPlace(plain, state, leadsItem);
+    const placedEscaped = inPlace(escaped, state, leadsItem);
+    const key = `${placedPlain}\u0000${placedEscaped}`;
     let same = readsBackTheSame.get(key);
     if (same === undefined) {
       try {
-        const reread = soleParagraph(read(inListItem ? `- ${plain}` : plain), inListItem);
-        same = reread !== null && writePhrasing(withBareLinksAsText(reread), state, info, false) === writePhrasing(bare, state, info, false);
+        same = comparable(read(tidyMarkdown(placedPlain))) === comparable(read(tidyMarkdown(placedEscaped)));
       } catch {
         same = false;
       }

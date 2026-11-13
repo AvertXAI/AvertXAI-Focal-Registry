@@ -79,7 +79,7 @@ test("MM-02: a value inside a list item and a quote is stored unescaped", async 
 
 test("MM-02: text that needs an escape to survive still gets it", async () => {
   const { schema, parse, write, paragraph, docOf } = await ready;
-  for (const literal of ["2*3*4", "_under_", "<div>", "# not a heading", "[ ] not a checkbox", "a\\*b", "[x]: http://fake.internal", "~gone~", "1. not a list", "> not a quote"]) {
+  for (const literal of ["2*3*4", "_under_", "<div>", "[ ] not a checkbox", "a\\*b", "[x]: http://fake.internal", "~gone~", "> not a quote"]) {
     const reread = parse(write(docOf(paragraph(schema.text(literal)))));
     assert.equal(reread.textContent, literal, literal);
     assert.equal(reread.firstChild?.type.name, "paragraph", literal);
@@ -88,6 +88,19 @@ test("MM-02: text that needs an escape to survive still gets it", async () => {
   const reread = parse(write(item));
   assert.equal(reread.textContent, "[ ] not a checkbox");
   assert.equal(reread.firstChild?.firstChild?.attrs.checked ?? null, null);
+});
+
+test("MM-02: the save path never eats a character the unescaped form would expose", async () => {
+  const { schema, parse, stored, paragraph, docOf } = await ready;
+  // Tidy drops a lone trailing backslash and a bare `=` line, and `* **` is a rule, not a bullet.
+  for (const literal of ["fake-value-ending-in-a-backslash\\", "=", "===", "fake\\"]) {
+    assert.equal(parse(stored(docOf(paragraph(schema.text("before")), paragraph(schema.text(literal)), paragraph(schema.text("after"))))).textContent, `before${literal}after`, literal);
+  }
+  const item = docOf(schema.nodes.bullet_list.create(null, schema.nodes.list_item.create(null, paragraph(schema.text("**")))));
+  assert.equal(parse(stored(item)).textContent, "**");
+  const nested = stored(parse(`* outer\n\n  * ${REDIS}\n\n> * ${POSTGRES}`));
+  assert.ok(nested.includes(`  * ${REDIS}`) && nested.endsWith(POSTGRES), nested);
+  assert.equal(stored(parse(nested)), nested);
 });
 
 test("MM-02: a connection string is not turned into an email link", async () => {

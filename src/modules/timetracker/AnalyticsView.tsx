@@ -96,13 +96,14 @@ export default function AnalyticsView({ project, onClearSelection }: Props) {
     .filter((p) => p.hours > 0)
     .map((p) => ({ label: bucketLabel(p.bucket, gran), a: p.hours }));
   const seriesMoney: SeriesPoint[] = (data?.timeSeries ?? [])
-    .filter((p) => p.value > 0 || p.costs > 0)
-    .map((p) => ({ label: bucketLabel(p.bucket, gran), a: p.value, b: p.costs }));
-  // PROFIT per bucket = revenue − spend, straight off the same series (no fourth money rule):
-  // value already carries revenue on its ruled dates, costs carries every spend source.
+    .filter((p) => p.received > 0 || p.costs > 0 || p.value > 0)
+    // a = received and b = spent are the two lines being compared; c = billed rides along dashed.
+    .map((p) => ({ label: bucketLabel(p.bucket, gran), a: p.received, b: p.costs, c: p.value }));
+  // PROFIT per bucket = received − spend, straight off the same series: received lands on the day
+  // the money came in, costs carries every spend source on the day it happened.
   const seriesProfit: SeriesPoint[] = (data?.timeSeries ?? [])
-    .filter((p) => p.value !== 0 || p.costs !== 0)
-    .map((p) => ({ label: bucketLabel(p.bucket, gran), a: p.value - p.costs }));
+    .filter((p) => p.received !== 0 || p.costs !== 0)
+    .map((p) => ({ label: bucketLabel(p.bucket, gran), a: p.received - p.costs }));
   const barsProjects = (data?.hoursByProject ?? []).map((r) => ({ label: r.name, value: r.hours }));
   const barsCosts = (data?.costsByCategory ?? []).map((r) => ({ label: r.category, value: r.amount }));
   const barsProfit = (data?.profitByProject ?? []).map((r) => ({ label: r.name, value: r.profit }));
@@ -121,13 +122,15 @@ export default function AnalyticsView({ project, onClearSelection }: Props) {
     { key: "hours", title: "Hours over time", node: <TimeSeriesChart points={seriesHours} mode="area" emptyText="No hours in this range" fmtY={fmtHoursAxis} /> },
     {
       key: "money",
-      title: "Revenue vs spent over time",
+      title: "Received vs spent over time",
+      caption: `Billed is the dashed line: a contract on its contract date, hourly work as it is done.${excludedNote}`,
       node: (
         <>
-          <TimeSeriesChart points={seriesMoney} mode="dual" emptyText={`No revenue or spend in this range.${excludedNote}`} fmtY={fmtMoneyAxis} />
+          <TimeSeriesChart points={seriesMoney} mode="dual" emptyText="Nothing received, billed or spent in this range." fmtY={fmtMoneyAxis} />
           <div className="tt-legend">
             <span className="tt-legenditem"><span className="tt-legendmark costs" />Spent</span>
-            <span className="tt-legenditem"><span className="tt-legendmark value" />Revenue</span>
+            <span className="tt-legenditem"><span className="tt-legendmark value" />Received</span>
+            <span className="tt-legenditem"><span className="tt-legendmark billed" />Billed</span>
           </div>
         </>
       ),
@@ -135,12 +138,12 @@ export default function AnalyticsView({ project, onClearSelection }: Props) {
     {
       key: "profit",
       title: "Profit over time",
-      caption: `Revenue lands on the contract date; spend on the day it happened.${excludedNote}`,
-      node: <TimeSeriesChart points={seriesProfit} mode="area" emptyText={`No profit to draw in this range.${excludedNote}`} fmtY={fmtMoneyAxis} />,
+      caption: "Money counts on the day it was received; spend on the day it happened.",
+      node: <TimeSeriesChart points={seriesProfit} mode="area" emptyText="No profit to draw in this range." fmtY={fmtMoneyAxis} />,
     },
     { key: "hoursby", title: "Hours by project", node: <HBarChart rows={barsProjects} emptyText="No hours in this range" fmtV={fmtHoursAxis} /> },
-    { key: "profitby", title: "Profit by project", node: <HBarChart rows={barsProfit} emptyText="No projects with revenue or spend yet" fmtV={fmtMoneyAxis} /> },
-    { key: "marginby", title: "Margin by project", caption: "Projects with no revenue are excluded — no margin is not 0%.", node: <HBarChart rows={barsMargin} emptyText="No projects with revenue yet" fmtV={fmtPctAxis} /> },
+    { key: "profitby", title: "Profit by project", node: <HBarChart rows={barsProfit} emptyText="No projects with money received or spent yet" fmtV={fmtMoneyAxis} /> },
+    { key: "marginby", title: "Margin by project", caption: "Projects with nothing received are left out — no margin is not 0%.", node: <HBarChart rows={barsMargin} emptyText="No projects with money received yet" fmtV={fmtPctAxis} /> },
     { key: "costs", title: "Spend by category", node: <HBarChart rows={barsCosts} emptyText="No spend in this range" fmtV={fmtMoneyAxis} /> },
   ];
   const expandedChart = CHARTS.find((c) => c.key === expanded) ?? null;
@@ -186,24 +189,28 @@ export default function AnalyticsView({ project, onClearSelection }: Props) {
         </button>
       </div>
 
-      {/* ALL-TIME summary cards — the RULED vocabulary: Revenue · Spent · Profit · Margin.
-          "Total invested" (revenue ADDED to costs) is gone — it was the naming collision. */}
+      {/* ALL-TIME summary cards. "Total invested" (billed ADDED to costs) is gone — it was the
+          naming collision. */}
+      {/* Bug sweep 2 (TT-06): Revenue reads BILLED and RECEIVED sits beside it. Profit and Margin
+          count money that actually came in, so a recorded payment moves them. */}
       <div className="tt-cards tt-cards6">
         <div className="tt-card"><span className="tt-cardlabel">Total hours</span><span className="tt-cardvalue">{t ? fmtHM(t.total_seconds) : "—"}</span>
           <span className="tt-cardsub">incl. {t ? fmtHM(t.donated_seconds) : "—"} donated</span></div>
-        <div className="tt-card"><span className="tt-cardlabel">Revenue</span><span className="tt-cardvalue">{t ? fmtMoney(t.revenue) : "—"}</span>
+        <div className="tt-card"><span className="tt-cardlabel">Billed</span><span className="tt-cardvalue">{t ? fmtMoney(t.billed) : "—"}</span>
           <span className="tt-cardsub">contracted + hourly earnings</span></div>
+        <div className="tt-card"><span className="tt-cardlabel">Received</span><span className="tt-cardvalue">{t ? fmtMoney(t.received) : "—"}</span>
+          <span className="tt-cardsub">payments recorded</span></div>
         <div className="tt-card"><span className="tt-cardlabel">Spent</span><span className="tt-cardvalue">{t ? fmtMoney(t.spent) : "—"}</span>
           <span className="tt-cardsub">crew + purchases + costs</span></div>
         <div className={"tt-card" + (t && t.profit < 0 ? " tt-cardloss" : " tt-cardprofit")}>
           <span className="tt-cardlabel">Profit</span>
           <span className="tt-cardvalue">{t ? fmtMoney(t.profit) : "—"}</span>
-          <span className="tt-cardsub">revenue − spent</span>
+          <span className="tt-cardsub">received − spent</span>
         </div>
         <div className={"tt-card" + (t && t.margin != null && t.margin < 0 ? " tt-cardloss" : " tt-cardprofit")}>
           <span className="tt-cardlabel">Margin</span>
           <span className="tt-cardvalue">{t && t.margin != null ? `${t.margin.toFixed(1)}%` : "—"}</span>
-          <span className="tt-cardsub">profit ÷ revenue</span>
+          <span className="tt-cardsub">profit ÷ received</span>
         </div>
         <div className="tt-card"><span className="tt-cardlabel">Projects</span><span className="tt-cardvalue">{t ? t.project_count : "—"}</span></div>
         <div className="tt-card"><span className="tt-cardlabel">Groups</span><span className="tt-cardvalue">{t ? t.group_count : "—"}</span></div>

@@ -42,15 +42,23 @@ export function listPaymentsInRange(db: Db, orgId: string, fromDate: string, toD
 }
 
 /** Record a payment. Append-only: this INSERT is the only ordinary write in the ledger. */
-export function recordPayment(db: Db, orgId: string, input: PaymentInput): Payment {
+export function recordPayment(
+  db: Db,
+  orgId: string,
+  input: PaymentInput,
+  // Handed in only by the client-payment link (timetracker/payments.ts) and written with the row,
+  // because this ledger never updates one. The Employees channel leaves it out, so the page cannot
+  // point a payroll payment at a client payment by hand.
+  projectPaymentUuid: string | null = null
+): Payment {
   const person = getPerson(db, vId(input.employeeId, "person id"));
   const amount = vSignedAmount(input.amount, "payment amount");
   const paidOn = vDate(input.paidOn, "payment date");
   const res = db
     .prepare(
       `INSERT INTO employee_payments
-         (uuid, org_id, employee_id, amount, paid_on, method, reference, note, reverses_uuid, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+         (uuid, org_id, employee_id, amount, paid_on, method, reference, note, reverses_uuid, project_payment_uuid, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`
     )
     .run(
       generateUUIDv7(),
@@ -61,6 +69,7 @@ export function recordPayment(db: Db, orgId: string, input: PaymentInput): Payme
       vNullableString(input.method, "method", 100),
       vNullableString(input.reference, "reference", 200),
       vNullableString(input.note, "note", 2000),
+      projectPaymentUuid,
       nowIso()
     );
   const payment = getPayment(db, Number(res.lastInsertRowid));

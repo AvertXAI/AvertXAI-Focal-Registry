@@ -396,13 +396,14 @@ export default function TimeTrackerModule() {
         {grand && (
           <div className="tt-grandbar">
             <span className="tt-grandlabel">Grand total</span>
-            {/* RULED vocabulary (08-06): revenue · spent. "Total invested" (revenue + costs) is
+            {/* Bug sweep 2 (TT-06): this line reads received · spent, so money that came in shows
+                here. It read revenue · spent before (ruled 08-06). "Total invested" (revenue + costs) is
                 retired, and PROFIT deliberately does NOT print here — the Tracker is an active,
                 client-facing surface; profit lives in Analytics only. */}
             <span className="tt-grandvals">
               {`${Math.floor(grand.total_seconds / 3600)}h ${String(Math.floor((grand.total_seconds % 3600) / 60)).padStart(2, "0")}m`}
               {" · "}
-              {grand.total_value.toLocaleString(undefined, { style: "currency", currency: "USD" })} revenue
+              {grand.total_received.toLocaleString(undefined, { style: "currency", currency: "USD" })} received
               {" · "}
               {grand.total_costs.toLocaleString(undefined, { style: "currency", currency: "USD" })} spent
             </span>

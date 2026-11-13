@@ -835,7 +835,7 @@ export interface TimeTrackerProject {
   completed_at: string | null;
   /** INV-YYYY-NNNN, allocated on first invoice export; re-export reproduces it. */
   invoice_number: string | null;
-  /** The day the client SIGNED (YYYY-MM-DD) — revenue's date on the profit timeline. */
+  /** The day the client SIGNED (YYYY-MM-DD) — the day the billed amount lands on in Analytics. */
   contract_date: string | null;
   signed_by: string | null;
   payment_terms: string | null;
@@ -854,11 +854,22 @@ export interface TimeTrackerProjectPayment {
   note: string | null;
   deleted_at: string | null;
   created_at: string;
+  /** The payroll payment this client payment is also counted as, and that person's name. Both
+      null when it is not counted as pay to anyone, and always null without the Employees module. */
+  paid_to_uuid: string | null;
+  paid_to_name: string | null;
+}
+/** Someone a client payment can also be counted as paid to. */
+export interface TimeTrackerPaymentPayee {
+  id: number;
+  name: string;
 }
 export interface TimeTrackerProjectPaymentInput {
   projectId: number;
   amount: number;
   receivedOn: string;
+  /** Set when "Also count as paid to" is ticked: the person the same amount is paid to. */
+  paidToEmployeeId?: number | null;
   method: TimeTrackerPaymentMethod;
   reference?: string | null;
   note?: string | null;
@@ -880,6 +891,8 @@ export interface TimeTrackerProjectListItem extends TimeTrackerProject {
   /** Hourly: hours x rate. Contract paid: contract_amount. Contract donated: 0 (shown as "Donated"). */
   total_value: number;
   total_costs: number;
+  /** Money actually received: the project's client payments, voided ones left out. */
+  total_received: number;
   last_worked: string | null;
 }
 
@@ -965,16 +978,19 @@ export interface TimeTrackerGrandTotals {
   total_seconds: number;
   total_value: number;
   total_costs: number;
+  total_received: number;
   project_count: number;
 }
 
 export interface TimeTrackerReportTotals {
   total_seconds: number;
-  /** RULED vocabulary (08-06): revenue / spent / profit / margin — total_invested is gone. */
-  revenue: number;
+  /** Money words since bug sweep 2 (TT-06): billed / received / spent / profit / margin. billed is
+      the figure that was called revenue; profit and margin count money received. */
+  billed: number;
+  received: number;
   spent: number;
   profit: number;
-  /** Percent; NULL when there is no revenue (not the same as 0%). */
+  /** Percent of money received; NULL when nothing has been received (not the same as 0%). */
   margin: number | null;
   donated_seconds: number;
   project_count: number;
@@ -985,6 +1001,7 @@ export interface TimeTrackerTimeSeriesPoint {
   bucket: string;
   hours: number;
   value: number;
+  received: number;
   costs: number;
 }
 
@@ -1310,6 +1327,8 @@ export interface EmployeePayment {
   reference: string | null;
   note: string | null;
   reverses_uuid: string | null;
+  /** The client payment this payroll payment was counted from; null on an ordinary payment. */
+  project_payment_uuid: string | null;
   created_at: string;
 }
 
@@ -2008,7 +2027,14 @@ export interface Api {
       list: (projectId: number) => Promise<TimeTrackerProjectPayment[]>;
       total: (projectId: number) => Promise<number>;
       add: (input: TimeTrackerProjectPaymentInput) => Promise<TimeTrackerProjectPayment>;
-      void: (id: number) => Promise<void>;
+      /** Voids the payment. `alsoPayroll` also reverses the payroll payment it is counted as. */
+      void: (id: number, alsoPayroll?: boolean) => Promise<void>;
+      /** Who a payment on this project can also be counted as paid to. Empty without Employees. */
+      payees: (projectId: number) => Promise<TimeTrackerPaymentPayee[]>;
+      /** Writes a payroll payment of the same amount to that person, linked to this payment. */
+      countAsPaid: (id: number, employeeId: number) => Promise<TimeTrackerProjectPayment>;
+      /** Reverses that payroll payment; the client payment itself stays received. */
+      stopCounting: (id: number) => Promise<void>;
     };
     invoice: {
       /** Allocates INV-YYYY-NNNN on first call; returns every field the invoice document needs. */

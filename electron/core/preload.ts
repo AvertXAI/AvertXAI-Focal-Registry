@@ -360,7 +360,10 @@ const api: Api = {
       list: (projectId: number) => invoke("timetracker:listPayments", projectId),
       total: (projectId: number) => invoke("timetracker:paymentsTotal", projectId),
       add: (input: unknown) => invoke("timetracker:addPayment", input),
-      void: (id: number) => invoke("timetracker:voidPayment", id),
+      void: (id: number, alsoPayroll?: boolean) => invoke("timetracker:voidPayment", id, alsoPayroll === true),
+      payees: (projectId: number) => invoke("timetracker:paymentPayees", projectId),
+      countAsPaid: (id: number, employeeId: number) => invoke("timetracker:countPaymentAsPaid", id, employeeId),
+      stopCounting: (id: number) => invoke("timetracker:stopCountingPayment", id),
     },
     invoice: {
       // Allocates INV-YYYY-NNNN on first call and returns every field the document composes.

@@ -145,6 +145,9 @@ export interface Payment {
   reference: string | null;
   note: string | null;
   reverses_uuid: string | null;
+  /** The client payment this payroll payment was counted from (timetracker_project_payments.uuid).
+      NULL on an ordinary payroll payment and on every reversal. */
+  project_payment_uuid: string | null;
   created_at: string;
 }
 

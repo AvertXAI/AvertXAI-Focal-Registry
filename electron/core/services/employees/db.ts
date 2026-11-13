@@ -138,6 +138,15 @@ export function ensureEmployeesSchema(db: Db): void {
     "note TEXT",
     "reverses_uuid TEXT", // soft pointer to the reversed payment's uuid; NULL on an ordinary payment
   ]);
+  // Additive, guarded, AFTER its createTable. A client payment on a project can also be counted as
+  // pay to one person (bug sweep 2, TT-06). The payroll row that records it points back at the
+  // client payment here (timetracker_project_payments.uuid), so each side can find the other. Soft,
+  // like every link between the two modules, and NULL on every ordinary payment and every reversal.
+  // ponytail: no index. Reading a project's payments scans this table once per payment row, which
+  // is nothing at hundreds of payroll rows; add an index on this column if it reaches thousands.
+  if (!(db.pragma("table_info(employee_payments)") as { name: string }[]).some((c) => c.name === "project_payment_uuid")) {
+    db.exec("ALTER TABLE employee_payments ADD COLUMN project_payment_uuid TEXT;");
+  }
 
   // Corrections. HOURS and AMOUNT are different operations and the database says so: an hours
   // adjustment must name a project and carries its own mandatory rate_at_entry (so corrected hours

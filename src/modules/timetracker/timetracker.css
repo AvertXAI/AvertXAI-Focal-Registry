@@ -19,6 +19,7 @@
   --timetracker-chart-hours-color: var(--mc-green);
   --timetracker-chart-value-color: var(--mc-accent-primary);
   --timetracker-chart-costs-color: var(--timetracker-paused-color);
+  --timetracker-chart-billed-color: var(--mc-muted);
   --timetracker-chart-grid-color: var(--mc-border);
   display: flex;
   height: calc(100vh - var(--mc-topbar-height) - var(--mc-footer-height, 0px));
@@ -651,3 +652,36 @@
 .tt-paybadge { border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .tt-paybadge.paid { color: var(--mc-green); border: 1px solid var(--mc-green); }
 .tt-paybadge.awaiting { color: var(--mc-orange); border: 1px solid var(--mc-orange); }
+
+/* ---- Bug sweep 2 (TT-06): the Record payment dialog, and the Billed line on the money chart ---- */
+/* WIDTH MATH. .tt-modalback sits inside .tt-shell, which is the window less the shell nav (212
+   when docked, and it cannot dock under 900), and has 16px of padding each side:
+     740 window, nav cannot dock -> 708 room -> dialog 680 -> 638 inside its padding and border
+     900 window, nav docked      -> 656 room -> dialog 656 -> 614 inside (the tightest case)
+     960 docked -> 716 room, 1440 docked -> 1196 room -> dialog 680 -> 638 inside
+   Columns: date 96 + method 124 + amount 104 + remove 40 = 364 fixed. Reference and Note split
+   the rest: 137 each at 638, 125 each at 614. The fixed layout keeps the table exactly as wide as
+   the dialog whatever is typed, and a long reference or note wraps inside its own column. The
+   table used to size itself to its longest cell, which is what pushed Amount past the dialog. */
+.tt-paymodal { width: min(680px, 100%); }
+.tt-paytable { table-layout: fixed; }
+.tt-paytable col.date { width: 96px; }
+.tt-paytable col.method { width: 124px; }
+.tt-paytable col.amount { width: 104px; }
+.tt-paytable col.remove { width: 40px; }
+.tt-paywrap { overflow-wrap: anywhere; }
+/* "Bank transfer / ACH" is wider than the method column, so in this table the pill may run to two lines. */
+.tt-paytable .tt-badge { display: inline-block; white-space: normal; }
+.tt-paytable td.tt-payx { padding: 5px 4px; text-align: center; }
+/* A payment and its "also counted as paid to" line read as one row: no rule between the two. */
+.tt-paytable tr.tt-payhead td { border-bottom: none; }
+.tt-paytable tr.tt-paysub td { padding-top: 0; }
+.tt-paysubline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11.5px; color: var(--mc-muted); }
+.tt-payalso { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 2px; }
+.tt-paycheck { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--mc-text); cursor: pointer; }
+.tt-paycheck input { flex: none; accent-color: var(--mc-accent-primary); }
+/* The reason Save is off sits at the left end of the button row, out of the buttons' way. */
+.tt-payreason { margin-right: auto; align-self: center; font-size: 11.5px; color: var(--mc-muted); }
+.tt-chartline.billed { stroke: var(--timetracker-chart-billed-color); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.tt-chartdot.billed { fill: var(--timetracker-chart-billed-color); }
+.tt-legendmark.billed { background: var(--timetracker-chart-billed-color); }

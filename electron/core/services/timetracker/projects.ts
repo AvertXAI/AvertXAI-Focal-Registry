@@ -81,6 +81,11 @@ SELECT
     + COALESCE(emp.seconds, 0)
   ) AS total_seconds,
   (SELECT MAX(te.ended_at) FROM timetracker_time_entries te WHERE te.project_id = p.id) AS last_worked,
+  -- RECEIVED (bug sweep 2, TT-06): client payments, voided ones left out. Before this no total
+  -- read the payments table, so a recorded payment moved nothing on the card, the footer or
+  -- Analytics. Not the same as total_value, which is what was billed.
+  COALESCE((SELECT SUM(pay.amount) FROM timetracker_project_payments pay
+      WHERE pay.project_id = p.id AND pay.deleted_at IS NULL), 0) AS total_received,
   (SELECT vl.amount FROM timetracker_value_ledger vl WHERE vl.project_id = p.id ORDER BY vl.id DESC LIMIT 1) AS latest_ledger_amount
 FROM timetracker_projects p
 JOIN timetracker_clients c ON c.id = p.client_id
@@ -571,6 +576,7 @@ export function grandTotals(db: Db, orgId: string): GrandTotals {
     total_seconds: projects.reduce((s, p) => s + p.total_seconds, 0),
     total_value: projects.reduce((s, p) => s + p.total_value, 0),
     total_costs: projects.reduce((s, p) => s + p.total_costs, 0),
+    total_received: projects.reduce((s, p) => s + p.total_received, 0),
     project_count: projects.length,
   };
 }

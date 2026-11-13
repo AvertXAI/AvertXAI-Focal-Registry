@@ -52,16 +52,19 @@ function cutoffIso(range: ReportRange): string | null {
  * numbers the rail itself shows — so a filtered card can never disagree with the rail.
  */
 function reportTotals(db: Db, orgId: string, projectId?: number | null): ReportTotals {
-  // PROFIT (ruled 08-06): three words, one meaning each. revenue = total_value (the contracted
-  // amount for contract-paid; hourly earnings for hourly; 0 donated). spent = total_costs, which
-  // since 08-06 IS the full composition (crew + itemized + hard lines). profit = revenue − spent;
-  // margin = profit ÷ revenue, null when there is no revenue ("no margin" ≠ "0% margin").
-  const withProfit = (seconds: number, value: number, costs: number, donated: number, projects: number, groups: number): ReportTotals => ({
+  // MONEY WORDS (bug sweep 2, TT-06; the 08-06 ruling had three). billed = total_value (the
+  // contracted amount for contract-paid; hourly earnings for hourly; 0 donated): the figure that
+  // was called revenue. received = client payments. spent = total_costs, the full composition
+  // (crew + itemized + hard lines). Profit and margin moved from billed to received, because a
+  // contract is a promise until it is paid: profit = received − spent; margin = profit ÷ received,
+  // null when nothing has been received ("no margin" ≠ "0% margin", and never a division by zero).
+  const withProfit = (seconds: number, billed: number, received: number, costs: number, donated: number, projects: number, groups: number): ReportTotals => ({
     total_seconds: seconds,
-    revenue: value,
+    billed,
+    received,
     spent: costs,
-    profit: value - costs,
-    margin: value > 0 ? ((value - costs) / value) * 100 : null,
+    profit: received - costs,
+    margin: received > 0 ? ((received - costs) / received) * 100 : null,
     donated_seconds: donated,
     project_count: projects,
     group_count: groups,
@@ -71,6 +74,7 @@ function reportTotals(db: Db, orgId: string, projectId?: number | null): ReportT
     return withProfit(
       p?.total_seconds ?? 0,
       p?.total_value ?? 0,
+      p?.total_received ?? 0,
       p?.total_costs ?? 0,
       p && p.rate_type === "contract" && p.contract_kind === "donated" ? p.total_seconds : 0,
       p ? 1 : 0,
@@ -83,7 +87,7 @@ function reportTotals(db: Db, orgId: string, projectId?: number | null): ReportT
     .filter((p) => p.rate_type === "contract" && p.contract_kind === "donated")
     .reduce((s, p) => s + p.total_seconds, 0);
   const group_count = (db.prepare(`SELECT COUNT(*) AS c FROM timetracker_groups WHERE org_id = ?`).get(orgId) as { c: number }).c;
-  return withProfit(gt.total_seconds, gt.total_value, gt.total_costs, donated_seconds, gt.project_count, group_count);
+  return withProfit(gt.total_seconds, gt.total_value, gt.total_received, gt.total_costs, donated_seconds, gt.project_count, group_count);
 }
 
 /**
@@ -93,6 +97,7 @@ function reportTotals(db: Db, orgId: string, projectId?: number | null): ReportT
  *   attributed to the project's created_at bucket. Donated excluded. Summed over "all",
  *   this equals the grand-total bar's total_value.
  * - costs: costs.amount bucketed by created_at.
+ * - received: client payments bucketed by the day each was received (voided ones left out).
  */
 function timeSeries(db: Db, orgId: string, range: ReportRange, granularity: ReportGranularity, projectId?: number | null): TimeSeriesPoint[] {
   const since = cutoffIso(range);
@@ -105,7 +110,7 @@ function timeSeries(db: Db, orgId: string, range: ReportRange, granularity: Repo
   const at = (key: string): TimeSeriesPoint => {
     let p = points.get(key);
     if (!p) {
-      p = { bucket: key, hours: 0, value: 0, costs: 0 };
+      p = { bucket: key, hours: 0, value: 0, received: 0, costs: 0 };
       points.set(key, p);
     }
     return p;
@@ -150,6 +155,20 @@ function timeSeries(db: Db, orgId: string, range: ReportRange, granularity: Repo
   for (const r of db.prepare(paidSql).all(base) as { k: string; amt: number }[]) {
     if (!r.k) continue;
     at(r.k).value += r.amt ?? 0;
+  }
+
+  // MONEY RECEIVED (bug sweep 2, TT-06): client payments, dated by the day typed into Record
+  // payment. Profit is measured from this line now, so it carries its own date instead of
+  // borrowing the contract's.
+  const receivedSql = `
+    SELECT ${bucket("pay.received_on")} AS k, SUM(pay.amount) AS amt
+    FROM timetracker_project_payments pay JOIN timetracker_projects p ON p.id = pay.project_id
+    WHERE p.org_id = @orgId AND pay.deleted_at IS NULL AND p.archived_at IS NULL
+    ${since ? `AND pay.received_on >= @sinceDate` : ``} ${pid != null ? `AND p.id = @pid` : ``}
+    GROUP BY k`;
+  for (const r of db.prepare(receivedSql).all(base) as { k: string; amt: number }[]) {
+    if (!r.k) continue;
+    at(r.k).received += r.amt ?? 0;
   }
 
   // ITEMIZED PURCHASES join the costs series (ruled 08-06 — the recon proved they were in no
@@ -266,13 +285,13 @@ function costsByCategory(db: Db, orgId: string, range: ReportRange, projectId?: 
   return rows.filter((r) => r.amount > 0).sort((a, b) => b.amount - a.amount);
 }
 
-/** Profit per project (revenue − spent, both from the ONE rollup) — negatives included; top N by
+/** Profit per project (received − spent, both from the ONE rollup) — negatives included; top N by
     absolute contribution with the remainder in "Others" so a big loss can never hide in the tail. */
 function profitByProject(db: Db, orgId: string, projectId?: number | null): ProfitByProjectPoint[] {
   const rows = listProjects(db, orgId)
     .filter((p) => (projectId == null ? true : p.id === projectId))
-    .map((p) => ({ name: p.name, profit: p.total_value - p.total_costs, revenue: p.total_value }))
-    .filter((r) => r.profit !== 0 || r.revenue > 0)
+    .map((p) => ({ name: p.name, profit: p.total_received - p.total_costs, received: p.total_received }))
+    .filter((r) => r.profit !== 0 || r.received > 0)
     .sort((a, b) => b.profit - a.profit);
   if (rows.length <= TOP_PROJECTS) return rows.map(({ name, profit }) => ({ name, profit }));
   const byAbs = [...rows].sort((a, b) => Math.abs(b.profit) - Math.abs(a.profit));
@@ -284,13 +303,13 @@ function profitByProject(db: Db, orgId: string, projectId?: number | null): Prof
   return out;
 }
 
-/** Margin per project — profit ÷ revenue as a percent. Projects with no revenue are EXCLUDED
+/** Margin per project — profit ÷ received as a percent. Projects with nothing received are EXCLUDED
     (no margin is not 0% margin), and margins are never averaged into an "Others" row. */
 function marginByProject(db: Db, orgId: string, projectId?: number | null): MarginByProjectPoint[] {
   return listProjects(db, orgId)
     .filter((p) => (projectId == null ? true : p.id === projectId))
-    .filter((p) => p.total_value > 0)
-    .map((p) => ({ name: p.name, margin: ((p.total_value - p.total_costs) / p.total_value) * 100 }))
+    .filter((p) => p.total_received > 0)
+    .map((p) => ({ name: p.name, margin: ((p.total_received - p.total_costs) / p.total_received) * 100 }))
     .sort((a, b) => b.margin - a.margin)
     .slice(0, 12);
 }

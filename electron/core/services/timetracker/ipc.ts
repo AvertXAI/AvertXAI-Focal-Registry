@@ -255,7 +255,11 @@ export function registerTimeTrackerIpc(): void {
   // every write broadcasts so Awaiting/Paid flips everywhere at once.
   safeHandle("timetracker:listPayments", (_e, projectId: unknown) => {
     const { db } = ttCtx();
-    return payments.list(db, vId(projectId, "project id"));
+    const rows = payments.list(db, vId(projectId, "project id"));
+    // A person's name must not cross a channel every tier can call (the roster doctrine further
+    // down this file), so without Employees every row reads as not counted as pay to anyone.
+    if (hasFeature(getDb(), "employeesModule")) return rows;
+    return rows.map((r) => ({ ...r, paid_to_uuid: null, paid_to_name: null }));
   });
   safeHandle("timetracker:paymentsTotal", (_e, projectId: unknown) => {
     const { db } = ttCtx();
@@ -263,13 +267,37 @@ export function registerTimeTrackerIpc(): void {
   });
   safeHandle("timetracker:addPayment", (_e, input: unknown) => {
     const { db, orgId } = ttCtx();
-    const row = payments.add(db, orgId, input as Parameters<typeof payments.add>[2]);
+    const pay = input as Parameters<typeof payments.add>[2];
+    // The tick writes into Employees' payroll ledger, so it refuses exactly like an employees:* write.
+    if (pay?.paidToEmployeeId != null) enforceFeature(getDb(), "employeesModule");
+    const row = payments.add(db, orgId, pay);
     timerChanged();
     return row;
   });
-  safeHandle("timetracker:voidPayment", (_e, id: unknown) => {
-    const { db } = ttCtx();
-    payments.softDelete(db, vId(id, "payment id"));
+  safeHandle("timetracker:voidPayment", (_e, id: unknown, alsoPayroll: unknown) => {
+    const { db, orgId } = ttCtx();
+    if (alsoPayroll === true) enforceFeature(getDb(), "employeesModule");
+    payments.remove(db, orgId, vId(id, "payment id"), alsoPayroll === true);
+    timerChanged();
+  });
+  // "Also count as paid to" (bug sweep 2, TT-06). These three touch Employees' people and payroll
+  // ledger, so they sit behind the Employees gate: the list comes back empty, the writes refuse.
+  // Every write broadcasts, because the Employees Outstanding card has to move with it.
+  safeHandle("timetracker:paymentPayees", (_e, projectId: unknown) => {
+    const { db, orgId } = ttCtx();
+    return hasFeature(getDb(), "employeesModule") ? payments.payees(db, orgId, vId(projectId, "project id")) : [];
+  });
+  safeHandle("timetracker:countPaymentAsPaid", (_e, id: unknown, employeeId: unknown) => {
+    enforceFeature(getDb(), "employeesModule");
+    const { db, orgId } = ttCtx();
+    const row = payments.countAsPaidTo(db, orgId, vId(id, "payment id"), vId(employeeId, "person id"));
+    timerChanged();
+    return row;
+  });
+  safeHandle("timetracker:stopCountingPayment", (_e, id: unknown) => {
+    enforceFeature(getDb(), "employeesModule");
+    const { db, orgId } = ttCtx();
+    payments.stopCounting(db, orgId, vId(id, "payment id"));
     timerChanged();
   });
 

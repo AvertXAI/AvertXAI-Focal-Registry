@@ -43,11 +43,13 @@ export interface SeriesPoint {
   label: string; // pre-formatted x label (granularity decides the format upstream)
   a: number;
   b?: number;
+  /** A third, quieter line for "dual" mode, drawn dashed underneath the other two. */
+  c?: number;
 }
 
 interface TimeSeriesProps {
   points: SeriesPoint[];
-  /** "area" = filled area under line a. "dual" = two plain lines (a + b). */
+  /** "area" = filled area under line a. "dual" = plain lines: a + b, and c when the points carry one. */
   mode: "area" | "dual";
   emptyText: string;
   fmtY: (v: number) => string;
@@ -64,11 +66,11 @@ export function TimeSeriesChart({ points, mode, emptyText, fmtY }: TimeSeriesPro
   if (hasData && width > 0) {
     const iw = Math.max(10, width - M.left - M.right);
     const ih = H - M.top - M.bottom;
-    const maxVal = Math.max(...points.map((p) => Math.max(p.a, p.b ?? 0)));
+    const maxVal = Math.max(...points.map((p) => Math.max(p.a, p.b ?? 0, p.c ?? 0)));
     // BELOW-ZERO (ruled 08-06): a losing bucket draws BELOW a visible zero baseline — the old
     // Math.max(0, v) clamp flattened losses onto the axis. The domain is [-niceCeil(-min), niceCeil(max)],
     // zero included always, and this one mapping is shared by every series and the modal render.
-    const minVal = Math.min(0, ...points.map((p) => Math.min(p.a, p.b ?? 0)));
+    const minVal = Math.min(0, ...points.map((p) => Math.min(p.a, p.b ?? 0, p.c ?? 0)));
     const yMax = niceCeil(Math.max(0, maxVal));
     const yMin = minVal < 0 ? -niceCeil(-minVal) : 0;
     const x = (i: number): number =>
@@ -102,6 +104,9 @@ export function TimeSeriesChart({ points, mode, emptyText, fmtY }: TimeSeriesPro
         )}
         {points.length === 1 ? (
           <>
+            {mode === "dual" && points[0].c !== undefined && (
+              <circle className="tt-chartdot billed" cx={x(0)} cy={y(points[0].c)} r={4} />
+            )}
             <circle className={`tt-chartdot ${mode === "area" ? "hours" : "value"}`} cx={x(0)} cy={y(points[0].a)} r={4} />
             {mode === "dual" && points[0].b !== undefined && (
               <circle className="tt-chartdot costs" cx={x(0)} cy={y(points[0].b)} r={4} />
@@ -110,6 +115,7 @@ export function TimeSeriesChart({ points, mode, emptyText, fmtY }: TimeSeriesPro
         ) : (
           <>
             {mode === "area" && <path className="tt-chartarea hours" d={areaPath} />}
+            {mode === "dual" && points[0].c !== undefined && <path className="tt-chartline billed" d={linePath((p) => p.c ?? 0)} />}
             <path className={`tt-chartline ${mode === "area" ? "hours" : "value"}`} d={linePath((p) => p.a)} />
             {mode === "dual" && <path className="tt-chartline costs" d={linePath((p) => p.b ?? 0)} />}
           </>

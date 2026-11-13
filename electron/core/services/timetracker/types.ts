@@ -101,8 +101,8 @@ export interface Project {
   completed_at: string | null;
   /** INV-YYYY-NNNN, allocated on first invoice export and never re-allocated. */
   invoice_number: string | null;
-  /** The day the client SIGNED (YYYY-MM-DD) — revenue's date on the profit timeline. NULL = the
-      project does not appear on the timeline (still counted in all-time totals). */
+  /** The day the client SIGNED (YYYY-MM-DD) — the day the billed amount lands on in Analytics.
+      NULL = the contract is on no timeline (still counted in all-time totals). */
   contract_date: string | null;
   signed_by: string | null;
   payment_terms: string | null;
@@ -123,12 +123,25 @@ export interface ProjectPayment {
   note: string | null;
   deleted_at: string | null;
   created_at: string;
+  /** The payroll payment this client payment is also counted as (employee_payments.uuid) and that
+      person's name. Both null when it is not counted as pay to anyone. Read, never stored here:
+      the link itself lives on the payroll row. */
+  paid_to_uuid: string | null;
+  paid_to_name: string | null;
+}
+
+/** Someone a client payment can also be counted as paid to. */
+export interface PaymentPayee {
+  id: number;
+  name: string;
 }
 
 export interface ProjectPaymentInput {
   projectId: number;
   amount: number;
   receivedOn: string;
+  /** Set when the "Also count as paid to" tick is on: the person the same amount is paid to. */
+  paidToEmployeeId?: number | null;
   method: PaymentMethod;
   reference?: string | null;
   note?: string | null;
@@ -167,6 +180,8 @@ export interface ProjectListItem extends Project {
   total_value: number;
   /** Sum of the project's hard-cost line items (face value; no annualization). */
   total_costs: number;
+  /** Money actually received: the project's client payments, voided ones left out. */
+  total_received: number;
   last_worked: string | null;
 }
 
@@ -237,23 +252,28 @@ export interface GrandTotals {
   total_seconds: number;
   total_value: number;
   total_costs: number;
+  total_received: number;
   project_count: number;
 }
 
 export type ReportRange = "all" | "7d" | "30d" | "90d";
 export type ReportGranularity = "day" | "week" | "month";
 
-/** Read-only analytics totals — the RULED vocabulary (08-06): revenue, spent, profit, margin.
+/** Read-only analytics totals. Money words since bug sweep 2 (TT-06): billed, received, spent,
+    profit, margin. Profit and margin count money received, not money billed.
     The old total_invested (revenue ADDED to costs) is gone — it was the recon's naming collision. */
 export interface ReportTotals {
   total_seconds: number;
-  /** hourly = rate x hours, paid contract = contract_amount, donated 0. */
-  revenue: number;
+  /** hourly = rate x hours, paid contract = contract_amount, donated 0. The figure that was
+      called revenue until bug sweep 2. */
+  billed: number;
+  /** Client payments recorded, voided ones left out. */
+  received: number;
   /** THE full spend composition: crew pay + itemized purchases + hard cost lines. */
   spent: number;
-  /** revenue − spent. Negative when a project lost money. */
+  /** received − spent. Negative when more went out than came in. */
   profit: number;
-  /** profit ÷ revenue as a percent; NULL when there is no revenue (not the same as 0%). */
+  /** profit ÷ received as a percent; NULL when nothing has been received (not the same as 0%). */
   margin: number | null;
   /** Hours logged against donated contracts — counted in time, never in $ revenue. */
   donated_seconds: number;
@@ -275,7 +295,10 @@ export interface TimeSeriesPoint {
   /** Sortable bucket key: day "YYYY-MM-DD", week "YYYY-Www", month "YYYY-MM". */
   bucket: string;
   hours: number;
+  /** What was billed in this bucket (the line that was called revenue). */
   value: number;
+  /** Client payments, on the day each was received. */
+  received: number;
   costs: number;
 }
 

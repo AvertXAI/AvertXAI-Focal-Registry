@@ -5,9 +5,10 @@
 // (append-only — the UI offers NO edit and NO delete on ledger rows, by canon), COSTS, TIME
 // SESSIONS, and NOTES (autosave on blur). Data arrives in ONE round trip via timetracker:projectDetail,
 // re-fetched when the module bumps refreshKey. Money writes ride the validating channels only.
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type {
   TimeTrackerPaymentMethod,
+  TimeTrackerPaymentPayee,
   TimeTrackerProjectItem,
   TimeTrackerActiveSessionInfo,
   TimeTrackerProjectDetail,
@@ -16,7 +17,7 @@ import type {
 } from "../../shared/types";
 import Tip from "../../components/Tip";
 import NotesEditor from "./NotesEditor";
-import { signalAppAsk } from "../../App";
+import { signalAppAsk, signalAppToast } from "../../App";
 import { formatBlockHeader, packSessionNotes, parseSessionNotes } from "../../shared/ttNotes";
 
 /** MM/DD/YYYY (the house month-first display) ⇄ the service's YYYY-MM-DD. Exported for the
@@ -321,14 +322,22 @@ export default function ProjectDetail({
 
       <div className="tt-cards">
         <div className="tt-card"><span className="tt-cardlabel">Total hours</span><span className="tt-cardvalue">{fmtDuration(project.total_seconds)}</span></div>
-        {/* RULED vocabulary (08-06): "Invested value" → CONTRACTED (it is revenue, not money put
-            in), "Costs" → SPENT (which since 08-06 is the FULL composition — crew + purchases +
+        {/* RULED vocabulary (08-06): "Invested value" → CONTRACTED (it is what was billed, not
+            money put in; the label reads BILLED since bug sweep 2), "Costs" → SPENT (which since
+            08-06 is the FULL composition — crew + purchases +
             hard lines), and the invested+costs composite line is gone. Profit deliberately does
             NOT print here — Analytics only; this card row is client-facing. */}
         <div className="tt-card">
-          <span className="tt-cardlabel">Contracted</span>
+          <span className="tt-cardlabel">Billed</span>
           <span className="tt-cardvalue">{project.rate_type === "contract" && project.contract_kind === "donated" ? "Donated" : fmtMoney(project.total_value)}</span>
           <span className="tt-cardsub">{fmtDuration(project.total_seconds)} worked</span>
+        </div>
+        {/* Bug sweep 2 (TT-06): the card above reads BILLED now and RECEIVED sits beside it. The
+            contracted figure never moved when money came in, so a recorded payment looked lost.
+            Profit still does not print here. */}
+        <div className="tt-card">
+          <span className="tt-cardlabel">Received</span><span className="tt-cardvalue">{fmtMoney(project.total_received)}</span>
+          <span className="tt-cardsub">payments recorded</span>
         </div>
         <div className="tt-card">
           <span className="tt-cardlabel">Spent</span><span className="tt-cardvalue">{fmtMoney(project.total_costs)}</span>
@@ -683,7 +692,8 @@ export default function ProjectDetail({
 /**
  * CONTRACT DETAILS (08-06, mockup scene 1) — one of the TWO DOORS onto the same project columns
  * (the New-project block is the other; both pre-fill from the row, so the project only ever holds
- * one answer). The contract date is what puts revenue on the profit timeline.
+ * one answer). The contract date is what puts the billed amount on the Analytics timeline; profit
+ * has counted money on the day it is received since bug sweep 2 (TT-06).
  */
 function ContractDetailsModal({
   project,
@@ -756,8 +766,9 @@ function ContractDetailsModal({
         <label className="tt-field"><span>Contract file</span>
           <input className="tt-input" value={fileName || "— none attached (attach from Edit) —"} readOnly /></label>
         <p className="tt-hint">
-          The contract date is when the money became real — it is the date profit lands on in
-          Analytics. Without it, this project&apos;s revenue has no place on the timeline.
+          The contract date is the day the billed amount lands on in Analytics. Without it, this
+          project&apos;s billed amount has no place on the timeline. Profit counts money on the
+          day a payment is received.
         </p>
         {error && <div className="tt-error">{error}</div>}
         <div className="tt-modalacts">
@@ -787,6 +798,14 @@ function RecordPaymentModal({
   const api = window.api;
   const [rows, setRows] = useState<TimeTrackerProjectPayment[] | null>(null);
   const [readError, setReadError] = useState(false);
+  // Who a payment here can also be counted as paid to. Empty leaves the option out altogether:
+  // nobody on file yet, or an install without Employees.
+  const [payees, setPayees] = useState<TimeTrackerPaymentPayee[]>([]);
+  const [payeeSel, setPayeeSel] = useState("");
+  const [alsoPaid, setAlsoPaid] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // The question open on top of this dialog: remove a payment, or stop counting it as pay.
+  const [asking, setAsking] = useState<{ row: TimeTrackerProjectPayment; stop: boolean } | null>(null);
   const [amount, setAmount] = useState("");
   const [date, setDate] = useState(ymdToMdy(todayYmd()));
   const [method, setMethod] = useState<TimeTrackerPaymentMethod>("check");
@@ -800,11 +819,26 @@ function RecordPaymentModal({
     void api.timetracker.payments.list(project.id).then(setRows).catch(() => setReadError(true));
   };
   useEffect(load, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void api.timetracker.payments
+      .payees(project.id)
+      .then(setPayees)
+      .catch((e: unknown) => console.error("[timetracker] payees read failed:", e));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const total = (rows ?? []).reduce((s, r) => s + r.amount, 0);
   const contracted = project.contract_amount;
   const paidInFull = contracted != null && total >= contracted;
   const remaining = contracted != null ? Math.max(0, contracted - total) : null;
+  // With several people the select below picks one; otherwise it is the only person there is.
+  const payee = payees.find((p) => String(p.id) === payeeSel) ?? payees[0] ?? null;
+  // Why Save is off, said beside the button. A greyed button with no reason read as broken.
+  const typedAmount = Number(amount.replace(/,/g, ""));
+  const blocked =
+    amount.trim() === "" ? "Enter an amount"
+    : !Number.isFinite(typedAmount) || typedAmount <= 0 ? "Enter an amount above zero"
+    : mdyToYmd(date) === null ? "Enter the date as MM/DD/YYYY"
+    : null;
 
   const save = (): void => {
     if (saving) return;
@@ -815,18 +849,43 @@ function RecordPaymentModal({
     setSaving(true);
     setError(null);
     void api.timetracker.payments
-      .add({ projectId: project.id, amount: amt, receivedOn: ymd, method, reference: reference.trim() || null, note: note.trim() || null })
-      .then(() => { setSaving(false); setAmount(""); setReference(""); setNote(""); load(); onChanged(); })
+      .add({
+        projectId: project.id, amount: amt, receivedOn: ymd, method,
+        reference: reference.trim() || null, note: note.trim() || null,
+        paidToEmployeeId: alsoPaid && payee ? payee.id : null,
+      })
+      .then(() => {
+        setSaving(false); setAmount(""); setReference(""); setNote(""); setAlsoPaid(false);
+        // Said out loud: the form clears and Save greys out again, which on its own looked like
+        // nothing had been saved.
+        signalAppToast(`Payment of ${fmtMoney(amt)} saved`, "ok");
+        load(); onChanged();
+      })
       .catch((e: unknown) => { setSaving(false); setError(e instanceof Error ? e.message : String(e)); });
   };
 
-  const voidRow = (id: number): void => {
-    void api.timetracker.payments.void(id).then(() => { load(); onChanged(); }).catch(() => {});
+  // One path for every action on a saved row, so a failure is shown in the dialog. The remove call
+  // used to swallow its error, and a payment that would not go away gave no reason.
+  const act = (op: Promise<unknown>, done: string): void => {
+    setBusy(true);
+    setError(null);
+    setAsking(null);
+    void op
+      .then(() => { setBusy(false); signalAppToast(done, "ok"); load(); onChanged(); })
+      .catch((e: unknown) => { setBusy(false); setError(e instanceof Error ? e.message : String(e)); });
+  };
+  const removeAsked = (alsoPayroll: boolean): void => {
+    if (!asking) return;
+    act(
+      api.timetracker.payments.void(asking.row.id, alsoPayroll),
+      alsoPayroll ? "Payment removed and no longer counted as pay" : "Payment removed"
+    );
   };
 
   return (
+    <>
     <div className="tt-modalback" onClick={onClose}>
-      <div className="tt-modal" role="dialog" aria-label="Record payment" onClick={(e) => e.stopPropagation()}>
+      <div className="tt-modal tt-paymodal" role="dialog" aria-label="Record payment" onClick={(e) => e.stopPropagation()}>
         <div className="tt-modalhead">Record payment</div>
         <p className="tt-emptysub" style={{ marginBottom: 10 }}>
           {project.name}{contracted != null ? ` — contracted ${fmtMoney(contracted)}` : ""}
@@ -852,6 +911,27 @@ function RecordPaymentModal({
         <label className="tt-field"><span>Note</span>
           <input className="tt-input" placeholder="optional…" value={note} onChange={(e) => setNote(e.target.value)} /></label>
 
+        {payee && (
+          <>
+            <div className="tt-payalso">
+              <label className="tt-paycheck">
+                <input type="checkbox" checked={alsoPaid} onChange={(e) => setAlsoPaid(e.target.checked)} />
+                Also count as paid to{payees.length === 1 ? ` ${payee.name}` : ""}
+              </label>
+              {payees.length > 1 && (
+                <select className="tt-input tt-select" aria-label="Person paid" value={String(payee.id)}
+                  onChange={(e) => setPayeeSel(e.target.value)}>
+                  {payees.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+                </select>
+              )}
+            </div>
+            <p className="tt-hint">
+              Money from a client is not pay to a person by itself. Ticking this also records the same
+              amount as paid to {payee.name}, so what they are still owed goes down.
+            </p>
+          </>
+        )}
+
         <div className="tt-blocksub" style={{ marginTop: 12 }}>Payments on this project</div>
         {readError ? (
           <div className="tt-error" role="alert">Couldn&apos;t load the payments — nothing is shown rather than an empty list.</div>
@@ -860,21 +940,44 @@ function RecordPaymentModal({
         ) : rows.length === 0 ? (
           <p className="tt-hint">No payments recorded yet.</p>
         ) : (
-          <table className="tt-table">
-            <thead><tr><th>Date</th><th>Method</th><th>Reference</th><th>Amount</th><th /></tr></thead>
+          <table className="tt-table tt-paytable">
+            <colgroup><col className="date" /><col className="method" /><col /><col /><col className="amount" /><col className="remove" /></colgroup>
+            <thead><tr><th>Date</th><th>Method</th><th>Reference</th><th>Note</th><th>Amount</th><th /></tr></thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id}>
+                <Fragment key={r.id}>
+                <tr className={r.paid_to_uuid !== null || payee !== null ? "tt-payhead" : undefined}>
                   <td className="mono dim">{ymdToMdy(r.received_on)}</td>
                   <td><span className="tt-badge">{PAYMENT_METHOD_LABELS.find(([k]) => k === r.method)?.[1] ?? r.method}</span></td>
-                  <td className="mono dim">{r.reference ?? "—"}</td>
+                  <td className="mono dim tt-paywrap">{r.reference ?? "—"}</td>
+                  <td className="dim tt-paywrap">{r.note ?? "—"}</td>
                   <td className="mono">{fmtMoney(r.amount)}</td>
-                  <td><button className="tt-itemx" title="Void this payment (kept on record, no longer counted)"
-                    aria-label="Void payment" onClick={() => voidRow(r.id)}>✕</button></td>
+                  <td className="tt-payx"><button className="tt-itemx" title="Remove this payment (kept on record, no longer counted)"
+                    aria-label="Remove payment" disabled={busy} onClick={() => setAsking({ row: r, stop: false })}>✕</button></td>
                 </tr>
+                {(r.paid_to_uuid !== null || payee !== null) && (
+                  <tr className="tt-paysub">
+                    <td colSpan={6}>
+                      <div className="tt-paysubline">
+                        {r.paid_to_uuid !== null ? (
+                          <>
+                            <span>Also counted as paid to <b>{r.paid_to_name ?? "someone no longer on file"}</b></span>
+                            <button className="tt-btn ghost sm" disabled={busy} onClick={() => setAsking({ row: r, stop: true })}>Stop counting</button>
+                          </>
+                        ) : payee !== null && (
+                          <button className="tt-btn ghost sm" disabled={busy}
+                            onClick={() => act(api.timetracker.payments.countAsPaid(r.id, payee.id), `Counted as paid to ${payee.name}`)}>
+                            Also count as paid to {payee.name}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
               <tr>
-                <td colSpan={3}><b>{paidInFull ? "Paid in full" : "Received to date"}</b>
+                <td colSpan={4}><b>{paidInFull ? "Paid in full" : "Received to date"}</b>
                   {!paidInFull && remaining != null && <span className="dim"> · {fmtMoney(remaining)} still due</span>}</td>
                 <td className={"mono" + (paidInFull ? " tt-paid" : "")}><b>{fmtMoney(total)}</b></td>
                 <td />
@@ -888,10 +991,48 @@ function RecordPaymentModal({
         </p>
         {error && <div className="tt-error">{error}</div>}
         <div className="tt-modalacts">
+          {blocked && <span className="tt-payreason">{blocked}</span>}
           <button className="tt-btn ghost" onClick={onClose}>Close</button>
-          <button className="tt-btn done" disabled={saving || amount.trim() === ""} onClick={save}>{saving ? "Saving…" : "Save payment"}</button>
+          <button className="tt-btn done" disabled={saving || blocked !== null} title={blocked ?? undefined} onClick={save}>{saving ? "Saving…" : "Save payment"}</button>
         </div>
       </div>
     </div>
+    {/* A sibling of the dialog's backdrop, not a child of it: the backdrop scrolls, and a question
+        opened inside it would sit at the top of that scroll, out of sight of the row just clicked. */}
+    {asking && (
+      <div className="tt-modalback" onClick={() => setAsking(null)}>
+        <div className="tt-modal" role="dialog" aria-label={asking.stop ? "Stop counting as pay" : "Remove payment"}
+          onClick={(e) => e.stopPropagation()}>
+          <div className="tt-modalhead">{asking.stop ? "Stop counting this as pay?" : "Remove this payment?"}</div>
+          <p className="tt-emptysub" style={{ marginBottom: 10 }}>
+            {fmtMoney(asking.row.amount)} received {ymdToMdy(asking.row.received_on)} on {project.name}
+          </p>
+          <p className="tt-emptysub" style={{ marginBottom: 14 }}>
+            {asking.stop
+              ? `${asking.row.paid_to_name ?? "That person"} goes back to being owed this amount. Their pay record keeps the payment and adds a line that reverses it. The payment from the client stays received unless you remove it too.`
+              : asking.row.paid_to_uuid !== null
+                ? `The payment is kept on record but stops counting as received. It is also counted as paid to ${asking.row.paid_to_name ?? "someone no longer on file"}: take that back as well, or leave their pay as it is.`
+                : "The payment is kept on record but stops counting as received."}
+          </p>
+          <div className="tt-modalacts">
+            <button className="tt-btn ghost" onClick={() => setAsking(null)}>Cancel</button>
+            {asking.stop ? (
+              <>
+                <button className="tt-btn" onClick={() => act(api.timetracker.payments.stopCounting(asking.row.id), "No longer counted as pay")}>Stop counting</button>
+                <button className="tt-btn stopsave" onClick={() => removeAsked(true)}>Remove the payment too</button>
+              </>
+            ) : asking.row.paid_to_uuid !== null ? (
+              <>
+                <button className="tt-btn" onClick={() => removeAsked(false)}>Remove payment only</button>
+                <button className="tt-btn stopsave" onClick={() => removeAsked(true)}>Remove both</button>
+              </>
+            ) : (
+              <button className="tt-btn stopsave" onClick={() => removeAsked(false)}>Remove payment</button>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

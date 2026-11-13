@@ -152,13 +152,13 @@ test("1,114.95 hours at $25.00, corrected by -1,100 hours, is 14.95 hours and $3
   const report = getReport(db, ORG, "all", "month", null);
   assert.equal(report.totals.total_seconds, SECONDS);
   assert.equal(report.totals.spent, 373.75);
-  assert.deepEqual(report.timeSeries, [{ bucket: "2026-09", hours: 14.95, value: 0, costs: 373.75 }]);
+  assert.deepEqual(report.timeSeries, [{ bucket: "2026-09", hours: 14.95, value: 0, received: 0, costs: 373.75 }]);
   assert.deepEqual(report.hoursByProject, [{ name: PROJECT, hours: 14.95 }]);
   assert.deepEqual(report.costsByCategory, [{ category: "Employee pay", amount: 373.75 }]);
   // The same with the project picked in the rail, by day.
   const picked = getReport(db, ORG, "all", "day", projectId);
   assert.equal(picked.totals.total_seconds, SECONDS);
-  assert.deepEqual(picked.timeSeries, [{ bucket: "2026-09-27", hours: 14.95, value: 0, costs: 373.75 }]);
+  assert.deepEqual(picked.timeSeries, [{ bucket: "2026-09-27", hours: 14.95, value: 0, received: 0, costs: 373.75 }]);
 });
 
 test("an amount correction still moves money only", () => {

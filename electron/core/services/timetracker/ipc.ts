@@ -498,7 +498,11 @@ export function registerTimeTrackerIpc(): void {
   safeHandle("timetracker:addProjectEmployee", (_e, projectId: unknown, personId: unknown) => {
     enforceFeature(getDb(), "employeesModule");
     const { db, orgId } = ttCtx();
-    return financials.addProjectEmployee(db, orgId, projectId as number, personId as number);
+    const member = financials.addProjectEmployee(db, orgId, projectId as number, personId as number);
+    // Joining a project can fill in the person's default project (TT-07), which the Employees
+    // card reads for its timer, so this write announces itself like the others it renders.
+    timerChanged();
+    return member;
   });
   safeHandle("timetracker:removeProjectEmployee", (_e, projectId: unknown, personId: unknown) => {
     enforceFeature(getDb(), "employeesModule");

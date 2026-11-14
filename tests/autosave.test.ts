@@ -25,7 +25,7 @@ const SCREENS: Array<Screen<Titled> | Screen<string>> = [
   { name: "MindMerge notes", ...titled },
   { name: "Vault notes", ...titled },
   { name: "MindMerge Documents", ...plain },
-  { name: "Scan Notes", ...plain },
+  { name: "Scan Notes", ...titled },
   { name: "TimeTracker project notes", ...plain },
 ];
 

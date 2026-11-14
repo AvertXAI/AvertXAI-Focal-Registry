@@ -13,6 +13,7 @@
 // two sticky view preferences (which tab, media on/off) persist through app_settings like every
 // other view state in this shell (§3.8).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type {
   ScanFolderCard,
   ScanFolderNode,
@@ -23,11 +24,18 @@ import type {
   ScanRecentFolder,
 } from "../../../shared/types";
 import { signalAppToast } from "../../../App";
+import { useAutosave } from "../../../shared/useAutosave";
 import MilkdownEditor, { type EditorAction, type MilkdownHandle } from "./MilkdownEditor";
 import { Markdown } from "./markdown";
 import "./scannotes.css";
 
-const AUTOSAVE_MS = 900; // one pause in typing, not one keystroke
+interface NoteText {
+  title: string;
+  body: string;
+}
+// The autosave compares the text it sent with the text on screen, and every render builds a new
+// object for the same words.
+const sameText = (a: NoteText, b: NoteText): boolean => a.title === b.title && a.body === b.body;
 
 /** How far Back can walk. A browsing session is not a document; nobody retraces four hundred
  *  folders, and an unbounded array on a long session is a leak nobody would ever notice. */
@@ -614,6 +622,15 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, on
   const [openUuid, setOpenUuid] = useState<string | null>(null); // null = the report card is showing
   const [note, setNote] = useState<ScanNote | null>(null);
   const [saved, setSaved] = useState<string>("");
+  /** What the store holds for the open note: the text that was loaded, then the text each write
+   *  sent. The note is unsaved exactly while the screen differs from it. Worked out on every
+   *  render and not kept as a flag: the editor reports from a timer, so a write can land between
+   *  that report and its render, and a flag cleared then would call text saved that was never
+   *  sent. */
+  const [stored, setStored] = useState<(NoteText & { key: string }) | null>(null);
+  const dirty = note !== null && !(stored !== null && stored.key === note.uuid && sameText(note, stored));
+  // An error stays until he types again. "Saved." gives way as soon as the screen is ahead of the store.
+  const savedLine = dirty && (saved === "" || saved === "Saved.") ? "Saving…" : saved;
   /** Recent Work rows — the same feed the Updated Notes tab reads, never a second source. */
   const [recent, setRecent] = useState<ScanRecentFolder[]>([]);
   /** "Show empty folders". Off by default — the archive is the point, not the scaffolding around it. */
@@ -622,8 +639,31 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, on
   const [renameErr, setRenameErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const ed = useRef<MilkdownHandle>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const draft = useRef<{ title: string; body: string } | null>(null);
+  /** Notes whose write failed in the save an opening note waits for. Their newest text is held by
+   *  the autosave alone, so reading one back from the store would show older text and tell the
+   *  autosave to let the newer go. */
+  const failed = useRef(new Set<string>());
+
+  const { flush } = useAutosave<NoteText>({
+    note: note ? { key: note.uuid, value: { title: note.title, body: note.body }, dirty } : null,
+    save: (key, value) => window.api.scan.notes.save(key, value.title, value.body),
+    same: sameText,
+    label: note?.title ?? "",
+    scope: "scan-note",
+    onSaved: (info) => {
+      // Recorded whether or not he typed while the write was on its way: when he did, the screen
+      // now differs from this, so the note stays unsaved and the autosave writes again.
+      setStored((s) => (s && s.key === info.key ? { key: info.key, ...info.value } : s));
+      if (note?.uuid === info.key) setSaved("Saved.");
+    },
+    onError: (message, key) => {
+      failed.current.add(key);
+      // The line under the editor belongs to the note on screen. A write that fails for a note he
+      // has already left has nowhere else to say so.
+      if (note?.uuid === key) setSaved(message);
+      else signalAppToast(`A note was not saved. ${message}`, "err");
+    },
+  });
 
   // ---- the tree ----
   //
@@ -717,46 +757,65 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, on
   useEffect(() => {
     if (folder === null) return;
     loadFolder(folder, driveId);
-    setOpenUuid(null); // a new folder opens on its report, never on the last folder's note
-    setNote(null);
   }, [folder, driveId, refreshKey, loadFolder]);
+
+  // A new folder opens on its report, never on the last folder's note. NOT keyed on refreshKey:
+  // every push bumps it, and one arrives whenever any drive is plugged in, which used to close the
+  // note he was typing in. Only this screen writes a note's text, so a push never has anything
+  // newer to show for the note that is open.
+  useEffect(() => {
+    setOpenUuid(null);
+    setNote(null);
+  }, [folder, driveId]);
 
   // ---- the open note ----
   useEffect(() => {
-    if (openUuid === null) { setNote(null); draft.current = null; return; }
-    void window.api.scan.notes
-      .get(openUuid)
-      .then((n) => { setNote(n); draft.current = { title: n.title, body: n.body }; setSaved(""); })
-      .catch((e: unknown) => { setOpenUuid(null); signalAppToast(e instanceof Error ? e.message : String(e), "err"); });
-  }, [openUuid]);
-
-  // AUTOSAVE ON A PAUSE, not on a keystroke. The timer is cleared on unmount AND flushed — walking
-  // away from the screen mid-sentence must not cost the sentence.
-  const scheduleSave = useCallback((next: { title?: string; body?: string }) => {
-    if (!draft.current || !openUuid) return;
-    draft.current = { ...draft.current, ...next };
-    setSaved("Saving…");
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      const d = draft.current;
-      if (!d) return;
+    if (openUuid === null) {
+      void flush();
+      setNote(null);
+      return;
+    }
+    let live = true;
+    // The note being left is written first, and the read waits for that write. A read that
+    // overtook it would put older text on screen, and showing a note as freshly loaded is what
+    // tells the autosave to let go of the text it still holds for it. So a note whose own write
+    // just failed is not opened: its error is on screen, and the next click tries the write again.
+    failed.current.clear();
+    void flush().then(() => {
+      if (!live) return;
+      if (failed.current.has(openUuid)) { setOpenUuid(null); return; }
       void window.api.scan.notes
-        .save(openUuid, d.title, d.body)
-        .then(() => setSaved("Saved."))
-        .catch((e: unknown) => setSaved(e instanceof Error ? e.message : String(e)));
-    }, AUTOSAVE_MS);
-  }, [openUuid]);
+        .get(openUuid)
+        .then((n) => {
+          // A slow read for a note he has already clicked away from must not replace what is open.
+          if (!live) return;
+          setNote(n);
+          setStored({ key: n.uuid, title: n.title, body: n.body });
+          setSaved("");
+        })
+        .catch((e: unknown) => {
+          if (!live) return;
+          setOpenUuid(null);
+          signalAppToast(e instanceof Error ? e.message : String(e), "err");
+        });
+    });
+    return () => { live = false; };
+  }, [openUuid, flush]);
 
-  useEffect(
-    () => () => {
-      if (!timer.current) return;
-      clearTimeout(timer.current);
-      // The pending edit is flushed rather than dropped — this fires on unmount and on note switch.
-      const d = draft.current;
-      if (d && openUuid) void window.api.scan.notes.save(openUuid, d.title, d.body).catch(() => undefined);
-    },
-    [openUuid]
-  );
+  // By uuid, never "whatever is open": the editor reports a moment after the keystroke, and by
+  // then the pane can already hold another note.
+  const edit = useCallback((uuid: string, patch: Partial<NoteText>) => {
+    setNote((n) => (n && n.uuid === uuid ? { ...n, ...patch } : n));
+    setSaved("");
+  }, []);
+
+  // Clicking away saves at once instead of waiting out the pause. The editor is asked for its
+  // text first: it reports 200 ms after a keystroke, and a click inside that gap would otherwise
+  // save without the last words, and lose them outright when the click also closes the note.
+  const saveNow = useCallback(() => {
+    flushSync(() => ed.current?.deliver());
+    void flush();
+  }, [flush]);
 
   // ---- rename ----
   const applyRename = useCallback(() => {
@@ -1072,7 +1131,9 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, on
         </div>
       ) : (
         <div className="scannotes-pane">
-          {folderBusy || (loading && folder === null) ? (
+          {/* A push re-reads the folder while a note may be open. Swapping the editor out for the
+              waiting line would take the caret, the undo history and the last words with it. */}
+          {(folderBusy && note === null) || (loading && folder === null) ? (
             <Waiting what={folderBusy ? "Reading this folder…" : "Loading drives…"} />
           ) : folder === null ? (
             <div className="scannotes-empty">Pick a folder on the left.</div>
@@ -1083,7 +1144,8 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, on
                   <input
                     value={note.title}
                     aria-label="Note title"
-                    onChange={(e) => { setNote({ ...note, title: e.target.value }); scheduleSave({ title: e.target.value }); }}
+                    onChange={(e) => edit(note.uuid, { title: e.target.value })}
+                    onBlur={saveNow}
                   />
                 </div>
               )}
@@ -1106,15 +1168,15 @@ export default function ScanNotesTab({ refreshKey, mediaMode, onFolderChange, on
                       </button>
                     ))}
                   </div>
-                  <div className="scannotes-edbody">
+                  <div className="scannotes-edbody" onBlur={saveNow}>
                     <MilkdownEditor
                       ref={ed}
                       docId={note.uuid}
                       initial={note.body}
-                      onChange={(md) => scheduleSave({ body: md })}
+                      onChange={(md) => edit(note.uuid, { body: md })}
                     />
                   </div>
-                  <div className={`scannotes-saved${saved && saved !== "Saved." && saved !== "Saving…" ? " err" : ""}`}>{saved}</div>
+                  <div className={`scannotes-saved${savedLine && savedLine !== "Saved." && savedLine !== "Saving…" ? " err" : ""}`}>{savedLine}</div>
                 </>
               )}
             </>

@@ -28,9 +28,9 @@
 // which scannotes.css styles for the preview pane. The editor reuses those rules rather than
 // shipping a second stylesheet that would drift from the theme tokens.
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx } from "@milkdown/kit/core";
+import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx, serializerCtx } from "@milkdown/kit/core";
 import { exitCode } from "@milkdown/kit/prose/commands";
-import { Slice } from "@milkdown/kit/prose/model";
+import { Slice, type Node as ProseNode } from "@milkdown/kit/prose/model";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import {
   commonmark,
@@ -75,6 +75,18 @@ export function scanNotesMarkdownSetup(editor: Editor): Editor {
   return editor.config((ctx) => faithfulMarkdownConfig(ctx, storedAsWritten)).use(commonmark).use(gfm).use(faithfulMarkdown);
 }
 
+/**
+ * The note's text when the page has not been handed it yet, else null. The editor reports a change
+ * 200 ms after the keystroke (Milkdown's listener waits for a pause in typing), so a save that
+ * cannot wait has to ask. `told` is the markdown last handed over, in the serializer's own
+ * spelling. Compared against the stored text instead, a note that was only opened would look
+ * changed whenever the two spell one document differently, and closing it would rewrite it.
+ */
+export function undelivered(ctx: Ctx, doc: ProseNode, told: string): string | null {
+  const markdown = ctx.get(serializerCtx)(doc);
+  return markdown === told ? null : markdown;
+}
+
 /** Everything the toolbar can ask for. A closed union so a typo is a compile error, not a dead
  *  button. */
 export type EditorAction =
@@ -101,6 +113,9 @@ export interface MilkdownHandle {
   run: (action: EditorAction) => void;
   /** Puts the caret back after a toolbar click, so typing continues where it left off. */
   focus: () => void;
+  /** Hands the page, through onChange and at once, any text typed since the last onChange. For a
+   *  save that cannot wait out the editor's own 200 ms pause. No-op when there is nothing new. */
+  deliver: () => void;
 }
 
 export interface MilkdownEditorProps {
@@ -148,6 +163,9 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
   // goes wrong.
   const cb = useRef(onChange);
   cb.current = onChange;
+  // The markdown the page was last handed, so the same text is never reported twice: a repeat
+  // would mark a note that has just been saved as unsaved again.
+  const told = useRef("");
 
   useImperativeHandle(
     ref,
@@ -157,6 +175,19 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
           editor.current?.action((ctx) => ctx.get(editorViewCtx).focus());
         } catch {
           /* an editor mid-teardown must not throw out of a toolbar click */
+        }
+      },
+      deliver: () => {
+        try {
+          editor.current?.action((ctx) => {
+            const markdown = undelivered(ctx, ctx.get(editorViewCtx).state.doc, told.current);
+            if (markdown === null) return;
+            told.current = markdown;
+            cb.current(markdown);
+          });
+        } catch (err) {
+          /* a save on the way out must still happen with the text the page already has */
+          tell("warn", "Editor: the newest text could not be read for an immediate save", err);
         }
       },
       run: (action) => {
@@ -321,7 +352,11 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
          * bleed one note's text into another on a fast switch. A torn-down instance is mute: only
          * the LIVE editor may speak for the draft.
          */
-        ctx.get(listenerCtx).markdownUpdated((_c, md) => { if (!dead) cb.current(md); });
+        ctx.get(listenerCtx).markdownUpdated((_c, md) => {
+          if (dead || md === told.current) return;
+          told.current = md;
+          cb.current(md);
+        });
       })
       .use(listener)
       .use(history)
@@ -331,6 +366,7 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
         // detached ProseMirror view into the DOM.
         if (dead) { void made.destroy(); return; }
         editor.current = made;
+        told.current = made.action((ctx) => ctx.get(serializerCtx)(ctx.get(editorViewCtx).state.doc));
       })
       .catch((err: unknown) => {
         tell("error", "Editor: the editor failed to build — the editing pane is empty", err);

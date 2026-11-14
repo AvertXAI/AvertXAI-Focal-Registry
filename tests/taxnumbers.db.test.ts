@@ -18,6 +18,7 @@ import {
   TAX_PREFIX,
   createTaxCrypto,
   isEncryptedTax,
+  keepNewKeyFile,
   maskTax,
   readTax,
   type TaxCrypto,
@@ -134,6 +135,23 @@ test("a value is encrypted differently every time and reads back only with its o
   assert.equal(readTax(FAKE_B, tax), FAKE_B, "a value an older version stored plain is still read");
   assert.equal(readTax(one, tax), FAKE_A);
   assert.throws(() => tax.encrypt(""), /no tax number/, "an empty value is never encrypted");
+});
+
+test("a new key file is written whole, never over one that is there, and never left half-written", () => {
+  const keyPath = path.join(dir, "fake-org.exd");
+  const first = Buffer.from("fake wrapped key, first");
+  keepNewKeyFile(keyPath, first);
+  assert.deepEqual(fs.readFileSync(keyPath), first);
+
+  // A second key in its place would leave every number stored under the first unreadable.
+  assert.throws(() => keepNewKeyFile(keyPath, Buffer.from("fake wrapped key, second")), /EEXIST/);
+  assert.deepEqual(fs.readFileSync(keyPath), first, "the key that was there is untouched");
+
+  // A write that fails part-way leaves no file: a half-written one would be refused as a key
+  // from another PC at every start from then on.
+  const failed = path.join(dir, "fake-org-failed.exd");
+  assert.throws(() => keepNewKeyFile(failed, { not: "bytes" } as unknown as Buffer));
+  assert.equal(fs.existsSync(failed), false);
 });
 
 test("the migration encrypts every plain value, reads each one back, and leaves the rest alone", () => {

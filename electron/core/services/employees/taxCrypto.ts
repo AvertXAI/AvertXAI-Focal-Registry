@@ -71,6 +71,26 @@ export function createTaxCrypto(key: Buffer): TaxCrypto {
   };
 }
 
+/** Writes a new key file and has it on disk before it returns. Never over a file that is there. */
+export function keepNewKeyFile(keyPath: string, wrapped: Buffer): void {
+  // "wx" refuses to write over a key file that appeared in the meantime: a new key in its place
+  // would leave every number already stored unreadable for good.
+  const fd = fs.openSync(keyPath, "wx");
+  let kept = false;
+  try {
+    fs.writeFileSync(fd, wrapped);
+    // On disk now, not when Windows gets to it: a power cut just after the numbers are encrypted
+    // must not find them written and their key still in memory.
+    fs.fsyncSync(fd);
+    kept = true;
+  } finally {
+    fs.closeSync(fd);
+    // No number is encrypted with a key that was never handed out, and a half-written file would
+    // be refused as a key from another PC at every start from then on.
+    if (!kept) fs.rmSync(keyPath, { force: true });
+  }
+}
+
 const opened = new Map<string, TaxCrypto>();
 
 /** The org's own key: read from <org_id>.exd, or made there the first time it is asked for.
@@ -97,8 +117,7 @@ export function taxCryptoFor(orgId: string): TaxCrypto {
   } else {
     const key = randomBytes(KEY_BYTES);
     try {
-      // "wx" refuses to write over a key file that appeared in the meantime, for the same reason.
-      fs.writeFileSync(keyPath, safeStorage.encryptString(key.toString("hex")), { flag: "wx" });
+      keepNewKeyFile(keyPath, safeStorage.encryptString(key.toString("hex")));
     } catch (err) {
       console.error("[employees] the tax number key file could not be written:", err instanceof Error ? err.message : String(err));
       throw new Error("The key for tax numbers could not be kept on this PC, so a tax number cannot be saved here.");

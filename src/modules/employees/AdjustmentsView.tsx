@@ -86,7 +86,7 @@ export default function AdjustmentsView({ people, personFilter, onPersonFilter, 
     onDataChanged();
   };
 
-  // A delete or a restore can be refused (it would take an entry below zero hours, or the project
+  // A delete or a restore can be refused (it would take hours below zero, or the project
   // is completed). The reason is shown: a button that does nothing and says nothing reads as broken.
   const refused = (e: unknown): void => signalAppToast(explainEmployeesError(e instanceof Error ? e.message : String(e), "this correction").plain, "err");
   const softDelete = (uuid: string): void => {

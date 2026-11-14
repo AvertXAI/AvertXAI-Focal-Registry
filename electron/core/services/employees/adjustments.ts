@@ -199,15 +199,47 @@ function hoursTerms(
 }
 
 /**
- * An entry cannot end up with less than no hours. Checked against the same net figure every total
- * reads, so the refusal and the totals can never disagree about what is left.
+ * THE floor under every change to an hours correction. Making one, editing one, deleting one and
+ * bringing one back all come through here with the minutes that change would add or take away,
+ * and two things must still hold afterwards:
+ *   the entry    a correction made against an entry cannot leave that entry with less than no hours.
+ *   the project  the person cannot be left with less than no hours on the project the correction
+ *                carries. Their hours on a project are every entry they logged on it, whatever its
+ *                pay type, plus every live hours correction of theirs on it, tied to an entry or
+ *                not. A correction that names no entry has no other floor than this one.
+ * Both are the net figure every total reads, so the refusal and the totals can never disagree
+ * about what is left.
  */
-function assertEntryHoursLeft(db: Db, entryId: number, deltaMinutes: number): void {
-  const left = netTotals(db, { entryId })[0].hours;
-  // A millionth of an hour of slack: stored hours are decimals, and taking an entry to exactly
-  // zero must not be refused over float dust.
-  if (left + deltaMinutes / 60 < -1e-6) {
-    throw new Error(`That would take the entry below zero hours. It has ${left.toFixed(2)} hours left.`);
+function assertHoursLeft(
+  db: Db,
+  on: Pick<Adjustment, "employee_id" | "project_id" | "entry_id">,
+  changeMinutes: number
+): void {
+  // Only a change that takes hours away can break the floor. Refusing one that adds hours, or
+  // moves none, would leave hours that went below zero before this floor existed with no way
+  // back up.
+  if (changeMinutes >= 0) return;
+  const change = changeMinutes / 60;
+  // A millionth of an hour of slack: stored hours are decimals, and taking hours to exactly zero
+  // must not be refused over float dust.
+  const below = (left: number): boolean => left + change < -1e-6;
+  if (on.entry_id !== null) {
+    const left = netTotals(db, { entryId: on.entry_id })[0].hours;
+    if (below(left)) {
+      throw new Error(`That would take the entry below zero hours. It has ${left.toFixed(2)} hours left.`);
+    }
+  }
+  // netTotals reads a null project as "every project", which is a different question. The table
+  // refuses an hours correction with no project, so no stored one is skipped here.
+  if (on.project_id === null) return;
+  const left = netTotals(db, { employeeId: on.employee_id, projectId: on.project_id })[0].hours;
+  if (below(left)) {
+    // A shortfall of a third of a hundredth of an hour would print as "-0.00", which reads as
+    // allowed, so the figure shown is never closer to zero than a hundredth.
+    const after = Math.min(left + change, -0.01).toFixed(2);
+    throw new Error(
+      `That would leave this person with ${after} hours on this project. They have ${left.toFixed(2)} hours on it now.`
+    );
   }
 }
 
@@ -217,7 +249,7 @@ export function createHoursAdjustment(db: Db, orgId: string, input: HoursAdjustm
   const deltaMinutes = vDeltaMinutes(input.deltaMinutes);
   const entryId = vNullableId(input.entryId, "entry id");
   const terms = hoursTerms(db, employeeId, entryId, input);
-  if (entryId !== null) assertEntryHoursLeft(db, entryId, deltaMinutes);
+  assertHoursLeft(db, { employee_id: employeeId, project_id: terms.projectId, entry_id: entryId }, deltaMinutes);
   return insert(db, orgId, "hours", {
     employeeId,
     projectId: terms.projectId,
@@ -262,9 +294,7 @@ export function updateAdjustment(db: Db, uuid: string, deltaValue: number, note:
   const nextAmount = isHours ? null : vDeltaAmount(deltaValue);
   // An edit can dig as deep as a new correction, so it gets the same floor. Only the change counts:
   // what is left already includes this correction's current value.
-  if (nextMinutes !== null && existing.entry_id !== null) {
-    assertEntryHoursLeft(db, existing.entry_id, nextMinutes - (existing.delta_minutes ?? 0));
-  }
+  if (nextMinutes !== null) assertHoursLeft(db, existing, nextMinutes - (existing.delta_minutes ?? 0));
   const at = nowIso();
   const audit = JSON.parse(existing.audit_log) as EmployeeAuditEntry[];
   audit.push({
@@ -297,9 +327,7 @@ export function restoreAdjustment(db: Db, orgId: string, uuid: string): Adjustme
   assertNotCompleted(db, existing.project_id); // restoring a correction is a correction too
   // Bringing back a deleted "less" correction takes its hours off again, so it is held to the
   // same floor as making it was.
-  if (existing.kind === "hours" && existing.entry_id !== null) {
-    assertEntryHoursLeft(db, existing.entry_id, existing.delta_minutes ?? 0);
-  }
+  if (existing.kind === "hours") assertHoursLeft(db, existing, existing.delta_minutes ?? 0);
   const at = nowIso();
   const audit = JSON.parse(existing.audit_log) as EmployeeAuditEntry[];
   audit.push({ action: "restored", at });
@@ -326,11 +354,9 @@ export function softDeleteAdjustment(db: Db, orgId: string, uuid: string): void 
   if (!existing) throw new Error(`Adjustment ${uuid} not found`);
   if (existing.deleted_at) return;
   assertNotCompleted(db, existing.project_id); // by-uuid path — parent resolved first
-  // Deleting a "more" correction takes its hours off the entry again, so it is held to the same
-  // floor as making a "less" one: a later "less" correction may be standing on those hours.
-  if (existing.kind === "hours" && existing.entry_id !== null && (existing.delta_minutes ?? 0) > 0) {
-    assertEntryHoursLeft(db, existing.entry_id, -(existing.delta_minutes ?? 0));
-  }
+  // Deleting a "more" correction takes its hours off again, so it is held to the same floor as
+  // making a "less" one: a later "less" correction may be standing on those hours.
+  if (existing.kind === "hours") assertHoursLeft(db, existing, -(existing.delta_minutes ?? 0));
   const at = nowIso();
   const audit = JSON.parse(existing.audit_log) as EmployeeAuditEntry[];
   audit.push({ action: "deleted", at });

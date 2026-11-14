@@ -366,7 +366,9 @@ export function generateDemo(db: Db, orgId: string, rawKey: string): GenerateRes
           deltaMinutes: 90, rateAtEntry: PEOPLE[0].rate, note: "missed the rehearsal hour",
         }).id,
         createHoursAdjustment(db, orgId, {
-          employeeId: staff[4].id, projectId: made[2].id, projectName: made[2].name,
+          // On the project of her first seeded shift, which is an hour and a half or more: a
+          // "less" correction is refused on a project the person has no hours on.
+          employeeId: staff[4].id, projectId: made[4].id, projectName: made[4].name,
           deltaMinutes: -60, rateAtEntry: PEOPLE[4].rate, note: "double-logged setup",
         }).id,
         createAmountAdjustment(db, orgId, {

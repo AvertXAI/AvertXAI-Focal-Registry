@@ -33,7 +33,7 @@ import * as infra from "./infra";
 import * as repos from "./repos";
 import { deriveSshArt } from "./sshart";
 import { findVsCodeThemes, readVsCodeTheme } from "./codeThemes";
-import { createImportPick } from "./importPick";
+import { createImportPick, createImportScope } from "./importPick";
 import fs from "node:fs";
 import { FILE_FILTERS, exportDirFor, locateExports, statPickedFiles, walkForDocs } from "./sources";
 import { clearAllEvents, clearRoutine, listEvents, logEvent, newRequestId, presentableMessage, type VaultLogLevel } from "./log";
@@ -484,11 +484,20 @@ export function registerVaultIpc(): void {
   // It asks for a dialog, the MAIN process gets a path from the operating system, the service reads
   // and writes MAIN-SIDE, and what comes back is a count. A password cannot ride this bridge in
   // either direction, which is the property that makes the reluctant export screen honest.
+  // "Never names a path" is kept by this record: the import channels read only a file the scan
+  // below found or the file dialog handed out (rule in importPick.ts). A file is previewed and then
+  // imported, and a wrong archive passphrase is tried again, so a read does not spend the pick.
+  const exportPick = createImportScope();
   // Finds the export file the user already wrote, so they do not have to remember where it landed.
   // Reads filenames and stat ONLY — never a browser profile, never file contents. See sources.ts.
   safeHandle("vault:findExports", async (_e, kind: unknown) => {
     await gated();
-    return locateExports(typeof kind === "string" ? kind : "csv");
+    const found = locateExports(typeof kind === "string" ? kind : "csv");
+    // The page asks for a scan only when it starts a source over with no file on screen, so the
+    // last source's files stop being readable here.
+    exportPick.clear();
+    exportPick.addFiles(found.map((c) => c.path));
+    return found;
   });
   // Opens the folder in the system file browser — highlighting a specific file when one was found,
   // or just opening the folder otherwise. This is the "take me to where it lives" button; it never
@@ -515,20 +524,22 @@ export function registerVaultIpc(): void {
         ? [{ name: "Vault archive", extensions: ["json", "avxvault"] }]
         : [{ name: "Exported passwords", extensions: ["csv", "txt"] }],
     });
-    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0];
+    // A cancelled dialog changes nothing on the page, so it must not cost the file already there.
+    if (r.canceled || r.filePaths.length === 0) return null;
+    return exportPick.addFiles([r.filePaths[0]])[0];
   });
   // Reads the header row and five sample lines so the human can map the columns. WRITES NOTHING.
   safeHandle("vault:importPreview", async (_e, filePath: unknown) => {
     await gated();
-    return transfer.importPreview(filePath);
+    return transfer.importPreview(exportPick.file(filePath));
   });
   safeHandle("vault:importCsv", async (_e, filePath: unknown, mapping: unknown) => {
     const { db, orgId } = await gated();
-    return transfer.importCsv(db, orgId, RENDERER_CALLER, filePath, mapping);
+    return transfer.importCsv(db, orgId, RENDERER_CALLER, exportPick.file(filePath), mapping);
   });
   safeHandle("vault:importArchive", async (_e, filePath: unknown, passphrase: unknown) => {
     const { db, orgId } = await gated();
-    return transfer.importArchive(db, orgId, RENDERER_CALLER, filePath, passphrase);
+    return transfer.importArchive(db, orgId, RENDERER_CALLER, exportPick.file(filePath), passphrase);
   });
   // ---- Secured Notes. Bodies are content, not credentials — see notes.ts for why reads are
   // ---- not access-logged and why lists carry an excerpt, never the body.
@@ -702,12 +713,16 @@ export function registerVaultIpc(): void {
 
   // ---- Folder import, one per tab. Choose folders → walk for .md/.txt/.pdf → review → import.
   // The dialog is main-side and multi-select; the renderer never names a path it was not given.
+  // What the folder and file dialogs handed out for a document import. statFiles, walkFolders and
+  // importDocs take their paths from the page, so each is checked against this record first (rule
+  // in importPick.ts). A pick lasts until the import that uses it succeeds.
+  const docPick = createImportScope();
   safeHandle("vault:chooseFolders", async (e) => {
     const r = await showOpen(e, {
       title: "Choose one or more folders",
       properties: ["openDirectory", "multiSelections"],
     });
-    return r.canceled ? [] : r.filePaths;
+    return docPick.addFolders(r.canceled ? [] : r.filePaths);
   });
   // What the last file dialog handed out. readImportText below reads from this list and nowhere
   // else, so the page cannot name a file the user did not just pick (VA-02; rule in importPick.ts).
@@ -721,7 +736,7 @@ export function registerVaultIpc(): void {
       properties: ["openFile", "multiSelections"],
       filters: FILE_FILTERS[key],
     });
-    return importPick.remember(r.canceled ? [] : r.filePaths);
+    return docPick.addFiles(importPick.remember(r.canceled ? [] : r.filePaths));
   });
   /**
    * Read a chosen file's TEXT so the renderer can run it through a parser and show a review table
@@ -754,14 +769,14 @@ export function registerVaultIpc(): void {
   /** Stat hand-picked files. No extension filtering — the dialog narrowed it and the user chose. */
   safeHandle("vault:statFiles", async (_e, paths: unknown) => {
     await gated();
-    return statPickedFiles(paths);
+    return statPickedFiles((Array.isArray(paths) ? paths : []).map(docPick.file));
   });
   // Names and stat only — WRITES NOTHING, reads no file contents. The review list comes from this.
   safeHandle("vault:walkFolders", async (_e, roots: unknown) => {
     const { db, orgId } = await gated();
     // The ceiling is a SETTING (Jason 08-11-2026 — the old hardcoded 2,000 refused a real import).
     const cap = vaultSettings.getNumber(db, orgId, "import.max_files");
-    return walkForDocs(roots, Number.isFinite(cap) && cap > 0 ? cap : undefined);
+    return walkForDocs(docPick.walkRoots(roots), Number.isFinite(cap) && cap > 0 ? cap : undefined);
   });
   // THE write. Reads each chosen file main-side (a .pdf is stored as a stub note pending a text
   // extractor — flagged in the body rather than pretending it imported clean).
@@ -791,7 +806,8 @@ export function registerVaultIpc(): void {
     };
     const loaded = list.map((f) => {
       const rec = f as { path?: unknown; name?: unknown; rel?: unknown; ext?: unknown; birthtimeMs?: unknown; mtimeMs?: unknown };
-      const p = typeof rec?.path === "string" ? rec.path : "";
+      // A refusal here writes nothing: every file is loaded before notes.importDocs runs.
+      const p = docPick.doc(rec?.path);
       const ext = typeof rec?.ext === "string" ? rec.ext : "";
       const rel = typeof rec?.rel === "string" ? rec.rel : (typeof rec?.name === "string" ? rec.name : p);
       let text = "";
@@ -850,6 +866,8 @@ export function registerVaultIpc(): void {
       return { name: rec?.name, rel: rec?.rel, path: p, text, birthtimeMs: rec?.birthtimeMs, mtimeMs: rec?.mtimeMs };
     });
     const r = notes.importDocs(db, orgId, loaded, (opts ?? {}) as never);
+    // Spent. The modal shows its result and closes, so the next import starts from a new pick.
+    docPick.clear();
     secrets.logAccess(db, orgId, "import", null, null, RENDERER_CALLER, true, `documents · ${r.created} created, ${r.warned} warned`);
     // THE FULL ARITHMETIC, in the log, where it can be checked after the modal is gone. This is the
     // line that answers "the import said 2,083 and the folder says 2,078" without anyone having to

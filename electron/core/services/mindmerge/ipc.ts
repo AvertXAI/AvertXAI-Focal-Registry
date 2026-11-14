@@ -48,7 +48,7 @@ import { findVsCodeThemes, readVsCodeTheme } from "../vault/codeThemes";
 // below call the existing one.
 import { DOC_EXTS, FILE_FILTERS, SKIP_DIRS, statPickedFiles, walkForDocs } from "../vault/sources";
 // SAME CLASS OF REUSE once more: importPick.ts imports only node:path and holds no vault data.
-import { createImportPick } from "../vault/importPick";
+import { createImportPick, createImportScope } from "../vault/importPick";
 
 /**
  * Module-local copy of core/ipc.ts's resilient registrar (it is module-local there; a cross-import
@@ -751,13 +751,17 @@ export function registerMindMergeDocsIpc(): void {
   // The dialog is main-side and multi-select; the renderer never names a path it was not given.
   // Like previewDocFolderPaths above, these open no MindMerge db — so no mindMergeCtx() — but the
   // entitlement check comes first on every one (the two-layer gate has no exemptions).
+  // What the folder and file dialogs handed out for a document import. statFiles, walkFolders and
+  // importDocs take their paths from the page, so each is checked against this record first (rule
+  // in vault/importPick.ts). A pick lasts until the import that uses it succeeds.
+  const docPick = createImportScope();
   safeHandle("mindmerge:chooseFolders", async (e) => {
     enforceFeature(getDb(), "mindmergeBrain");
     const r = await showOpen(e, {
       title: "Choose one or more folders",
       properties: ["openDirectory", "multiSelections"],
     });
-    return r.canceled ? [] : r.filePaths;
+    return docPick.addFolders(r.canceled ? [] : r.filePaths);
   });
   // What the last file dialog handed out. readImportText below reads from this list and nowhere
   // else, so the page cannot name a file the user did not just pick (rule in vault/importPick.ts).
@@ -773,7 +777,7 @@ export function registerMindMergeDocsIpc(): void {
       properties: ["openFile", "multiSelections"],
       filters: FILE_FILTERS[key],
     });
-    return importPick.remember(r.canceled ? [] : r.filePaths);
+    return docPick.addFiles(importPick.remember(r.canceled ? [] : r.filePaths));
   });
   /**
    * Read a chosen file's TEXT so the renderer can run it through a parser and show a review table
@@ -795,7 +799,7 @@ export function registerMindMergeDocsIpc(): void {
   /** Stat hand-picked files. No extension filtering — the dialog narrowed it and the user chose. */
   safeHandle("mindmerge:statFiles", async (_e, paths: unknown) => {
     enforceFeature(getDb(), "mindmergeBrain");
-    return statPickedFiles(paths);
+    return statPickedFiles((Array.isArray(paths) ? paths : []).map(docPick.file));
   });
   // Names and stat only — WRITES NOTHING, reads no file contents. The review list comes from this.
   safeHandle("mindmerge:walkFolders", async (_e, roots: unknown) => {
@@ -804,27 +808,36 @@ export function registerMindMergeDocsIpc(): void {
     // 25,000 — a SETTING because the old hardcoded 2,000 refused a real import). This handler opens
     // no db (see above) and no MindMerge counterpart of that setting has been ruled, so the
     // walker's own default — the same 25,000 — applies. When a setting lands, thread it here.
-    return walkForDocs(roots);
+    return walkForDocs(docPick.walkRoots(roots));
   });
 
   // THE write. Reads each chosen file main-side (a .pdf is stored as a stub note pending a text
   // extractor — flagged in the body rather than pretending it imported clean).
   safeHandle("mindmerge:importDocs", async (_e, files: unknown, opts: unknown) => {
     const { db, orgId } = mindMergeCtx();
-    const list = Array.isArray(files) ? files : [];
+    // Both checked before anything is read or written. The roots matter as much as the files: they
+    // are recorded below, and the refresh and the watcher re-read them with no dialog in between.
+    const askedRoots = (opts as { roots?: unknown } | null)?.roots;
+    const roots = Array.isArray(askedRoots) ? askedRoots.map(docPick.folder) : [];
+    const list = (Array.isArray(files) ? files : []).map((f) => ({
+      ...(f as object),
+      path: docPick.doc((f as { path?: unknown } | null)?.path),
+    }));
     const { loaded, readFailures, truncated } = await readDocFiles(list);
     // An explicit import LIFTS tombstones for exactly these files: pressing Import on a
     // previously-erased path is the user changing their mind, and that intent wins.
     notes.clearImportTombstones(db, orgId, loaded.map((f) => f.path));
     const r = notes.importDocs(db, orgId, loaded, (opts ?? {}) as never);
+    // Spent. The modal shows its result and closes, so the next import starts from a new pick.
+    docPick.clear();
     // FOLDER IMPORTS LEAVE A RE-WALKABLE TRAIL NOW (Jason 08-30-2026): the picked roots are
     // recorded with the options this import ran under, and the watcher is armed on them — so a
     // file edited after import gets re-read (watch or the refresh button) instead of staying
     // stale forever. `roots` is absent for hand-picked single files, deliberately: recording a
     // picked file's parent folder would import its siblings the user never chose.
     const rootOpts = (opts ?? {}) as { roots?: unknown; kind?: unknown; folder?: unknown; mirror?: unknown };
-    if (Array.isArray(rootOpts.roots) && rootOpts.roots.length > 0) {
-      notes.recordImportRoots(db, orgId, rootOpts.roots, rootOpts);
+    if (roots.length > 0) {
+      notes.recordImportRoots(db, orgId, roots, rootOpts);
       armImportWatchers(db, orgId, true); // force — a new root may sit outside every watched tree
     }
     // (The vault's secrets.logAccess("import", …) row has no counterpart here — see purgeDocs.)

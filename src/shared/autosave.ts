@@ -12,6 +12,8 @@ export interface AutosaverDeps<T> {
   same: (a: T, b: T) => boolean;
   onSaved?: (info: { key: string; value: T; result: unknown; idle: boolean }) => void;
   onError?: (message: string, key: string) => void;
+  /** Which screen's notes these are, so two screens that number their notes alike are told apart. */
+  scope?: string;
   /** Tests hand in their own clock. */
   timers?: { set: (fn: () => void, ms: number) => unknown; clear: (handle: unknown) => void };
 }
@@ -32,6 +34,7 @@ export interface Autosaver<T> {
 interface Registered {
   unsaved(): number;
   settle(): Promise<string[]>;
+  superseded(scope: string, key: string): void;
 }
 
 const live = new Set<Registered>();
@@ -68,6 +71,7 @@ export function createAutosaver<T>(deps: AutosaverDeps<T>): Autosaver<T> {
   };
   // More than one note is held only around a switch of notes or after a write that failed.
   const held = new Map<string, { value: T; label: string }>();
+  const scope = deps.scope ?? "";
   let timer: unknown = null;
   let edits = 0;
   let disposed = false;
@@ -132,6 +136,7 @@ export function createAutosaver<T>(deps: AutosaverDeps<T>): Autosaver<T> {
       // the same saver, and it has to be listed again or a quit would not wait for it.
       disposed = false;
       live.add(self);
+      for (const other of live) if (other !== self) other.superseded(scope, key);
       edits += 1;
       countChanged();
       stopTimer();
@@ -158,6 +163,12 @@ export function createAutosaver<T>(deps: AutosaverDeps<T>): Autosaver<T> {
       if (held.delete(key)) settled();
     },
     unsaved: () => held.size,
+    superseded(otherScope, key) {
+      // A screen that closed while a write was failing still holds that text for the quit. Once
+      // the note is typed in again on a reopened screen, the older text must not be written over
+      // the newer at quit.
+      if (disposed && otherScope === scope) self.discard(key);
+    },
     async settle() {
       // Text typed while a write was on its way needs one more pass. Three is plenty for someone
       // who is quitting, and it cannot loop for ever on a screen that keeps changing its text.

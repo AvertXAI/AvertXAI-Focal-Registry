@@ -62,7 +62,7 @@ function clock() {
   };
 }
 
-function harness<T>(screen: Screen<T>, writeMs = 500) {
+function harness<T>(screen: Screen<T>, writeMs = 500, scope = "") {
   const c = clock();
   const store = new Map<string, T>();
   const started: Array<[string, T]> = [];
@@ -85,6 +85,7 @@ function harness<T>(screen: Screen<T>, writeMs = 500) {
       });
     },
     same: screen.same,
+    scope,
     onSaved: ({ key, idle }) => void saved.push({ key, idle }),
     onError: (message) => void errors.push(message),
     timers: c.timers,
@@ -203,6 +204,36 @@ test("the unsaved mark is cleared only when the store holds what is on screen", 
   assert.deepEqual(h.saved, [{ key: "a", idle: true }], "the first write landed");
   assert.equal(h.saver.unsaved(), 1, "but the screen shows newer text");
 }));
+
+test("a screen that closed with a write failing gives way once the note is typed in again", async () => {
+  const closed = harness(SCREENS[2] as Screen<unknown>, 500, "documents");
+  const reopened = harness(SCREENS[2] as Screen<unknown>, 500, "documents");
+  const elsewhere = harness(SCREENS[2] as Screen<unknown>, 500, "scan-notes");
+  try {
+    closed.failNextWrite();
+    closed.saver.edited("a", closed.text("older text, never written"), "Fake title");
+    const leaving = closed.saver.flush();
+    await closed.c.advance(600);
+    assert.equal(await leaving, false);
+    closed.saver.dispose();
+    assert.equal(closed.saver.unsaved(), 1, "kept for the quit: it is the newest text there is");
+
+    elsewhere.saver.edited("a", elsewhere.text("another screen's note with the same number"));
+    assert.equal(closed.saver.unsaved(), 1, "a different screen's note is not this note");
+
+    reopened.saver.edited("a", reopened.text("newer text"));
+    assert.equal(closed.saver.unsaved(), 0);
+    const names = flushAllNotes();
+    await Promise.all([closed.c.advance(600), reopened.c.advance(600), elsewhere.c.advance(600)]);
+    assert.deepEqual(await names, []);
+    assert.deepEqual(reopened.store.get("a"), reopened.text("newer text"));
+    assert.equal(closed.store.has("a"), false, "the older text was never written over the newer");
+  } finally {
+    closed.close();
+    reopened.close();
+    elsewhere.close();
+  }
+});
 
 test("the quit flush writes every screen's text and names only what could not be written", async () => {
   const counts: number[] = [];

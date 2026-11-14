@@ -110,7 +110,7 @@ export function SettingsData() {
         <p className="hint">
           Each backup is a new folder named by its date and time; the first one creates this folder. Nothing in it is
           ever overwritten or removed by the app. A backup goes back onto this PC under this Windows account: anywhere
-          else, the Secured Vault and the pictures in MindMerge will not open from it.
+          else, the Secured Vault, the pictures in MindMerge and employee tax numbers will not open from it.
         </p>
       </div>
       <ExportRow />

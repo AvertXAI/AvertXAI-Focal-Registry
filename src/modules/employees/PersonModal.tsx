@@ -8,7 +8,8 @@
 // The form now offers every column employee_people carries after the 3B.2-A delta — including the
 // seven added 2026-08-04. Address is a REVEAL: an address is optional and most people will not have
 // one to hand, so it stays behind [+ Add Address] rather than padding the form with four empty
-// boxes. Social security is stored PLAIN by ruling; it shows while focused and masks on blur.
+// boxes. Social security is encrypted at rest, and the page is handed only its last four digits:
+// the whole number arrives through Reveal and is gone when this dialog closes.
 import { useEffect, useState } from "react";
 import type {
   EmployeePayType,
@@ -60,9 +61,25 @@ export default function PersonModal({
   const [city, setCity] = useState(editing?.city ?? "");
   const [stateCode, setStateCode] = useState(editing?.state ?? "");
   const [zip, setZip] = useState(editing?.zip ?? "");
-  // Social security — `ssn` is the real value; `ssnFocused` decides whether it or the mask shows.
-  const [ssn, setSsn] = useState(editing?.ssn ?? "");
+  // Social security. The page is handed only the mask, so `ssn` starts empty and holds a number
+  // only once he typed one or pressed Reveal. It lives in this dialog and nowhere else, which is
+  // what makes closing the dialog the end of a reveal.
+  const [ssn, setSsn] = useState("");
   const [ssnFocused, setSsnFocused] = useState(false);
+  const [ssnShown, setSsnShown] = useState(false);
+  const [ssnTouched, setSsnTouched] = useState(false);
+  const [ssnBusy, setSsnBusy] = useState(false);
+  const [ssnNote, setSsnNote] = useState<string | null>(editing?.ssn_unreadable ?? null);
+  // A number on file that this PC can read: locked behind its mask until he reveals it.
+  const ssnStored = Boolean(editing?.has_ssn) && !editing?.ssn_unreadable;
+  const ssnLocked = ssnStored && !ssnShown;
+  const ssnText = ssnLocked
+    ? ssnTouched
+      ? maskSsn(ssn)
+      : (editing?.ssn_masked ?? "")
+    : ssnShown || ssnFocused
+      ? ssn
+      : maskSsn(ssn);
   const [payType, setPayType] = useState<EmployeePayType>(editing?.default_pay_type ?? "hourly");
   const [rate, setRate] = useState(editing?.default_rate != null ? String(editing.default_rate) : "");
   // Employee Profile (08-06, "same for employee") — the two fields that had no home. Everything
@@ -112,7 +129,10 @@ export default function PersonModal({
       city: nullable(city),
       state: nullable(stateCode),
       zip: nullable(zip),
-      ssn: nullable(ssn),
+      // Sent only when he changed it. Left out, main keeps what is stored: the page holds the
+      // mask, not the number. A number this PC cannot read is replaced only by one he typed,
+      // never cleared by a field he emptied again.
+      ssn: ssnTouched && !(editing?.ssn_unreadable && ssn.trim() === "") ? nullable(ssn) : undefined,
       defaultPayType: payType,
       defaultProjectId: project?.id ?? null,
       // Denormalized beside the id so the row stays readable if that project is ever purged.
@@ -133,6 +153,34 @@ export default function PersonModal({
         console.error("[employees] person save failed:", raw);
         setError(explainEmployeesError(raw, editing ? "this person" : "this new person"));
       });
+  };
+
+  const toggleSsn = (): void => {
+    if (ssnShown) {
+      setSsnShown(false);
+      return;
+    }
+    // His own edit is already in the field: asking main again would put the stored number over it.
+    if (ssnTouched || !editing) {
+      setSsnShown(true);
+      return;
+    }
+    setSsnBusy(true);
+    setSsnNote(null);
+    void api.employees.people
+      .revealSsn(editing.id)
+      .then((whole) => {
+        setSsn(whole);
+        setSsnShown(true);
+      })
+      .catch((e: unknown) => {
+        const raw = e instanceof Error ? e.message : String(e);
+        console.error("[employees] reveal failed:", raw);
+        const said = explainEmployeesError(raw, "this number");
+        // The classifier's own sentences are about saving, and those are the ones with a hint.
+        setSsnNote(said.hint === "" ? said.plain : "The number could not be shown. Try again.");
+      })
+      .finally(() => setSsnBusy(false));
   };
 
   const disabled = saving || name.trim() === "" || rateInvalid;
@@ -309,18 +357,38 @@ export default function PersonModal({
                   alters time already logged.
                 </em>
               </div>
-              <label className="emp-field">
+              {/* A div, as for the rate beside it: this field holds a button as well as its input. */}
+              <div className="emp-field">
                 <span>Social security</span>
-                <input
-                  /* emp-ssn enlarges the mask glyphs only — plain-on-focus behaviour is unchanged. */
-                  className={"emp-input mono emp-ssn" + (ssnFocused ? "" : " masked")}
-                  value={ssnFocused ? ssn : maskSsn(ssn)}
-                  onFocus={() => setSsnFocused(true)}
-                  onBlur={() => setSsnFocused(false)}
-                  onChange={(e) => setSsn(formatSsn(e.target.value))}
-                />
-                <em className="emp-hint">Plain while editing, masked when you leave the field.</em>
-              </label>
+                {/* emp-inputpair keeps the field and Reveal on one line and lets Reveal drop
+                    beneath at the 740px floor. The old "masked" class is gone on purpose: it
+                    outranks that row's width rule and would push Reveal down at every width. */}
+                <div className="emp-inputpair">
+                  <input
+                    className="emp-input mono emp-ssn"
+                    aria-label="Social security"
+                    value={ssnText}
+                    readOnly={ssnLocked}
+                    onFocus={() => setSsnFocused(true)}
+                    onBlur={() => setSsnFocused(false)}
+                    onChange={(e) => {
+                      setSsn(formatSsn(e.target.value));
+                      setSsnTouched(true);
+                    }}
+                  />
+                  {ssnStored && (
+                    <button type="button" className="emp-btn" disabled={ssnBusy} onClick={toggleSsn}>
+                      {ssnShown ? "Hide" : "Reveal"}
+                    </button>
+                  )}
+                </div>
+                <em className="emp-hint">
+                  {ssnNote ??
+                    (ssnStored
+                      ? "Only the last four digits show. Reveal shows the whole number, and lets you change it, until you hide it or close this window."
+                      : "Plain while editing, masked when you leave the field.")}
+                </em>
+              </div>
             </div>
 
             {/* EMPLOYEE PROFILE (08-06): a labelled block so everything about paying this person

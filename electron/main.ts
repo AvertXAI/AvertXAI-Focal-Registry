@@ -4,6 +4,7 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, screen, shell, Tray } from "electron";
 import path from "node:path";
 import { closeAllDbs, getDb, initDb, openDb } from "./core/services/db";
+import { startTaxMigration } from "./core/services/employees/taxBoot";
 import { ensureAllModuleSchemas } from "./core/services/db/allSchemas";
 import { getActiveOrg, initRegistry } from "./core/services/db/registry";
 import { getMainSetting, getSetting, setMainSetting, setSetting } from "./core/services/settings";
@@ -520,6 +521,9 @@ app.whenReady().then(async () => {
   // Before the handlers register: registering makes each engine relabel its interrupted runs.
   if (org) captureJobsLeftRunning(getDb());
   registerIpcHandlers();
+  // Down here, not beside the schema work: the full backup it runs first copies the Vault, which
+  // is open by now, and the handler the page asks about it is registered by the line above.
+  if (org) startTaxMigration(getDb(), org.org_id);
   registerQuitGuard();
   const win = createWindow();
   setMainWindow(win);

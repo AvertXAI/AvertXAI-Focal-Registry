@@ -25,7 +25,9 @@ import * as adjustments from "./adjustments";
 import * as reports from "./reports";
 import * as sessions from "./sessions";
 import { listEvents } from "./eventLog";
-import type { EntryInput, PaymentInput, PersonInput, TaskInput } from "./types";
+import { takeTaxNotice } from "./taxBoot";
+import { taxCryptoFor, type TaxCrypto } from "./taxCrypto";
+import type { EntryInput, PagePerson, PaymentInput, Person, PersonInput, TaskInput } from "./types";
 import type { AmountAdjustmentInput, HoursAdjustmentInput } from "./adjustments";
 
 // Module-local copy of core/ipc.ts's resilient registrar (it is module-local there; a cross-import
@@ -80,9 +82,9 @@ function empCtx(): { db: Db; orgId: string } {
   const db = getDb();
   // THE ENTITLEMENT GATE LIVES HERE, and here only (Jason's tier ruling 08-22-2026: the Employees
   // module is Business/Root only, and the Employees section inside TimeTracker hides with it).
-  // Every employees:* handler in this file funnels through this one context — verified handler by
-  // handler — so one line refuses all thirty-seven of them; per-handler copies would be
-  // thirty-seven chances to forget one (the mindMergeCtx precedent). It is the MAIN-SIDE half of
+  // Every employees:* handler in this file but employees:taxNotice funnels through this one
+  // context — verified handler by handler — so one line refuses all of them; per-handler copies
+  // would be that many chances to forget one (the mindMergeCtx precedent). It is the MAIN-SIDE half of
   // the two-layer gate; the renderer hiding the module and TimeTracker's Employees section is the
   // other half, and a hidden control is not a control. Runs on every call, before the memoised
   // schema flag, so a licence flip is live on the next invoke (resolveTier is unmemoised).
@@ -96,34 +98,70 @@ function empCtx(): { db: Db; orgId: string } {
   return { db, orgId: org.org_id };
 }
 
+/**
+ * The org's key for tax numbers. When it cannot be opened this hands back a stand-in that refuses
+ * with the reason, so a read shows a sentence where the digits would be and a save of a number is
+ * refused. Nothing ever falls back to storing a number plain.
+ */
+function taxFor(orgId: string): TaxCrypto {
+  try {
+    return taxCryptoFor(orgId);
+  } catch (err) {
+    const why = err instanceof Error ? err.message : String(err);
+    const refuse = (): never => {
+      throw new Error(why);
+    };
+    return { encrypt: refuse, decrypt: refuse };
+  }
+}
+
+/** Every person handed to the page passes through here: the stored tax number stays in main and
+    leaves only through employees:revealSsn, one person at a time, when he asks to see it. */
+function forPage(orgId: string): (row: Person) => PagePerson {
+  const tax = taxFor(orgId);
+  return (row) => people.personForPage(row, tax);
+}
+
 export function registerEmployeesIpc(): void {
   // ---- people ----
   safeHandle("employees:listPeople", () => {
     const { db, orgId } = empCtx();
-    return people.listPeople(db, orgId);
+    return people.listPeople(db, orgId).map(forPage(orgId));
   });
   safeHandle("employees:listArchivedPeople", () => {
     const { db, orgId } = empCtx();
-    return people.listArchivedPeople(db, orgId);
+    return people.listArchivedPeople(db, orgId).map(forPage(orgId));
   });
-  safeHandle("employees:getPerson", (_e, id: unknown) => people.getPerson(empCtx().db, id as number));
+  safeHandle("employees:getPerson", (_e, id: unknown) => {
+    const { db, orgId } = empCtx();
+    return forPage(orgId)(people.getPerson(db, id as number));
+  });
+  safeHandle("employees:revealSsn", (_e, id: unknown) => {
+    const { db, orgId } = empCtx();
+    return people.revealTax(db, id as number, taxFor(orgId));
+  });
+  // Not through empCtx: the launch encrypts stored numbers whatever the licence tier, so what it
+  // did has to be readable on every tier too.
+  safeHandle("employees:taxNotice", () => takeTaxNotice());
   mutHandle("employees:createPerson", (_e, input: unknown) => {
     const { db, orgId } = empCtx();
-    return people.createPerson(db, orgId, input as PersonInput);
+    return forPage(orgId)(people.createPerson(db, orgId, input as PersonInput, taxFor(orgId)));
   });
-  mutHandle("employees:updatePerson", (_e, id: unknown, input: unknown) =>
-    people.updatePerson(empCtx().db, id as number, input as PersonInput)
-  );
-  mutHandle("employees:setDefaultProject", (_e, id: unknown, projectId: unknown, projectName: unknown) =>
-    people.setDefaultProject(empCtx().db, id as number, projectId as number, projectName as string)
-  );
+  mutHandle("employees:updatePerson", (_e, id: unknown, input: unknown) => {
+    const { db, orgId } = empCtx();
+    return forPage(orgId)(people.updatePerson(db, id as number, input as PersonInput, taxFor(orgId)));
+  });
+  mutHandle("employees:setDefaultProject", (_e, id: unknown, projectId: unknown, projectName: unknown) => {
+    const { db, orgId } = empCtx();
+    return forPage(orgId)(people.setDefaultProject(db, id as number, projectId as number, projectName as string));
+  });
   mutHandle("employees:archivePerson", (_e, id: unknown, reason: unknown) => {
     const { db, orgId } = empCtx();
-    return people.archivePerson(db, orgId, id as number, reason as string);
+    return forPage(orgId)(people.archivePerson(db, orgId, id as number, reason as string));
   });
   mutHandle("employees:restorePerson", (_e, id: unknown) => {
     const { db, orgId } = empCtx();
-    return people.restorePerson(db, orgId, id as number);
+    return forPage(orgId)(people.restorePerson(db, orgId, id as number));
   });
 
   // ---- entries (INSERT + read only — corrections are adjustments, by design) ----

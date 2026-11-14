@@ -127,7 +127,7 @@ const api: Api = {
   // only the folder the dialog gave it.
   dataExport: {
     pickFolder: () => invoke("dataexport:pickFolder"),
-    run: (opts: { folder: string; includeVault: boolean }) => invoke("dataexport:run", opts),
+    run: (opts: { folder: string; includeVault: boolean; includeTaxNumbers: boolean }) => invoke("dataexport:run", opts),
     reveal: () => invoke("dataexport:reveal"),
   },
   storage: {
@@ -490,7 +490,9 @@ const api: Api = {
         invoke("employees:setDefaultProject", id, projectId, projectName),
       archive: (id: number, reason: string) => invoke("employees:archivePerson", id, reason),
       restore: (id: number) => invoke("employees:restorePerson", id),
+      revealSsn: (id: number) => invoke("employees:revealSsn", id),
     },
+    taxNotice: () => invoke("employees:taxNotice"),
     entries: {
       // No update and no delete: an entry is never rewritten — corrections are adjustments.
       create: (input: unknown) => invoke("employees:createEntry", input),

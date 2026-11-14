@@ -1,11 +1,14 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
 // Settings, Data: "Export all data…". One button for every module: the main process writes each
 // database to a folder he picks, as plain files another app can read. The Vault goes along as its
-// encrypted file unless the box below is ticked.
+// encrypted file, and employee tax numbers go out masked, unless the box for each is ticked.
 import { useState } from "react";
 import { signalAppAsk, signalAppToast } from "../../App";
 
 const count = (n: number, word: string): string => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+
+// The shell has no danger token; this is the literal its other warnings use.
+const WARNING = { color: "#e0574f" };
 
 export function ExportRow() {
   // ponytail: "busy" lives in this row, so closing and reopening Settings during an export shows
@@ -13,13 +16,14 @@ export function ExportRow() {
   // promise outside the component if that is ever seen.
   const [busy, setBusy] = useState(false);
   const [includeVault, setIncludeVault] = useState(false);
+  const [includeTax, setIncludeTax] = useState(false);
 
   const run = async (): Promise<void> => {
     try {
       const folder = await window.api.dataExport.pickFolder();
       if (!folder) return;
       setBusy(true);
-      const r = await window.api.dataExport.run({ folder, includeVault });
+      const r = await window.api.dataExport.run({ folder, includeVault, includeTaxNumbers: includeTax });
       if (!r.ok) {
         signalAppToast(r.error, "err");
         return;
@@ -30,7 +34,8 @@ export function ExportRow() {
       signalAppAsk(
         "Export finished",
         `${count(r.tables, "table")} and ${count(r.rows, "row")} are in ${name}.` +
-          (includeVault ? " The Secured Vault is in it as plain text." : ""),
+          (includeVault ? " The Secured Vault is in it as plain text." : "") +
+          (includeTax ? " Employee tax numbers are in it in full." : ""),
         [
           {
             label: "Show in folder",
@@ -39,8 +44,9 @@ export function ExportRow() {
           },
         ]
       );
-      // A box that puts passwords in plain text does not stay ticked for the next export.
+      // A box that puts passwords or tax numbers in plain text does not stay ticked for the next export.
       setIncludeVault(false);
+      setIncludeTax(false);
     } catch (e) {
       signalAppToast(e instanceof Error ? e.message : String(e), "err");
     } finally {
@@ -74,13 +80,26 @@ export function ExportRow() {
         />
         <span>
           Include the Secured Vault as plain text{" "}
-          {/* The shell has no danger token; this is the literal its other warnings use. */}
-          <span style={{ color: "#e0574f" }}>(anyone with this folder can read your passwords)</span>
+          <span style={WARNING}>(anyone with this folder can read your passwords)</span>
         </span>
       </label>
       <p className="hint">
         Left unticked, the Vault goes along as its encrypted file, which opens only on this PC under this
         Windows account. To tick it, unlock the Vault first.
+      </p>
+      <label className={"fb-check" + (includeTax ? " on" : "")}>
+        <input
+          type="checkbox"
+          checked={includeTax}
+          disabled={busy}
+          onChange={(e) => setIncludeTax(e.target.checked)}
+        />
+        <span>
+          Include full tax numbers <span style={WARNING}>(anyone with this folder can read them)</span>
+        </span>
+      </label>
+      <p className="hint">
+        Left unticked, each employee tax number is written with only its last four digits readable.
       </p>
     </div>
   );

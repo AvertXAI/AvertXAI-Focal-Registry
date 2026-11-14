@@ -15,8 +15,37 @@ import { generateUUIDv7 } from "../utils/uuidv7";
 import { CAPS, resolveTier, TIER_LABEL } from "../licensing";
 import { nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
-import type { Person, PersonInput } from "./types";
+import { isEncryptedTax, maskTax, readTax, type TaxCrypto } from "./taxCrypto";
+import type { PagePerson, Person, PersonInput } from "./types";
 import { vAmount, vId, vNullableId, vNullablePayType, vNullableState, vNullableString, vString } from "./validate";
+
+// A real number never holds an asterisk; the mask main hands the page and the form's own both do.
+const looksMasked = (value: unknown): boolean => typeof value === "string" && value.includes("*");
+
+/** A number is only ever stored encrypted. With no key the save is refused, never stored plain. */
+function sealTax(plain: string | null | undefined, tax: TaxCrypto | undefined): string | null {
+  if (!plain) return null;
+  if (!tax) throw new Error("This tax number cannot be saved, because the key that protects tax numbers is not open.");
+  return tax.encrypt(plain);
+}
+
+/** What an edit leaves in the column: `typed` left out keeps it, a string replaces it, null clears it. */
+function nextTax(stored: string | null, typed: string | null | undefined, tax: TaxCrypto | undefined): string | null {
+  if (typed === undefined) return stored;
+  if (typed !== null) return sealTax(typed, tax);
+  // A number this PC cannot read is kept even when the field came back empty: he cannot see what
+  // he would be removing, and only a number he typed may take its place.
+  return stored && isEncryptedTax(stored) && !canRead(stored, tax) ? stored : null;
+}
+
+function canRead(stored: string, tax: TaxCrypto | undefined): boolean {
+  try {
+    tax?.decrypt(stored);
+    return tax !== undefined;
+  } catch {
+    return false;
+  }
+}
 
 function clean(raw: PersonInput): PersonInput {
   return {
@@ -32,9 +61,12 @@ function clean(raw: PersonInput): PersonInput {
     state: vNullableState(raw.state),
     // Free text, NOT a number: postal codes lead with zeros and are not all digits worldwide.
     zip: vNullableString(raw.zip, "zip", 20),
-    // Stored as typed. No normalization, no stripping: what the user entered is what a tax form
+    // Kept as typed. No normalization, no stripping: what the user entered is what a tax form
     // has to match, and silently reformatting an identifier is how one stops matching.
-    ssn: vNullableString(raw.ssn, "social security", 40),
+    // Left out, or the masked text the page is shown, means "leave what is stored alone". The
+    // page only ever holds the mask unless he revealed the number, so it has nothing true to
+    // send back, and a mask saved as a number would destroy the real one.
+    ssn: raw.ssn === undefined || looksMasked(raw.ssn) ? undefined : vNullableString(raw.ssn, "social security", 40),
     defaultPayType: vNullablePayType(raw.defaultPayType),
     defaultProjectId: vNullableId(raw.defaultProjectId, "default project id"),
     defaultProjectName: vNullableString(raw.defaultProjectName, "default project name", 200),
@@ -72,6 +104,31 @@ export function getPerson(db: Db, id: number): Person {
   return row;
 }
 
+/**
+ * The copy of a person the page is handed. The stored number never travels with it: the page gets
+ * whether one is on file and its last four digits, or a sentence when it cannot be read here.
+ */
+export function personForPage(row: Person, tax: TaxCrypto): PagePerson {
+  const { ssn, ...rest } = row;
+  try {
+    const plain = readTax(ssn, tax);
+    return { ...rest, has_ssn: plain !== "", ssn_masked: maskTax(plain), ssn_unreadable: null };
+  } catch {
+    return {
+      ...rest,
+      has_ssn: true,
+      ssn_masked: "",
+      ssn_unreadable:
+        "A tax number is on file for this person, but it cannot be read on this PC or under this Windows account. Typing a new number replaces it.",
+    };
+  }
+}
+
+/** The whole number, for the Reveal button alone. Throws a plain sentence when it cannot be read. */
+export function revealTax(db: Db, id: number, tax: TaxCrypto): string {
+  return readTax(getPerson(db, id).ssn, tax);
+}
+
 /** Live count, ACTIVE only — archiving frees a slot, exactly as TimeTracker counts projects.
     A live query so the refusal can never trust stale renderer state. */
 function activePersonCount(db: Db, orgId: string): number {
@@ -82,8 +139,10 @@ function activePersonCount(db: Db, orgId: string): number {
   ).n;
 }
 
-export function createPerson(db: Db, orgId: string, input: PersonInput): Person {
+export function createPerson(db: Db, orgId: string, input: PersonInput, tax?: TaxCrypto): Person {
   const p = clean(input);
+  // From here p.ssn is what goes in the column, not what was typed.
+  p.ssn = sealTax(p.ssn, tax);
   // TIER-AWARE since 08-06 (previously a hardcoded FREE_PERSON_CAP = 5 that ignored every licence
   // key — a BUSINESS key unlocked unlimited projects while the sixth employee still refused). The
   // tier comes from core licensing, the same source TimeTracker's enforceCap reads, so one key now
@@ -138,9 +197,11 @@ export function createPerson(db: Db, orgId: string, input: PersonInput): Person 
 
 /** Edits the person's details. A changed default_rate NEVER reaches a logged entry — every entry
     carries its own rate_at_entry, which is exactly why a raise cannot rewrite a closed period. */
-export function updatePerson(db: Db, id: number, input: PersonInput): Person {
+export function updatePerson(db: Db, id: number, input: PersonInput, tax?: TaxCrypto): Person {
   const personId = vId(id, "person id");
   const p = clean(input);
+  // From here p.ssn is what goes in the column, not what was typed.
+  p.ssn = nextTax(getPerson(db, personId).ssn, p.ssn, tax);
   const res = db
     .prepare(
       `UPDATE employee_people

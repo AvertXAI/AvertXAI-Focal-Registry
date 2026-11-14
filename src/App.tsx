@@ -14,6 +14,7 @@ import SettingsModal from "./components/SettingsModal";
 import ReportProblem from "./components/ReportProblem";
 import SuggestSomething from "./components/SuggestSomething";
 import AboutDialog from "./components/AboutDialog";
+import TaxNotice from "./components/TaxNotice";
 import CrashDialog from "./components/CrashDialog";
 import QuitGuardToast from "./components/QuitGuardToast";
 import LeftoverPrompt from "./components/LeftoverPrompt";
@@ -934,6 +935,7 @@ export default function App() {
         <SuggestSomething onClose={() => setSuggestOpen(false)} modules={visibleModules} />
       )}
       {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
+      <TaxNotice />
       {/* After every other overlay, so it sits on top of them: it cannot be closed until it is
           answered. Down here, below the boot returns, so it only asks once the shell is up. */}
       <LeftoverPrompt onOpenChange={setLeftoverOpen} />

@@ -8,6 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getDb, hasOpenDb, openDb } from "../db";
 import { getActiveOrg } from "../db/registry";
+import { taxCryptoFor, type TaxCrypto } from "../employees/taxCrypto";
 import { deriveAttachKey, getOrCreateAttachSecret } from "../mindmerge/attachCrypto";
 import { openAttachmentsDb } from "../mindmerge/attachDb";
 import { openMindMergeDb } from "../mindmerge/db";
@@ -67,6 +68,19 @@ async function gatherSources(orgId: string, appSlug: string, notes: string[]): P
   return sources;
 }
 
+// existsSync first, as with the MindMerge stores above: asking for a key that is not on disk could
+// mint one, and an export leaves the install as it found it. Without the key the export still
+// runs, and says so in the place of each number it cannot read.
+function taxCryptoIfKeyed(orgId: string): TaxCrypto | null {
+  if (!fs.existsSync(path.join(app.getPath("userData"), `${orgId}.exd`))) return null;
+  try {
+    return taxCryptoFor(orgId);
+  } catch (err) {
+    console.error("[data export] the tax number key could not be read:", err);
+    return null;
+  }
+}
+
 export function registerDataExportIpc(): void {
   safeHandle("dataexport:pickFolder", async (event) => {
     const options: Electron.OpenDialogOptions = {
@@ -82,8 +96,9 @@ export function registerDataExportIpc(): void {
   });
 
   safeHandle("dataexport:run", async (_event, raw: unknown): Promise<ExportResult> => {
-    const asked = (raw ?? {}) as { folder?: unknown; includeVault?: unknown };
+    const asked = (raw ?? {}) as { folder?: unknown; includeVault?: unknown; includeTaxNumbers?: unknown };
     const includeVault = asked.includeVault === true;
+    const includeTaxNumbers = asked.includeTaxNumbers === true;
     if (typeof asked.folder !== "string" || asked.folder === "" || asked.folder !== pickedFolder) {
       return refuse("Choose a folder for the export first.");
     }
@@ -105,6 +120,7 @@ export function registerDataExportIpc(): void {
       }
       const notes: string[] = [];
       const sources = await gatherSources(org.org_id, org.app_slug, notes);
+      const taxCrypto = taxCryptoIfKeyed(org.org_id);
       // Written before any file, as the Vault's own exports do: a run that dies half-way still happened.
       if (vaultDb) {
         logAccess(vaultDb, org.org_id, "export", null, null, CALLER, true, includeVault ? "export all data · plain text" : "export all data · encrypted copy");
@@ -119,6 +135,8 @@ export function registerDataExportIpc(): void {
               ? { db: vaultDb, file: `${org.org_id}.atd`, keyEnvelope: path.join(app.getPath("userData"), `${org.org_id}.ixd`) }
               : null,
             includeVault,
+            includeTaxNumbers,
+            taxCrypto,
             destination,
             appVersion: app.getVersion(),
             notes,

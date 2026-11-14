@@ -43,7 +43,8 @@ export interface Person {
   city: string | null;
   state: string | null; // 2-letter US code
   zip: string | null;
-  /** PLAIN, in the shared org database, by the 2026-08-04 ruling. The Vault is not involved. */
+  /** AS STORED: encrypted text (taxCrypto.ts), or still plain on a database the migration has not
+      reached. Read it only through readTax, and never hand this row to the page: see PagePerson. */
   ssn: string | null;
   /** PREFILL only. Pay type still lives on the ENTRY — this just sets the form's starting pill. */
   default_pay_type: PayType | null;
@@ -58,6 +59,15 @@ export interface Person {
   created_at: string;
 }
 
+/** A person as the page receives one: the stored number is left behind in main. */
+export type PagePerson = Omit<Person, "ssn"> & {
+  has_ssn: boolean;
+  /** Only the last four digits readable. Empty when none is on file or it cannot be read. */
+  ssn_masked: string;
+  /** A sentence when a number is on file but cannot be read on this PC; null otherwise. */
+  ssn_unreadable: string | null;
+};
+
 export interface PersonInput {
   name: string;
   email: string | null;
@@ -69,7 +79,8 @@ export interface PersonInput {
   city: string | null;
   state: string | null;
   zip: string | null;
-  ssn: string | null;
+  /** Left out = keep what is stored. null = clear it. A string = replace it. */
+  ssn?: string | null;
   defaultPayType: PayType | null;
   defaultProjectId: number | null;
   defaultProjectName: string | null;

@@ -1237,8 +1237,13 @@ export interface EmployeePerson {
   city: string | null;
   state: string | null; // 2-letter US code
   zip: string | null;
-  /** PLAIN, in the shared org database, by the 2026-08-04 ruling. The Vault is not involved. */
-  ssn: string | null;
+  /** The number itself never comes with a person: only whether one is on file and its last four
+      digits. `people.revealSsn` fetches it for one person when he asks to see or change it. */
+  has_ssn: boolean;
+  /** Empty when none is on file or it cannot be read. */
+  ssn_masked: string;
+  /** A sentence when a number is on file but cannot be read on this PC; null otherwise. */
+  ssn_unreadable: string | null;
   /** PREFILL only — the Add Time form's starting pill. Pay type still lives on the ENTRY. */
   default_pay_type: EmployeePayType | null;
   /** SOFT reference to a TimeTracker project — resolves to nothing if that project is purged. */
@@ -1252,6 +1257,12 @@ export interface EmployeePerson {
   created_at: string;
 }
 
+/** What a launch did about encrypting tax numbers an older version stored plain. Shown once. */
+export interface EmployeeTaxNotice {
+  text: string;
+  tone: "ok" | "err";
+}
+
 export interface EmployeePersonInput {
   name: string;
   email: string | null;
@@ -1263,7 +1274,8 @@ export interface EmployeePersonInput {
   city: string | null;
   state: string | null;
   zip: string | null;
-  ssn: string | null;
+  /** Left out = keep what is stored. null = clear it. A string = replace it. */
+  ssn?: string | null;
   defaultPayType: EmployeePayType | null;
   defaultProjectId: number | null;
   defaultProjectName: string | null;
@@ -1648,7 +1660,7 @@ export interface Api {
     pickFolder: () => Promise<string | null>;
     /** Writes the export into the folder the dialog returned; the page cannot name another one.
      *  A failure carries a sentence to show as it is, and the unfinished folder when one was left. */
-    run: (opts: { folder: string; includeVault: boolean }) => Promise<
+    run: (opts: { folder: string; includeVault: boolean; includeTaxNumbers: boolean }) => Promise<
       { ok: true; path: string; tables: number; rows: number } | { ok: false; error: string; path?: string }
     >;
     /** Shows the folder the last export left. It takes no path, so the page cannot point it elsewhere. */
@@ -2189,7 +2201,11 @@ export interface Api {
       setDefaultProject: (id: number, projectId: number, projectName: string) => Promise<EmployeePerson>;
       archive: (id: number, reason: string) => Promise<EmployeePerson>;
       restore: (id: number) => Promise<EmployeePerson>;
+      /** The whole tax number for one person, for Reveal. Rejects with a sentence when it cannot be read. */
+      revealSsn: (id: number) => Promise<string>;
     };
+    /** Answers once the launch's backup and encryption are over; null when there is nothing to say. */
+    taxNotice: () => Promise<EmployeeTaxNotice | null>;
     entries: {
       create: (input: EmployeeEntryInput) => Promise<EmployeeEntry>;
       listForPerson: (employeeId: number) => Promise<EmployeeEntry[]>;

@@ -1,5 +1,5 @@
 // Focal Registry — "Back up everything": the app side.
-// Description: gathers every database the app has open, the two key files and TimeTracker's
+// Description: gathers every database the app has open, the key files and TimeTracker's
 //              attached folders, hands them to copyAll, and remembers where the copy went. One run
 //              at a time; the run is listed as a job, so the quit guard can wait for it or stop it
 //              between files. Settings and the Software Update window both come through here.
@@ -15,7 +15,7 @@ import { openMindMergeDb } from "../mindmerge/db";
 import { getMainSetting, setMainSetting } from "../settings";
 import { defaultMarkdownRoot, focalRegistryDir, MARKDOWN_ROOT_KEY } from "../storage";
 import { trackJob } from "../work/registry";
-import { contractsGap, copyEverything, isInside, stampOf, type CopyPlan } from "./copyAll";
+import { contractsGap, copyEverything, isInside, keyFilesIn, stampOf, type CopyPlan } from "./copyAll";
 
 // Main-only rows: the page asks for a folder through the picker below and never writes these itself.
 const FOLDER_KEY = "data.copy_folder";
@@ -134,13 +134,11 @@ async function planFor(destinationRoot: string): Promise<Omit<CopyPlan, "shouldS
   }
 
   // The key files are ordinary files, not live databases, so a plain copy is a whole copy.
-  const keyFiles = [`${org.org_id}.ixd`, picturesKeyFile]
-    .filter((name) => fs.existsSync(inData(name)))
-    .map((name) => ({ from: inData(name), to: name }));
+  const keyFiles = keyFilesIn(userData, org.org_id);
   const files = [...keyFiles, ...loose];
   if (keyFiles.length > 0) {
     notes.push(
-      "The Vault and MindMerge pictures are tied to this Windows account on this PC: their key files (.ixd and .mxd) are wrapped by Windows. Restored under another account or on another PC, those two cannot be opened. Everything else can."
+      "The Vault, MindMerge pictures and employee tax numbers are tied to this Windows account on this PC: their key files (.ixd, .mxd and .exd) are wrapped by Windows. Restored under another account or on another PC, those three cannot be read. Everything else can."
     );
   }
 

@@ -14,10 +14,12 @@
 //              TAXPAYER IDENTIFIER — RULING CHANGED 2026-08-04. This file previously stated that no
 //              taxpayer-identifier column existed here because canon put them in the Vault
 //              (DECISIONS-51:451). Jason has ruled that superseded FOR EMPLOYEES: the social
-//              security number is stored PLAIN, in this shared org database, in employee_people.ssn
-//              below. The Vault is deliberately NOT involved. Logged in CANON-UPDATES.md
-//              (2026-08-04). Consequence to know: the shared org database is unencrypted (canon
-//              ruled encryption of it NOT PROCEEDING), so this value sits in plaintext on disk.
+//              security number lives in this shared org database, in employee_people.ssn below. The
+//              Vault is deliberately NOT involved. Logged in CANON-UPDATES.md (2026-08-04). The
+//              shared org database is unencrypted (canon ruled encryption of it NOT PROCEEDING), so
+//              the VALUE is encrypted instead: AES-256-GCM under a Windows-wrapped key
+//              (taxCrypto.ts). A value without that file's prefix was stored plain by an older
+//              version, and taxMigration.ts encrypts it at the next launch.
 // License: Proprietary / Unauthorized copying of this file is strictly prohibited
 // File: electron/core/services/employees/db.ts
 //------------------------------------------------------------
@@ -58,7 +60,7 @@ export function ensureEmployeesSchema(db: Db): void {
   //   purge. It resolves through a plain join (one database, one connection) and simply resolves to
   //   nothing if the project is gone. default_project_name rides beside it so the person's row stays
   //   readable afterwards, exactly as entries denormalize project_name.
-  //   ssn is PLAIN TEXT by the 2026-08-04 ruling — see the header block.
+  //   ssn holds ENCRYPTED text, never the number — see the header block.
   {
     const cols = (db.pragma("table_info(employee_people)") as { name: string }[]).map((c) => c.name);
     const add = (name: string, decl: string): void => {
@@ -68,7 +70,7 @@ export function ensureEmployeesSchema(db: Db): void {
     add("city", "city TEXT");
     add("state", "state TEXT"); // 2-letter US code, validated in the service; NULL = unset
     add("zip", "zip TEXT"); // free text — postal codes are not numbers and lead with zeros
-    add("ssn", "ssn TEXT"); // plain, ruled 2026-08-04; see the header block
+    add("ssn", "ssn TEXT"); // encrypted text, or plain from an older version; see the header block
     add("default_pay_type", "default_pay_type TEXT"); // PREFILL only — pay type still lives on the ENTRY
     add("default_project_id", "default_project_id INTEGER"); // soft reference, see above
     add("default_project_name", "default_project_name TEXT"); // denormalized beside the id

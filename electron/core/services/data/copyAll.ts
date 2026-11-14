@@ -67,6 +67,18 @@ export function contractsGap(onRecord: number, recordsRoot: string, rootReachabl
     : { refuse: `${projects} a contract file on record, but the records folder ${recordsRoot} cannot be reached. If it is on a drive that is not connected, connect it and back up again.` };
 }
 
+// One key file for each store the app keeps encrypted: the Vault, MindMerge pictures, and employee
+// tax numbers. A store copied without its key file can never be read again.
+const KEY_FILE_ENDINGS = [".ixd", ".mxd", ".exd"];
+
+/** The key files that are in the data folder. A missing one is left out, never invented: the
+    store it opens has not been used on this install. */
+export function keyFilesIn(dataFolder: string, orgId: string): CopyPlan["files"] {
+  return KEY_FILE_ENDINGS.map((ending) => orgId + ending)
+    .filter((name) => fs.existsSync(path.join(dataFolder, name)))
+    .map((name) => ({ from: path.join(dataFolder, name), to: name }));
+}
+
 // Every copy below blocks the thread. Without a turn of the event loop before each file, a
 // "Stop safely" from the quit toast could not arrive until the whole backup was over.
 async function between(plan: CopyPlan): Promise<void> {

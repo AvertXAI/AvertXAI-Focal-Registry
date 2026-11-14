@@ -7,6 +7,7 @@
 import type Database from "better-sqlite3-multiple-ciphers";
 import fs from "node:fs";
 import path from "node:path";
+import { isEncryptedTax, maskTax, type TaxCrypto } from "../employees/taxCrypto";
 
 type Db = Database.Database;
 type Reader = Database.Statement<unknown[], unknown[]>;
@@ -42,10 +43,16 @@ export interface ExportPlan {
   vault: VaultSource | null;
   /** True writes the Vault as plain text. The caller has already checked that it is unlocked. */
   includeVault: boolean;
+  /** True writes employee tax numbers in full. Left out or false, each one goes out masked. */
+  includeTaxNumbers?: boolean;
+  /** Reads the tax numbers the app keeps encrypted. Null or left out when this install's key could
+      not be had: a number that needs it then goes out as a sentence saying so. */
+  taxCrypto?: TaxCrypto | null;
   /** The folder he picked. The export makes its own folder inside it. */
   destination: string;
   appVersion: string;
-  /** Plain sentences about anything the caller could not hand over, for the manifest and read-me. */
+  /** Plain sentences about anything the caller could not hand over, for the manifest and read-me.
+      The export adds its own to this same list, so the caller reads them back after the run. */
   notes?: string[];
   shouldStop?: () => boolean;
   onProgress?: (progress: ExportProgress) => void;
@@ -90,6 +97,13 @@ interface ManifestVault {
   note: string;
   encryptedCopy?: string;
   keyEnvelope?: string | null;
+}
+
+interface ManifestTax {
+  /** True when the numbers were written in full. */
+  included: boolean;
+  note: string;
+  unreadable: number;
 }
 
 const INCOMPLETE = " (incomplete)";
@@ -157,6 +171,15 @@ const VAULT_ENCRYPTED =
 const VAULT_ENCRYPTED_NO_KEY =
   "The Secured Vault was not written as plain text. Its encrypted file was copied as it is, but its key file was not found, so this copy cannot be opened.";
 const NO_VAULT = "No Secured Vault was open on this install, so nothing of it is here.";
+
+// Employee tax numbers are the one value that does not go out as it is stored, so the table and
+// column that hold them are named here and nowhere else.
+const TAX_TABLE = "employee_people";
+const TAX_COLUMN = "ssn";
+const TAX_WHERE = `the ${TAX_COLUMN} column of employees/${TAX_TABLE}.jsonl`;
+const TAX_MASKED = `Employee tax numbers are masked in this export: ${TAX_WHERE} shows only the last four digits of each one. To write them in full, export again with the "Include full tax numbers" box ticked.`;
+const TAX_FULL = `Employee tax numbers are in this export in full, as plain text, in ${TAX_WHERE}. Anyone who has this folder can read them.`;
+const TAX_UNREADABLE = "This tax number could not be read on this PC, so it is not in this export.";
 
 const ALWAYS_LEFT_OUT = [
   "Files the app keeps outside its databases. They are ordinary files and are still where the app put them, under the records folder chosen in Settings, Storage, and under Documents\\Focal Registry: TimeTracker contract files and custom alert sounds, Scan reports, exported PDF, CSV and spreadsheet files, and the Scan Notes folder with its thumbnail cache. A row that points at such a file holds its path.",
@@ -255,11 +278,28 @@ function blobName(column: string, uuid: unknown, mime: unknown, ordinal: number)
   return `${stem}${column === "bytes" ? "" : `.${fileSafe(column)}`}.${ext}`;
 }
 
+/** What one stored tax number goes out as. Null when the app keeps it encrypted and it cannot be read here. */
+function taxOut(stored: string, crypto: TaxCrypto | null, full: boolean): string | null {
+  let plain = stored;
+  if (isEncryptedTax(stored)) {
+    try {
+      plain = crypto ? crypto.decrypt(stored) : "";
+    } catch {
+      // The caller counts it and the export says so: one unreadable number must not lose the rest.
+      plain = "";
+    }
+    // Never the stored ciphertext, and never an empty cell that would read as "no number on file".
+    if (plain === "") return null;
+  }
+  return full ? plain : maskTax(plain);
+}
+
 async function writeTable(
   db: Db,
   table: FoundTable,
   work: string,
-  module: string
+  module: string,
+  tax: (stored: string) => string
 ): Promise<{ file: string; rows: number; columns: string[] }> {
   const quoted = `"${table.name.replace(/"/g, '""')}"`;
   const read = (sql: string): Reader => db.prepare<unknown[], unknown[]>(sql).safeIntegers(true).raw(true);
@@ -274,6 +314,7 @@ async function writeTable(
   const keys = columns.map((c) => `${JSON.stringify(c)}:`);
   const uuidAt = columns.indexOf("uuid");
   const mimeAt = columns.indexOf("mime");
+  const taxAt = table.name === TAX_TABLE ? columns.indexOf(TAX_COLUMN) : -1;
   // "mindmerge_attachments" in the mindmerge folder puts its pictures in mindmerge/attachments.
   const ownName = table.name.startsWith(`${module}_`) ? table.name.slice(module.length + 1) : table.name;
   const blobFolder = `${module}/${fileSafe(ownName)}`;
@@ -311,7 +352,8 @@ async function writeTable(
         rows += 1;
         if (paged) last = row[0];
         const cells = keys.map((key, i) => {
-          const value = row[i + lead];
+          const held = row[i + lead];
+          const value = i === taxAt && typeof held === "string" && held !== "" ? tax(held) : held;
           return key + (Buffer.isBuffer(value) ? `{"$file":${JSON.stringify(saveBlob(value, columns[i], row))}}` : encode(value));
         });
         const line = `{${cells.join(",")}}\n`;
@@ -350,7 +392,14 @@ function copyVaultEncrypted(vault: VaultSource, work: string): ManifestVault {
   return { included: false, note: VAULT_ENCRYPTED, encryptedCopy: copy, keyEnvelope: keyCopy };
 }
 
-function readMe(appVersion: string, at: Date, databases: ManifestDatabase[], vault: ManifestVault, notes: string[]): string {
+function readMe(
+  appVersion: string,
+  at: Date,
+  databases: ManifestDatabase[],
+  vault: ManifestVault,
+  tax: ManifestTax,
+  notes: string[]
+): string {
   const folders = new Set(databases.flatMap((d) => d.modules));
   if (vault.encryptedCopy) folders.add(VAULT);
   const lines = [
@@ -361,7 +410,7 @@ function readMe(appVersion: string, at: Date, databases: ManifestDatabase[], vau
     "Apart from an encrypted Vault file (see below), nothing here needs Focal Registry to open.",
     "",
     "THIS FOLDER IS NOT ENCRYPTED. Anyone who has it can read your settings and licence key, your notes,",
-    "and the details of your clients and employees, including any tax numbers you entered.",
+    "and the details of your clients and employees. For their tax numbers, see EMPLOYEE TAX NUMBERS below.",
     "Keep it somewhere private.",
     "",
     "FOLDERS",
@@ -383,6 +432,11 @@ function readMe(appVersion: string, at: Date, databases: ManifestDatabase[], vau
     "THE SECURED VAULT",
     `  ${vault.note}`,
     ...(vault.encryptedCopy ? [`  Encrypted file: ${vault.encryptedCopy}`, `  Key file: ${vault.keyEnvelope ?? "not found"}`] : []),
+    "",
+    "EMPLOYEE TAX NUMBERS",
+    `  ${tax.note}`,
+    "  An employee with no tax number on file has an empty value there. A number the app could not read",
+    `  on this PC has this sentence in its place: ${TAX_UNREADABLE}`,
     "",
     "LEFT OUT OF THIS EXPORT",
     ...databases.flatMap((d) => d.skipped.map((s) => `  - The table ${s.name} (${d.file}). ${s.reason}`)),
@@ -443,6 +497,12 @@ export async function exportAll(plan: ExportPlan): Promise<ExportResult> {
     // second connection per database, which the encrypted stores cannot open without their key.
     const databases: ManifestDatabase[] = [];
     let rows = 0;
+    let unreadableTax = 0;
+    const tax = (stored: string): string => {
+      const out = taxOut(stored, plan.taxCrypto ?? null, plan.includeTaxNumbers === true);
+      if (out === null) unreadableTax += 1;
+      return out ?? TAX_UNREADABLE;
+    };
     for (const { source, tables } of found) {
       const entry = describeDatabase(source);
       for (const table of tables) {
@@ -456,7 +516,7 @@ export async function exportAll(plan: ExportPlan): Promise<ExportResult> {
         if (plan.shouldStop?.()) throw new Stopped();
         plan.onProgress?.({ table: table.name, done: written + 1, total });
         const module = typeof source.module === "string" ? source.module : source.module(table.name);
-        const out = await writeTable(source.db, table, work, module);
+        const out = await writeTable(source.db, table, work, module, tax);
         entry.tables.push({ name: table.name, module, file: out.file, rows: out.rows, columns: out.columns, sql: table.sql });
         rows += out.rows;
         written += 1;
@@ -476,6 +536,17 @@ export async function exportAll(plan: ExportPlan): Promise<ExportResult> {
     }
 
     const notes = plan.notes ?? [];
+    if (unreadableTax > 0) {
+      const one = unreadableTax === 1;
+      notes.push(
+        `${one ? "1 employee tax number" : `${unreadableTax} employee tax numbers`} could not be read on this PC, so a sentence saying so is in ${one ? "its" : "their"} place.`
+      );
+    }
+    const taxNumbers: ManifestTax = {
+      included: plan.includeTaxNumbers === true,
+      note: plan.includeTaxNumbers === true ? TAX_FULL : TAX_MASKED,
+      unreadable: unreadableTax,
+    };
     const manifest = {
       format: "focal-registry-export",
       formatVersion: 1,
@@ -484,12 +555,13 @@ export async function exportAll(plan: ExportPlan): Promise<ExportResult> {
       exportedAt: at.toISOString(),
       rowFormat: ROW_FORMAT,
       vault,
+      taxNumbers,
       notes,
       totals: { tables: written, rows },
       databases,
     };
     fs.writeFileSync(path.join(work, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx" });
-    fs.writeFileSync(path.join(work, "README.txt"), readMe(plan.appVersion, at, databases, vault, notes), { flag: "wx" });
+    fs.writeFileSync(path.join(work, "README.txt"), readMe(plan.appVersion, at, databases, vault, taxNumbers, notes), { flag: "wx" });
 
     const done = path.join(plan.destination, name);
     if (!(await renameWhenFree(work, done))) {

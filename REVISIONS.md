@@ -32,7 +32,7 @@ injects the current version's Summary into the update feed, and publishes this f
 
 - Employees: the tax number is stored encrypted. It is shown masked, with its last four digits, and a Reveal button shows it.
 - When tax numbers are already stored, the first start of this version makes a full backup, then converts them, and a message says when it is done. If the backup cannot be made, nothing is converted, the message says why, and the next start tries again.
-- Tax numbers can be read only on this PC, under this Windows account. In a backup restored anywhere else, every employee is still there and the tax numbers have to be typed again.
+- Tax numbers can be read only on this PC, under this Windows account. In a backup restored anywhere else, every employee is still there, but the tax numbers cannot be read.
 - Settings, Data, Export all data: tax numbers go out masked. A new box, Include full tax numbers, off every time, writes them in full.
 - Employees, Payroll: a list of the payments made to the person, with date, amount, method, reference, project and note, and a total. A payment that was taken back is marked as reversed.
 

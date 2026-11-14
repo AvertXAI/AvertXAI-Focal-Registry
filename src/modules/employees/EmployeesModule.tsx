@@ -13,6 +13,7 @@ import LedgerView from "./LedgerView";
 import PersonModal, { ArchiveModal, type PersonModalState } from "./PersonModal";
 import AddTimeModal from "./AddTimeModal";
 import AdjustmentsView from "./AdjustmentsView";
+import PayrollView from "./PayrollView";
 import { ProjectChooser, ProjectModalHost } from "./NewEmployeeWizard";
 import { takeNavIntent } from "../../shared/navigate";
 import { bumpRender } from "../../diag";
@@ -29,9 +30,8 @@ const TABS: [Tab, string][] = [
 ];
 
 /** What each unbuilt tab says. Plain statement of fact, in the customer's language. */
-const NOT_BUILT: Record<Exclude<Tab, "ledger" | "adjustments">, string> = {
+const NOT_BUILT: Record<Exclude<Tab, "ledger" | "adjustments" | "payroll">, string> = {
   tasks: "Assignable tasks with a done state — what someone is meant to do, and whether it is finished.",
-  payroll: "What each person has earned, what has been paid, and what is still outstanding.",
   details: "The person's own record — contact details, pay rate, and when they started.",
 };
 
@@ -300,18 +300,20 @@ export default function EmployeesModule() {
               onDataChanged={refreshLedger}
               refreshKey={refreshKey}
             />
-          ) : tab !== "ledger" ? (
+          ) : tab === "payroll" && selected !== null ? (
+            <PayrollView person={selected} refreshKey={refreshKey} />
+          ) : tab !== "ledger" && tab !== "payroll" ? (
             <div className="emp-notbuilt">
               <h3>{TABS.find(([k]) => k === tab)?.[1]}</h3>
               <p>
-                {NOT_BUILT[tab as Exclude<Tab, "ledger" | "adjustments">]} This tab has not been
+                {NOT_BUILT[tab as Exclude<Tab, "ledger" | "adjustments" | "payroll">]} This tab has not been
                 built yet — it will appear here once it is.
               </p>
             </div>
           ) : selected === null ? (
             <div className="emp-state">
-              No people yet. Use <b>+ New Employee</b> in the rail to add the first one — their time
-              ledger will show here.
+              No people yet. Use <b>+ New Employee</b> in the rail to add the first one — their{" "}
+              {tab === "payroll" ? "payments" : "time ledger"} will show here.
             </div>
           ) : (
             <LedgerView

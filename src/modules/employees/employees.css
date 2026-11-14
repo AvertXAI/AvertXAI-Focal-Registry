@@ -340,6 +340,15 @@
 .emp-audit { background: var(--mc-nested); font-family: var(--mc-mono); font-size: 10.5px;
   color: var(--mc-muted); line-height: 1.7; padding: 8px 12px; }
 
+/* ---------- payroll tab ---------- */
+/* A payment that was taken back, and the line that reversed it, are dimmed and NOT struck through.
+   Both still count in the total (they cancel), unlike a deleted correction, which counts for
+   nothing and is struck. */
+.emp-table tr.reversed td { opacity: .55; }
+/* .emp-table drops the bottom border of every section's last row, so the total line would run
+   straight into the last payment without a rule of its own. */
+.emp-table tfoot td { border-top: 1px solid var(--mc-border); font-weight: 700; }
+
 /* ---------- 08-04-2026 · Add Time state 3: the two options and their joined blocks ---------- */
 .emp-joined { border: 1px solid var(--mc-border); border-radius: 9px; padding: 11px 13px;
   background: var(--mc-nested); margin-bottom: 11px; }

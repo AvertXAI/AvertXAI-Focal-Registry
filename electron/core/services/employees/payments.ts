@@ -23,11 +23,33 @@ function getPayment(db: Db, id: number): Payment {
   return row;
 }
 
-/** One person's payments, most recent first. Reversals sit in the list beside what they reversed. */
-export function listPayments(db: Db, employeeId: number): Payment[] {
+/** One line of a person's payment list: the payment, and the project its money came in on when it
+    was counted from a client payment. */
+export interface PaymentLine extends Payment {
+  /** The project's name as it reads today. NULL on an ordinary payroll payment, and when that
+      project is no longer there to name. */
+  project_name: string | null;
+}
+
+/**
+ * One person's payments, most recent first. Reversals sit in the list beside what they reversed.
+ * A reversal carries no client-payment link of its own, so it borrows the one on the payment it
+ * took back, and both lines of that pair name the same project. Every join is on a UNIQUE uuid or
+ * a primary key, so no payment can come back twice and inflate the total under the list.
+ */
+export function listPayments(db: Db, employeeId: number): PaymentLine[] {
   return db
-    .prepare(`SELECT * FROM employee_payments WHERE employee_id = ? ORDER BY paid_on DESC, id DESC`)
-    .all(vId(employeeId, "person id")) as Payment[];
+    .prepare(
+      `SELECT p.*, proj.name AS project_name
+       FROM employee_payments p
+       LEFT JOIN employee_payments original ON original.uuid = p.reverses_uuid
+       LEFT JOIN timetracker_project_payments client
+         ON client.uuid = COALESCE(p.project_payment_uuid, original.project_payment_uuid)
+       LEFT JOIN timetracker_projects proj ON proj.id = client.project_id
+       WHERE p.employee_id = ?
+       ORDER BY p.paid_on DESC, p.id DESC`
+    )
+    .all(vId(employeeId, "person id")) as PaymentLine[];
 }
 
 /** Inclusive payment-date window — the cash-basis read a later Tax Summary phase builds on. */

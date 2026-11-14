@@ -1338,6 +1338,14 @@ export interface EmployeePayment {
   created_at: string;
 }
 
+/** One line of a person's payment list (Employees, Payroll tab). */
+export interface EmployeePaymentLine extends EmployeePayment {
+  /** The project a linked client payment was received on, as it is named today. Null on an
+      ordinary payment and when that project is gone. A reversal names the project of the payment
+      it took back. */
+  project_name: string | null;
+}
+
 export interface EmployeePaymentInput {
   employeeId: number;
   amount: number;
@@ -2209,7 +2217,7 @@ export interface Api {
       remove: (id: number) => Promise<void>;
     };
     payments: {
-      list: (employeeId: number) => Promise<EmployeePayment[]>;
+      list: (employeeId: number) => Promise<EmployeePaymentLine[]>;
       listInRange: (fromDate: string, toDate: string) => Promise<EmployeePayment[]>;
       record: (input: EmployeePaymentInput) => Promise<EmployeePayment>;
       /** Appends the mirror image; the original row is never touched. */

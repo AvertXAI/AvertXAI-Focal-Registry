@@ -12,6 +12,7 @@
 //------------------------------------------------------------
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MindMergeTreeNode, NoteRow } from "../../shared/types";
+import { afterPress } from "../../shared/afterPress";
 import { useAutosave } from "../../shared/useAutosave";
 import { renderMarkdown } from "./markdown";
 import GeneratedPill from "./GeneratedPill";
@@ -206,7 +207,8 @@ export default function DocsSurface(p: Props) {
       // Text typed while the write was out is not on disk: it stays unsaved and its own pause
       // writes it. The autosave only knows the last text React drew, so the refs decide.
       if (info.current && selFileRef.current === info.key && bodyRef.current === info.value) setDirty(false);
-      p.onSaved();
+      // The list is blanked and drawn again. Mid-press that drops the click on the row he pressed.
+      afterPress(() => p.onSaved());
     },
     onError: (message, key) => setSaveErr(`${baseName(key)} was not saved and will be tried again. ${message}`),
   });

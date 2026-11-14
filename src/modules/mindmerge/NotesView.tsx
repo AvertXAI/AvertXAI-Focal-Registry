@@ -34,6 +34,7 @@ import { mindmergeApi, type MindMergeDoc, type MindMergeDocFolder, type MindMerg
 import { tidyMarkdown } from "./tidyMarkdown";
 import { NOTE_REPAIRED_EVENT } from "./noteDamage";
 import { publishOpenFileLocation, type OpenFileLocation } from "../../shared/openFileLocation";
+import { afterPress } from "../../shared/afterPress";
 import { useAutosave } from "../../shared/useAutosave";
 import GeneratedPill from "./GeneratedPill";
 
@@ -343,7 +344,8 @@ export default function NotesView({ settings, onSetting, onHelp, onImport, folde
       // beside it kept its old excerpt, Edited date and position until Ctrl+S). The excerpt is
       // substr(body) cut in the store and the order is updated_at DESC, so only a re-read can move
       // the row — and the read is ~8 ms for 60 rows (notes.ts), at most once per idle second.
-      loadList(style, false);
+      // After the press: a click away saves, and a list re-read under the mouse drops that click.
+      afterPress(() => loadList(style, false));
       // Anything typed while this save was in flight is not saved yet. Clearing the mark anyway is
       // how a pasted picture's final reference never reached the store and the note kept its
       // placeholder (MM-04). The mark stays, and the hook writes the newer text by itself.

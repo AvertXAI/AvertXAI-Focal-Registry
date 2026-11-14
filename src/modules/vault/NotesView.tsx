@@ -20,6 +20,7 @@ import { clearCopyLater } from "./copyClear";
 import { vaultApi, type VaultNote, type VaultNoteMeta, type VaultSecretMeta } from "./vaultApi";
 import { cachedAttachmentSrc, isVaultSrc, resolveAttachmentSrc } from "./attachmentSrc";
 import { tidyMarkdown } from "./tidyMarkdown";
+import { afterPress } from "../../shared/afterPress";
 import { useAutosave } from "../../shared/useAutosave";
 
 /** The lightbox body: a vault:// reference resolves through the attachment store; a data URL or
@@ -259,7 +260,8 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
       // second must not drag the whole list across the bridge, or pull a scrolled list back to its
       // top. Every other save is one he asked for or a moment he looked away, and re-reads it.
       const renamed = adopted(value.title, result as VaultNote);
-      if (renamed || !idle) loadList(style, false);
+      // After the press: a click away saves, and a list re-read under the mouse drops that click.
+      if (renamed || !idle) afterPress(() => loadList(style, false));
       // Anything typed while this save was in flight is not in the vault yet. Clearing the mark
       // anyway is how that text was never written at all. The mark stays, and the hook writes the
       // newer text by itself.

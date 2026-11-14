@@ -47,6 +47,7 @@ const closed: TaxCrypto = {
   decrypt() {
     throw new Error("The fake key is closed.");
   },
+  closed: "The fake key is closed.",
 };
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fr-test-"));
@@ -377,7 +378,11 @@ test("with the key closed nothing is destroyed and nothing is stored plain", () 
   const page = personForPage(getPerson(db, id), closed);
   assert.equal(page.has_ssn, true);
   assert.equal(page.ssn_masked, "");
-  assert.match(page.ssn_unreadable ?? "", /cannot be read on this PC/);
+  // With no key open a typed number is refused, so the form gives the reason and promises nothing.
+  assert.match(page.ssn_unreadable ?? "", /on file for this person\. The fake key is closed\./);
+  assert.ok(!/replaces/.test(page.ssn_unreadable ?? ""));
+  // A key that is open, and is simply not the one this number was stored under, can take a new one.
+  assert.match(personForPage(getPerson(db, id), otherKey).ssn_unreadable ?? "", /cannot be read on this PC.*Typing a new number replaces it/);
   assert.throws(() => revealTax(db, id, closed), /fake key is closed/);
 
   updatePerson(db, id, form({ ssn: null }), closed);

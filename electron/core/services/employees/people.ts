@@ -118,8 +118,11 @@ export function personForPage(row: Person, tax: TaxCrypto): PagePerson {
       ...rest,
       has_ssn: true,
       ssn_masked: "",
-      ssn_unreadable:
-        "A tax number is on file for this person, but it cannot be read on this PC or under this Windows account. Typing a new number replaces it.",
+      // With no key open a typed number is refused as well, so the reason is given and nothing
+      // is promised. Only an open key can take a new number in place of one it cannot read.
+      ssn_unreadable: tax.closed
+        ? `A tax number is on file for this person. ${tax.closed}`
+        : "A tax number is on file for this person, but it cannot be read on this PC or under this Windows account. Typing a new number replaces it.",
     };
   }
 }

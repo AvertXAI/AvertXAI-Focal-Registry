@@ -111,7 +111,7 @@ function taxFor(orgId: string): TaxCrypto {
     const refuse = (): never => {
       throw new Error(why);
     };
-    return { encrypt: refuse, decrypt: refuse };
+    return { encrypt: refuse, decrypt: refuse, closed: why };
   }
 }
 

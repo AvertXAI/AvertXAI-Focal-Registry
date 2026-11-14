@@ -42,6 +42,8 @@ export interface TaxCrypto {
   encrypt(plain: string): string;
   /** Throws a plain sentence when the value cannot be read with this key. */
   decrypt(stored: string): string;
+  /** Set on the stand-in used when no key could be opened: why no number can be read or saved here. */
+  closed?: string;
 }
 
 export function createTaxCrypto(key: Buffer): TaxCrypto {

@@ -34,6 +34,13 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
+/** Local YYYY-MM-DD from an ISO stamp: the calendar day a person would call it. Deliberately LOCAL:
+    nine in the evening belongs to that evening's date, not to tomorrow by the world clock. */
+export function localDateOf(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 // Idempotent, additive, safe to re-run on every boot. Guard-only and versionless.
 export function ensureEmployeesSchema(db: Db): void {
   // The person. Archived, NEVER hard-deleted: payroll history points at these rows forever.

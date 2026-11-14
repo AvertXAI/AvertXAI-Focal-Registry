@@ -148,3 +148,19 @@ test("float dust below a cent never shows as minus zero", () => {
   assert.equal(Object.is(paidTotal([{ amount: -0.1 }, { amount: -0.2 }, { amount: 0.3 }]), 0), true);
   assert.equal(paidTotal([]), 0);
 });
+
+test("a payment taken back late in the evening is dated that evening, not the next day by the world clock", (t) => {
+  const night = person("Fake Person C");
+  // Half past eleven at night and half past midnight, local time. On any PC that is not set to
+  // the world clock itself, one of the two is a different day there, so a day cut from the world
+  // clock's stamp is wrong for it. (On a PC set to the world clock this test cannot fail.)
+  for (const hour of [23, 0]) {
+    t.mock.timers.enable({ apis: ["Date"], now: new Date(2026, 10, 14, hour, 30) });
+    try {
+      const paid = recordPayment(db, ORG, { employeeId: night, amount: 10, paidOn: "2026-11-01", method: "cash", reference: null, note: null });
+      assert.equal(reversePayment(db, ORG, paid.uuid, null).paid_on, "2026-11-14");
+    } finally {
+      t.mock.timers.reset();
+    }
+  }
+});

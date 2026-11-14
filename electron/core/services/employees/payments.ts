@@ -11,7 +11,7 @@
 // File: electron/core/services/employees/payments.ts
 //------------------------------------------------------------
 import { generateUUIDv7 } from "../utils/uuidv7";
-import { nowIso, type Db } from "./db";
+import { localDateOf, nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
 import { getPerson } from "./people";
 import type { Payment, PaymentInput } from "./types";
@@ -133,7 +133,9 @@ export function reversePayment(db: Db, orgId: string, uuid: string, note: string
       orgId,
       original.employee_id,
       -original.amount, // the mirror image; the original keeps its own value untouched
-      at.slice(0, 10), // reversed on the day it is reversed — the original's date is history
+      // Reversed on the day it is reversed; the original's date is history. His own calendar day:
+      // the stamp is world-clock time, and its day is already tomorrow during the evening here.
+      localDateOf(at),
       original.method,
       original.reference,
       vNullableString(note, "note", 2000) ?? `Reversal of payment ${original.uuid}`,

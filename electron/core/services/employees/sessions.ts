@@ -31,7 +31,7 @@
 // File: electron/core/services/employees/sessions.ts
 //------------------------------------------------------------
 import { generateUUIDv7 } from "../utils/uuidv7";
-import { nowIso, type Db } from "./db";
+import { localDateOf, nowIso, type Db } from "./db";
 import { createEntry } from "./entries";
 import { getPerson } from "./people";
 import { assertNotCompleted } from "../timetracker/completion";
@@ -39,12 +39,6 @@ import { workedMs, type PausableSession } from "../../../../src/shared/employeeT
 import type { Entry, PayType, Session, SessionInput } from "./types";
 import { PAY_TYPES, vAmount, vEnum, vId, vNullableId, vNullableString, vString, vUuid } from "./validate";
 
-/** Local YYYY-MM-DD from an ISO stamp — the work date an entry is filed under. Deliberately LOCAL:
-    a session started at 9pm belongs to that evening's date, not to tomorrow in UTC. */
-function localDateOf(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 /** Elapsed hours as a decimal, rounded to 1/100th of an hour (36 seconds) — the precision the
     ledger displays and the money maths uses. Never negative, even if a clock moved backwards. */

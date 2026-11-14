@@ -52,33 +52,38 @@ const guard = createQuitGuard({
 });
 
 // The page's answer to the round main is waiting on. A late answer to an older round is dropped.
-let asked: { round: number; done: (notSaved: string[]) => void } | null = null;
+let asked: { round: number; heard: boolean; done: (notSaved: string[]) => void } | null = null;
 let rounds = 0;
+// Whether the page took the request of the last round that ran out of time.
+let heardLast = false;
 
 function askPageToSaveNotes(): Promise<string[]> {
   return new Promise((resolve, reject) => {
+    heardLast = false;
     const win = getMainWindow();
     if (!win || win.webContents.isCrashed()) {
       reject(new Error("no window"));
       return;
     }
-    const round = ++rounds;
-    const timer = setTimeout(() => {
-      if (asked?.round === round) asked = null;
-      reject(new Error("no answer"));
-    }, NOTE_FLUSH_WAIT_MS);
-    asked = {
-      round,
-      done: (notSaved) => {
+    const mine = {
+      round: ++rounds,
+      heard: false,
+      done: (notSaved: string[]): void => {
         clearTimeout(timer);
         resolve(notSaved);
       },
     };
-    win.webContents.send("autosave:flush", round);
+    const timer = setTimeout(() => {
+      if (asked === mine) asked = null;
+      heardLast = mine.heard;
+      reject(new Error("no answer"));
+    }, NOTE_FLUSH_WAIT_MS);
+    asked = mine;
+    win.webContents.send("autosave:flush", mine.round);
   });
 }
 
-const notes = createNoteFlush({ ask: askPageToSaveNotes });
+const notes = createNoteFlush({ ask: askPageToSaveNotes, heard: () => heardLast });
 // The quit that is waiting for the page to write its notes.
 let afterNotes: { reason: "quit" | "update" | "shutdown"; proceed: () => void } | null = null;
 
@@ -158,6 +163,9 @@ export function registerQuitGuard(): void {
   const fromMain = (e: Electron.IpcMainInvokeEvent): boolean => e.sender === getMainWindow()?.webContents;
   ipcMain.handle("autosave:unsaved", (e, count: unknown) => {
     if (fromMain(e) && typeof count === "number" && count >= 0) notes.report(count);
+  });
+  ipcMain.handle("autosave:heard", (e, round: unknown) => {
+    if (fromMain(e) && asked && asked.round === round) asked.heard = true;
   });
   ipcMain.handle("autosave:flushed", (e, round: unknown, notSaved: unknown) => {
     if (!fromMain(e) || !asked || asked.round !== round) return;

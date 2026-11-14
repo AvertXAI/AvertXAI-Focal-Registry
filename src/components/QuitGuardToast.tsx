@@ -56,7 +56,8 @@ export default function QuitGuardToast({ onOpenChange }: Props) {
   useEffect(() => {
     onUnsavedCount((count) => void window.api.autosave.unsaved(count).catch(() => undefined));
     const off = window.api.on<number>("autosave:flush", (round) => {
-      // No answer at all makes main list the notes as possibly unsaved, which is the truth.
+      void window.api.autosave.heard(round).catch(() => undefined);
+      // A late answer makes main list the notes as possibly unsaved, which is the truth.
       void flushAllNotes().then((notSaved) => window.api.autosave.flushed(round, notSaved)).catch(() => undefined);
     });
     return () => {

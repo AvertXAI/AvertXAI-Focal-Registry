@@ -10,6 +10,12 @@ export interface NoteFlushDeps {
    * write, and rejects when the page did not answer.
    */
   ask: () => Promise<string[]>;
+  /**
+   * After `ask` rejected: whether the page at least took the request. A page that did not is not
+   * running its script, so it cannot show the quit toast either, and a line about its notes
+   * would hold the quit with nobody able to answer it.
+   */
+  heard: () => boolean;
 }
 
 export interface NoteFlush {
@@ -38,7 +44,7 @@ export function createNoteFlush(deps: NoteFlushDeps): NoteFlush {
       .ask()
       .then(
         (names) => names.map((name) => (name ? `Note not saved: ${name}` : "Note not saved")),
-        () => ["Notes may not be saved: the window did not answer."]
+        () => (deps.heard() ? ["Notes may not be saved: the window did not answer."] : [])
       )
       .then((texts) => {
         round += 1;

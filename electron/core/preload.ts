@@ -700,6 +700,7 @@ const api: Api = {
   },
   autosave: {
     unsaved: (count: number) => invoke("autosave:unsaved", count),
+    heard: (round: number) => invoke("autosave:heard", round),
     flushed: (round: number, notSaved: string[]) => invoke("autosave:flushed", round, notSaved),
   },
   on: (channel: PushChannel, cb: (payload: never) => void): (() => void) =>

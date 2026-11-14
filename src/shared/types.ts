@@ -1980,6 +1980,8 @@ export interface Api {
   /** Unsaved notes at quit: the page's count, and its answer to main's "autosave:flush". */
   autosave: {
     unsaved: (count: number) => Promise<void>;
+    /** Sent the moment the request arrives, before any writing: main then knows this page runs. */
+    heard: (round: number) => Promise<void>;
     flushed: (round: number, notSaved: string[]) => Promise<void>;
   };
   /** Migrate module — discovery is read-only; bundle export writes only the chosen destination. */

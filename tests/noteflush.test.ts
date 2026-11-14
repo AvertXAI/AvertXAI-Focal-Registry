@@ -12,12 +12,14 @@ function harness() {
   // What the fake page answers to each round, in order. An Error means it did not answer.
   const answers: Array<string[] | Error> = [];
   let asks = 0;
+  const page = { heard: true };
   const notes = createNoteFlush({
     ask: () => {
       asks += 1;
       const next = answers.shift() ?? [];
       return next instanceof Error ? Promise.reject(next) : Promise.resolve(next);
     },
+    heard: () => page.heard,
   });
   const published: Array<GuardState | null> = [];
   let tick: () => void = () => undefined;
@@ -39,7 +41,7 @@ function harness() {
   const settle = async (): Promise<void> => {
     for (let i = 0; i < 10; i++) await Promise.resolve();
   };
-  return { notes, guard, answers, published, asks: () => asks, quits: () => quits, quit, tick: () => tick(), settle };
+  return { notes, guard, answers, published, page, asks: () => asks, quits: () => quits, quit, tick: () => tick(), settle };
 }
 
 test("no unsaved notes: a quit does not wait for the page", () => {
@@ -163,6 +165,17 @@ test("a page that does not answer is listed as possibly unsaved", async () => {
   await h.quit();
   assert.equal(h.quits(), 0);
   assert.equal(h.published.at(-1)?.lines[0].text, "Notes may not be saved: the window did not answer.");
+});
+
+test("a page that never took the request cannot show the toast, so the quit is not held for its notes", async () => {
+  const h = harness();
+  h.notes.report(1);
+  h.answers.push(new Error("no answer"));
+  h.page.heard = false;
+  await h.quit();
+  assert.equal(h.quits(), 1);
+  assert.equal(h.published.length, 0);
+  assert.equal(h.notes.mustFlush(), false, "and the quit that follows passes");
 });
 
 test("two quits during one round ask the page once", async () => {

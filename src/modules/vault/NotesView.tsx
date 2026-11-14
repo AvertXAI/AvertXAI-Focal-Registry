@@ -19,6 +19,7 @@ import { rawEdit } from "./rawFormat";
 import { vaultApi, type VaultNote, type VaultNoteMeta, type VaultSecretMeta } from "./vaultApi";
 import { cachedAttachmentSrc, isVaultSrc, resolveAttachmentSrc } from "./attachmentSrc";
 import { tidyMarkdown } from "./tidyMarkdown";
+import { useAutosave } from "../../shared/useAutosave";
 
 /** The lightbox body: a vault:// reference resolves through the attachment store; a data URL or
     path shows as-is. Its own component so the modal can open instantly and fill when bytes land. */
@@ -61,9 +62,17 @@ const cacheKey = (style: string, shelf: string, folder: number): string => `${st
 /** Which note was open, so returning to the tab returns to where you were. */
 let lastOpenUuid: string | null = null;
 
-/** Idle autosave delay. Jason asked for 0.5–1.5 s (08-12-2026); one second is the middle of it and
-    long enough that a fast typist is not writing a row between words. */
-const AUTOSAVE_MS = 1000;
+/** A note's text as the editor holds it: what one save sends. */
+interface NoteText { title: string; body: string }
+const sameText = (a: NoteText, b: NoteText): boolean => a.title === b.title && a.body === b.body;
+
+/**
+ * TEXT A SAVE WAS REFUSED FOR, by note. Outside React because the refusal that matters most here
+ * is the vault locking behind an open note: the lock screen unmounts this view, and its state
+ * would take the text with it. Opening the note again, which unlocking does by itself, puts the
+ * text back on screen, still unsaved (see show()).
+ */
+const refused = new Map<string, NoteText>();
 
 /**
  * WINDOWED LOADING (Jason's idea, 08-12-2026: "just load the 5-7 most active files… then everything
@@ -211,13 +220,69 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
    * never been sent anywhere. Switching notes was worse: openNote() overwrote the unsaved draft with
    * no save and no warning. The hint said "click away", and clicking away from the body did nothing.
    *
-   * This ref mirrors what is on screen RIGHT NOW so flush() can write the note it belongs to, even
-   * when the reason we are flushing is that we are about to load a different one.
+   * This ref mirrors what is on screen RIGHT NOW, for the callbacks that run after a save or a
+   * dialog and must know which note, and which text, they would be touching.
    */
   const [justSaved, setJustSaved] = useState(0);
   const [showSaved, setShowSaved] = useState(false);
   const live = useRef<{ uuid: string; title: string; body: string; dirty: boolean } | null>(null);
   live.current = current ? { uuid: current.uuid, title, body: draft, dirty } : null;
+
+  /**
+   * SAVING IS THE SHARED HOOK'S JOB (AS-01), the same rule on every notes screen: it writes one
+   * second after typing stops, one write at a time, and at once when flush() is called. flush() is
+   * called before another note is put on screen, on a click away and on Ctrl+S; leaving the tab,
+   * closing the window and quitting flush inside the hook.
+   */
+  const { flush, discard } = useAutosave<NoteText>({
+    note: current ? { key: current.uuid, value: { title, body: draft }, dirty } : null,
+    // A refused save leaves its text in `refused` until a save of that note lands.
+    save: (uuid, text) => api.updateNote(uuid, text).then(
+      (n) => { refused.delete(uuid); return n; },
+      (e: unknown) => {
+        // Text that could not be saved is DATA AT RISK and must be in the log (Jason 08-16-2026:
+        // "how are we suppose to know whats working or breaking if we cant see what breaks").
+        // Once per note, not once per retry: the hook tries again on every later save.
+        if (!refused.has(uuid)) void api.logClient("error", "Notes: a note could not be saved. Its text is kept and tried again", `note ${uuid} · ${String(e)}`);
+        refused.set(uuid, text);
+        throw e;
+      }
+    ),
+    same: sameText,
+    label: title,
+    // Names this screen to the hook: text typed here on a reopened screen replaces what a closed
+    // one still held for the same note, so the older copy is not written on top at quit.
+    scope: "vault-note",
+    onSaved: ({ value, result, current: still, idle }) => {
+      // The save the pause makes re-reads the list only when it renamed the note: a write every
+      // second must not drag the whole list across the bridge, or pull a scrolled list back to its
+      // top. Every other save is one he asked for or a moment he looked away, and re-reads it.
+      const renamed = adopted(value.title, result as VaultNote);
+      if (renamed || !idle) loadList(style, false);
+      // Anything typed while this save was in flight is not in the vault yet. Clearing the mark
+      // anyway is how that text was never written at all. The mark stays, and the hook writes the
+      // newer text by itself.
+      if (!still) return;
+      setDirty(false);
+      // Only the save the pause made flashes "Saved" (Jason 08-12-2026). Ctrl+S, switching notes
+      // and closing the window save too, but those are moments where a badge appearing is noise —
+      // you already know you saved, or you are already gone.
+      if (idle) setJustSaved((n) => n + 1);
+    },
+    onError: (message) => setError(message),
+  });
+
+  /** Put a note read from the vault on screen. Text an earlier save was refused for wins over the
+      stored row and stays marked unsaved, so the next save carries it instead of losing it. */
+  const show = useCallback((n: VaultNote): void => {
+    const text = refused.get(n.uuid) ?? n;
+    lastOpenUuid = n.uuid;
+    setCurrent(n);
+    setDraft(text.body);
+    setTitle(text.title);
+    setDirty(text !== n);
+    editorMd.current = text.body;
+  }, []);
 
   const loadList = useCallback(
     (s: Style, selectFirst = true, which: "active" | "archived" = shelf): void => {
@@ -238,11 +303,14 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
           // async, and the module changes style and folder on the way in — so without this guard the
           // list's own "select the first row" can land after the searched note and quietly replace
           // it. The note you asked for is never the one the tool should overrule.
-          const keep = lastOpenUuid && r.some((n) => n.uuid === lastOpenUuid) ? lastOpenUuid : null;
+          // The note that was open also comes back when it still holds text no save could write,
+          // wherever it sorts: that text is on no other screen. After the vault locked behind an
+          // open note, this is what puts the text typed just before the lock back in front of you.
+          const keep = lastOpenUuid && (refused.has(lastOpenUuid) || r.some((n) => n.uuid === lastOpenUuid)) ? lastOpenUuid : null;
           if (pendingOpen.current) { /* leave the selection alone */ }
           else if (selectFirst && keep) openNote(keep);
           else if (selectFirst && r.length > 0) openNote(r[0].uuid);
-          else if (r.length === 0) { setCurrent(null); setDraft(""); setTitle(""); }
+          else if (r.length === 0) { void flush(); setCurrent(null); setDraft(""); setTitle(""); }
 
           // BACKFILL. The screenful is already on screen; this fills the scroll buffer behind it so
           // the first wheel movement does not have to wait for anything.
@@ -263,24 +331,17 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
 
   const openNote = useCallback(
     (uuid: string): void => {
-      // FLUSH BEFORE SWITCHING. This used to drop whatever you had typed, silently.
-      const l = live.current;
-      const pending = l && l.dirty
-        ? api.updateNote(l.uuid, { title: l.title, body: l.body }).catch((e: unknown) => {
-            // The switch still proceeds — but a draft that failed to save is DATA AT RISK and
-            // must be in the log (Jason 08-16-2026: "how are we suppose to know whats working
-            // or breaking if we cant see what breaks").
-            void api.logClient("error", "Notes: the draft could not be saved before switching notes", String(e));
-          })
-        : Promise.resolve();
-      void pending.then(() =>
-        api.getNote(uuid).then((n) => { lastOpenUuid = n.uuid; setCurrent(n); setDraft(n.body); setTitle(n.title); setDirty(false); editorMd.current = n.body; })
-      ).catch((e: unknown) => {
-        setError("That note could not be opened.");
-        void api.logClient("error", "Notes: a note could not be opened from the list", String(e));
-      });
+      // FLUSH BEFORE SWITCHING. This used to drop whatever you had typed, silently. The switch
+      // still goes ahead when that save is refused: the text is kept, and show() brings it back.
+      void flush()
+        .then(() => api.getNote(uuid))
+        .then(show)
+        .catch((e: unknown) => {
+          setError("That note could not be opened.");
+          void api.logClient("error", "Notes: a note could not be opened from the list", String(e));
+        });
     },
-    [api]
+    [api, flush, show]
   );
 
   useEffect(() => {
@@ -327,21 +388,19 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
     // loadList can resolve, and awaiting first would leave the window open.
     pendingOpen.current = openUuid;
     lastOpenUuid = openUuid;
-    void api.getNote(openUuid)
+    // A const, so the note asked for is still known to be one inside the callbacks below.
+    const wanted = openUuid;
+    void flush()
+      .then(() => api.getNote(wanted))
       .then((n) => {
-        lastOpenUuid = n.uuid;
         setShelf(n.archived_at ? "archived" : "active");
-        setCurrent(n);
-        setDraft(n.body);
-        setTitle(n.title);
-        setDirty(false);
-        editorMd.current = n.body;
+        show(n);
       })
       .catch(() => setError("That note could not be opened."))
       // Cleared either way — a failed open must not leave the guard up, or the list would never
       // select anything again.
       .finally(() => { pendingOpen.current = null; onOpened(); });
-  }, [openUuid, api, onOpened]);
+  }, [openUuid, api, onOpened, flush, show]);
 
   /**
    * TAKE THE TITLE THE VAULT ACTUALLY STORED (Jason 08-12-2026: "this md file auto saved, but the
@@ -358,36 +417,11 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
   const adopted = useCallback((sent: string, got: { uuid: string; title: string }): boolean => {
     if (sent !== "Untitled" || got.title === sent) return false;
     if (live.current?.uuid !== got.uuid) return false; // they moved on; leave the new note alone
+    if (live.current.title !== sent) return false; // a title typed while the save was away is theirs
     setTitle(got.title);
     setCurrent((c) => (c && c.uuid === got.uuid ? { ...c, title: got.title } : c));
     return true;
   }, []);
-
-  const save = useCallback((): void => {
-    if (!current || !dirty) return;
-    void api.updateNote(current.uuid, { title, body: draft })
-      .then((n) => { adopted(title, n); setDirty(false); loadList(style, false); })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  }, [api, current, dirty, title, draft, style, loadList, adopted]);
-
-  /**
-   * Write whatever is on screen, for the note it belongs to. Reads the ref rather than the closure
-   * so it is correct when called from a timer, an unmount, or just before a note switch.
-   */
-  const flush = useCallback((announce = false): Promise<void> => {
-    const l = live.current;
-    if (!l || !l.dirty) return Promise.resolve();
-    return api.updateNote(l.uuid, { title: l.title, body: l.body })
-      .then((n) => {
-        // The list row is only re-read when the name actually changed — an autosave every few
-        // seconds must not drag the whole list across the bridge with it.
-        if (adopted(l.title, n)) loadList(style, false);
-        if (live.current?.uuid !== l.uuid) return; // the user moved on; do not touch their new note
-        setDirty(false);
-        if (announce) setJustSaved((n2) => n2 + 1);
-      })
-      .catch((e: unknown) => { setError(e instanceof Error ? e.message : String(e)); });
-  }, [api, adopted, loadList, style]);
 
   /** The flash. Keyed by a counter so a second save re-triggers the animation rather than being
       swallowed because the flag was already true. */
@@ -398,38 +432,14 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
     return () => clearTimeout(t);
   }, [justSaved]);
 
-  /**
-   * AUTOSAVE, debounced. Still not a write per keystroke — that would be noise in the shared write
-   * path — but 1.2 seconds after you stop typing the text is in the database. Everything below is a
-   * belt on top of it, because the one thing this must never do is lose what you typed.
-   */
-  useEffect(() => {
-    if (!dirty) return;
-    const t = setTimeout(() => {
-      // `true` = this is the IDLE save, and only the idle save flashes "Saved" (Jason 08-12-2026).
-      // Ctrl+S, switching notes and closing the window all flush too, but those are moments where a
-      // badge appearing is noise — you already know you saved, or you are already gone.
-      void flush(true);
-    }, AUTOSAVE_MS);
-    return () => clearTimeout(t);
-  }, [draft, title, dirty, flush]);
-
-  // Ctrl+S still saves immediately, and the window closing or the tab unmounting flushes first.
+  // Ctrl+S saves at once. The pause, leaving the tab and the window closing belong to the hook.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); void flush().then(() => loadList(style, false)); }
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); void flush(); }
     };
-    // beforeunload cannot await, but the IPC call is already dispatched by the time it returns —
-    // which is the difference between "usually saved" and "never sent".
-    const onBye = (): void => { void flush(); };
     window.addEventListener("keydown", onKey);
-    window.addEventListener("beforeunload", onBye);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("beforeunload", onBye);
-      void flush(); // leaving the Notes tab entirely
-    };
-  }, [flush, loadList, style]);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [flush]);
 
   /** THE FOLDER CUT. 0 = everything, -1 = only notes with no folder, otherwise that folder exactly.
       Descendants are NOT rolled up here on purpose: clicking "AvertXAI" and getting 1,204 notes from
@@ -451,8 +461,11 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
    * vanished, which is indistinguishable from a list that re-sorted. Same treatment as the tree, in
    * the same words, so a delete reads the same wherever it is done from.
    */
-  const afterBulk = (say: string): void => {
+  const afterBulk = (say: string, gone: (string | null)[] = []): void => {
     if (current && picked.has(current.uuid)) { setCurrent(null); setDraft(""); setTitle(""); }
+    // A deleted note must never be written back, or put back on screen, by text a save still owed
+    // it. `gone` holds only the deletes that went through.
+    for (const uuid of gone) if (uuid) { refused.delete(uuid); discard(uuid); }
     setPicked(new Set());
     setOutcome(say);
     loadList(style, false);
@@ -475,7 +488,8 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
         </>
       ),
       label: `Archive ${n}`,
-      run: () => void Promise.all([...picked].map((u) => api.archiveNote(u).catch(() => undefined)))
+      // Saved first: the archive keeps the text in full, and that has to include what is on screen.
+      run: () => void flush().then(() => Promise.all([...picked].map((u) => api.archiveNote(u).catch(() => undefined))))
         .then(() => afterBulk(`Archived ${noun(n)}. They are on the Archived shelf and can be restored.`)),
       secondary: {
         label: `Delete ${n} for good`,
@@ -484,9 +498,11 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
         // — a deliberate two-step so nothing is erased by one slip — and that guard stays exactly as
         // it is. This walks the note through it rather than weakening it.
         onPick: () =>
-          void Promise.all(
-            [...picked].map((u) => api.archiveNote(u).then(() => api.destroyNote(u)).catch(() => undefined))
-          ).then(() => afterBulk(`Deleted ${noun(n)} for good. Nothing on your disk was touched.`)),
+          void flush()
+            .then(() => Promise.all(
+              [...picked].map((u) => api.archiveNote(u).then(() => api.destroyNote(u)).then(() => u, () => null))
+            ))
+            .then((gone) => afterBulk(`Deleted ${noun(n)} for good. Nothing on your disk was touched.`, gone)),
       },
     });
   };
@@ -497,7 +513,7 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
       title: `Restore ${noun(picked.size)}?`,
       body: <p>They go back to the working list exactly as they were.</p>,
       label: `Restore ${picked.size}`,
-      run: () => void Promise.all([...picked].map((u) => api.restoreNote(u).catch(() => undefined)))
+      run: () => void flush().then(() => Promise.all([...picked].map((u) => api.restoreNote(u).catch(() => undefined))))
         .then(() => afterBulk(`Restored ${noun(picked.size)} to the working list.`)),
     });
   };
@@ -515,8 +531,9 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
         </>
       ),
       label: `Delete ${picked.size} for good`,
-      run: () => void Promise.all([...picked].map((u) => api.destroyNote(u).catch(() => undefined)))
-        .then(() => afterBulk(`Deleted ${noun(picked.size)} for good. Nothing on your disk was touched.`)),
+      run: () => void flush()
+        .then(() => Promise.all([...picked].map((u) => api.destroyNote(u).then(() => u, () => null))))
+        .then((gone) => afterBulk(`Deleted ${noun(picked.size)} for good. Nothing on your disk was touched.`, gone)),
     });
   };
 
@@ -527,13 +544,7 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
     // FLUSH BEFORE CREATING (Tier-1 fix 5). + New changes the current record exactly the way
     // clicking another row does, and it was the ONE such path that still skipped the flush — type,
     // hit + New, and the draft silently died. Same shape as openNote, for the same reason.
-    const l = live.current;
-    const pending = l && l.dirty
-      ? api.updateNote(l.uuid, { title: l.title, body: l.body }).catch((e: unknown) => {
-          void api.logClient("error", "Notes: the draft could not be saved before + New", String(e));
-        })
-      : Promise.resolve();
-    void pending
+    void flush()
       .then(() => api.createNote({ kind: style, title: "Untitled", body: "" }))
       .then((n) => {
         // A new note is filed where you are standing — making one inside a folder and finding it in
@@ -542,10 +553,12 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
         return n;
       })
       .then((n) => { loadList(style, false); onNotesChanged(); setCurrent(n); setDraft(""); setTitle(n.title); setDirty(false); editorMd.current = ""; }).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
-  }, [api, style, loadList, folderId, onNotesChanged]);
+  }, [api, style, loadList, folderId, onNotesChanged, flush]);
 
   const setStyle = (s: Style): void => onSetting("notes.style", s);
-  const setMode = (m: Mode): void => onSetting("notes.editor_mode", m);
+  // The other editor is built from the same draft, so a switch of mode loses nothing either way.
+  // The save is here because a switch of mode is one of the moments the text is written (AS-01).
+  const setMode = (m: Mode): void => { void flush(); onSetting("notes.editor_mode", m); };
 
   /**
    * TIDY (Jason 08-16-2026): repairs the paste damage older notes carry — invisible trailing-\
@@ -991,13 +1004,20 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
                             runbook's Run mode now.
                 One draft feeds all of them, so switching modes never loses a character. */}
             {mode !== "preview" && (
-              <div className="vault-pane left" ref={leftPaneRef}>
+              <div
+                className="vault-pane left"
+                ref={leftPaneRef}
+                // Focus leaving the title, the raw box or the editor is a click away, and a click
+                // away saves. One handler on the pane: blur bubbles in React, and it is the only
+                // way to hear the editor, which has no blur of its own to hand up.
+                onBlur={() => void flush()}
+              >
                 {/* The title lives IN the header row (Jason 08-16-2026: "move that on the same row
                     as where theres a green dot") — a full-height input below it started the editor
                     fifty pixels lower than the preview, so the two panes never lined up in Split. */}
                 <div className="vault-panehdr">
                   <span className="vault-editdot" /> {mode === "editor" ? "Editor" : "Raw"}
-                  <input className="vault-notetitle inhdr" value={title} onChange={(e) => { setTitle(e.target.value); setDirty(true); }} onBlur={save} placeholder="Title" />
+                  <input className="vault-notetitle inhdr" value={title} onChange={(e) => { setTitle(e.target.value); setDirty(true); }} placeholder="Title" />
                 </div>
                 {mode !== "editor" ? (
                   <textarea
@@ -1051,7 +1071,7 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
                   <span key={justSaved} className={`vault-savedflash${showSaved ? " on" : ""}`}>✓ Saved</span>
                 </div>
                 <div className="vault-btnrow" style={{ marginTop: 8 }}>
-                  <button className="vault-btn" disabled={!dirty} onClick={save}>Save now</button>
+                  <button className="vault-btn" disabled={!dirty} onClick={() => void flush()}>Save now</button>
                 </div>
               </div>
             )}
@@ -1061,7 +1081,7 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
                 Milkdown's own keymap and paste path. Its clicks on images open the lightbox via
                 onImageClick, same as Editor mode. */}
             {mode === "split" && (
-              <div className="vault-pane prev" ref={rightPaneRef}>
+              <div className="vault-pane prev" ref={rightPaneRef} onBlur={() => void flush()}>
                 <div className="vault-panehdr">
                   <span className="vault-editdot" /> Editor
                   <span className="vault-notetitle inhdr ro" title={title}>{title || "Untitled"}</span>

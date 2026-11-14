@@ -3,9 +3,9 @@
 // (Client · Contact · Email · Group · Rate + Edit), the CRM-seed line, colour picker, stat cards
 // (TOTAL HOURS · INVESTED VALUE · COSTS · LAST WORKED), then the four sections: VALUE LEDGER
 // (append-only — the UI offers NO edit and NO delete on ledger rows, by canon), COSTS, TIME
-// SESSIONS, and NOTES (autosave on blur). Data arrives in ONE round trip via timetracker:projectDetail,
+// SESSIONS, and NOTES (the shared autosave rule). Data arrives in ONE round trip via timetracker:projectDetail,
 // re-fetched when the module bumps refreshKey. Money writes ride the validating channels only.
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type {
   TimeTrackerPaymentMethod,
   TimeTrackerPaymentPayee,
@@ -18,7 +18,9 @@ import type {
 import Tip from "../../components/Tip";
 import NotesEditor from "./NotesEditor";
 import { signalAppAsk, signalAppToast } from "../../App";
-import { formatBlockHeader, packSessionNotes, parseSessionNotes } from "../../shared/ttNotes";
+import { formatBlockHeader, parseSessionNotes, sessionNotesText } from "../../shared/ttNotes";
+import { useAutosave } from "../../shared/useAutosave";
+import { noteBoxLoaded, noteBoxSaved, noteBoxShown, noteBoxTyped, noteBoxUnsaved, type NoteBox } from "./noteBox";
 
 /** MM/DD/YYYY (the house month-first display) ⇄ the service's YYYY-MM-DD. Exported for the
     ProjectModal's contract-date field (two doors, one format). */
@@ -53,8 +55,10 @@ interface Props {
   onDataChanged: () => void;
   /** The live session for THIS project, or null. Drives the Session notes block's presence. */
   session: TimeTrackerActiveSessionInfo | null;
-  /** Blur-save for the Session notes editor — hands over an already-packed value. */
-  onSessionNotes: (packed: string | null) => void;
+  /** Writes the Session notes box. The timer's id comes from the box, because a save asked for
+      just before a project switch belongs to the timer it was typed under. Rejects when the
+      write failed. */
+  onSessionNotes: (sessionId: number, text: string) => Promise<void>;
   /** Set by the module when a stop filed notes; cleared through onFiledSeen after it is shown. */
   filed: { count: number; at: string } | null;
   onFiledSeen: () => void;
@@ -124,8 +128,12 @@ export default function ProjectDetail({
   const [costAmount, setCostAmount] = useState("");
   const [costRecurrence, setCostRecurrence] = useState<"once" | "monthly" | "yearly">("once");
   const [modalError, setModalError] = useState<string | null>(null);
-  // Notes autosave on BLUR (never per keystroke). Uncontrolled-ish: track the draft, save if changed.
-  const noteDraft = useRef<string | null>(null);
+  // What each notes box shows against what the database holds. Kept apart from `detail` and from
+  // the timer status, so a re-read of either never replaces text that is still being typed.
+  const [pad, setPad] = useState<NoteBox | null>(null);
+  const [sess, setSess] = useState<NoteBox | null>(null);
+  /** A failed Session notes save. Its own state: a good save of the pad must not clear it. */
+  const [sessionError, setSessionError] = useState<string | null>(null);
   // Notes block order. Cache first so a remount paints the right order on frame one, then the
   // persisted value confirms it.
   const [notesSort, setNotesSort] = useState<"newest" | "oldest">(() => notesSortCache ?? "newest");
@@ -143,8 +151,10 @@ export default function ProjectDetail({
   useEffect(() => {
     setDetail(null);
     setDetailError(false);
-    noteDraft.current = null;
     if (project === null) return;
+    const padKey = String(project.id);
+    // A read that a newer one has overtaken must not put its text in the pad.
+    let newest = true;
     void api.timetracker.financials
       .items(project.id)
       .then(setItems)
@@ -156,14 +166,23 @@ export default function ProjectDetail({
       });
     void api.timetracker.projects
       .detail(project.id)
-      .then(setDetail)
+      .then((d) => {
+        setDetail(d);
+        if (newest) setPad((b) => noteBoxLoaded(b, padKey, d.note));
+      })
       .catch((e: unknown) => {
         // SCOPED failure path (the wider swallowed-catch pattern is reported, not refactored here):
         // this read feeds the notes pad, so a silent failure would render an empty editor over
         // existing text — indistinguishable from the notes having been erased.
         console.error("[timetracker] project detail failed:", e);
         setDetailError(true);
+        // The pad then says it could not load, as it always has, unless it holds unsaved typing:
+        // that text stays on screen so the next write can still save it.
+        if (newest) setPad((b) => (b && noteBoxUnsaved(b) ? b : null));
       });
+    return () => {
+      newest = false;
+    };
   }, [api, project?.id, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -177,6 +196,63 @@ export default function ProjectDetail({
       })
       .catch(() => {});
   }, [api]);
+
+  // The live session's packed quick notes, split for display. firstAt drives the block's stamp.
+  const sessionNotes = parseSessionNotes(session?.note ?? null);
+  const sessKey = session ? String(session.id) : null;
+  const sessStored = sessionNotes.lines.join("\n");
+  // An effect, not a value worked out while rendering: the box the autosave rule is shown is then
+  // always one that a keystroke and a landed write can update.
+  useEffect(() => {
+    setSess((b) => (sessKey === null ? null : noteBoxLoaded(b, sessKey, sessStored)));
+  }, [sessKey, sessStored]);
+  const sessBox = sess?.key === sessKey ? sess : null;
+  // Only for the project on screen: between a switch and the new project's read the last
+  // project's box is still in state, and must not be typed into under the new name.
+  const padBox = project && pad?.key === String(project.id) ? pad : null;
+
+  const padSave = useAutosave<string>({
+    note: noteBoxShown(padBox),
+    save: (key, value) => api.timetracker.notes.save(Number(key), value),
+    label: project ? `${project.name} notes` : "",
+    scope: "timetracker-project-note",
+    onSaved: ({ key, value }) => {
+      setNoteError(null);
+      setPad((b) => noteBoxSaved(b, key, value));
+    },
+    onError: (message, key) => {
+      console.error("[timetracker] note save failed:", message);
+      setNoteError(
+        key === padBox?.key
+          ? "This note could not be saved — your text is still in the box. Details are in the developer console."
+          : "The notes for the project you just left could not be saved. They will be tried again the next time notes save or when you quit. Details are in the developer console."
+      );
+    },
+  });
+  const sessionSave = useAutosave<string>({
+    note: noteBoxShown(sessBox),
+    save: (key, value) => onSessionNotes(Number(key), value),
+    label: project ? `${project.name} session notes` : "",
+    scope: "timetracker-session-note",
+    onSaved: ({ key, value }) => {
+      setSessionError(null);
+      setSess((b) => noteBoxSaved(b, key, value));
+    },
+    onError: (message, key) => {
+      console.error("[timetracker] session note save failed:", message);
+      setSessionError(
+        key === sessBox?.key
+          ? "These session notes could not be saved — your text is still in the box. Details are in the developer console."
+          : "Session notes for a timer that is no longer on screen could not be saved. Details are in the developer console."
+      );
+    },
+  });
+  // A project switch arrives as a new prop, with the last project's boxes already off screen.
+  // What was typed there is written now, under the id it was typed for, not after its pause.
+  useEffect(() => {
+    void padSave.flush();
+    void sessionSave.flush();
+  }, [padSave, sessionSave, project?.id]);
 
   // HISTORY — every stopped session that carried notes, straight from time_entries. Sorting keys on
   // started_at, so it is a pure view: nothing is rewritten to change the order. Derived HERE, above
@@ -231,8 +307,6 @@ export default function ProjectDetail({
         : `Contract · paid${project.contract_amount != null ? ` · ${fmtMoney(project.contract_amount)}` : ""}`;
   // RULED vocabulary (08-06): the `invested = value + costs` composite is DELETED — it added
   // revenue to costs on a client-visible card, the exact collision the recon named.
-  // The live session's packed quick notes, split for display. firstAt drives the block's stamp.
-  const sessionNotes = parseSessionNotes(session?.note ?? null);
 
   const addLedger = (): void => {
     const n = Number(ledgerAmount);
@@ -249,19 +323,11 @@ export default function ProjectDetail({
       .then(() => { setCostModal(false); setCostLabel(""); setCostCategory(""); setCostAmount(""); setCostRecurrence("once"); setModalError(null); onDataChanged(); })
       .catch((e: unknown) => setModalError(e instanceof Error ? e.message : String(e)));
   };
-  const saveNote = (value: string): void => {
-    if (detail && value === detail.note) return; // unchanged — no write
-    // NOT SILENT ANY MORE (08-06). This catch used to be empty — a failed save let the user type,
-    // see their text, and lose it with no sign anything went wrong. It was the leading candidate
-    // for the "can't add notes in Tracker" report: the failure now has a face and a console line,
-    // so if the save IS throwing, the reason surfaces instead of vanishing.
-    void api.timetracker.notes
-      .save(project.id, value)
-      .then(() => setNoteError(null))
-      .catch((e: unknown) => {
-        console.error("[timetracker] note save failed:", e);
-        setNoteError("This note could not be saved — your text is still in the box. Details are in the developer console.");
-      });
+  // A click away and a switch between Notes and History write at once instead of waiting out
+  // the pause. Both boxes, because either may be the one that was being typed in.
+  const flushNotes = (): void => {
+    void padSave.flush();
+    void sessionSave.flush();
   };
 
   return (
@@ -425,7 +491,10 @@ export default function ProjectDetail({
               className={"tt-notestab" + (activeTab === "notes" ? " on" : "")}
               role="tab"
               aria-selected={activeTab === "notes"}
-              onClick={() => setNotesTab("notes")}
+              onClick={() => {
+                flushNotes();
+                setNotesTab("notes");
+              }}
             >
               Notes
             </button>
@@ -433,13 +502,16 @@ export default function ProjectDetail({
               className={"tt-notestab" + (activeTab === "history" ? " on" : "")}
               role="tab"
               aria-selected={activeTab === "history"}
-              onClick={() => setNotesTab("history")}
+              onClick={() => {
+                flushNotes();
+                setNotesTab("history");
+              }}
             >
               History{history.length > 0 ? ` (${history.length})` : ""}
             </button>
           </div>
-          {noteError && (
-            <div className="tt-reloaderror" role="alert" style={{ margin: "8px 0 0" }}>{noteError}</div>
+          {(noteError ?? sessionError) && (
+            <div className="tt-reloaderror" role="alert" style={{ margin: "8px 0 0" }}>{noteError ?? sessionError}</div>
           )}
           <div className="tt-notesctl">
             {activeTab === "history" ? (
@@ -491,21 +563,17 @@ export default function ProjectDetail({
                 {sessionNotes.firstAt && (
                   <div className="tt-sessionstamp mono">{formatBlockHeader(sessionNotes.firstAt)}</div>
                 )}
-                <NotesEditor
-                  key={`sess:${session.id}:${sessionNotes.lines.length}`}
-                  className="tt-input tt-textarea tt-sessionnotes"
-                  placeholder="Quick notes land here — or type straight into this block."
-                  defaultValue={sessionNotes.lines.join("\n")}
-                  ariaLabel="Session notes"
-                  onCommit={(value) =>
-                    onSessionNotes(
-                      packSessionNotes({
-                        firstAt: sessionNotes.firstAt ?? new Date().toISOString(),
-                        lines: value.split("\n"),
-                      })
-                    )
-                  }
-                />
+                {sessBox && (
+                  <NotesEditor
+                    key={`sess:${sessBox.key}:${sessBox.seed}`}
+                    className="tt-input tt-textarea tt-sessionnotes"
+                    placeholder="Quick notes land here — or type straight into this block."
+                    defaultValue={sessBox.text}
+                    ariaLabel="Session notes"
+                    onChange={(value) => setSess((b) => noteBoxTyped(b, sessBox.key, sessionNotesText(value)))}
+                    onBlur={flushNotes}
+                  />
+                )}
               </>
             ) : null}
 
@@ -516,7 +584,7 @@ export default function ProjectDetail({
               <span className="tt-notesdividerlabel">Notes</span>
               <i aria-hidden="true" />
             </div>
-            {!detail ? (
+            {!padBox ? (
               detailError ? (
                 // NEVER an empty editor on a failed read — that is what looked like erased notes.
                 <div className="tt-emptyrow">Couldn&apos;t load these notes. Reopen the project to try again.</div>
@@ -525,12 +593,13 @@ export default function ProjectDetail({
               )
             ) : (
               <NotesEditor
-                key={`${project.id}:${refreshKey}`}
+                key={`${padBox.key}:${padBox.seed}`}
                 className="tt-input tt-textarea tt-notes"
                 placeholder="Notes for this project..."
-                defaultValue={detail.note}
+                defaultValue={padBox.text}
                 ariaLabel="Project notes"
-                onCommit={saveNote}
+                onChange={(value) => setPad((b) => noteBoxTyped(b, padBox.key, value))}
+                onBlur={flushNotes}
               />
             )}
           </>

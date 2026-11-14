@@ -46,6 +46,18 @@ export function packSessionNotes(notes: SessionNotes): string | null {
 }
 
 /**
+ * Typed Session notes as the packed column hands them back: packing drops empty lines. The box
+ * compares in this form, or a line left empty would read as unsaved text for ever and the status
+ * that comes back with every save would look like someone else's change.
+ */
+export function sessionNotesText(text: string): string {
+  return text
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .join("\n");
+}
+
+/**
  * Append one captured quick note. The marker continues whatever the previous line used, so a
  * numbered session keeps numbering (ruling 8). `atIso` stamps the FIRST note only — later notes
  * never move it, and individual notes carry no time of their own (ruling 6).

@@ -15,7 +15,7 @@
 // UNDO: insertion goes through document.execCommand("insertText"), which Chromium records as ONE
 // undoable edit. Writing to textarea.value directly would nuke the undo stack, and setRangeText
 // fragments it — that is why a deprecated-but-working API is the right call here.
-import { useRef, type FocusEvent, type KeyboardEvent } from "react";
+import type { FocusEvent, KeyboardEvent } from "react";
 import { BULLET, nextMarker } from "../../shared/ttNotes";
 
 /** A document holding nothing but an opening marker — what an untouched, just-focused editor has. */
@@ -24,16 +24,16 @@ const MARKER_ONLY = new RegExp(`^\\s*(${BULLET}|[0-9]+\\s?[.\\-]|[A-Za-z]{1,3}\\
 interface Props {
   /** Seed text. This is an UNCONTROLLED textarea (like the pad it replaces) — remount to re-seed. */
   defaultValue: string;
-  /** Fired on blur with the full text, only when it actually changed. */
-  onCommit: (value: string) => void;
+  /** Fired on every edit with the full text. A lone seeded marker is handed over as "". */
+  onChange: (value: string) => void;
+  /** Fired when the box loses focus, so the screen can save at once instead of after the pause. */
+  onBlur: () => void;
   className?: string;
   placeholder?: string;
   ariaLabel: string;
 }
 
-export default function NotesEditor({ defaultValue, onCommit, className, placeholder, ariaLabel }: Props) {
-  const seeded = useRef(defaultValue);
-
+export default function NotesEditor({ defaultValue, onChange, onBlur, className, placeholder, ariaLabel }: Props) {
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Shift+Enter: let the browser insert a bare newline. No marker, native undo, nothing to do.
     if (e.key !== "Enter" || e.shiftKey) return;
@@ -79,14 +79,12 @@ export default function NotesEditor({ defaultValue, onCommit, className, placeho
       spellCheck
       onFocus={onFocus}
       onKeyDown={onKeyDown}
-      onBlur={(e) => {
+      onChange={(e) => {
         // A lone seeded marker is NOT content: clicking in and straight back out must leave the note
         // exactly as it was, never save a stray "∙".
-        const value = MARKER_ONLY.test(e.target.value) ? "" : e.target.value;
-        if (value === seeded.current) return; // unchanged — no write
-        seeded.current = value;
-        onCommit(value);
+        onChange(MARKER_ONLY.test(e.target.value) ? "" : e.target.value);
       }}
+      onBlur={onBlur}
     />
   );
 }

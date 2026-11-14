@@ -26,7 +26,7 @@ import ActivityView from "./ActivityView";
 import ArchiveView from "./ArchiveView";
 import CompletedView from "./CompletedView";
 import AnalyticsView from "./AnalyticsView";
-import { appendQuickNote, parseSessionNotes } from "../../shared/ttNotes";
+import { appendQuickNote, packSessionNotes, parseSessionNotes } from "../../shared/ttNotes";
 import { useFeature } from "../../entitlements";
 import "./timetracker.css";
 import { bumpRender } from "../../diag";
@@ -243,11 +243,14 @@ export default function TimeTrackerModule() {
     const packed = appendQuickNote(session.note, text, new Date().toISOString());
     void api.timetracker.timer.setSessionNote(session.id, packed).then(setStatus).catch(() => {});
   };
-  // The Session notes EDITOR's blur save — the second of the two editors (ruling 1). It hands over
-  // an already-packed value, so the same channel serves both writers.
-  const onSessionNotes = (packed: string | null): void => {
-    if (!session) return;
-    void api.timetracker.timer.setSessionNote(session.id, packed).then(setStatus).catch(() => {});
+  // The Session notes EDITOR's save — the second of the two editors (ruling 1), on the same
+  // channel as the quick notes. The timer's id comes from the box, not from the session on screen:
+  // a save asked for just before a project switch belongs to the timer it was typed under. Nothing
+  // is caught here, so the box can say when a write failed.
+  const onSessionNotes = (sessionId: number, text: string): Promise<void> => {
+    const stamped = parseSessionNotes(status.sessions.find((s) => s.id === sessionId)?.note).firstAt;
+    const packed = packSessionNotes({ firstAt: stamped ?? new Date().toISOString(), lines: text.split("\n") });
+    return api.timetracker.timer.setSessionNote(sessionId, packed).then(setStatus);
   };
   const onPause = (): void => {
     if (!session) return;

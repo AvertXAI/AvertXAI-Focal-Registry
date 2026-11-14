@@ -12,6 +12,7 @@
 //------------------------------------------------------------
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MindMergeTreeNode, NoteRow } from "../../shared/types";
+import { useAutosave } from "../../shared/useAutosave";
 import { renderMarkdown } from "./markdown";
 import GeneratedPill from "./GeneratedPill";
 import MilkdownEditor from "./MilkdownEditor";
@@ -61,6 +62,13 @@ function docExcerpt(r: NoteRow): string {
   return "";
 }
 
+/**
+ * Text whose last write failed, by file: the disk holds an older version of each. Module-level for
+ * the reason the edit markers are: leaving the tab and coming back must not put the disk's older
+ * text on screen as if it were his latest.
+ */
+const unwritten = new Map<string, string>();
+
 type EdMode = "editor" | "raw" | "split" | "preview";
 const MODES: { id: EdMode; label: string }[] = [
   { id: "editor", label: "Editor" },
@@ -97,13 +105,14 @@ export default function DocsSurface(p: Props) {
   const [mode, setMode] = useState<EdMode>("editor");
   const [body, setBody] = useState<string | null>(null);
   const [edErr, setEdErr] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
   const [, repaint] = useState(0);
 
-  // Refs mirror the two selections so the debounced save can never write stale text to a stale path.
+  // The open file and its text as of the last keystroke. React draws a keystroke a moment after it
+  // lands, and a save that answers in that moment has to be judged against these, not the drawing.
   const selFileRef = useRef<string | null>(null);
   const bodyRef = useRef<string | null>(null);
-  const dirtyRef = useRef(false);
-  const saveTimer = useRef<number | null>(null);
 
   // ---------- tree ----------
   useEffect(() => {
@@ -174,39 +183,60 @@ export default function DocsSurface(p: Props) {
   }, []);
 
   // ---------- open / save ----------
-  const flushSave = useCallback((): void => {
-    if (saveTimer.current) {
-      window.clearTimeout(saveTimer.current);
-      saveTimer.current = null;
-    }
-    const f = selFileRef.current;
-    const text = bodyRef.current;
-    if (dirtyRef.current && f && text !== null) {
-      dirtyRef.current = false;
-      void api.mindmerge.writeFile(f, text).catch(() => {});
-    }
-  }, []);
-  useEffect(() => flushSave, [flushSave]); // unmount: never drop keystrokes on a tab switch
+  const { flush } = useAutosave<string>({
+    note: selFile && body !== null ? { key: selFile, value: body, dirty } : null,
+    save: (f, text) =>
+      api.mindmerge.writeFile(f, text).then(
+        (done) => {
+          unwritten.delete(f);
+          return done;
+        },
+        (e: unknown) => {
+          unwritten.set(f, text);
+          throw e;
+        }
+      ),
+    label: selFile ? baseName(selFile) : undefined,
+    scope: "mindmerge-document",
+    onSaved: (info) => {
+      const m = editMarks.get(info.key);
+      const stillFresh = m && Date.now() - m.last <= MARK_WINDOW_MS;
+      editMarks.set(info.key, { count: (stillFresh ? m.count : 0) + 1, last: Date.now() });
+      if (unwritten.size === 0) setSaveErr(null);
+      // Text typed while the write was out is not on disk: it stays unsaved and its own pause
+      // writes it. The autosave only knows the last text React drew, so the refs decide.
+      if (info.current && selFileRef.current === info.key && bodyRef.current === info.value) setDirty(false);
+      p.onSaved();
+    },
+    onError: (message, key) => setSaveErr(`${baseName(key)} was not saved and will be tried again. ${message}`),
+  });
 
   const openPath = useCallback(
     (f: string) => {
-      flushSave();
+      // Asked for before anything below changes the screen, so it takes the text as he left it.
+      const written = flush();
       selFileRef.current = f;
       bodyRef.current = null;
-      dirtyRef.current = false;
       setSelFile(f);
       setBody(null);
+      setDirty(false);
       setEdErr(null);
-      void api.mindmerge
-        .readFile(f)
-        .then((text) => {
-          if (selFileRef.current !== f) return; // user already moved on
-          bodyRef.current = text;
-          setBody(text);
-        })
-        .catch((e) => setEdErr(e instanceof Error ? e.message : String(e)));
+      void (async () => {
+        // The read waits for the writes: a file reopened while its own save is still out must
+        // come back with that save in it.
+        await written;
+        if (selFileRef.current !== f) return; // user already moved on
+        // A file whose write failed is older on disk than what he typed. Showing the disk's text
+        // as saved would make the autosave drop his, so his goes back on screen, still unsaved.
+        const kept = unwritten.get(f);
+        const text = kept ?? (await api.mindmerge.readFile(f));
+        if (selFileRef.current !== f) return;
+        bodyRef.current = text;
+        setBody(text);
+        if (kept !== undefined) setDirty(true);
+      })().catch((e) => setEdErr(e instanceof Error ? e.message : String(e)));
     },
-    [flushSave]
+    [flush]
   );
 
   // The search overlay (or Recently edited) asked for a file: open it AND walk the tree there.
@@ -234,34 +264,14 @@ export default function DocsSurface(p: Props) {
     p.onOpenHandled();
   }, [p.openFile]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const doSave = useCallback(
-    (f: string, text: string): void => {
-      dirtyRef.current = false;
-      void api.mindmerge
-        .writeFile(f, text)
-        .then(() => {
-          const m = editMarks.get(f);
-          const stillFresh = m && Date.now() - m.last <= MARK_WINDOW_MS;
-          editMarks.set(f, { count: (stillFresh ? m.count : 0) + 1, last: Date.now() });
-          p.onSaved();
-        })
-        .catch((e) => setEdErr(e instanceof Error ? e.message : String(e)));
-    },
-    [p]
-  );
-
-  const onEdit = useCallback(
-    (text: string): void => {
-      const f = selFileRef.current;
-      if (!f) return;
-      bodyRef.current = text;
-      dirtyRef.current = true;
-      setBody(text);
-      if (saveTimer.current) window.clearTimeout(saveTimer.current);
-      saveTimer.current = window.setTimeout(() => doSave(f, text), 800);
-    },
-    [doSave]
-  );
+  const onEdit = useCallback((text: string): void => {
+    // While a file is still opening it has no editor of its own, so anything heard then comes
+    // from the file before it, and that text must never be saved under this file's name.
+    if (!selFileRef.current || bodyRef.current === null) return;
+    bodyRef.current = text;
+    setBody(text);
+    setDirty(true);
+  }, []);
 
   // + New — a real markdown file in the selected folder, opened for writing immediately.
   const newFile = useCallback(async (): Promise<void> => {
@@ -392,7 +402,7 @@ export default function DocsSurface(p: Props) {
           <GeneratedPill sourcePath={selFile} editsFile />
           <div className="mmd-modes">
             {MODES.map((m) => (
-              <button key={m.id} className={"mmd-mode" + (mode === m.id ? " on" : "")} onClick={() => setMode(m.id)}>
+              <button key={m.id} className={"mmd-mode" + (mode === m.id ? " on" : "")} onClick={() => { void flush(); setMode(m.id); }}>
                 {m.label}
               </button>
             ))}
@@ -404,10 +414,11 @@ export default function DocsSurface(p: Props) {
           )}
         </div>
         {edErr && <div className="mmd-err" role="alert">{edErr}</div>}
+        {saveErr && <div className="mmd-err" role="alert">{saveErr}</div>}
         {!selFile && <div className="mmd-blank">Pick a document, or press + New.</div>}
         {selFile && body === null && !edErr && <div className="mmd-blank">Opening&hellip;</div>}
         {selFile && body !== null && (
-          <div className="mmd-ebody">
+          <div className="mmd-ebody" onBlur={() => void flush()}>
             {mode === "editor" && (
               <div className="mmd-milk">
                 <MilkdownEditor docId={selFile} initial={body} onChange={onEdit} />

@@ -1007,4 +1007,4 @@ span.mm-notetitle.inhdr.ro { display: block; white-space: nowrap;
 .mmd-view { flex: 1; overflow-y: auto; min-height: 0; padding: 14px 18px; --rbs-fontsize: 13px; }
 .mmd-blank { flex: 1; display: flex; align-items: center; justify-content: center;
   color: var(--mc-dimmer); font-size: 13px; }
-.mmd-err { padding: 8px 12px; color: var(--mc-orange); font-size: 12px; flex: none; }
+.mmd-err { padding: 8px 12px; color: var(--mc-orange); font-size: 12px; flex: none; overflow-wrap: anywhere; }

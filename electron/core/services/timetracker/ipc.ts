@@ -559,6 +559,10 @@ export function registerTimeTrackerIpc(): void {
   });
 
   // reports — READ-ONLY analytics (SELECT-only service; charts are Phase 5's hand-rolled SVG)
+  safeHandle("timetracker:projectTotals", (_e, projectId: unknown) => {
+    const { db, orgId } = ttCtx();
+    return reports.projectTotals(db, orgId, vId(projectId, "project id"));
+  });
   safeHandle("timetracker:getReport", (_e, range: unknown, granularity: unknown, projectId: unknown) => {
     const { db, orgId } = ttCtx();
     return reports.getReport(

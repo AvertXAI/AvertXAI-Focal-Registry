@@ -1,7 +1,7 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
 // COMPLETED tab (08-06, per the approved mockup): one dropdown row per completed job — caret,
 // icon + name, "$value · hours" figure, completion date, and TWO row controls (Export PDF, the
-// primary Activate). The expanded body is a DOCUMENT: lock chip, four stat cards (with Net),
+// primary Activate). The expanded body is a DOCUMENT: lock chip, five stat cards (Analytics' money words),
 // client block, employees-with-pay-and-cost table, itemized rows, notes — NO controls inside it.
 // Rows expand in place (the employees AdjustmentsView precedent: one expanded id, toggled).
 // Every read already existed; this file is only the composer the recon said was missing.
@@ -13,7 +13,7 @@ import type {
   TimeTrackerProjectItem,
   TimeTrackerProjectListItem,
   TimeTrackerProjectMember,
-  TimeTrackerProjectSpend,
+  TimeTrackerReportTotals,
 } from "../../shared/types";
 import { INVOICE_CSS, renderInvoiceHtml } from "./invoicePrint";
 // ONE expression of the entry money rule (ruled 08-06 — the local copy this file briefly carried
@@ -28,7 +28,9 @@ interface Props {
 }
 
 interface DocData {
-  spend: TimeTrackerProjectSpend | null;
+  /** Analytics' totals for this one project. The cards print these and work nothing out here, so
+      the Completed tab and Analytics cannot disagree about a job. */
+  totals: TimeTrackerReportTotals | null;
   members: TimeTrackerProjectMember[];
   entries: EmployeeEntry[];
   adjustments: EmployeeAdjustment[];
@@ -60,17 +62,6 @@ export default function CompletedView({ projects, onDataChanged }: Props) {
   const [doc, setDoc] = useState<DocData | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [exportLine, setExportLine] = useState<{ text: string; path: string | null; err: boolean } | null>(null);
-  /** Payments received per completed project — drives the DERIVED Awaiting payment / Paid badge
-      ("Not yet" on the completion toast is a real answer; this is where it shows). */
-  const [paidById, setPaidById] = useState<Record<number, number>>({});
-  useEffect(() => {
-    let dead = false;
-    void Promise.all(completed.map((p) => api.timetracker.payments.total(p.id).then((t) => [p.id, t] as const)))
-      .then((pairs) => { if (!dead) setPaidById(Object.fromEntries(pairs)); })
-      .catch(() => {});
-    return () => { dead = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, api]);
 
   // The expanded row's document data — five existing reads, composed here (recon B5).
   useEffect(() => {
@@ -78,7 +69,7 @@ export default function CompletedView({ projects, onDataChanged }: Props) {
     if (openId == null) return;
     let dead = false;
     void Promise.all([
-      api.timetracker.financials.spend(openId),
+      api.timetracker.reports.projectTotals(openId),
       api.timetracker.financials.members(openId),
       api.employees.entries.listForProject(openId),
       api.timetracker.financials.items(openId),
@@ -86,11 +77,11 @@ export default function CompletedView({ projects, onDataChanged }: Props) {
       api.employees.people.list(),
       api.employees.adjustments.listAll(),
     ])
-      .then(([spend, members, entries, items, note, people, adjustments]) => {
-        if (!dead) setDoc({ spend, members, entries, adjustments, items, note, people, failed: false });
+      .then(([totals, members, entries, items, note, people, adjustments]) => {
+        if (!dead) setDoc({ totals, members, entries, adjustments, items, note, people, failed: false });
       })
       .catch(() => {
-        if (!dead) setDoc({ spend: null, members: [], entries: [], adjustments: [], items: [], note: "", people: [], failed: true });
+        if (!dead) setDoc({ totals: null, members: [], entries: [], adjustments: [], items: [], note: "", people: [], failed: true });
       });
     return () => {
       dead = true;
@@ -159,7 +150,7 @@ export default function CompletedView({ projects, onDataChanged }: Props) {
               <span className="tt-cwhen">completed {fmtDate(p.completed_at)}</span>
               {/* Awaiting/Paid — DERIVED from payment rows vs the contract; partials stay Awaiting. */}
               {p.contract_amount != null && (
-                (paidById[p.id] ?? 0) >= p.contract_amount
+                p.total_received >= p.contract_amount
                   ? <span className="tt-paybadge paid">Paid</span>
                   : <span className="tt-paybadge awaiting">Awaiting payment</span>
               )}
@@ -178,16 +169,22 @@ export default function CompletedView({ projects, onDataChanged }: Props) {
                 <span className="tt-lockchip">🔒 View only — completed {fmtDate(p.completed_at)}</span>
                 {doc === null ? (
                   <div className="tt-emptyrow">Loading…</div>
-                ) : doc.failed ? (
+                ) : doc.failed || !doc.totals ? (
                   <div className="tt-error" role="alert">Couldn&apos;t load this job&apos;s document. Reopen the row to try again.</div>
                 ) : (
                   <>
-                    <div className="tt-completefigs">
-                      <div className="tt-card"><span className="tt-cardlabel">Total hours</span><span className="tt-cardvalue">{fmtDuration(p.total_seconds)}</span></div>
-                      <div className="tt-card"><span className="tt-cardlabel">Contracted</span><span className="tt-cardvalue">{p.contract_amount != null ? fmtMoney(p.contract_amount) : "—"}</span></div>
-                      <div className="tt-card"><span className="tt-cardlabel">Spent</span><span className="tt-cardvalue">{fmtMoney(doc.spend?.spent ?? 0)}</span></div>
-                      {/* Net = what the client pays minus what was spent — the mockup's green figure. */}
-                      <div className="tt-card"><span className="tt-cardlabel">Net</span><span className="tt-cardvalue tt-net">{fmtMoney((p.contract_amount ?? p.total_value) - (doc.spend?.spent ?? 0))}</span></div>
+                    <div className="tt-cards">
+                      <div className="tt-card"><span className="tt-cardlabel">Total hours</span><span className="tt-cardvalue">{fmtDuration(doc.totals.total_seconds)}</span></div>
+                      <div className="tt-card"><span className="tt-cardlabel">Billed</span><span className="tt-cardvalue">{fmtMoney(doc.totals.billed)}</span></div>
+                      <div className="tt-card"><span className="tt-cardlabel">Received</span><span className="tt-cardvalue">{fmtMoney(doc.totals.received)}</span></div>
+                      <div className="tt-card"><span className="tt-cardlabel">Spent</span><span className="tt-cardvalue">{fmtMoney(doc.totals.spent)}</span></div>
+                      {/* Profit counts money received, not the contract: a job that has not been
+                          paid has made nothing yet, and Analytics says the same of it. */}
+                      <div className={"tt-card" + (doc.totals.profit < 0 ? " tt-cardloss" : " tt-cardprofit")}>
+                        <span className="tt-cardlabel">Profit</span>
+                        <span className="tt-cardvalue">{fmtMoney(doc.totals.profit)}</span>
+                        <span className="tt-cardsub">received − spent</span>
+                      </div>
                     </div>
 
                     <div className="tt-docsect">Client</div>

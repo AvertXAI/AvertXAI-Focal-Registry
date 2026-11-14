@@ -373,6 +373,15 @@ function wastedMetric(db: Db, orgId: string): WastedMetric {
   };
 }
 
+/** One project's money cards for the Completed tab: the totals Analytics shows when the rail
+    filters to that project, from the same call, so the two pages cannot count a job differently.
+    A project the rollup does not hold throws, because a row of $0.00 would read as real figures. */
+export function projectTotals(db: Db, orgId: string, projectId: number): ReportTotals {
+  const totals = reportTotals(db, orgId, projectId);
+  if (totals.project_count === 0) throw new Error(`Project ${projectId} not found`);
+  return totals;
+}
+
 export function getReport(db: Db, orgId: string, range: ReportRange, granularity: ReportGranularity, projectId?: number | null): ReportData {
   return {
     // C10: the rail selection filters EVERYTHING — cards read off the selected project's own rollup

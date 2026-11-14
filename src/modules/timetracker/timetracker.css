@@ -631,7 +631,10 @@
   font-weight: 700; margin: 16px 0 8px;
 }
 .tt-docnotes { font-size: 13px; color: var(--mc-muted); white-space: pre-wrap; margin: 0; }
-.tt-net { color: var(--mc-green); }
+/* The Completed document's money cards wrap like .tt-cards. min() lets a card take a column
+   narrower than 120px instead of spilling out of the row, which the bare .tt-cards minimum would
+   do at 740 with the nav rail at 300 and the projects rail open (96px of room). */
+.tt-cbody .tt-cards { grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); margin: 10px 0 14px; }
 
 /* ---- Profit build (08-07): cards, charts, payments, contract ---- */
 /* Profit/loss card tint — token-composed, grayscale-safe (the sub-label still names the maths). */

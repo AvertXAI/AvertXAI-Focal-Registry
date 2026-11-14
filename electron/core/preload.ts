@@ -423,6 +423,7 @@ const api: Api = {
     },
     reports: {
       get: (range: string, granularity: string, projectId?: number | null) => invoke("timetracker:getReport", range, granularity, projectId ?? null),
+      projectTotals: (projectId: number) => invoke("timetracker:projectTotals", projectId),
       exportPdf: () => invoke("timetracker:exportAnalyticsPdf"),
       revealExportedPdf: (p: string) => invoke("timetracker:revealExportedPdf", p),
     },

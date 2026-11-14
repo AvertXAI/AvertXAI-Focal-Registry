@@ -2114,6 +2114,8 @@ export interface Api {
     reports: {
       /** C10: an optional rail-selection filter — one project, or null/omitted for all. */
       get: (range: TimeTrackerReportRange, granularity: TimeTrackerReportGranularity, projectId?: number | null) => Promise<TimeTrackerReportData>;
+      /** One project's Analytics totals: what the Completed tab's money cards print. */
+      projectTotals: (projectId: number) => Promise<TimeTrackerReportTotals>;
       /** printToPDF of the live Analytics view → Downloads, month-first filename; returns the path. */
       exportPdf: () => Promise<string>;
       /** Reveals a path THIS session exported (main-side whitelist) in the OS file manager. */

@@ -64,6 +64,14 @@ export function vNullableString(value: unknown, label: string, maxLen: number): 
   return vString(value, label, maxLen);
 }
 
+/** Money received from a client: above zero. The payments table's own CHECK refuses zero as well,
+    but in database words, and a negative amount used to come back as "Invalid amount". This says
+    it first, in the sentence the Record payment dialog already uses. */
+export function vPaymentAmount(value: unknown): number {
+  if (typeof value === "number" && value <= 0) throw new Error("Amount received must be more than zero.");
+  return vAmount(value, "amount");
+}
+
 export function vAmount(value: unknown, label = "amount"): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1e12) {
     throw new Error(`Invalid ${label}`);

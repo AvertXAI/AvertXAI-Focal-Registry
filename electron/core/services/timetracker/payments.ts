@@ -30,7 +30,7 @@ import { generateUUIDv7 } from "../utils/uuidv7";
 import { nowIso, type Db } from "./db";
 import { recordPayment, reversePayment } from "../employees/payments";
 import type { PaymentPayee, ProjectPayment, ProjectPaymentInput } from "./types";
-import { PAYMENT_METHODS, vAmount, vEnum, vId, vNullableString, vString } from "./validate";
+import { PAYMENT_METHODS, vEnum, vId, vNullableString, vPaymentAmount, vString } from "./validate";
 
 // One read behind every payment row the dialog shows. The LEFT JOIN finds the payroll payment a
 // client payment is also counted as, when there is one that has not been reversed: a reversed one
@@ -94,7 +94,7 @@ function insertPayment(db: Db, orgId: string, input: ProjectPaymentInput): Proje
       generateUUIDv7(),
       orgId,
       projectId,
-      vAmount(input?.amount, "amount"),
+      vPaymentAmount(input?.amount),
       receivedOn,
       vEnum(input?.method, PAYMENT_METHODS, "payment method"),
       vNullableString(input?.reference, "reference", 200),

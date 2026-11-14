@@ -55,12 +55,12 @@ export function vNullableAmount(value: unknown, label = "amount"): number | null
   return vAmount(value, label);
 }
 
-/** A payment may be negative (a reversal) but never zero. */
-export function vSignedAmount(value: unknown, label = "amount"): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value === 0 || Math.abs(value) > 1e12) {
-    throw new Error(`Invalid ${label}`);
-  }
-  return value;
+/** A payment recorded for a person: above zero. The only negative row in the payment ledger is a
+    reversal, and reversePayment writes that from the original's own amount, so nothing that is
+    typed has to be allowed below zero for a reversal to work. */
+export function vPaymentAmount(value: unknown, label = "amount"): number {
+  if (typeof value === "number" && value <= 0) throw new Error("The payment amount must be more than zero.");
+  return vAmount(value, label);
 }
 
 /** Hours are recorded for EVERY pay type, donated included — zero is legal, negative is not. */

@@ -15,7 +15,7 @@ import { nowIso, type Db } from "./db";
 import { logEvent } from "./eventLog";
 import { getPerson } from "./people";
 import type { Payment, PaymentInput } from "./types";
-import { vDate, vId, vNullableString, vSignedAmount, vUuid } from "./validate";
+import { vDate, vId, vNullableString, vPaymentAmount, vUuid } from "./validate";
 
 function getPayment(db: Db, id: number): Payment {
   const row = db.prepare(`SELECT * FROM employee_payments WHERE id = ?`).get(id) as Payment | undefined;
@@ -74,7 +74,7 @@ export function recordPayment(
   projectPaymentUuid: string | null = null
 ): Payment {
   const person = getPerson(db, vId(input.employeeId, "person id"));
-  const amount = vSignedAmount(input.amount, "payment amount");
+  const amount = vPaymentAmount(input.amount, "payment amount");
   const paidOn = vDate(input.paidOn, "payment date");
   const res = db
     .prepare(

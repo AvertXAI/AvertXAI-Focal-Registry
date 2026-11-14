@@ -23,6 +23,7 @@ injects the current version's Summary into the update feed, and publishes this f
 - Time Tracker notes: a refresh while you are typing no longer replaces what you typed. A session note that cannot be saved now says so.
 - MindMerge documents: a line of plain text that begins with a hash stays plain text, and does not turn into a heading, after the file is saved and opened again.
 - Vault and MindMerge: every import reads only the file or the folder you picked in its own dialog.
+- Back up everything now: a backup holds everything needed to open the Vault, the MindMerge pictures and the tax numbers again on this PC. A backup made by an earlier version could leave them unreadable if the app's own data folder had been removed in between.
 - Time Tracker, Completed: the cards are Total hours, Billed, Received, Spent and Profit, the same figures Analytics shows for that project. Profit is Received minus Spent, and it is red when it is below zero.
 - Employees: a correction can no longer take a person's hours on a project below zero. It is refused, and the message says how many hours the person has.
 - A payment of zero or less is refused with a plain message, for a client payment and for a payment to a person.

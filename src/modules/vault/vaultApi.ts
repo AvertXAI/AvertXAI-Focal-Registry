@@ -244,6 +244,10 @@ export interface VaultApi {
    *  exact value when the timer fires. Ungated: text travels INTO the clipboard; nothing is read
    *  out of the vault, and the error log's "Copy for support" must work while locked. */
   copyText: (text: string) => Promise<boolean>;
+  /** The same timed clear for a copy the browser made itself (Ctrl+C, Ctrl+X, the menu's Copy in a
+   *  note editor). Nothing is written, so a rich copy stays rich. `text` is what the page saw
+   *  copied; the clear is armed only if the clipboard is found holding it. False: nothing armed. */
+  clearCopied: (text: string) => Promise<boolean>;
   /** The event log. Reading is UNGATED on purpose — the log is where you look when the vault will
    *  not open, and it holds no secret values by construction. */
   listEvents: (opts?: { limit?: number; level?: VaultLogLevel; search?: string }) => Promise<VaultLogRow[]>;

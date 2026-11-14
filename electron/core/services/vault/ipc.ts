@@ -37,7 +37,7 @@ import { createImportPick, createImportScope } from "./importPick";
 import fs from "node:fs";
 import { FILE_FILTERS, exportDirFor, locateExports, statPickedFiles, walkForDocs } from "./sources";
 import { clearAllEvents, clearRoutine, listEvents, logEvent, newRequestId, presentableMessage, type VaultLogLevel } from "./log";
-import { copyWithClear, type ClipboardPort, type ClockPort } from "./clipboard";
+import { clearAfterOwnCopy, copyWithClear, type ClipboardPort, type ClockPort } from "./clipboard";
 import { getAttachment, saveAttachment } from "./attachments";
 import { analyseHealth } from "./health";
 import { estimateStrength, generateBulk, generateMemorable, generatePassphrase, generatePassword, generatePin } from "./generator";
@@ -1136,6 +1136,18 @@ export function registerVaultIpc(): void {
       CLOCK
     );
     return true;
+  });
+  // Ctrl+C, Ctrl+X and the menu's Copy in a note editor. The browser has already written the
+  // clipboard, so nothing is written here and a rich copy stays rich. Ungated for the reason
+  // copyText is: the text arrives from the page, nothing is read out of the vault.
+  safeHandle("vault:clearCopied", async (_e, text: unknown) => {
+    const { db, orgId } = await vaultCtx();
+    return clearAfterOwnCopy(
+      typeof text === "string" ? text : "",
+      vaultSettings.getNumber(db, orgId, "clipboard.clear_seconds"),
+      CLIP,
+      CLOCK
+    );
   });
 
   // ---- The event log. Reading it is DELIBERATELY ungated: the log is where you look when the

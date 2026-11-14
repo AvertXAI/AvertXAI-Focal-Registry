@@ -617,6 +617,8 @@ const api: Api = {
     importDocs: (files: unknown, opts: unknown) => invoke("vault:importDocs", files, opts),
     // The clipboard funnel — copy with the vault's timed clear armed main-side.
     copyText: (text: string) => invoke("vault:copyText", text),
+    // A copy the browser made itself in a note editor — starts the same timed clear for it.
+    clearCopied: (text: string) => invoke("vault:clearCopied", text),
     // Pasted-image attachments — bytes in the vault, a vault:// reference in the note body.
     saveAttachment: (input: unknown) => invoke("vault:saveAttachment", input),
     getAttachment: (uuid: string) => invoke("vault:getAttachment", uuid),

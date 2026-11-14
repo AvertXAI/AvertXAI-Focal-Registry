@@ -16,6 +16,7 @@ import { shortDate } from "./EntriesView";
 import { Markdown, RunMode } from "./markdown";
 import MilkdownEditor, { type EditorAction, type MilkdownHandle } from "./MilkdownEditor";
 import { rawEdit } from "./rawFormat";
+import { clearCopyLater } from "./copyClear";
 import { vaultApi, type VaultNote, type VaultNoteMeta, type VaultSecretMeta } from "./vaultApi";
 import { cachedAttachmentSrc, isVaultSrc, resolveAttachmentSrc } from "./attachmentSrc";
 import { tidyMarkdown } from "./tidyMarkdown";
@@ -990,7 +991,7 @@ export default function NotesView({ secrets, settings, onSetting, onHelp, onImpo
         {current === null ? (
           <div className="vault-state">Pick a {style} to open it, or start a new one.</div>
         ) : (
-          <div className="vault-notesplit">
+          <div className="vault-notesplit" onCopy={clearCopyLater} onCut={clearCopyLater}>
             {/* THE FOUR MODES MEAN WHAT THEY SAY (Jason 08-11-2026; Raw carved out 08-16 AM;
                 Split re-paired TWICE on 08-16 — first raw|preview by the toolbar prompt, then
                 raw|EDITOR the same afternoon: "change from raw | preview to raw | editor, so a

@@ -5,7 +5,7 @@
 // text is the same in whatever time zone the test runs. Nothing here is real data.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ACTION_LABEL, parseStored, quitTitle, readEndTime, toInputValue, whenText } from "../src/components/quitGuardText";
+import { ACTION_LABEL, parseStored, quitHint, quitTitle, readEndTime, toInputValue, whenText } from "../src/components/quitGuardText";
 
 const STARTED = new Date(2026, 10, 12, 17, 5, 42); // 11-12-2026 5:05:42 PM, local
 const NOW = new Date(2026, 10, 13, 9, 12, 30).getTime(); // the next morning, 9:12:30 AM, local
@@ -24,7 +24,19 @@ test("every answer the guard can offer has the label the ruling gave it", () => 
     stop: "Stop",
     finish: "Finish, then quit",
     stopSafely: "Stop safely and quit",
+    retry: "Retry",
+    quitAnyway: "Quit anyway",
   });
+});
+
+test("the line under the title does not call an unsaved note running", () => {
+  const timer = { kind: "timer" as const };
+  const note = { kind: "note" as const };
+  assert.equal(quitHint([timer], false), "Still running. The app closes once every line below has an answer.");
+  assert.equal(quitHint([note], false), "Not saved. The app closes once every line below has an answer.");
+  assert.equal(quitHint([timer, note], false), "Still running, or not saved. The app closes once every line below has an answer.");
+  assert.equal(quitHint([timer], true), "Waiting for the last job to finish. The app closes by itself.");
+  assert.equal(quitHint([note], true), "Saving again. The app closes by itself once it is saved.");
 });
 
 test("a stored time reads month first, in local time, on a twelve-hour clock", () => {

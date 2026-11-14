@@ -2,14 +2,24 @@
 // The words and the times shown by the quit toast (QuitGuardToast.tsx) and the next-launch prompt
 // (LeftoverPrompt.tsx). Kept out of both components so they can be tested with no window.
 import { formatStamp } from "../shared/datetime";
-import type { WorkAction } from "../shared/types";
+import type { QuitGuardLine, WorkAction } from "../shared/types";
 
 export const ACTION_LABEL: Record<WorkAction, string> = {
   pause: "Pause",
   stop: "Stop",
   finish: "Finish, then quit",
   stopSafely: "Stop safely and quit",
+  retry: "Retry",
+  quitAnyway: "Quit anyway",
 };
+
+/** The line under the title. A note that was not saved is not "running", so it gets its own words. */
+export function quitHint(lines: Pick<QuitGuardLine, "kind">[], waiting: boolean): string {
+  const notes = lines.filter((line) => line.kind === "note").length;
+  if (waiting) return notes > 0 ? "Saving again. The app closes by itself once it is saved." : "Waiting for the last job to finish. The app closes by itself.";
+  const what = notes === 0 ? "Still running." : notes === lines.length ? "Not saved." : "Still running, or not saved.";
+  return `${what} The app closes once every line below has an answer.`;
+}
 
 // A reason this file has not heard of still needs a title, and "about to close" is true of them all.
 export function quitTitle(reason: string): string {

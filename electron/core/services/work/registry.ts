@@ -2,12 +2,12 @@
 // Description: timers and long jobs announce themselves here, so the quit guard can ask about each
 //              one before the app ends. No Electron import: the guard is tested headless.
 
-export type WorkAction = "pause" | "stop" | "finish" | "stopSafely";
+export type WorkAction = "pause" | "stop" | "finish" | "stopSafely" | "retry" | "quitAnyway";
 
 export interface WorkLine {
   /** Stable for as long as the work runs: the user's answer is keyed on it. */
   id: string;
-  kind: "timer" | "job";
+  kind: "timer" | "job" | "note";
   /** One line for the quit toast, for example "Scan: drive E: · 62 percent". */
   text: string;
   /** What may be chosen. A job that cannot stop between files offers "finish" alone. */

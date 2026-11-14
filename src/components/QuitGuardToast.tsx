@@ -13,7 +13,8 @@
 // are finishing are left.
 import { useEffect, useState } from "react";
 import type { QuitGuardState, WorkAction } from "../shared/types";
-import { ACTION_LABEL, quitTitle } from "./quitGuardText";
+import { flushAllNotes, onUnsavedCount } from "../shared/autosave";
+import { ACTION_LABEL, quitHint, quitTitle } from "./quitGuardText";
 
 interface Props {
   /** Told when the toast appears and when it goes, so App can keep the Scout guest from covering it. */
@@ -49,6 +50,21 @@ export default function QuitGuardToast({ onOpenChange }: Props) {
     onOpenChange(open);
   }, [open, onOpenChange]);
 
+  // Notes are only in this page until they are written, so main has to be told there are some,
+  // and has to ask this page to write them before it lets a quit go on. A count main does not
+  // hear costs nothing now and is sent again at the next change.
+  useEffect(() => {
+    onUnsavedCount((count) => void window.api.autosave.unsaved(count).catch(() => undefined));
+    const off = window.api.on<number>("autosave:flush", (round) => {
+      // No answer at all makes main list the notes as possibly unsaved, which is the truth.
+      void flushAllNotes().then((notSaved) => window.api.autosave.flushed(round, notSaved)).catch(() => undefined);
+    });
+    return () => {
+      off();
+      onUnsavedCount(null);
+    };
+  }, []);
+
   if (!state) return null;
 
   // No local "chosen" state: main sends the new state straight back, and a call that fails
@@ -65,11 +81,7 @@ export default function QuitGuardToast({ onOpenChange }: Props) {
     <div className="updatetoast ask quitguard" role="alertdialog" aria-label={title}>
       <div className="updatetoast-ask">
         <b>{title}</b>
-        <span className="updatetoast-line">
-          {state.waiting
-            ? "Waiting for the last job to finish. The app closes by itself."
-            : "Still running. The app closes once every line below has an answer."}
-        </span>
+        <span className="updatetoast-line">{quitHint(state.lines, state.waiting)}</span>
         {state.lines.map((line) => (
           <div key={line.id} className="quitguard-row">
             <span className="updatetoast-line quitguard-text">{line.text}</span>

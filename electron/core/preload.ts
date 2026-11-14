@@ -35,7 +35,7 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 // identity across the boundary, so a callback handed to off() is a DIFFERENT object than the one
 // on() received and can never be matched to its listener. Every subscribe leaked one listener per
 // mount. The unsubscribe closure holds the handler directly, so nothing is ever looked up by identity.
-const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "scan:notes:changed", "scan:notes:synced", "mindmerge:progress", "mindmerge:docsChanged", "rename:progress", "migrate:progress", "timetracker:tick", "timetracker:changed", "timetracker:break", "timetracker:idle", "editor:copyAsMarkdown", "quitguard:state"];
+const PUSH_CHANNELS: readonly string[] = ["scan:progress", "scan:drives", "scan:notes:changed", "scan:notes:synced", "mindmerge:progress", "mindmerge:docsChanged", "rename:progress", "migrate:progress", "timetracker:tick", "timetracker:changed", "timetracker:break", "timetracker:idle", "editor:copyAsMarkdown", "quitguard:state", "autosave:flush"];
 function safeChannel(channel: string): string {
   if (!PUSH_CHANNELS.includes(channel)) throw new Error(`Unknown push channel: ${channel}`);
   return channel;
@@ -692,6 +692,10 @@ const api: Api = {
     leftovers: () => invoke("quitguard:leftovers"),
     resolveTimer: (id: string, choice: string, endIso?: string) => invoke("quitguard:resolveTimer", id, choice, endIso),
     dismissJobs: () => invoke("quitguard:dismissJobs"),
+  },
+  autosave: {
+    unsaved: (count: number) => invoke("autosave:unsaved", count),
+    flushed: (round: number, notSaved: string[]) => invoke("autosave:flushed", round, notSaved),
   },
   on: (channel: PushChannel, cb: (payload: never) => void): (() => void) =>
     subscribe(safeChannel(channel), cb),

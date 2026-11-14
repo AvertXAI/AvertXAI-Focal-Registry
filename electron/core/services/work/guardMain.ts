@@ -6,12 +6,16 @@ import type Database from "better-sqlite3-multiple-ciphers";
 import { broadcast, getMainWindow, showMain } from "../../windows";
 import { getMainSetting, setMainSetting } from "../settings";
 import { createQuitGuard, cutShortRows, jobsToReport, type CutShortJob } from "./quitGuard";
-import { actOnWork, runningWork, type WorkAction, type WorkLine } from "./registry";
+import { actOnWork, registerWorkSource, runningWork, type WorkAction, type WorkLine } from "./registry";
+import { createNoteFlush } from "./noteFlush";
 import { jobsLeftRunning, registerJobSources } from "./jobSources";
 import { leftoverTimers, registerTimerSources, resolveLeftoverTimer } from "./timerSources";
 
 const CUT_SHORT_KEY = "quitguard.cut_short";
-const ACTIONS: readonly WorkAction[] = ["pause", "stop", "finish", "stopSafely"];
+const ACTIONS: readonly WorkAction[] = ["pause", "stop", "finish", "stopSafely", "retry", "quitAnyway"];
+// A note is a few kilobytes and its write takes milliseconds. A page that has not answered by
+// now is stuck, and he is told the notes may not be saved rather than left waiting.
+const NOTE_FLUSH_WAIT_MS = 5000;
 
 // Jobs the database still called "running" when this launch began: a crash or a power cut.
 let foundAtBoot: CutShortJob[] = [];
@@ -47,6 +51,37 @@ const guard = createQuitGuard({
   },
 });
 
+// The page's answer to the round main is waiting on. A late answer to an older round is dropped.
+let asked: { round: number; done: (notSaved: string[]) => void } | null = null;
+let rounds = 0;
+
+function askPageToSaveNotes(): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const win = getMainWindow();
+    if (!win || win.webContents.isCrashed()) {
+      reject(new Error("no window"));
+      return;
+    }
+    const round = ++rounds;
+    const timer = setTimeout(() => {
+      if (asked?.round === round) asked = null;
+      reject(new Error("no answer"));
+    }, NOTE_FLUSH_WAIT_MS);
+    asked = {
+      round,
+      done: (notSaved) => {
+        clearTimeout(timer);
+        resolve(notSaved);
+      },
+    };
+    win.webContents.send("autosave:flush", round);
+  });
+}
+
+const notes = createNoteFlush({ ask: askPageToSaveNotes });
+// The quit that is waiting for the page to write its notes.
+let afterNotes: { reason: "quit" | "update" | "shutdown"; proceed: () => void } | null = null;
+
 /**
  * Asked by every path that ends the app. True: the quit is held and `proceed` runs once every
  * line is answered and every job has ended. By then nothing is running, so the quit that
@@ -58,6 +93,23 @@ export function holdQuit(reason: "quit" | "update" | "shutdown", proceed: () => 
   // next launch asks: a timer keeps its last-seen time and a job stays marked as running.
   const win = getMainWindow();
   if (!win || win.webContents.isCrashed()) return false;
+  // Text typed in the last second, or a note whose write failed, exists only in the page. The
+  // page writes it first; whatever it could not write is then one more line for the guard.
+  if (afterNotes || notes.mustFlush()) {
+    // A second quit during the round waits for the same round, and it is the one that goes on.
+    const first = afterNotes === null;
+    afterNotes = { reason, proceed };
+    if (first) {
+      void notes.flush().then(() => {
+        const next = afterNotes;
+        afterNotes = null;
+        if (!next) return;
+        if (guard.request(next.reason, next.proceed)) showMain();
+        else next.proceed();
+      });
+    }
+    return true;
+  }
   const held = guard.request(reason, proceed);
   if (held) showMain(); // the window may be hidden in the tray, and the toast lives in it
   return held;
@@ -69,6 +121,12 @@ export function holdQuit(reason: "quit" | "update" | "shutdown", proceed: () => 
  * for the next launch.
  */
 export function sessionEnding(): void {
+  // Windows will not wait for an answer, so the page is only told to write. Round 0 is nobody's.
+  try {
+    getMainWindow()?.webContents.send("autosave:flush", 0);
+  } catch {
+    /* the window is already gone, and its notes went with its own unload */
+  }
   const lines = runningWork();
   recordCutShort(lines.filter((line) => line.kind === "timer"), true, " (stopped when Windows shut down)");
   recordCutShort(lines.filter((line) => line.kind === "job"), true);
@@ -95,11 +153,26 @@ export function captureJobsLeftRunning(db: Database.Database): void {
 export function registerQuitGuard(): void {
   registerJobSources();
   registerTimerSources();
+  registerWorkSource(notes.source);
+  // Only the main window has notes screens, and only its count may hold a quit.
+  const fromMain = (e: Electron.IpcMainInvokeEvent): boolean => e.sender === getMainWindow()?.webContents;
+  ipcMain.handle("autosave:unsaved", (e, count: unknown) => {
+    if (fromMain(e) && typeof count === "number" && count >= 0) notes.report(count);
+  });
+  ipcMain.handle("autosave:flushed", (e, round: unknown, notSaved: unknown) => {
+    if (!fromMain(e) || !asked || asked.round !== round) return;
+    const { done } = asked;
+    asked = null;
+    done(Array.isArray(notSaved) ? notSaved.filter((name): name is string => typeof name === "string") : []);
+  });
   ipcMain.handle("quitguard:state", () => guard.state());
   ipcMain.handle("quitguard:answer", (_e, id: unknown, action: unknown) => {
     if (typeof id === "string" && ACTIONS.includes(action as WorkAction)) guard.answer(id, action as WorkAction);
   });
-  ipcMain.handle("quitguard:cancel", () => guard.cancel());
+  ipcMain.handle("quitguard:cancel", () => {
+    guard.cancel();
+    notes.clear();
+  });
   ipcMain.handle("quitguard:leftovers", () => {
     return { timers: leftoverTimers(), jobs: jobsToReport(savedCutShort(), foundAtBoot) };
   });

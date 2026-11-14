@@ -268,13 +268,19 @@ export type PushChannel =
   | "timetracker:break"
   | "timetracker:idle"
   // The quit guard's toast: the running work and the answers so far, or null to take it down.
-  | "quitguard:state";
+  | "quitguard:state"
+  // A quit is waiting: the page writes every unsaved note and answers with the ones it could not.
+  // The payload is the round number the answer has to carry.
+  | "autosave:flush";
 
-/** What the quit toast offers per line. Timers: pause or stop. Jobs: finish, or stop safely. */
-export type WorkAction = "pause" | "stop" | "finish" | "stopSafely";
+/**
+ * What the quit toast offers per line. Timers: pause or stop. Jobs: finish, or stop safely.
+ * A note that could not be saved: retry, or quit anyway.
+ */
+export type WorkAction = "pause" | "stop" | "finish" | "stopSafely" | "retry" | "quitAnyway";
 export interface QuitGuardLine {
   id: string;
-  kind: "timer" | "job";
+  kind: "timer" | "job" | "note";
   text: string;
   actions: WorkAction[];
   answer: WorkAction | null;
@@ -1950,6 +1956,11 @@ export interface Api {
     leftovers: () => Promise<{ timers: LeftoverTimer[]; jobs: CutShortJob[] }>;
     resolveTimer: (id: string, choice: "keep" | "stopAtLastSeen" | "stopAt", endIso?: string) => Promise<{ ok: boolean; error?: string }>;
     dismissJobs: () => Promise<void>;
+  };
+  /** Unsaved notes at quit: the page's count, and its answer to main's "autosave:flush". */
+  autosave: {
+    unsaved: (count: number) => Promise<void>;
+    flushed: (round: number, notSaved: string[]) => Promise<void>;
   };
   /** Migrate module — discovery is read-only; bundle export writes only the chosen destination. */
   /** LOCAL device identity (Settings "This device") — read-only; never transmitted anywhere. */

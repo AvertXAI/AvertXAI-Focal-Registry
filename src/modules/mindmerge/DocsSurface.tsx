@@ -421,7 +421,7 @@ export default function DocsSurface(p: Props) {
           <div className="mmd-ebody" onBlur={() => void flush()}>
             {mode === "editor" && (
               <div className="mmd-milk">
-                <MilkdownEditor docId={selFile} initial={body} onChange={onEdit} />
+                <MilkdownEditor docId={selFile} initial={body} onChange={onEdit} savesAsWritten />
               </div>
             )}
             {mode === "raw" && (

@@ -85,6 +85,26 @@ const settledImages = new Map<string, string | null>();
  *  switch of mode mounts another one), so all of them hear how it ended. */
 const liveSettlers = new Set<() => void>();
 
+/** The Documents tab writes a file's text exactly as the editor produced it: nothing tidies it on the way to disk. */
+const storedAsWritten = (markdown: string): string => markdown;
+
+/**
+ * HOW THIS EDITOR READS AND WRITES MARKDOWN, apart from the page it is drawn on, in each of the two
+ * places it is used. An escape is dropped only when the text reads back the same without it, and
+ * that depends on what the save path does to the text next. A note is tidied on its way into the
+ * database (notes.ts), and tidy takes a line-start escape off, so there the editor does not write
+ * one. The Documents tab sends the text to the file untouched (mindmerge:writeFile), so there the
+ * escape has to stay: a typed "# not a heading" would otherwise come back as a heading. The
+ * component and tests/editors-shared.test.ts both build from documentsMarkdownSetup, so the tests
+ * run against the setup the Documents tab really uses.
+ */
+function notesMarkdownSetup(editor: Editor): Editor {
+  return editor.config(faithfulMarkdownConfig).use(commonmark).use(gfm).use(faithfulMarkdown);
+}
+export function documentsMarkdownSetup(editor: Editor): Editor {
+  return editor.config((ctx) => faithfulMarkdownConfig(ctx, storedAsWritten)).use(commonmark).use(gfm).use(faithfulMarkdown);
+}
+
 /**
  * THE PICTURE ELEMENT NEVER CARRIES A SCHEME THE PAGE CANNOT LOAD (TT-02). The stock rendering
  * stamped the stored `mindmerge://<uuid>` into `<img src>`; the browser tried to fetch it and the
@@ -182,6 +202,9 @@ export interface MilkdownEditorProps {
   /** A direct click on an image node (Jason 08-15-2026): pasted screenshots render CAPPED in the
    *  editing surface, so the click is the way to the full-size view — the parent opens the modal. */
   onImageClick?: (src: string) => void;
+  /** True where the save path writes the editor's text untouched (the Documents tab). Constant
+   *  for the life of a mount: the editor is not rebuilt when it changes. */
+  savesAsWritten?: boolean;
 }
 
 /**
@@ -211,7 +234,7 @@ function toggleTask(ctx: Ctx): void {
 }
 
 const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function MilkdownEditor(
-  { docId, initial, onChange, readOnly = false, onImageClick },
+  { docId, initial, onChange, readOnly = false, onImageClick, savesAsWritten = false },
   ref
 ) {
   const host = useRef<HTMLDivElement | null>(null);
@@ -364,11 +387,10 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
     if (!host.current) return;
     let dead = false;
 
-    void Editor.make()
+    void (savesAsWritten ? documentsMarkdownSetup : notesMarkdownSetup)(Editor.make())
       .config((ctx) => {
         ctx.set(rootCtx, host.current as HTMLElement);
         ctx.set(defaultValueCtx, initial);
-        faithfulMarkdownConfig(ctx);
         ctx.update(editorViewOptionsCtx, (prev) => ({
           ...prev,
           editable: () => !readOnly,
@@ -559,9 +581,6 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
          */
         ctx.get(listenerCtx).markdownUpdated((_c, md) => { if (!dead) cb.current(md); });
       })
-      .use(commonmark)
-      .use(gfm)
-      .use(faithfulMarkdown)
       .use(imageView)
       .use(listener)
       .use(history)

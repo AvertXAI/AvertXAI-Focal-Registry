@@ -1,7 +1,7 @@
 /* Author: Jason Cruz | (c) 2026 AvertXAI | Proprietary */
 /* File: tests/editors-shared.test.ts */
-// The Vault and Scan Notes editors read and write markdown by MindMerge's rules (editorLogic.ts).
-// These are the cases of tests/editor.test.ts, run against each of those two editors' own setup,
+// The Vault, Scan Notes and MindMerge Documents editors read and write markdown by MindMerge's
+// rules (editorLogic.ts). These are the cases of tests/editor.test.ts, run against each editor's own setup,
 // built without a window. Run with `npm test`. Every string here is fake on purpose: the notes
 // hold production credentials and none may be copied into a test.
 import assert from "node:assert/strict";
@@ -10,6 +10,7 @@ import { Editor, parserCtx, schemaCtx, serializerCtx } from "@milkdown/kit/core"
 import type { Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
 import { EditorState, TextSelection } from "@milkdown/kit/prose/state";
 import { isSingleValue, placeImage, selectionMarkdown, settlePendingImages, sliceMarkdown, visibleText } from "../src/modules/mindmerge/editorLogic";
+import { documentsMarkdownSetup } from "../src/modules/mindmerge/MilkdownEditor";
 import { scanNotesMarkdownSetup } from "../src/modules/scan/notes/MilkdownEditor";
 import { vaultMarkdownSetup } from "../src/modules/vault/MilkdownEditor";
 import { tidyMarkdown as vaultTidy } from "../src/modules/vault/tidyMarkdown";
@@ -41,6 +42,8 @@ interface Setup {
 const VAULT: Setup = { name: "Vault", configure: vaultMarkdownSetup, tidy: vaultTidy };
 // Scan Notes stores a note exactly as the editor wrote it (electron/core/services/scan/notes.ts).
 const SCAN_NOTES: Setup = { name: "Scan Notes", configure: scanNotesMarkdownSetup, tidy: (markdown) => markdown };
+// The Documents tab writes the file exactly as the editor wrote it (mindmerge:writeFile, electron/core/ipc.ts).
+const DOCUMENTS: Setup = { name: "Documents", configure: documentsMarkdownSetup, tidy: (markdown) => markdown };
 
 async function build(setup: Setup) {
   const editor = setup.configure(Editor.make());
@@ -55,9 +58,10 @@ async function build(setup: Setup) {
   const docOf = (...blocks: ProseNode[]): ProseNode => schema.topNodeType.create(null, blocks);
   return { ctx, schema, parse, write, stored, paragraph, docOf };
 }
-// One after the other: both editors announce readiness on the same stand-in event bus.
+// One after the other: every editor announces readiness on the same stand-in event bus.
 const vault = build(VAULT);
 const scanNotes = vault.then(() => build(SCAN_NOTES));
+const documents = scanNotes.then(() => build(DOCUMENTS));
 
 const runsOf = (text: string): string[] => text.split(/\s+/).filter(Boolean);
 const linkCount = (doc: ProseNode): number => {
@@ -66,7 +70,7 @@ const linkCount = (doc: ProseNode): number => {
   return links;
 };
 
-for (const [setup, ready] of [[VAULT, vault], [SCAN_NOTES, scanNotes]] as const) {
+for (const [setup, ready] of [[VAULT, vault], [SCAN_NOTES, scanNotes], [DOCUMENTS, documents]] as const) {
   const named = (what: string): string => `${setup.name} editor, ${what}`;
 
   test(named("MM-02: a typed value is stored as one unbroken string"), async () => {
@@ -209,20 +213,23 @@ for (const [setup, ready] of [[VAULT, vault], [SCAN_NOTES, scanNotes]] as const)
 test("each editor judges an escape by what its own save path keeps", async () => {
   const v = await vault;
   const s = await scanNotes;
+  const d = await documents;
   const lineStarts = ["# not a heading", "1. not a list", "- not a list"];
   // The Vault's save path removes an escape at the start of a line, so its editor does not write
   // one: the text the editor holds is the text the store keeps.
   for (const literal of lineStarts) {
     assert.equal(v.write(v.docOf(v.paragraph(v.schema.text(literal)))).trim(), literal, literal);
   }
-  // Scan Notes stores the text as written. Without the escape the line would come back as a
-  // heading, a list or a rule.
-  for (const literal of [...lineStarts, "+ not a list", "---"]) {
-    const typed = s.docOf(s.paragraph(s.schema.text("before")), s.paragraph(s.schema.text(literal)), s.paragraph(s.schema.text("after")));
-    const reread = s.parse(s.stored(typed));
-    assert.equal(reread.childCount, 3, literal);
-    assert.equal(reread.child(1).type.name, "paragraph", literal);
-    assert.equal(reread.child(1).textContent, literal, literal);
+  // Scan Notes and the Documents tab store the text as written. Without the escape the line would
+  // come back as a heading, a list or a rule.
+  for (const [name, e] of [["Scan Notes", s], ["Documents", d]] as const) {
+    for (const literal of [...lineStarts, "+ not a list", "---"]) {
+      const typed = e.docOf(e.paragraph(e.schema.text("before")), e.paragraph(e.schema.text(literal)), e.paragraph(e.schema.text("after")));
+      const reread = e.parse(e.stored(typed));
+      assert.equal(reread.childCount, 3, `${name}: ${literal}`);
+      assert.equal(reread.child(1).type.name, "paragraph", `${name}: ${literal}`);
+      assert.equal(reread.child(1).textContent, literal, `${name}: ${literal}`);
+    }
   }
 });
 

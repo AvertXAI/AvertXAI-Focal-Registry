@@ -23,11 +23,11 @@
 // which mindmerge.css already styles for the preview pane. The editor reuses those rules rather than
 // shipping a second stylesheet that would drift from the theme tokens.
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx } from "@milkdown/kit/core";
+import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, parserCtx, rootCtx, serializerCtx } from "@milkdown/kit/core";
 import { exitCode } from "@milkdown/kit/prose/commands";
 import { Slice } from "@milkdown/kit/prose/model";
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
-import { TextSelection } from "@milkdown/kit/prose/state";
+import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import {
   commonmark,
@@ -47,10 +47,11 @@ import {
 import { gfm, insertTableCommand, toggleStrikethroughCommand } from "@milkdown/kit/preset/gfm";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { history, redoCommand, undoCommand } from "@milkdown/kit/plugin/history";
-import { $view, callCommand, insert } from "@milkdown/kit/utils";
+import { $prose, $view, callCommand, insert } from "@milkdown/kit/utils";
 import type { Ctx } from "@milkdown/kit/ctx";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
 import { mindmergeApi } from "./mindmergeApi";
+import { createTail } from "../../shared/editorTail";
 import { isMindMergeSrc, resolveAttachmentSrc } from "./attachmentSrc";
 import { faithfulMarkdown, faithfulMarkdownConfig, isSingleValue, placeImage, selectionMarkdown, settlePendingImages, visibleText } from "./editorLogic";
 
@@ -386,6 +387,20 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
   useEffect(() => {
     if (!host.current) return;
     let dead = false;
+    // Milkdown reports a change 200 ms after it, and a torn-down editor never reports. Focus
+    // leaving the editor hands over what is still owed, so a click that opens another document
+    // cannot drop the words typed just before it (shared/editorTail.ts).
+    const tail = createTail<ProseNode>((md) => { if (!dead) cb.current(md); }, (a, b) => a.eq(b));
+    const root = host.current;
+    const onLeave = (): void => {
+      try {
+        editor.current?.action((ctx) => tail.handOver(ctx.get(editorViewCtx).state.doc, ctx.get(serializerCtx)));
+      } catch (err) {
+        // The page still has everything Milkdown reported; only the last 200 ms are at stake.
+        tell("warn", "Editor: the newest text could not be handed over when focus left the editor", err);
+      }
+    };
+    root.addEventListener("focusout", onLeave);
 
     void (savesAsWritten ? documentsMarkdownSetup : notesMarkdownSetup)(Editor.make())
       .config((ctx) => {
@@ -579,10 +594,21 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
          * document's text into another on a fast switch. The guard makes a torn-down instance mute:
          * only the LIVE editor may speak for the draft.
          */
-        ctx.get(listenerCtx).markdownUpdated((_c, md) => { if (!dead) cb.current(md); });
+        ctx.get(listenerCtx).markdownUpdated((_c, md) => tail.reported(md));
       })
       .use(imageView)
       .use(listener)
+      // Marks a change by the rule Milkdown's listener itself goes by, so what is handed over
+      // early is only ever what it was about to report.
+      .use($prose(() => new Plugin({
+        state: {
+          init: () => null,
+          apply: (tr) => {
+            if ((tr.docChanged || tr.storedMarksSet) && tr.getMeta("addToHistory") !== false) tail.changed(tr.before);
+            return null;
+          },
+        },
+      })))
       .use(history)
       .create()
       .then((made) => {
@@ -601,6 +627,7 @@ const MilkdownEditor = forwardRef<MilkdownHandle, MilkdownEditorProps>(function 
 
     return () => {
       dead = true;
+      root.removeEventListener("focusout", onLeave);
       void editor.current?.destroy();
       editor.current = null;
     };

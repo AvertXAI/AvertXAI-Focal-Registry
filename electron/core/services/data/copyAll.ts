@@ -70,13 +70,18 @@ export function contractsGap(onRecord: number, recordsRoot: string, rootReachabl
 // One key file for each store the app keeps encrypted: the Vault, MindMerge pictures, and employee
 // tax numbers. A store copied without its key file can never be read again.
 const KEY_FILE_ENDINGS = [".ixd", ".mxd", ".exd"];
+// Windows does not wrap the key files themselves. It wraps one key, which Electron keeps in this
+// file in the data folder, and that key wraps them. A key file put back without it cannot be
+// opened, even on the same PC under the same account.
+const WRAPPING_KEY_FILE = "Local State";
 
-/** The key files that are in the data folder. A missing one is left out, never invented: the
-    store it opens has not been used on this install. */
+/** The key files that are in the data folder, and the file that opens them. A missing key file is
+    left out, never invented: the store it opens has not been used on this install. */
 export function keyFilesIn(dataFolder: string, orgId: string): CopyPlan["files"] {
-  return KEY_FILE_ENDINGS.map((ending) => orgId + ending)
-    .filter((name) => fs.existsSync(path.join(dataFolder, name)))
-    .map((name) => ({ from: path.join(dataFolder, name), to: name }));
+  const names = KEY_FILE_ENDINGS.map((ending) => orgId + ending).filter((name) => fs.existsSync(path.join(dataFolder, name)));
+  // Only beside a key file: on its own it opens nothing.
+  if (names.length > 0 && fs.existsSync(path.join(dataFolder, WRAPPING_KEY_FILE))) names.push(WRAPPING_KEY_FILE);
+  return names.map((name) => ({ from: path.join(dataFolder, name), to: name }));
 }
 
 // Every copy below blocks the thread. Without a turn of the event loop before each file, a

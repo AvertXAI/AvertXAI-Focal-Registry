@@ -168,8 +168,13 @@ test("SEC-02: Backup takes the tax number key file with the other key files and 
   for (const ending of [".ixd", ".mxd", ".exd"]) fs.writeFileSync(path.join(data, ORG + ending), `made-up ${ending} bytes`);
   fs.writeFileSync(path.join(data, "another-fake-org.exd"), "made-up bytes of another organisation");
 
+  assert.deepEqual(keyFilesIn(data, ORG).map((file) => file.to).sort(), [`${ORG}.exd`, `${ORG}.ixd`, `${ORG}.mxd`]);
+
+  // Windows wraps one key, kept in this file in the data folder, and that key wraps the key
+  // files. A key file restored without it cannot be opened, even on the same PC and account.
+  fs.writeFileSync(path.join(data, "Local State"), "made-up wrapping key bytes");
   const files = keyFilesIn(data, ORG);
-  assert.deepEqual(files.map((file) => file.to).sort(), [`${ORG}.exd`, `${ORG}.ixd`, `${ORG}.mxd`]);
+  assert.deepEqual(files.map((file) => file.to).sort(), ["Local State", `${ORG}.exd`, `${ORG}.ixd`, `${ORG}.mxd`]);
   assert.ok(files.every((file) => file.from === path.join(data, file.to)));
 
   const result = await copyEverything({
@@ -190,10 +195,15 @@ test("SEC-02: Backup takes the tax number key file with the other key files and 
     copied: Array<{ file: string; bytes: number }>;
   };
   assert.equal(manifest.complete, true);
-  assert.deepEqual(manifest.copied.map((item) => item.file).sort(), [`${ORG}.exd`, `${ORG}.ixd`, `${ORG}.mxd`]);
+  assert.deepEqual(manifest.copied.map((item) => item.file).sort(), ["Local State", `${ORG}.exd`, `${ORG}.ixd`, `${ORG}.mxd`]);
   assert.equal(manifest.copied.find((item) => item.file === `${ORG}.exd`)?.bytes, "made-up .exd bytes".length);
+  assert.equal(fs.readFileSync(path.join(result.path, "Local State"), "utf8"), "made-up wrapping key bytes");
 
   // An install that has no tax number on file has no such key file, and none is made up for it.
   fs.rmSync(path.join(data, `${ORG}.exd`));
-  assert.deepEqual(keyFilesIn(data, ORG).map((file) => file.to).sort(), [`${ORG}.ixd`, `${ORG}.mxd`]);
+  assert.deepEqual(keyFilesIn(data, ORG).map((file) => file.to).sort(), ["Local State", `${ORG}.ixd`, `${ORG}.mxd`]);
+
+  // With no key file to open, the wrapping key opens nothing and is left out.
+  for (const ending of [".ixd", ".mxd"]) fs.rmSync(path.join(data, ORG + ending));
+  assert.deepEqual(keyFilesIn(data, ORG), []);
 });

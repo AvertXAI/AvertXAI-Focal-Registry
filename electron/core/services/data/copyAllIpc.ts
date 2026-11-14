@@ -138,7 +138,7 @@ async function planFor(destinationRoot: string): Promise<Omit<CopyPlan, "shouldS
   const files = [...keyFiles, ...loose];
   if (keyFiles.length > 0) {
     notes.push(
-      "The Vault, MindMerge pictures and employee tax numbers are tied to this Windows account on this PC: their key files (.ixd, .mxd and .exd) are wrapped by Windows, through the file named Local State that is copied with them. Put all of them back together. Restored under another account or on another PC, those three cannot be read. Everything else can."
+      "The Vault, MindMerge pictures and employee tax numbers are tied to this Windows account on this PC: their key files (.ixd, .mxd and .exd) are wrapped by Windows, through the file named Local State that is copied with them. Put all of them back together, with Focal Registry closed. Restored under another account or on another PC, those three cannot be read. Everything else can."
     );
   }
 

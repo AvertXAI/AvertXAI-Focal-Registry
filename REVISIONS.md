@@ -4,6 +4,38 @@ Newest first. The **Summary** block (400 characters max) is what the in-app Soft
 shows; the **Details** sections are for the website changelog. `scripts/release.mjs` parses this file,
 injects the current version's Summary into the update feed, and publishes this file to the feed root.
 
+## 0.2.17 — November 14, 2026
+
+**Summary:** Notes now save one second after you stop typing, in every notes screen, and quitting saves unsaved notes first. Employee tax numbers are stored encrypted and shown masked with Reveal: the first start makes a full backup, then converts them. The Completed tab shows the same Billed, Received, Spent and Profit as Analytics. Payroll lists payments made to a person.
+
+### Details
+
+#### Fixed
+
+- Notes save by one rule in every notes screen: MindMerge notes and documents, Vault notes, Scan Notes, and Time Tracker project notes and session notes. A note is saved one second after you stop typing, and also when you open another note, switch mode, click away or leave the screen.
+- A note shows as saved only when the text on screen is the text that was stored. Words typed while a save was running are saved as well. In Vault notes they could stay unsaved before.
+- Words typed or pasted just before you click another note are no longer dropped.
+- A save that fails keeps your text, says so, and is tried again.
+- Quitting with unsaved notes: the notes are saved before the app closes. A note that cannot be saved is listed by name with Retry, Quit anyway and Cancel.
+- MindMerge and Vault notes: opening a note from search, or changing to an empty folder, saves the open note first.
+- Vault notes: text typed just before the vault locks itself comes back when you unlock and open the note.
+- Scan Notes: a sync, a new note or plugging in a drive no longer closes the note you are typing in. Going to the media view and back no longer brings back older text.
+- Time Tracker notes: a refresh while you are typing no longer replaces what you typed. A session note that cannot be saved now says so.
+- MindMerge documents: a line of plain text that begins with a hash stays plain text, and does not turn into a heading, after the file is saved and opened again.
+- Vault and MindMerge: every import reads only the file or the folder you picked in its own dialog.
+- Time Tracker, Completed: the cards are Total hours, Billed, Received, Spent and Profit, the same figures Analytics shows for that project. Profit is Received minus Spent, and it is red when it is below zero.
+- Employees: a correction can no longer take a person's hours on a project below zero. It is refused, and the message says how many hours the person has.
+- A payment of zero or less is refused with a plain message, for a client payment and for a payment to a person.
+- Vault notes: text copied with Ctrl+C, Ctrl+X or Copy on the right-click menu is cleared from the clipboard after the same wait as the copy buttons. It is cleared only while the clipboard still holds it, so something you copy afterwards is left alone.
+
+#### Added
+
+- Employees: the tax number is stored encrypted. It is shown masked, with its last four digits, and a Reveal button shows it.
+- When tax numbers are already stored, the first start of this version makes a full backup, then converts them, and a message says when it is done. If the backup cannot be made, nothing is converted, the message says why, and the next start tries again.
+- Tax numbers can be read only on this PC, under this Windows account. Restored anywhere else, every employee is still there and the tax numbers have to be typed again. Back up everything now copies what this PC needs to read them.
+- Settings, Data, Export all data: tax numbers go out masked. A new box, Include full tax numbers, off every time, writes them in full.
+- Employees, Payroll: a list of the payments made to the person, with date, amount, method, reference, project and note, and a total. A payment that was taken back is marked as reversed.
+
 ## 0.2.16 — November 13, 2026
 
 **Summary:** New in Settings, Data: back up everything in one click, export all your data as plain files, and repair damaged notes one at a time. Quitting now asks first when a timer or a job is running. Time Tracker: hours can be corrected, and a payment counts as Received and shows its note. Vault: a Lock button and a cleaner lock screen. From the next update on, an update can back up first.
